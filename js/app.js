@@ -90,7 +90,7 @@ const openEmailBtn = document.getElementById('open-email-btn');
 const closeEmailBtn = document.getElementById('close-email-btn');
 const saveEmailSettingsBtn = document.getElementById('save-email-settings');
 const generateEmailBtn = document.getElementById('generate-email-btn');
-const sendRealEmailBtn = document.getElementById('send-real-email-btn'); // NEU
+const sendRealEmailBtn = document.getElementById('send-real-email-btn');
 
 openEmailBtn.addEventListener('click', (e) => {
     e.preventDefault();
@@ -119,7 +119,6 @@ saveEmailSettingsBtn.addEventListener('click', () => {
     setTimeout(() => feedback.style.display = 'none', 3000);
 });
 
-// KI Text generieren
 generateEmailBtn.addEventListener('click', async () => {
     const emailText = document.getElementById('email-draft-input').value.trim();
     if (!emailText) return;
@@ -129,10 +128,10 @@ generateEmailBtn.addEventListener('click', async () => {
 
     const emailSystemPrompt = `Du bist der "Coden Email Assistent". Deine Aufgabe ist es, E-Mails zu analysieren und Antworten zu verfassen.
 WICHTIGE REGELN:
-1. Du darfst NIEMALS finanzielle Deals abschließen, Zahlungen bestätigen oder über Geld verhandeln. Wenn es um Geld geht, weise höflich darauf hin, dass dies persönlich geklärt werden muss.
+1. Du darfst NIEMALS finanzielle Deals abschließen, Zahlungen bestätigen oder über Geld verhandeln.
 2. Formatiere deine Antwort IMMER genau so:
-ZUSAMMENFASSUNG: [Hier eine kurze Zusammenfassung der erhaltenen E-Mail in 2-3 Sätzen]
-ANTWORT: [Hier der Text für die E-Mail-Antwort]
+ZUSAMMENFASSUNG: [Zusammenfassung in 2-3 Sätzen]
+ANTWORT: [E-Mail-Antwort]
 3. AM ENDE JEDER ANTWORT MUSS ZWINGEND DIESER TEXT STEHEN: "\n\nHinweis: Diese E-Mail wurde von einer KI verfasst und kann Fehler enthalten."`;
 
     try {
@@ -146,7 +145,6 @@ ANTWORT: [Hier der Text für die E-Mail-Antwort]
         const replyPart = parts.length > 1 ? parts[1].trim() : 'Fehler bei der Generierung.';
 
         document.getElementById('email-summary').textContent = summaryPart;
-        // Text in das editierbare Textarea schreiben!
         document.getElementById('email-draft-output').value = replyPart; 
         document.getElementById('email-result-container').classList.remove('hidden');
 
@@ -158,7 +156,6 @@ ANTWORT: [Hier der Text für die E-Mail-Antwort]
     generateEmailBtn.disabled = false;
 });
 
-// NEU: E-Mail echt versenden!
 sendRealEmailBtn.addEventListener('click', async () => {
     const settings = Storage.getSettings();
     if (!settings.emailConfig || !settings.emailConfig.address || !settings.emailConfig.password) {
@@ -342,6 +339,67 @@ async function handleSend() {
     UI.appendMessage(text, true); currentSession.messages.push({ text: text, isUser: true }); Storage.saveSessions(sessions);
     if (currentSession.messages.length === 1) generateChatTitle(text);
 
+    // =================================================================
+    // 🧠 NEU: CHAT-BEFEHL ERKENNUNG FÜR EMAILS ("Schreibe E-Mail an...")
+    // =================================================================
+    const lowerText = text.toLowerCase();
+    const isEmailCommand = lowerText.startsWith('schreibe eine email an') || 
+                           lowerText.startsWith('schreibe eine e-mail an') || 
+                           lowerText.startsWith('sende eine email an');
+
+    if (isEmailCommand) {
+        UI.showLoading(true, "Coden bereitet den E-Mail-Entwurf vor...");
+        
+        const emailExtractionPrompt = `Der Nutzer möchte eine E-Mail schreiben. Extrahiere die E-Mail-Adresse des Empfängers, schreibe einen passenden, professionellen Betreff und verfasse den Text basierend auf den Wünschen des Nutzers.
+Eingabe des Nutzers: "${text}"
+
+Antworte AUSSCHLIESSLICH im folgenden JSON-Format, ohne jeglichen Markdown-Text drumherum:
+{
+  "to": "email_adresse_hier",
+  "subject": "Dein generierter Betreff",
+  "body": "Dein professionell verfasster Text. Ergänze am Ende immer:\\n\\nHinweis: Diese E-Mail wurde von einer KI verfasst und kann Fehler enthalten."
+}`;
+
+        try {
+            // Wir nutzen Coden Thinking (GPT-4o), um das JSON zu bauen
+            const jsonResponse = await generateAiResponse([{ role: 'user', content: emailExtractionPrompt }], CONFIG.models.normal);
+            
+            // JSON bereinigen (falls GPT-4o trotzdem Markdown mitschickt)
+            const cleanJson = jsonResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+            const emailData = JSON.parse(cleanJson);
+
+            // Felder im Modal ausfüllen
+            document.getElementById('email-recipient').value = emailData.to || '';
+            document.getElementById('email-subject').value = emailData.subject || '';
+            document.getElementById('email-draft-output').value = emailData.body || '';
+            document.getElementById('email-result-container').classList.remove('hidden');
+            document.getElementById('email-summary').textContent = "E-Mail Entwurf via Chat-Befehl erstellt.";
+
+            // Einstellungen vorladen
+            const settings = Storage.getSettings();
+            if (settings.emailConfig) {
+                document.getElementById('email-provider').value = settings.emailConfig.provider || 'gmail';
+                document.getElementById('email-address').value = settings.emailConfig.address || '';
+                document.getElementById('email-password').value = settings.emailConfig.password || '';
+            }
+
+            // Chat-Antwort
+            UI.showLoading(false);
+            const successMsg = "Ich habe den E-Mail-Entwurf für dich vorbereitet! Das Sende-Fenster öffnet sich jetzt.";
+            UI.appendMessage(successMsg, false);
+            currentSession.messages.push({ text: successMsg, isUser: false });
+            Storage.saveSessions(sessions);
+            
+            // Modal öffnen
+            document.getElementById('email-modal').classList.remove('hidden');
+            return; // Wir brechen hier ab, damit der normale KI-Chat nicht noch extra antwortet!
+        } catch (err) {
+            console.error("Fehler bei der automatischen E-Mail Erstellung", err);
+            // Falls das JSON kaputt ist, geht es einfach im normalen Chat weiter
+        }
+    }
+
+    // --- NORMALER CHAT ABLAUF ---
     const context = currentSession.messages.map(m => ({ role: m.isUser ? 'user' : 'assistant', content: m.text }));
     const settings = Storage.getSettings();
     const now = new Date();
