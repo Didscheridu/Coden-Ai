@@ -19,6 +19,15 @@
     <link rel="stylesheet" href="css/animations.css">
     <link rel="stylesheet" href="css/settings.css">
     <link rel="stylesheet" href="css/auth.css">
+
+    <style>
+        .sidebar.collapsed {
+            display: none;
+        }
+        .search-container.active {
+            display: flex !important;
+        }
+    </style>
 </head>
 <body>
 
@@ -48,10 +57,16 @@
     </div>
 
     <div id="app" class="app-container hidden">
-        <aside class="sidebar">
+        
+        <aside class="sidebar" id="main-sidebar">
             <div class="sidebar-header">
-                <button class="icon-btn"><span class="material-symbols-outlined">menu</span></button>
-                <button class="icon-btn"><span class="material-symbols-outlined">search</span></button>
+                <button class="icon-btn" id="close-sidebar-btn" title="Menü einklappen"><span class="material-symbols-outlined">menu_open</span></button>
+                
+                <div id="search-container" class="hidden" style="flex: 1; margin: 0 8px; background: rgba(255,255,255,0.1); border-radius: 6px; padding: 4px 8px; display: none; align-items: center;">
+                    <input type="text" id="chat-search-input" placeholder="Chat suchen..." style="background: transparent; border: none; color: white; width: 100%; outline: none; font-size: 13px;">
+                </div>
+
+                <button class="icon-btn" id="toggle-search-btn" title="Chats durchsuchen"><span class="material-symbols-outlined">search</span></button>
             </div>
 
             <button class="new-chat-btn active">
@@ -70,7 +85,10 @@
 
         <main class="main-content">
             <header class="top-bar">
-                <div class="brand">Coden AI</div>
+                <div style="display: flex; align-items: center;">
+                    <button class="icon-btn hidden" id="open-sidebar-btn" style="margin-right: 12px; color: var(--text-primary);"><span class="material-symbols-outlined">menu</span></button>
+                    <div class="brand">Coden AI</div>
+                </div>
                 <div id="user-email-display" style="font-size: 13px; color: var(--text-muted);"></div>
             </header>
 
@@ -149,7 +167,7 @@
             <div class="modal-body">
                 
                 <h4 style="margin-bottom: 12px; font-weight: 500; font-size: 14px; color: var(--text-primary);">👤 Profil</h4>
-                <label>Dein Name (Wird für E-Mails & Chat genutzt)</label>
+                <label>Dein Name</label>
                 <input type="text" id="user-name-input" class="settings-input" placeholder="Dein Name" style="margin-bottom: 24px;">
 
                 <label>🎭 KI Persona (Charakter)</label>
@@ -168,7 +186,7 @@
                 <input type="range" id="font-size-slider" min="12" max="22" value="15" class="settings-slider">
 
                 <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border-color);">
-                    <h4 style="margin-bottom: 16px; font-weight: 500; font-size: 14px; color: var(--accent-blue);">⚙️ E-Mail Konto verknüpfen (Für Versand)</h4>
+                    <h4 style="margin-bottom: 16px; font-weight: 500; font-size: 14px; color: var(--accent-blue);">⚙️ E-Mail Konto verknüpfen</h4>
                     
                     <label>E-Mail Anbieter</label>
                     <select id="email-provider" class="settings-input" style="margin-bottom: 12px;">
