@@ -62,7 +62,7 @@
             <div class="sidebar-scroll-area"></div>
 
             <div class="sidebar-footer">
-                <a href="#" class="nav-item" id="open-email-btn"><span class="material-symbols-outlined">mail</span> Email Einstellungen</a>
+                <a href="#" class="nav-item" id="open-email-settings-btn"><span class="material-symbols-outlined">mail</span> Email Setup</a>
                 <a href="#" class="nav-item" id="open-settings-btn"><span class="material-symbols-outlined">settings</span> Einstellungen</a>
                 <a href="#" class="nav-item" id="logout-btn" style="color: #ff5555;"><span class="material-symbols-outlined">logout</span> Abmelden</a>
             </div>
@@ -115,56 +115,31 @@
         <div class="modal-content" style="max-width: 600px;">
             <div class="modal-header">
                 <h3 style="display: flex; align-items: center; gap: 8px; font-weight: 500;">
-                    <span class="material-symbols-outlined" style="color: #63A4FF;">mail</span> Coden Email Assistent
+                    <span class="material-symbols-outlined" style="color: #63A4FF;">mail</span> E-Mail Entwurf
                 </h3>
                 <button class="icon-btn" id="close-email-btn"><span class="material-symbols-outlined">close</span></button>
             </div>
             
-            <div class="modal-body" style="max-height: 70vh; overflow-y: auto; padding-right: 8px;">
+            <div class="modal-body">
+                <label>Empfänger E-Mail</label>
+                <input type="email" id="email-recipient" class="settings-input" placeholder="empfaenger@beispiel.com" style="margin-bottom: 12px;">
                 
-                <div style="background: rgba(255,255,255,0.03); padding: 16px; border-radius: 12px; margin-bottom: 24px; border: 1px solid var(--border-color);">
-                    <h4 style="margin-bottom: 12px; font-weight: 500; font-size: 14px; color: var(--text-secondary);">⚙️ E-Mail Konto verknüpfen</h4>
-                    
-                    <label>E-Mail Anbieter</label>
-                    <select id="email-provider" class="settings-input" style="margin-bottom: 12px;">
-                        <option value="gmail">Gmail</option>
-                        <option value="outlook">Outlook</option>
-                        <option value="imap">Anderer Anbieter</option>
-                    </select>
+                <label>Betreff</label>
+                <input type="text" id="email-subject" class="settings-input" placeholder="RE: Deine Nachricht" style="margin-bottom: 16px;">
 
-                    <label>E-Mail Adresse</label>
-                    <input type="email" id="email-address" class="settings-input" placeholder="deine@email.com" style="margin-bottom: 12px;">
+                <label style="color: var(--accent-green);">✉️ KI-Antwortentwurf (Bearbeitbar):</label>
+                <textarea id="email-draft-output" class="settings-input" style="height: 200px; margin-bottom: 16px; resize: vertical; line-height: 1.5;"></textarea>
 
-                    <label>App-Passwort (Mail Code)</label>
-                    <input type="password" id="email-password" class="settings-input" placeholder="Z.B. 16-stelliger Google App-Code">
-                    
-                    <button class="btn-cancel" id="save-email-settings" style="margin-top: 12px; width: 100%;">Zugangsdaten speichern</button>
-                    <div id="email-save-feedback" style="font-size: 12px; color: var(--accent-green); margin-top: 8px; display: none;">Erfolgreich gespeichert!</div>
-                </div>
-
-                <div id="email-result-container" class="hidden" style="margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--border-color);">
-                    <h4 style="color: var(--accent-green); margin-bottom: 8px; font-size: 14px;">✉️ KI-Antwortentwurf (Bearbeitbar):</h4>
-                    
-                    <textarea id="email-draft-output" class="settings-input" style="height: 180px; margin-bottom: 16px; resize: vertical; line-height: 1.5;"></textarea>
-                    
-                    <label>Empfänger E-Mail</label>
-                    <input type="email" id="email-recipient" class="settings-input" placeholder="empfaenger@beispiel.com" style="margin-bottom: 12px;">
-                    
-                    <label>Betreff</label>
-                    <input type="text" id="email-subject" class="settings-input" placeholder="RE: Deine Nachricht" style="margin-bottom: 16px;">
-
-                    <button class="btn-save" id="send-real-email-btn" style="width: 100%; display: flex; justify-content: center; gap: 8px; background: #28a745; color: white;">
-                        <span class="material-symbols-outlined" style="font-size: 18px;">send</span> E-Mail jetzt versenden
-                    </button>
-                    <div id="email-send-feedback" style="font-size: 13px; text-align: center; margin-top: 12px; display: none;"></div>
-                </div>
-
+                <button class="btn-save" id="send-real-email-btn" style="width: 100%; display: flex; justify-content: center; gap: 8px; background: #28a745; color: white;">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">send</span> E-Mail jetzt versenden
+                </button>
+                <div id="email-send-feedback" style="font-size: 13px; text-align: center; margin-top: 12px; display: none;"></div>
             </div>
         </div>
     </div>
 
     <div id="settings-modal" class="modal-overlay hidden">
-        <div class="modal-content">
+        <div class="modal-content" style="max-height: 80vh; overflow-y: auto;">
             <div class="modal-header">
                 <h3 style="display: flex; align-items: center; gap: 8px; font-weight: 500;">
                     <span class="material-symbols-outlined" style="color: var(--accent-blue);">settings</span> Einstellungen
@@ -183,10 +158,29 @@
                 <div id="custom-persona-container" class="hidden" style="margin-top: 12px;">
                     <textarea id="custom-persona-input" class="settings-input" rows="3" placeholder="Schreibe deinen eigenen System-Prompt..."></textarea>
                 </div>
+                
                 <label style="margin-top: 24px; display: block;">🔠 Chat Schriftgröße: <span id="font-size-display">15</span>px</label>
                 <input type="range" id="font-size-slider" min="12" max="22" value="15" class="settings-slider">
+
+                <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border-color);">
+                    <h4 style="margin-bottom: 16px; font-weight: 500; font-size: 14px; color: var(--accent-blue);">⚙️ E-Mail Konto verknüpfen (Für Versand)</h4>
+                    
+                    <label>E-Mail Anbieter</label>
+                    <select id="email-provider" class="settings-input" style="margin-bottom: 12px;">
+                        <option value="gmail">Gmail</option>
+                        <option value="outlook">Outlook</option>
+                        <option value="imap">Anderer Anbieter</option>
+                    </select>
+
+                    <label>Deine E-Mail Adresse</label>
+                    <input type="email" id="email-address" class="settings-input" placeholder="deine@email.com" style="margin-bottom: 12px;">
+
+                    <label>App-Passwort (Wird verschlüsselt in deiner privaten DB gespeichert)</label>
+                    <input type="password" id="email-password" class="settings-input" placeholder="Z.B. 16-stelliger Google App-Code">
+                </div>
             </div>
-            <div class="modal-footer">
+            
+            <div class="modal-footer" style="margin-top: 24px;">
                 <button class="btn-cancel" id="cancel-settings">Abbrechen</button>
                 <button class="btn-save" id="save-settings">Speichern</button>
             </div>
