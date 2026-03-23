@@ -31,6 +31,9 @@ let currentSession = null;
 let activeSessionId = null;
 let appInitialized = false;
 
+// Globale Variable für den Thinking-Modus Sperre
+let isThinkingModeLocked = false;
+
 onAuthStateChanged(auth, async (user) => {
     if (user) {
         loginScreen.classList.add('hidden');
@@ -132,6 +135,66 @@ sendRealEmailBtn.addEventListener('click', async () => {
     sendRealEmailBtn.disabled = false;
 });
 
+// ==========================================
+// 🧠 NEU: CUSTOM CONFIRM LOGIK (Mit Logo)
+// ==========================================
+const confirmModal = document.getElementById('confirm-modal');
+const confirmMessage = document.getElementById('confirm-message');
+const confirmYesBtn = document.getElementById('btn-confirm-yes');
+const confirmCancelBtn = document.getElementById('btn-confirm-cancel');
+
+// Diese Funktion gibt ein Promise zurück (true/false)
+function showCustomConfirm(message) {
+    return new Promise((resolve) => {
+        confirmMessage.textContent = message;
+        confirmModal.classList.remove('hidden');
+
+        // Cleanup Funktionen, um Event Listener wieder zu entfernen
+        const handleYes = () => {
+            confirmModal.classList.add('hidden');
+            removeListeners();
+            resolve(true);
+        };
+        const handleCancel = () => {
+            confirmModal.classList.add('hidden');
+            removeListeners();
+            resolve(false);
+        };
+        const removeListeners = () => {
+            confirmYesBtn.removeEventListener('click', handleYes);
+            confirmCancelBtn.removeEventListener('click', handleCancel);
+        };
+
+        confirmYesBtn.addEventListener('click', handleYes);
+        confirmCancelBtn.addEventListener('click', handleCancel);
+    });
+}
+
+// ==========================================
+// 🛠️ NEU: THINKING MODUS SPERR-LOGIK
+// ==========================================
+function lockThinkingMode(lock) {
+    const normalOption = document.getElementById('thinking-mode-option');
+    if (lock) {
+        isThinkingModeLocked = true;
+        normalOption.classList.add('disabled');
+        normalOption.title = "Thinking Modus (GPT-4o) temporär wegen Serverfehlern gesperrt.";
+        
+        // Falls Thinking gerade aktiv ist, automatisch auf Flash wechseln
+        if (currentSelectedModel === 'normal') {
+            currentSelectedModel = 'flash';
+            document.querySelectorAll('.model-option').forEach(opt => opt.classList.remove('active'));
+            document.querySelector('.model-option[data-model="flash"]').classList.add('active');
+            document.getElementById('current-model-text').textContent = 'Coden Flash';
+            UI.appendMessage("⚠️ Coden Thinking antwortet nicht. Automatisch zu Coden Flash gewechselt.", false);
+        }
+    } else {
+        isThinkingModeLocked = false;
+        normalOption.classList.remove('disabled');
+        normalOption.removeAttribute('title');
+    }
+}
+
 // --- EINSTELLUNGEN LOGIK ---
 const settingsModal = document.getElementById('settings-modal');
 const openSettingsBtn = document.getElementById('open-settings-btn');
@@ -192,6 +255,9 @@ document.addEventListener('click', (e) => {
 });
 document.querySelectorAll('.model-option').forEach(option => {
     option.addEventListener('click', () => {
+        // Sperre beachten
+        if (option.id === 'thinking-mode-option' && isThinkingModeLocked) return;
+
         document.querySelectorAll('.model-option').forEach(opt => opt.classList.remove('active'));
         option.classList.add('active');
         document.getElementById('current-model-text').textContent = option.querySelector('.name').textContent.trim();
@@ -265,7 +331,7 @@ micBtn.addEventListener('click', () => {
 });
 
 // ==========================================
-// 🚀 HAUPT SENDE FUNKTION (Mit Popup-Abfrage!)
+// 🚀 HAUPT SENDE FUNKTION
 // ==========================================
 async function handleSend() {
     if(!chatInput) return; const text = chatInput.value.trim(); if (!text) return;
@@ -274,30 +340,28 @@ async function handleSend() {
     UI.appendMessage(text, true); currentSession.messages.push({ text: text, isUser: true }); Storage.saveSessions(sessions);
     if (currentSession.messages.length === 1) generateChatTitle(text);
 
+    // Kontext vorbereiten
     let historyContext = "";
     currentSession.messages.slice(-5, -1).forEach(m => historyContext += `${m.isUser ? 'Nutzer' : 'KI'}: ${m.text.substring(0, 1500)}...\n`);
 
     // =================================================================
-    // 💡 DEINE IDEE: NATIVES POPUP STATT KI-RATE-SPIEL
+    // 🧠 UNIVERSALER E-MAIL CHECK (Jetzt mit Popup!)
     // =================================================================
     const lowerText = text.toLowerCase();
     let isEmailCommand = false;
 
-    // Wir prüfen auf Schlüsselwörter
+    // Trigger Wörter
     const triggerWords = ['mail', 'gmail', 'sende', 'schick', 'weiterleiten'];
     const hasTriggerWord = triggerWords.some(w => lowerText.includes(w));
 
     if (hasTriggerWord) {
-        // Hier kommt das Browser-Fenster!
-        const userWantsEmail = window.confirm("Möchtest du eine E-Mail senden?\n\n[OK] = E-Mail Fenster öffnen\n[Abbrechen] = Normal im Chat antworten");
-        if (userWantsEmail) {
+        // NEU: Custom Confirmation nutzen!
+        const wantsEmail = await showCustomConfirm("Möchtest du eine E-Mail senden?\n\nOK = Fenster öffnen\nAbbrechen = Normaler Chat");
+        if (wantsEmail) {
             isEmailCommand = true;
         }
     }
 
-    // =================================================================
-    // 📨 E-MAIL EXTRAKTION (Wird nur ausgeführt, wenn du "OK" klickst)
-    // =================================================================
     if (isEmailCommand) {
         UI.showLoading(true, "Coden bereitet das E-Mail-Fenster vor...");
         
@@ -320,6 +384,7 @@ Antworte EXAKT in diesem Format (mit den eckigen Klammern!):
 Hier kommt der komplette E-Mail Text hin (inklusive Code).`;
 
         try {
+            // Wir nutzen für die Extraktion IMMER GPT-4o (normal), da es am besten JSON extrahieren kann.
             const responseText = await generateAiResponse([{ role: 'user', content: emailExtractionPrompt }], CONFIG.models.normal);
             
             const toMatch = responseText.match(/\[TO\]:\s*(.*)/i);
@@ -346,8 +411,7 @@ Hier kommt der komplette E-Mail Text hin (inklusive Code).`;
         } catch (err) { 
             console.error("E-Mail Generierung fehlgeschlagen:", err); 
             UI.showLoading(false);
-            // Dank der neuen api.js wird hier jetzt auch der API Limit Fehler sauber angezeigt!
-            const errorMsg = "❌ " + (err.message || "Ein Fehler ist aufgetreten.");
+            const errorMsg = "Entschuldigung, beim Erstellen des E-Mail-Entwurfs gab es einen API Fehler: " + err.message;
             UI.appendMessage(errorMsg, false);
             currentSession.messages.push({ text: errorMsg, isUser: false });
             Storage.saveSessions(sessions);
@@ -356,7 +420,7 @@ Hier kommt der komplette E-Mail Text hin (inklusive Code).`;
     }
 
     // =================================================================
-    // 🤖 NORMALER MODELL-ABLAUF (Wird ausgeführt, wenn du "Abbrechen" klickst)
+    // 🤖 MODELL ABLAUF (Mit Fallback Logik)
     // =================================================================
     const context = currentSession.messages.map(m => ({ role: m.isUser ? 'user' : 'assistant', content: m.text }));
     const settings = Storage.getSettings();
@@ -370,34 +434,77 @@ Hier kommt der komplette E-Mail Text hin (inklusive Code).`;
 
     context.unshift({ role: 'system', content: basePersona });
 
-    const currentModelName = document.getElementById('current-model-text').textContent;
     let targetModelId = CONFIG.models[currentSelectedModel];
+    let modelName = document.getElementById('current-model-text').textContent;
+
+    // --- NEU: FALLBACK LOGIK WENN GPT-4o AKTIV ---
+    if (currentSelectedModel === 'normal') {
+        if (isThinkingModeLocked) {
+            UI.showLoading(true, "Thinking Modus gesperrt. Verwende Coden Pro als Fallback...");
+            targetModelId = CONFIG.models.fallback; // e.g. gpt-4-turbo
+        } else {
+            UI.showLoading(true, `Coden Thinking überlegt...`);
+        }
+    } else if (currentSelectedModel === 'flash') {
+        UI.showLoading(true, `Coden Flash denkt...`);
+    }
 
     try {
+        // --- PRO MODUS LOGIK ---
         if (currentSelectedModel === 'pro') {
             UI.showLoading(true, `Coden Pro analysiert Anfrage...`);
             const analysisPrompt = `Ist das eine Code-Aufgabe? (JA/NEIN). Nachricht: "${text}"`;
             try {
-                const res = await generateAiResponse([{ role: 'user', content: analysisPrompt }], CONFIG.models.normal);
+                // Die Analyse machen wir mit Flash (schnell)
+                const res = await generateAiResponse([{ role: 'user', content: analysisPrompt }], CONFIG.models.flash);
                 if (res.toUpperCase().includes('JA')) {
                     UI.showLoading(true, `Coden Pro programmiert Code...`);
                     targetModelId = CONFIG.models.openRouterCoder; 
                 } else { UI.showLoading(true, `Coden Pro überlegt...`); }
             } catch (err) { UI.showLoading(true, `Coden Pro überlegt...`); }
-        } else {
-            UI.showLoading(true, `${currentModelName} denkt...`);
         }
 
+        // --- KI ANFRAGE ---
         const aiResponse = await generateAiResponse(context, targetModelId);
         UI.showLoading(false); 
         UI.appendMessage(aiResponse, false);
         currentSession.messages.push({ text: aiResponse, isUser: false });
         Storage.saveSessions(sessions); 
         UI.renderSidebar(sessions, activeSessionId);
+
+        // Wenn GPT-4o wieder antwortet, entsperren wir
+        if (currentSelectedModel === 'normal' && isThinkingModeLocked) {
+            lockThinkingMode(false);
+            UI.appendMessage("✅ Coden Thinking ist wieder verfügbar.", false);
+        }
+
     } catch (err) {
-        // Auch hier wird das "Too many requests" Limit jetzt sauber abgefangen!
         UI.showLoading(false);
-        const errorMsg = "❌ " + (err.message || "Ein Fehler ist aufgetreten.");
+
+        // --- FALLBACK AUSLÖSEN ---
+        if (currentSelectedModel === 'normal' && !isThinkingModeLocked) {
+            console.error("GPT-4o Fehler. Wechsle zu Fallback:", err);
+            lockThinkingMode(true); // UI sperren
+
+            // Neuen Versuch mit Fallback Modell
+            UI.showLoading(true, "GPT-4o ausgefallen. Starte Coden Pro als Fallback...");
+            try {
+                const fallbackResponse = await generateAiResponse(context, CONFIG.models.fallback);
+                UI.showLoading(false);
+                UI.appendMessage(fallbackResponse, false);
+                currentSession.messages.push({ text: fallbackResponse, isUser: false });
+                Storage.saveSessions(sessions);
+                UI.renderSidebar(sessions, activeSessionId);
+                return; // Sendedatei beendet
+            } catch (fallbackErr) {
+                UI.showLoading(false);
+                UI.appendMessage("❌ Auch der Fallback ist fehlgeschlagen.", false);
+                return;
+            }
+        }
+
+        // Normale Fehlermeldung
+        const errorMsg = "❌ API Fehler: " + (err.message || "Ein Fehler ist aufgetreten.");
         UI.appendMessage(errorMsg, false);
         currentSession.messages.push({ text: errorMsg, isUser: false });
         Storage.saveSessions(sessions);
@@ -415,4 +522,4 @@ async function generateChatTitle(firstMessage) {
     } catch (e) {}
 }
 
-// Event Listener manuell hinzufügen falls nötig, da initApp oben ist
+initApp();
