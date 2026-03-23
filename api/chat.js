@@ -1,6 +1,7 @@
 // api/chat.js
 
-export default async function handler(req, res) {
+// FIX: Auch hier nutzen wir jetzt module.exports statt export default!
+module.exports = async function handler(req, res) {
     // Wir erlauben nur POST-Anfragen
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method Not Allowed' });
@@ -44,7 +45,7 @@ export default async function handler(req, res) {
             headers: {
                 'Authorization': `Bearer ${apiKey}`,
                 'Content-Type': 'application/json',
-                'HTTP-Referer': 'https://deine-website.vercel.app', 
+                'HTTP-Referer': 'https://coden-ai.vercel.app', 
                 'X-Title': 'Coden AI'
             },
             body: JSON.stringify(payload)
@@ -62,4 +63,4 @@ export default async function handler(req, res) {
         console.error("Serverless Function Error:", error);
         res.status(500).json({ error: error.message });
     }
-}
+};
