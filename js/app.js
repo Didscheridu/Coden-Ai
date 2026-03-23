@@ -36,7 +36,6 @@ onAuthStateChanged(auth, async (user) => {
         loginScreen.classList.add('hidden');
         appContainer.classList.remove('hidden');
         userEmailDisplay.textContent = user.email;
-        
         await Storage.loadFromCloud();
         if (!appInitialized) initApp(); 
     } else {
@@ -46,14 +45,6 @@ onAuthStateChanged(auth, async (user) => {
         appInitialized = false;
     }
 });
-
-// --- INITIALISIERUNG DER APP ---
-const chatInput = document.getElementById('main-input');
-const sendBtn = document.getElementById('send-btn');
-const newChatBtn = document.querySelector('.new-chat-btn');
-const micBtn = document.getElementById('mic-btn'); 
-const attachmentBtn = document.getElementById('attachment-btn'); 
-const fileUploadInput = document.getElementById('file-upload-input'); 
 
 function initApp() {
     appInitialized = true;
@@ -123,9 +114,7 @@ sendRealEmailBtn.addEventListener('click', async () => {
                 text: draftText
             })
         });
-
         const data = await response.json();
-
         if (response.ok && data.success) {
             feedback.style.color = 'var(--accent-green)';
             feedback.textContent = '✅ E-Mail erfolgreich versendet!';
@@ -139,7 +128,6 @@ sendRealEmailBtn.addEventListener('click', async () => {
         feedback.textContent = '❌ Fehler: ' + error.message;
         feedback.style.display = 'block';
     }
-
     sendRealEmailBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">send</span> E-Mail jetzt versenden';
     sendRealEmailBtn.disabled = false;
 });
@@ -156,7 +144,6 @@ function openSettings() {
     document.getElementById('font-size-slider').value = s.fontSize;
     document.getElementById('font-size-display').textContent = s.fontSize;
     document.getElementById('custom-persona-container').classList.toggle('hidden', s.persona !== 'Eigene (Custom)');
-    
     if (s.emailConfig) {
         document.getElementById('email-provider').value = s.emailConfig.provider || 'gmail';
         document.getElementById('email-address').value = s.emailConfig.address || '';
@@ -167,26 +154,20 @@ function openSettings() {
 
 openSettingsBtn.addEventListener('click', (e) => { e.preventDefault(); openSettings(); });
 openEmailSettingsBtn.addEventListener('click', (e) => { e.preventDefault(); openSettings(); });
-
-document.getElementById('persona-select').addEventListener('change', (e) => {
-    document.getElementById('custom-persona-container').classList.toggle('hidden', e.target.value !== 'Eigene (Custom)');
-});
+document.getElementById('persona-select').addEventListener('change', (e) => { document.getElementById('custom-persona-container').classList.toggle('hidden', e.target.value !== 'Eigene (Custom)'); });
 document.getElementById('font-size-slider').addEventListener('input', (e) => document.getElementById('font-size-display').textContent = e.target.value);
 document.getElementById('close-settings').addEventListener('click', () => settingsModal.classList.add('hidden'));
 document.getElementById('cancel-settings').addEventListener('click', () => settingsModal.classList.add('hidden'));
-
 document.getElementById('save-settings').addEventListener('click', () => {
     const currentSettings = Storage.getSettings(); 
     currentSettings.persona = document.getElementById('persona-select').value;
     currentSettings.customPersona = document.getElementById('custom-persona-input').value;
     currentSettings.fontSize = parseInt(document.getElementById('font-size-slider').value);
-    
     currentSettings.emailConfig = {
         provider: document.getElementById('email-provider').value,
         address: document.getElementById('email-address').value.trim(),
         password: document.getElementById('email-password').value.trim()
     };
-    
     Storage.saveSettings(currentSettings);
     document.documentElement.style.setProperty('--chat-font-size', currentSettings.fontSize + 'px');
     settingsModal.classList.add('hidden');
@@ -194,9 +175,15 @@ document.getElementById('save-settings').addEventListener('click', () => {
 
 // --- UI / MODELL STEUERUNG ---
 let currentSelectedModel = 'flash';
+const chatInput = document.getElementById('main-input');
+const sendBtn = document.getElementById('send-btn');
+const newChatBtn = document.querySelector('.new-chat-btn');
+const micBtn = document.getElementById('mic-btn'); 
+const attachmentBtn = document.getElementById('attachment-btn'); 
+const fileUploadInput = document.getElementById('file-upload-input'); 
+
 document.getElementById('model-selector-btn').addEventListener('click', (e) => {
-    e.stopPropagation(); 
-    document.getElementById('model-dropdown-menu').classList.toggle('hidden');
+    e.stopPropagation(); document.getElementById('model-dropdown-menu').classList.toggle('hidden');
 });
 document.addEventListener('click', (e) => {
     if (!document.getElementById('model-dropdown-menu').contains(e.target) && e.target !== document.getElementById('model-selector-btn')) {
@@ -235,18 +222,14 @@ chatInput.addEventListener('keydown', (e) => { if(e.key === 'Enter' && !e.shiftK
 sendBtn.addEventListener('click', handleSend);
 
 newChatBtn.addEventListener('click', () => {
-    currentSession = Storage.createNewSession();
-    sessions.unshift(currentSession);
-    Storage.saveSessions(sessions);
-    activeSessionId = currentSession.id;
-    UI.resetUI(); UI.renderSidebar(sessions, activeSessionId);
+    currentSession = Storage.createNewSession(); sessions.unshift(currentSession); Storage.saveSessions(sessions);
+    activeSessionId = currentSession.id; UI.resetUI(); UI.renderSidebar(sessions, activeSessionId);
 });
 
 function loadSession(sessionId) {
     const sessionToLoad = sessions.find(s => s.id === sessionId);
     if (sessionToLoad) {
-        activeSessionId = sessionId; currentSession = sessionToLoad;
-        UI.resetUI(); 
+        activeSessionId = sessionId; currentSession = sessionToLoad; UI.resetUI(); 
         if (currentSession.messages.length > 0) currentSession.messages.forEach(msg => UI.appendMessage(msg.text, msg.isUser));
         UI.renderSidebar(sessions, activeSessionId);
     }
@@ -282,7 +265,7 @@ micBtn.addEventListener('click', () => {
 });
 
 // ==========================================
-// 🚀 HAUPT SENDE FUNKTION (Jetzt WIRKLICH kugelsicher!)
+// 🚀 HAUPT SENDE FUNKTION (Mit Popup-Abfrage!)
 // ==========================================
 async function handleSend() {
     if(!chatInput) return; const text = chatInput.value.trim(); if (!text) return;
@@ -295,36 +278,25 @@ async function handleSend() {
     currentSession.messages.slice(-5, -1).forEach(m => historyContext += `${m.isUser ? 'Nutzer' : 'KI'}: ${m.text.substring(0, 1500)}...\n`);
 
     // =================================================================
-    // 🧠 DER NEUE, ABSOLUT STABILE E-MAIL-TRIGGER
+    // 💡 DEINE IDEE: NATIVES POPUP STATT KI-RATE-SPIEL
     // =================================================================
     const lowerText = text.toLowerCase();
     let isEmailCommand = false;
 
-    // SCHRITT 1: Harte Erkennung (überspringt die KI-Überprüfung komplett!)
-    if (lowerText.includes('sende diese mail') || 
-        lowerText.includes('schreibe eine mail') || 
-        lowerText.includes('schick den per mail') ||
-        lowerText.includes('sende den code per mail') ||
-        (lowerText.includes('mail an') && lowerText.includes('@'))) {
-        isEmailCommand = true;
-    } 
-    // SCHRITT 2: Weiche Erkennung (Wenn Schritt 1 nicht greift, aber "mail" vorkommt)
-    else if (lowerText.includes('mail') || lowerText.includes('e-mail') || lowerText.includes('email')) {
-        UI.showLoading(true, "Coden prüft E-Mail Anfrage...");
-        // Wir verlangen als Antwort jetzt zwingend eine 1 oder 0 (Das kann die KI nicht vermasseln)
-        const emailIntentPrompt = `System: Antworte AUSSCHLIESSLICH mit der Ziffer 1 (für JA) oder 0 (für NEIN).
-Frage: Will der Nutzer in der folgenden Nachricht eine E-Mail versenden oder vorbereiten?
-Nachricht: "${text}"`;
-        try {
-            const intentResult = await generateAiResponse([{ role: 'user', content: emailIntentPrompt }], CONFIG.models.flash);
-            if (intentResult.includes('1')) {
-                isEmailCommand = true;
-            }
-        } catch (e) { console.error("Intent Check Error", e); }
+    // Wir prüfen auf Schlüsselwörter
+    const triggerWords = ['mail', 'gmail', 'sende', 'schick', 'weiterleiten'];
+    const hasTriggerWord = triggerWords.some(w => lowerText.includes(w));
+
+    if (hasTriggerWord) {
+        // Hier kommt das Browser-Fenster!
+        const userWantsEmail = window.confirm("Möchtest du eine E-Mail senden?\n\n[OK] = E-Mail Fenster öffnen\n[Abbrechen] = Normal im Chat antworten");
+        if (userWantsEmail) {
+            isEmailCommand = true;
+        }
     }
 
     // =================================================================
-    // 📨 E-MAIL EXTRAKTION (Ohne anfälliges JSON!)
+    // 📨 E-MAIL EXTRAKTION (Wird nur ausgeführt, wenn du "OK" klickst)
     // =================================================================
     if (isEmailCommand) {
         UI.showLoading(true, "Coden bereitet das E-Mail-Fenster vor...");
@@ -334,7 +306,6 @@ Nachricht: "${text}"`;
         const allCodeBlocks = currentSession.messages.map(m => m.text.match(codeRegex)).flat().filter(Boolean);
         if (allCodeBlocks.length > 0) lastCodeBlock = allCodeBlocks[allCodeBlocks.length - 1];
 
-        // NEU: Wir nutzen ein ganz simples Text-Format statt JSON!
         const emailExtractionPrompt = `Erstelle einen E-Mail-Entwurf. 
 WICHTIG: Wenn der Nutzer Code verlangt, nimm EXAKT diesen Code hier:
 ${lastCodeBlock || "Kein Code vorhanden."}
@@ -351,14 +322,13 @@ Hier kommt der komplette E-Mail Text hin (inklusive Code).`;
         try {
             const responseText = await generateAiResponse([{ role: 'user', content: emailExtractionPrompt }], CONFIG.models.normal);
             
-            // Text sicher aufteilen mit Regex
             const toMatch = responseText.match(/\[TO\]:\s*(.*)/i);
             const subjectMatch = responseText.match(/\[SUBJECT\]:\s*(.*)/i);
             const bodySplit = responseText.split(/\[BODY\]:/i);
             
             const emailTo = toMatch ? toMatch[1].trim() : '';
             const emailSubject = subjectMatch ? subjectMatch[1].trim() : '';
-            const emailBody = bodySplit.length > 1 ? bodySplit[1].trim() : responseText.trim(); // Fallback
+            const emailBody = bodySplit.length > 1 ? bodySplit[1].trim() : responseText.trim(); 
 
             document.getElementById('email-recipient').value = emailTo.replace('(oder leer)', '');
             document.getElementById('email-subject').value = emailSubject;
@@ -376,7 +346,8 @@ Hier kommt der komplette E-Mail Text hin (inklusive Code).`;
         } catch (err) { 
             console.error("E-Mail Generierung fehlgeschlagen:", err); 
             UI.showLoading(false);
-            const errorMsg = "Entschuldigung, beim Formatieren der E-Mail gab es einen Fehler. Bitte öffne die E-Mail Einstellungen manuell.";
+            // Dank der neuen api.js wird hier jetzt auch der API Limit Fehler sauber angezeigt!
+            const errorMsg = "❌ " + (err.message || "Ein Fehler ist aufgetreten.");
             UI.appendMessage(errorMsg, false);
             currentSession.messages.push({ text: errorMsg, isUser: false });
             Storage.saveSessions(sessions);
@@ -385,7 +356,7 @@ Hier kommt der komplette E-Mail Text hin (inklusive Code).`;
     }
 
     // =================================================================
-    // 🤖 NORMALER MODELL-ABLAUF (Wird bei E-Mails ignoriert)
+    // 🤖 NORMALER MODELL-ABLAUF (Wird ausgeführt, wenn du "Abbrechen" klickst)
     // =================================================================
     const context = currentSession.messages.map(m => ({ role: m.isUser ? 'user' : 'assistant', content: m.text }));
     const settings = Storage.getSettings();
@@ -402,25 +373,35 @@ Hier kommt der komplette E-Mail Text hin (inklusive Code).`;
     const currentModelName = document.getElementById('current-model-text').textContent;
     let targetModelId = CONFIG.models[currentSelectedModel];
 
-    if (currentSelectedModel === 'pro') {
-        UI.showLoading(true, `Coden Pro analysiert Anfrage...`);
-        const analysisPrompt = `Ist das eine Code-Aufgabe? (JA/NEIN). Nachricht: "${text}"`;
-        try {
-            const res = await generateAiResponse([{ role: 'user', content: analysisPrompt }], CONFIG.models.normal);
-            if (res.toUpperCase().includes('JA')) {
-                UI.showLoading(true, `Coden Pro programmiert Code...`);
-                targetModelId = CONFIG.models.openRouterCoder; 
-            } else { UI.showLoading(true, `Coden Pro überlegt...`); }
-        } catch (err) { UI.showLoading(true, `Coden Pro überlegt...`); }
-    } else {
-        UI.showLoading(true, `${currentModelName} denkt...`);
+    try {
+        if (currentSelectedModel === 'pro') {
+            UI.showLoading(true, `Coden Pro analysiert Anfrage...`);
+            const analysisPrompt = `Ist das eine Code-Aufgabe? (JA/NEIN). Nachricht: "${text}"`;
+            try {
+                const res = await generateAiResponse([{ role: 'user', content: analysisPrompt }], CONFIG.models.normal);
+                if (res.toUpperCase().includes('JA')) {
+                    UI.showLoading(true, `Coden Pro programmiert Code...`);
+                    targetModelId = CONFIG.models.openRouterCoder; 
+                } else { UI.showLoading(true, `Coden Pro überlegt...`); }
+            } catch (err) { UI.showLoading(true, `Coden Pro überlegt...`); }
+        } else {
+            UI.showLoading(true, `${currentModelName} denkt...`);
+        }
+
+        const aiResponse = await generateAiResponse(context, targetModelId);
+        UI.showLoading(false); 
+        UI.appendMessage(aiResponse, false);
+        currentSession.messages.push({ text: aiResponse, isUser: false });
+        Storage.saveSessions(sessions); 
+        UI.renderSidebar(sessions, activeSessionId);
+    } catch (err) {
+        // Auch hier wird das "Too many requests" Limit jetzt sauber abgefangen!
+        UI.showLoading(false);
+        const errorMsg = "❌ " + (err.message || "Ein Fehler ist aufgetreten.");
+        UI.appendMessage(errorMsg, false);
+        currentSession.messages.push({ text: errorMsg, isUser: false });
+        Storage.saveSessions(sessions);
     }
-
-    const aiResponse = await generateAiResponse(context, targetModelId);
-    UI.showLoading(false); UI.appendMessage(aiResponse, false);
-
-    currentSession.messages.push({ text: aiResponse, isUser: false });
-    Storage.saveSessions(sessions); UI.renderSidebar(sessions, activeSessionId);
 }
 
 async function generateChatTitle(firstMessage) {
@@ -434,4 +415,4 @@ async function generateChatTitle(firstMessage) {
     } catch (e) {}
 }
 
-initApp();
+// Event Listener manuell hinzufügen falls nötig, da initApp oben ist
