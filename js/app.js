@@ -3,7 +3,6 @@ import { CONFIG } from './config.js';
 import { generateAiResponse } from './api.js';
 import { UI } from './ui.js';
 import { Storage } from './storage.js';
-// Auth Logik importieren
 import { loginWithGoogle, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, auth } from './firebase-init.js';
 
 // --- AUTHENTIFIZIERUNGS LOGIK ---
@@ -32,30 +31,24 @@ let currentSession = null;
 let activeSessionId = null;
 let appInitialized = false;
 
-// Überwacht permanent den Login-Status!
 onAuthStateChanged(auth, async (user) => {
     if (user) {
-        // EINGELOGGT!
         loginScreen.classList.add('hidden');
         appContainer.classList.remove('hidden');
-        userEmailDisplay.textContent = user.email; // E-Mail oben rechts anzeigen
+        userEmailDisplay.textContent = user.email;
         
-        // Daten aus der Cloud laden (Synchronisation!)
         await Storage.loadFromCloud();
-        
         if (!appInitialized) initApp(); 
     } else {
-        // AUSGELOGGT!
         loginScreen.classList.remove('hidden');
         appContainer.classList.add('hidden');
-        // Lokalen Speicher leeren bei Logout aus Sicherheitsgründen
         localStorage.removeItem('coden_sessions'); 
         appInitialized = false;
     }
 });
 
 
-// --- INITIALISIERUNG DER APP (Nach Login) ---
+// --- INITIALISIERUNG DER APP ---
 const chatInput = document.getElementById('main-input');
 const sendBtn = document.getElementById('send-btn');
 const newChatBtn = document.querySelector('.new-chat-btn');
@@ -78,7 +71,7 @@ function initApp() {
     const settings = Storage.getSettings();
     document.documentElement.style.setProperty('--chat-font-size', settings.fontSize + 'px');
 
-    UI.resetUI(); // WICHTIG: UI leeren beim Neuladen
+    UI.resetUI(); 
     UI.renderSidebar(sessions, activeSessionId);
     
     if (currentSession.messages.length > 0) {
@@ -88,6 +81,87 @@ function initApp() {
     document.addEventListener('loadChatSession', (e) => loadSession(e.detail));
     document.addEventListener('deleteChatSession', (e) => deleteSession(e.detail));
 }
+
+// ==========================================
+// ✉️ EMAIL ASSISTENT LOGIK
+// ==========================================
+const emailModal = document.getElementById('email-modal');
+const openEmailBtn = document.getElementById('open-email-btn');
+const closeEmailBtn = document.getElementById('close-email-btn');
+const saveEmailSettingsBtn = document.getElementById('save-email-settings');
+const generateEmailBtn = document.getElementById('generate-email-btn');
+
+// Öffnen & Einstellungen laden
+openEmailBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    const settings = Storage.getSettings();
+    if (settings.emailConfig) {
+        document.getElementById('email-provider').value = settings.emailConfig.provider || 'gmail';
+        document.getElementById('email-address').value = settings.emailConfig.address || '';
+        document.getElementById('email-password').value = settings.emailConfig.password || '';
+    }
+    emailModal.classList.remove('hidden');
+});
+
+// Schließen
+closeEmailBtn.addEventListener('click', () => emailModal.classList.add('hidden'));
+
+// Speichern des App-Passworts
+saveEmailSettingsBtn.addEventListener('click', () => {
+    const settings = Storage.getSettings();
+    settings.emailConfig = {
+        provider: document.getElementById('email-provider').value,
+        address: document.getElementById('email-address').value.trim(),
+        password: document.getElementById('email-password').value.trim()
+    };
+    Storage.saveSettings(settings);
+    
+    const feedback = document.getElementById('email-save-feedback');
+    feedback.style.display = 'block';
+    setTimeout(() => feedback.style.display = 'none', 3000);
+});
+
+// KI-Generierung (Zusammenfassung & Antwort)
+generateEmailBtn.addEventListener('click', async () => {
+    const emailText = document.getElementById('email-draft-input').value.trim();
+    if (!emailText) return;
+
+    generateEmailBtn.innerHTML = '<div class="spinner" style="width: 16px; height: 16px; border-color: var(--bg-main) transparent var(--bg-main) transparent;"></div> Verarbeite...';
+    generateEmailBtn.disabled = true;
+
+    // Der strikte System Prompt für Emails
+    const emailSystemPrompt = `Du bist der "Coden Email Assistent". Deine Aufgabe ist es, E-Mails zu analysieren und Antworten zu verfassen.
+WICHTIGE REGELN:
+1. Du darfst NIEMALS finanzielle Deals abschließen, Zahlungen bestätigen oder über Geld verhandeln. Wenn es um Geld geht, weise höflich darauf hin, dass dies persönlich geklärt werden muss.
+2. Formatiere deine Antwort IMMER genau so:
+ZUSAMMENFASSUNG: [Hier eine kurze Zusammenfassung der erhaltenen E-Mail in 2-3 Sätzen]
+ANTWORT: [Hier der Text für die E-Mail-Antwort]
+3. AM ENDE JEDER ANTWORT MUSS ZWINGEND DIESER TEXT STEHEN: "Hinweis: Diese E-Mail wurde von einer KI verfasst und kann Fehler enthalten."`;
+
+    try {
+        // Wir nutzen GPT-4o (Normal) für Emails
+        const responseText = await generateAiResponse([
+            { role: 'system', content: emailSystemPrompt },
+            { role: 'user', content: `Hier ist die E-Mail:\n\n${emailText}` }
+        ], CONFIG.models.normal);
+
+        // Text aufsplitten in Zusammenfassung und Antwort
+        const parts = responseText.split('ANTWORT:');
+        const summaryPart = parts[0].replace('ZUSAMMENFASSUNG:', '').trim();
+        const replyPart = parts.length > 1 ? parts[1].trim() : 'Fehler bei der Generierung.';
+
+        document.getElementById('email-summary').textContent = summaryPart;
+        document.getElementById('email-draft-output').textContent = replyPart;
+        document.getElementById('email-result-container').classList.remove('hidden');
+
+    } catch (error) {
+        document.getElementById('email-summary').textContent = "Fehler bei der API-Verbindung.";
+    }
+
+    generateEmailBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">auto_awesome</span> Mit GPT-4o generieren';
+    generateEmailBtn.disabled = false;
+});
+
 
 // --- EINSTELLUNGEN LOGIK ---
 const settingsModal = document.getElementById('settings-modal');
@@ -110,17 +184,17 @@ document.getElementById('close-settings').addEventListener('click', () => settin
 document.getElementById('cancel-settings').addEventListener('click', () => settingsModal.classList.add('hidden'));
 
 document.getElementById('save-settings').addEventListener('click', () => {
-    const newSettings = {
-        persona: document.getElementById('persona-select').value,
-        customPersona: document.getElementById('custom-persona-input').value,
-        fontSize: parseInt(document.getElementById('font-size-slider').value)
-    };
-    Storage.saveSettings(newSettings);
-    document.documentElement.style.setProperty('--chat-font-size', newSettings.fontSize + 'px');
+    const currentSettings = Storage.getSettings(); // Wichtig: Alte Config (Email) behalten!
+    currentSettings.persona = document.getElementById('persona-select').value;
+    currentSettings.customPersona = document.getElementById('custom-persona-input').value;
+    currentSettings.fontSize = parseInt(document.getElementById('font-size-slider').value);
+    
+    Storage.saveSettings(currentSettings);
+    document.documentElement.style.setProperty('--chat-font-size', currentSettings.fontSize + 'px');
     settingsModal.classList.add('hidden');
 });
 
-// --- UI / CHAT STEUERUNG (Bleibt gleich wie vorher) ---
+// --- UI / CHAT STEUERUNG ---
 let currentSelectedModel = 'flash';
 document.getElementById('model-selector-btn').addEventListener('click', (e) => {
     e.stopPropagation(); 
@@ -190,7 +264,7 @@ function deleteSession(sessionId) {
     Storage.saveSessions(sessions); UI.renderSidebar(sessions, activeSessionId);
 }
 
-// SPRACHERKENNUNG...
+// SPRACHERKENNUNG
 let recognition = null; let isListening = false;
 if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -210,7 +284,7 @@ micBtn.addEventListener('click', () => {
 });
 
 
-// HAUPT SENDE FUNKTION (Angepasst mit Agentic Routing)
+// HAUPT SENDE FUNKTION
 async function handleSend() {
     if(!chatInput) return; const text = chatInput.value.trim(); if (!text) return;
     chatInput.value = ''; chatInput.style.height = 'auto';
