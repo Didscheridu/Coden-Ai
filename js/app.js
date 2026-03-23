@@ -296,18 +296,24 @@ async function handleSend() {
     currentSession.messages.slice(-5, -1).forEach(m => historyContext += `${m.isUser ? 'Nutzer' : 'KI'}: ${m.text.substring(0, 1000)}...\n`);
 
     // =================================================================
-    // 🧠 UNIVERSALER E-MAIL CHECK (Kugelsicher!)
+    // 🧠 UNIVERSALER E-MAIL CHECK (Kugelsicher V2!)
     // =================================================================
     const lowerText = text.toLowerCase();
     let isEmailCommand = false;
 
-    if (lowerText.includes('mail') || lowerText.includes('e-mail') || lowerText.includes('email')) {
+    // Trigger-Wörter drastisch erweitert!
+    const triggerWords = ['mail', 'e-mail', 'email', 'senden', 'schick', 'weiterleiten'];
+    const hasTriggerWord = triggerWords.some(w => lowerText.includes(w));
+
+    if (hasTriggerWord) {
         UI.showLoading(true, "Coden prüft E-Mail Anfrage...");
-        const emailIntentPrompt = `Will der Nutzer in der folgenden Nachricht eine E-Mail verfassen oder senden? Antworte AUSSCHLIESSLICH mit einem einzigen Wort: "JA" oder "NEIN".\n\nNachricht: "${text}"`;
+        const emailIntentPrompt = `Will der Nutzer in der folgenden Nachricht eine E-Mail versenden, vorbereiten oder weiterleiten? Antworte NUR mit "JA" oder "NEIN".\n\nNachricht: "${text}"`;
         try {
             const intentResult = await generateAiResponse([{ role: 'user', content: emailIntentPrompt }], CONFIG.models.normal);
-            // Strengere Überprüfung
-            if (intentResult.trim().toUpperCase().startsWith('JA')) isEmailCommand = true;
+            // NEU: Egal was GPT noch dazuquatscht, solange "JA" irgendwo drinsteckt, gehts los!
+            if (intentResult.toUpperCase().includes('JA')) {
+                isEmailCommand = true;
+            }
         } catch (e) { console.error("E-Mail Check fehlgeschlagen", e); }
     }
 
@@ -319,7 +325,7 @@ async function handleSend() {
         const allCodeBlocks = currentSession.messages.map(m => m.text.match(codeRegex)).flat().filter(Boolean);
         if (allCodeBlocks.length > 0) lastCodeBlock = allCodeBlocks[allCodeBlocks.length - 1];
 
-        const emailExtractionPrompt = `Erstelle einen E-Mail-Entwurf. Beziehe dich auf den Verlauf. Kopiere Code EXAKT.
+        const emailExtractionPrompt = `Erstelle einen E-Mail-Entwurf. Beziehe dich auf den Verlauf. Kopiere Code EXAKT 1:1.
 LETZTER CODE IM VERLAUF: ${lastCodeBlock || "Keiner"}
 VERLAUF: ${historyContext}
 ANFRAGE: "${text}"
@@ -331,7 +337,6 @@ Format:
         try {
             const jsonResponse = await generateAiResponse([{ role: 'user', content: emailExtractionPrompt }], CONFIG.models.normal);
             
-            // NEU: Kugelsicherer JSON-Staubsauger (Sucht das erste { und das letzte })
             const firstBrace = jsonResponse.indexOf('{');
             const lastBrace = jsonResponse.lastIndexOf('}');
             
@@ -353,23 +358,22 @@ Format:
             Storage.saveSessions(sessions);
             
             document.getElementById('email-modal').classList.remove('hidden');
-            return; // WICHTIG: Stoppt hier!
+            return; // WICHTIG: Stoppt den normalen Chat!
             
         } catch (err) { 
             console.error("E-Mail Generierung fehlgeschlagen:", err); 
             UI.showLoading(false);
             
-            // NEU: Wenn es abstürzt, sagen wir es dem Nutzer, statt normal weiter zu chatten!
-            const errorMsg = "Entschuldigung, ich konnte den E-Mail-Entwurf nicht richtig formatieren. Bitte versuche den Befehl nochmal.";
+            const errorMsg = "Entschuldigung, beim Erstellen des E-Mail-Entwurfs gab es einen Formatierungsfehler. Bitte versuche den Befehl nochmal (z.B. 'Schicke den Code per Mail an...').";
             UI.appendMessage(errorMsg, false);
             currentSession.messages.push({ text: errorMsg, isUser: false });
             Storage.saveSessions(sessions);
-            return; // WICHTIG: Stoppt hier und verhindert, dass der normale Chat antwortet!
+            return; // WICHTIG: Stoppt hier und verhindert, dass der Chat normal weiterredet!
         }
     }
 
     // =================================================================
-    // 🤖 NORMALER MODELL-ABLAUF (Wird bei E-Mails jetzt übersprungen!)
+    // 🤖 NORMALER MODELL-ABLAUF 
     // =================================================================
     const context = currentSession.messages.map(m => ({ role: m.isUser ? 'user' : 'assistant', content: m.text }));
     const settings = Storage.getSettings();
