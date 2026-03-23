@@ -3,13 +3,11 @@ import { db, auth } from './firebase-init.js';
 import { doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 
 export const Storage = {
-    // Holt Daten aus dem lokalen Speicher (Für schnelles Laden)
     getSessions: () => {
         const data = localStorage.getItem('coden_sessions');
         return data ? JSON.parse(data) : [];
     },
     
-    // Speichert lokal UND synchronisiert sofort in die Cloud
     saveSessions: (sessions) => {
         localStorage.setItem('coden_sessions', JSON.stringify(sessions));
         Storage.syncToCloud(); 
@@ -25,7 +23,13 @@ export const Storage = {
 
     getSettings: () => {
         const data = localStorage.getItem('coden_settings');
-        return data ? JSON.parse(data) : { persona: 'Standard', customPersona: '', fontSize: 15 };
+        return data ? JSON.parse(data) : { 
+            persona: 'Standard', 
+            customPersona: '', 
+            fontSize: 15,
+            // NEU: E-Mail Konfiguration
+            emailConfig: { provider: 'gmail', address: '', password: '' }
+        };
     },
 
     saveSettings: (settings) => {
@@ -33,11 +37,8 @@ export const Storage = {
         Storage.syncToCloud();
     },
 
-    // --- NEU: CLOUD SYNC LOGIK ---
-
-    // Schiebt alles in die Firestore Datenbank
     syncToCloud: async () => {
-        if (!auth.currentUser) return; // Wenn nicht eingeloggt, abbrechen
+        if (!auth.currentUser) return; 
         try {
             const sessions = Storage.getSessions();
             const settings = Storage.getSettings();
@@ -51,7 +52,6 @@ export const Storage = {
         }
     },
 
-    // Lädt alles aus der Firestore Datenbank herunter (Beim Login)
     loadFromCloud: async () => {
         if (!auth.currentUser) return false;
         try {
