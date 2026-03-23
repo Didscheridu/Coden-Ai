@@ -1,7 +1,8 @@
 // api/send-email.js
-const nodemailer = require('nodemailer'); // FIX: Klassischer Import für den Vercel Server!
+const nodemailer = require('nodemailer');
 
-export default async function handler(req, res) {
+// FIX: Jetzt nutzen wir auch hier die klassische Schreibweise!
+module.exports = async function handler(req, res) {
     // Nur POST-Anfragen erlauben
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Methode nicht erlaubt' });
@@ -52,4 +53,4 @@ export default async function handler(req, res) {
         console.error("Fehler beim Senden:", error);
         res.status(500).json({ error: error.message });
     }
-}
+};
