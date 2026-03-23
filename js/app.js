@@ -352,7 +352,7 @@ async function handleSend() {
     }
 
     // =================================================================
-    // 📨 E-MAIL EXTRAKTION (Jetzt mit dem ausgewählten Modell!)
+    // 📨 E-MAIL EXTRAKTION (Mit E-Mail-Staubsauger Regex!)
     // =================================================================
     if (isEmailCommand) {
         UI.showLoading(true, "Coden bereitet das E-Mail-Fenster vor...");
@@ -362,6 +362,7 @@ async function handleSend() {
         const allCodeBlocks = currentSession.messages.map(m => m.text.match(codeRegex)).flat().filter(Boolean);
         if (allCodeBlocks.length > 0) lastCodeBlock = allCodeBlocks[allCodeBlocks.length - 1];
 
+        // Prompt massiv verschärft auf die E-Mail-Suche in der Nutzer-Anfrage
         const emailExtractionPrompt = `Erstelle einen E-Mail-Entwurf. 
 WICHTIG: Wenn der Nutzer Code verlangt, nimm EXAKT diesen Code hier:
 ${lastCodeBlock || "Kein Code vorhanden."}
@@ -369,33 +370,43 @@ ${lastCodeBlock || "Kein Code vorhanden."}
 Bisheriger Verlauf: ${historyContext}
 Nutzer-Anfrage: "${text}"
 
+Anweisung für die Felder:
+1. Suche in der "Nutzer-Anfrage" nach der E-Mail-Adresse. Schreibe AUSSCHLIESSLICH diese E-Mail-Adresse in die [TO] Zeile (keine spitzen Klammern, keinen Text dazu!).
+2. Schreibe einen passenden Betreff.
+3. Verfasse die E-Mail.
+
 Antworte EXAKT in diesem Format (mit den eckigen Klammern!):
-[TO]: empfaenger@adresse.de (oder leer)
-[SUBJECT]: Der Betreff
+[TO]: 
+[SUBJECT]: 
 [BODY]: 
-Hier kommt der komplette E-Mail Text hin (inklusive Code).`;
+`;
 
         try {
-            // NEU: Wir nutzen genau das Modell, das im Menü ausgewählt ist!
             let activeModelForEmail = CONFIG.models[currentSelectedModel];
-            
-            // Falls Thinking-Mode gesperrt ist, zwingen wir es auf Flash
             if (currentSelectedModel === 'normal' && isThinkingModeLocked) {
                 activeModelForEmail = CONFIG.models.flash;
             }
 
-            // Wir feuern die Anfrage mit dem dynamischen Modell ab
             const responseText = await generateAiResponse([{ role: 'user', content: emailExtractionPrompt }], activeModelForEmail);
             
             const toMatch = responseText.match(/\[TO\]:\s*(.*)/i);
             const subjectMatch = responseText.match(/\[SUBJECT\]:\s*(.*)/i);
             const bodySplit = responseText.split(/\[BODY\]:/i);
             
-            const emailTo = toMatch ? toMatch[1].trim() : '';
+            let emailTo = toMatch ? toMatch[1].trim() : '';
             const emailSubject = subjectMatch ? subjectMatch[1].trim() : '';
             const emailBody = bodySplit.length > 1 ? bodySplit[1].trim() : responseText.trim(); 
 
-            document.getElementById('email-recipient').value = emailTo.replace('(oder leer)', '');
+            // --- DER E-MAIL STAUBSAUGER (Regex) ---
+            // Entfernt < > Klammern und sucht nach einem sauberen name@domain.endung Format
+            emailTo = emailTo.replace(/[<>]/g, '').trim(); 
+            const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/;
+            const extractedEmail = emailTo.match(emailRegex);
+            if(extractedEmail) {
+                emailTo = extractedEmail[0]; // Setzt wirklich NUR die reine E-Mail-Adresse ein
+            }
+
+            document.getElementById('email-recipient').value = emailTo;
             document.getElementById('email-subject').value = emailSubject;
             document.getElementById('email-draft-output').value = emailBody;
 
@@ -453,7 +464,6 @@ Hier kommt der komplette E-Mail Text hin (inklusive Code).`;
             UI.showLoading(true, `Coden Pro analysiert Anfrage...`);
             const analysisPrompt = `Ist das eine Code-Aufgabe? (JA/NEIN). Nachricht: "${text}"`;
             try {
-                // Analyse immer mit Flash (schnell)
                 const res = await generateAiResponse([{ role: 'user', content: analysisPrompt }], CONFIG.models.flash);
                 if (res.toUpperCase().includes('JA')) {
                     UI.showLoading(true, `Coden Pro programmiert Code...`);
