@@ -83,47 +83,19 @@ function initApp() {
 }
 
 // ==========================================
-// ✉️ EMAIL ASSISTENT LOGIK (Aufgeräumt)
+// ✉️ PURES EMAIL SENDE-FENSTER LOGIK
 // ==========================================
 const emailModal = document.getElementById('email-modal');
-const openEmailBtn = document.getElementById('open-email-btn');
 const closeEmailBtn = document.getElementById('close-email-btn');
-const saveEmailSettingsBtn = document.getElementById('save-email-settings');
 const sendRealEmailBtn = document.getElementById('send-real-email-btn');
 
-openEmailBtn.addEventListener('click', (e) => {
-    e.preventDefault();
-    const settings = Storage.getSettings();
-    if (settings.emailConfig) {
-        document.getElementById('email-provider').value = settings.emailConfig.provider || 'gmail';
-        document.getElementById('email-address').value = settings.emailConfig.address || '';
-        document.getElementById('email-password').value = settings.emailConfig.password || '';
-    }
-    document.getElementById('email-result-container').classList.add('hidden'); // Verstecken beim normalen Öffnen
-    emailModal.classList.remove('hidden');
-});
-
 closeEmailBtn.addEventListener('click', () => emailModal.classList.add('hidden'));
-
-saveEmailSettingsBtn.addEventListener('click', () => {
-    const settings = Storage.getSettings();
-    settings.emailConfig = {
-        provider: document.getElementById('email-provider').value,
-        address: document.getElementById('email-address').value.trim(),
-        password: document.getElementById('email-password').value.trim()
-    };
-    Storage.saveSettings(settings);
-    
-    const feedback = document.getElementById('email-save-feedback');
-    feedback.style.display = 'block';
-    setTimeout(() => feedback.style.display = 'none', 3000);
-});
 
 // E-Mail echt versenden
 sendRealEmailBtn.addEventListener('click', async () => {
     const settings = Storage.getSettings();
     if (!settings.emailConfig || !settings.emailConfig.address || !settings.emailConfig.password) {
-        alert("Bitte speichere zuerst deine E-Mail und dein App-Passwort in den Einstellungen oben!");
+        alert("Bitte speichere zuerst deine E-Mail und dein App-Passwort in den Einstellungen!");
         return;
     }
 
@@ -160,6 +132,7 @@ sendRealEmailBtn.addEventListener('click', async () => {
             feedback.style.color = 'var(--accent-green)';
             feedback.textContent = '✅ E-Mail erfolgreich versendet!';
             feedback.style.display = 'block';
+            setTimeout(() => emailModal.classList.add('hidden'), 2000); // Fenster schließt automatisch
         } else {
             throw new Error(data.error || 'Unbekannter Serverfehler');
         }
@@ -174,18 +147,32 @@ sendRealEmailBtn.addEventListener('click', async () => {
 });
 
 
-// --- EINSTELLUNGEN LOGIK ---
+// --- EINSTELLUNGEN LOGIK (Jetzt inklusive E-Mail) ---
 const settingsModal = document.getElementById('settings-modal');
-document.getElementById('open-settings-btn').addEventListener('click', (e) => { 
-    e.preventDefault(); 
+const openSettingsBtn = document.getElementById('open-settings-btn');
+const openEmailSettingsBtn = document.getElementById('open-email-settings-btn');
+
+function openSettings() {
     const s = Storage.getSettings();
     document.getElementById('persona-select').value = s.persona;
     document.getElementById('custom-persona-input').value = s.customPersona;
     document.getElementById('font-size-slider').value = s.fontSize;
     document.getElementById('font-size-display').textContent = s.fontSize;
     document.getElementById('custom-persona-container').classList.toggle('hidden', s.persona !== 'Eigene (Custom)');
+    
+    // E-Mail Daten laden
+    if (s.emailConfig) {
+        document.getElementById('email-provider').value = s.emailConfig.provider || 'gmail';
+        document.getElementById('email-address').value = s.emailConfig.address || '';
+        document.getElementById('email-password').value = s.emailConfig.password || '';
+    }
+    
     settingsModal.classList.remove('hidden'); 
-});
+}
+
+openSettingsBtn.addEventListener('click', (e) => { e.preventDefault(); openSettings(); });
+// Der "Email Setup" Button in der Leiste öffnet jetzt einfach die Einstellungen
+openEmailSettingsBtn.addEventListener('click', (e) => { e.preventDefault(); openSettings(); });
 
 document.getElementById('persona-select').addEventListener('change', (e) => {
     document.getElementById('custom-persona-container').classList.toggle('hidden', e.target.value !== 'Eigene (Custom)');
@@ -199,6 +186,13 @@ document.getElementById('save-settings').addEventListener('click', () => {
     currentSettings.persona = document.getElementById('persona-select').value;
     currentSettings.customPersona = document.getElementById('custom-persona-input').value;
     currentSettings.fontSize = parseInt(document.getElementById('font-size-slider').value);
+    
+    // E-Mail Daten speichern
+    currentSettings.emailConfig = {
+        provider: document.getElementById('email-provider').value,
+        address: document.getElementById('email-address').value.trim(),
+        password: document.getElementById('email-password').value.trim()
+    };
     
     Storage.saveSettings(currentSettings);
     document.documentElement.style.setProperty('--chat-font-size', currentSettings.fontSize + 'px');
@@ -304,12 +298,11 @@ async function handleSend() {
     if (currentSession.messages.length === 1) generateChatTitle(text);
 
     // =================================================================
-    // 🧠 NEU: SMARTER GPT-4o CHECK FÜR EMAILS
+    // 🧠 SMARTER GPT-4o CHECK FÜR EMAILS
     // =================================================================
     const lowerText = text.toLowerCase();
     let isEmailCommand = false;
 
-    // Nur prüfen, wenn das Wort "Mail" überhaupt vorkommt (Spart extrem viel Zeit!)
     if (lowerText.includes('mail') || lowerText.includes('e-mail')) {
         UI.showLoading(true, "Coden analysiert deine E-Mail Anfrage...");
         
@@ -344,14 +337,6 @@ Antworte AUSSCHLIESSLICH im folgenden JSON-Format, ohne jeglichen Markdown-Text 
             document.getElementById('email-recipient').value = emailData.to || '';
             document.getElementById('email-subject').value = emailData.subject || '';
             document.getElementById('email-draft-output').value = emailData.body || '';
-            document.getElementById('email-result-container').classList.remove('hidden');
-
-            const settings = Storage.getSettings();
-            if (settings.emailConfig) {
-                document.getElementById('email-provider').value = settings.emailConfig.provider || 'gmail';
-                document.getElementById('email-address').value = settings.emailConfig.address || '';
-                document.getElementById('email-password').value = settings.emailConfig.password || '';
-            }
 
             UI.showLoading(false);
             const successMsg = "Ich habe den E-Mail-Entwurf für dich vorbereitet! Das Sende-Fenster öffnet sich jetzt.";
@@ -359,6 +344,7 @@ Antworte AUSSCHLIESSLICH im folgenden JSON-Format, ohne jeglichen Markdown-Text 
             currentSession.messages.push({ text: successMsg, isUser: false });
             Storage.saveSessions(sessions);
             
+            // Reines Sende-Fenster öffnen
             document.getElementById('email-modal').classList.remove('hidden');
             return; 
         } catch (err) {
