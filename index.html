@@ -18,7 +18,8 @@
     <link rel="stylesheet" href="css/components.css">
     <link rel="stylesheet" href="css/animations.css">
     <link rel="stylesheet" href="css/settings.css">
-    <link rel="stylesheet" href="css/auth.css"> </head>
+    <link rel="stylesheet" href="css/auth.css">
+</head>
 <body>
 
     <div id="login-screen" class="login-screen">
@@ -61,6 +62,7 @@
             <div class="sidebar-scroll-area"></div>
 
             <div class="sidebar-footer">
+                <a href="#" class="nav-item" id="open-email-btn"><span class="material-symbols-outlined">mail</span> Email Assistent</a>
                 <a href="#" class="nav-item" id="open-settings-btn"><span class="material-symbols-outlined">settings</span> Einstellungen</a>
                 <a href="#" class="nav-item" id="logout-btn" style="color: #ff5555;"><span class="material-symbols-outlined">logout</span> Abmelden</a>
             </div>
@@ -83,7 +85,6 @@
             <div class="input-section">
                 <div class="input-box">
                     <textarea id="main-input" rows="1" placeholder="Einen Prompt für Coden AI eingeben..."></textarea>
-                    
                     <div class="input-footer">
                         <div class="left-tools">
                             <button class="icon-btn" id="attachment-btn"><span class="material-symbols-outlined">add</span></button>
@@ -95,7 +96,6 @@
                                     <span id="current-model-text">Coden Flash</span> 
                                     <span class="material-symbols-outlined">expand_more</span>
                                 </button>
-                                
                                 <div class="model-dropdown-menu hidden" id="model-dropdown-menu">
                                     <div class="model-option active" data-model="flash"><span class="material-symbols-outlined">bolt</span> <span class="name">Coden Flash</span></div>
                                     <div class="model-option" data-model="normal"><span class="material-symbols-outlined">auto_awesome</span> <span class="name">Coden Thinking</span></div>
@@ -109,6 +109,56 @@
                 </div>
             </div>
         </main>
+    </div>
+
+    <div id="email-modal" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 600px;">
+            <div class="modal-header">
+                <h3 style="display: flex; align-items: center; gap: 8px; font-weight: 500;">
+                    <span class="material-symbols-outlined" style="color: #63A4FF;">mail</span> Coden Email Assistent
+                </h3>
+                <button class="icon-btn" id="close-email-btn"><span class="material-symbols-outlined">close</span></button>
+            </div>
+            
+            <div class="modal-body" style="max-height: 65vh; overflow-y: auto;">
+                
+                <div style="background: rgba(255,255,255,0.03); padding: 16px; border-radius: 12px; margin-bottom: 24px; border: 1px solid var(--border-color);">
+                    <h4 style="margin-bottom: 12px; font-weight: 500; font-size: 14px; color: var(--text-secondary);">⚙️ E-Mail Konto verknüpfen</h4>
+                    
+                    <label>E-Mail Anbieter</label>
+                    <select id="email-provider" class="settings-input" style="margin-bottom: 12px;">
+                        <option value="gmail">Gmail</option>
+                        <option value="outlook">Outlook</option>
+                        <option value="imap">Anderer Anbieter</option>
+                    </select>
+
+                    <label>E-Mail Adresse</label>
+                    <input type="email" id="email-address" class="settings-input" placeholder="deine@email.com" style="margin-bottom: 12px;">
+
+                    <label>App-Passwort (Mail Code)</label>
+                    <input type="password" id="email-password" class="settings-input" placeholder="Z.B. 16-stelliger App-Code">
+                    
+                    <button class="btn-cancel" id="save-email-settings" style="margin-top: 12px; width: 100%;">Zugangsdaten speichern</button>
+                    <div id="email-save-feedback" style="font-size: 12px; color: var(--accent-green); margin-top: 8px; display: none;">Erfolgreich gespeichert!</div>
+                </div>
+
+                <h4 style="margin-bottom: 12px; font-weight: 500; font-size: 14px;">📨 E-Mail analysieren & beantworten</h4>
+                <textarea id="email-draft-input" class="settings-input" rows="5" placeholder="Füge hier eine erhaltene E-Mail ein..." style="margin-bottom: 12px; resize: vertical;"></textarea>
+                
+                <button class="btn-save" id="generate-email-btn" style="width: 100%; display: flex; justify-content: center; gap: 8px;">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">auto_awesome</span> Mit GPT-4o generieren
+                </button>
+
+                <div id="email-result-container" class="hidden" style="margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--border-color);">
+                    <h4 style="color: #63A4FF; margin-bottom: 8px; font-size: 14px;">📋 Zusammenfassung:</h4>
+                    <div id="email-summary" style="font-size: 14px; color: var(--text-secondary); margin-bottom: 20px; line-height: 1.6;"></div>
+                    
+                    <h4 style="color: var(--accent-green); margin-bottom: 8px; font-size: 14px;">✉️ KI-Antwortentwurf:</h4>
+                    <div id="email-draft-output" style="font-size: 14px; background: var(--bg-input); padding: 16px; border-radius: 12px; white-space: pre-wrap; font-family: var(--font-main); line-height: 1.5; border: 1px solid var(--border-color);"></div>
+                </div>
+
+            </div>
+        </div>
     </div>
 
     <div id="settings-modal" class="modal-overlay hidden">
