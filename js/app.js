@@ -132,7 +132,7 @@ sendRealEmailBtn.addEventListener('click', async () => {
             feedback.style.color = 'var(--accent-green)';
             feedback.textContent = '✅ E-Mail erfolgreich versendet!';
             feedback.style.display = 'block';
-            setTimeout(() => emailModal.classList.add('hidden'), 2000); // Fenster schließt automatisch
+            setTimeout(() => emailModal.classList.add('hidden'), 2000); 
         } else {
             throw new Error(data.error || 'Unbekannter Serverfehler');
         }
@@ -147,7 +147,7 @@ sendRealEmailBtn.addEventListener('click', async () => {
 });
 
 
-// --- EINSTELLUNGEN LOGIK (Jetzt inklusive E-Mail) ---
+// --- EINSTELLUNGEN LOGIK ---
 const settingsModal = document.getElementById('settings-modal');
 const openSettingsBtn = document.getElementById('open-settings-btn');
 const openEmailSettingsBtn = document.getElementById('open-email-settings-btn');
@@ -160,7 +160,6 @@ function openSettings() {
     document.getElementById('font-size-display').textContent = s.fontSize;
     document.getElementById('custom-persona-container').classList.toggle('hidden', s.persona !== 'Eigene (Custom)');
     
-    // E-Mail Daten laden
     if (s.emailConfig) {
         document.getElementById('email-provider').value = s.emailConfig.provider || 'gmail';
         document.getElementById('email-address').value = s.emailConfig.address || '';
@@ -171,7 +170,6 @@ function openSettings() {
 }
 
 openSettingsBtn.addEventListener('click', (e) => { e.preventDefault(); openSettings(); });
-// Der "Email Setup" Button in der Leiste öffnet jetzt einfach die Einstellungen
 openEmailSettingsBtn.addEventListener('click', (e) => { e.preventDefault(); openSettings(); });
 
 document.getElementById('persona-select').addEventListener('change', (e) => {
@@ -187,7 +185,6 @@ document.getElementById('save-settings').addEventListener('click', () => {
     currentSettings.customPersona = document.getElementById('custom-persona-input').value;
     currentSettings.fontSize = parseInt(document.getElementById('font-size-slider').value);
     
-    // E-Mail Daten speichern
     currentSettings.emailConfig = {
         provider: document.getElementById('email-provider').value,
         address: document.getElementById('email-address').value.trim(),
@@ -297,13 +294,18 @@ async function handleSend() {
     UI.appendMessage(text, true); currentSession.messages.push({ text: text, isUser: true }); Storage.saveSessions(sessions);
     if (currentSession.messages.length === 1) generateChatTitle(text);
 
+    // Bisheriger Verlauf (WICHTIG für Code und E-Mails)
+    let historyContext = "";
+    // Wir nehmen die letzten 4 Nachrichten, aber kürzen den Text nicht so stark ab, damit Code drin bleibt!
+    currentSession.messages.slice(-5, -1).forEach(m => historyContext += `${m.isUser ? 'Nutzer' : 'KI'}: ${m.text.substring(0, 1000)}...\n`);
+
     // =================================================================
     // 🧠 SMARTER GPT-4o CHECK FÜR EMAILS
     // =================================================================
     const lowerText = text.toLowerCase();
     let isEmailCommand = false;
 
-    if (lowerText.includes('mail') || lowerText.includes('e-mail')) {
+    if (lowerText.includes('mail') || lowerText.includes('e-mail') || lowerText.includes('email')) {
         UI.showLoading(true, "Coden analysiert deine E-Mail Anfrage...");
         
         const emailIntentPrompt = `Will der Nutzer in der folgenden Nachricht eine E-Mail verfassen, schreiben oder senden? Antworte AUSSCHLIESSLICH mit "JA" oder "NEIN".\n\nNutzer-Nachricht: "${text}"`;
@@ -319,12 +321,17 @@ async function handleSend() {
     if (isEmailCommand) {
         UI.showLoading(true, "Coden bereitet den E-Mail-Entwurf vor...");
         
-        const emailExtractionPrompt = `Der Nutzer möchte eine E-Mail schreiben. Extrahiere die E-Mail-Adresse des Empfängers, schreibe einen passenden, professionellen Betreff und verfasse den Text basierend auf den Wünschen des Nutzers.
-Eingabe des Nutzers: "${text}"
+        const emailExtractionPrompt = `Der Nutzer möchte eine E-Mail senden.
+Bisheriger Chat-Verlauf (EXTREM WICHTIG, falls der Nutzer Dinge wie "schicke den Code" sagt, nimm den Code von hier!):
+${historyContext || "(Kein vorheriger Kontext)"}
+
+Aktuelle Eingabe des Nutzers: "${text}"
+
+Extrahiere die E-Mail-Adresse des Empfängers, schreibe einen passenden Betreff und verfasse den Text der E-Mail (inklusive Code oder Infos aus dem Chat-Verlauf, falls angefragt).
 
 Antworte AUSSCHLIESSLICH im folgenden JSON-Format, ohne jeglichen Markdown-Text drumherum:
 {
-  "to": "email_adresse_hier",
+  "to": "email_adresse_hier_oder_leer_lassen",
   "subject": "Dein generierter Betreff",
   "body": "Dein professionell verfasster Text. Ergänze am Ende immer:\\n\\nHinweis: Diese E-Mail wurde von einer KI verfasst und kann Fehler enthalten."
 }`;
@@ -339,16 +346,16 @@ Antworte AUSSCHLIESSLICH im folgenden JSON-Format, ohne jeglichen Markdown-Text 
             document.getElementById('email-draft-output').value = emailData.body || '';
 
             UI.showLoading(false);
-            const successMsg = "Ich habe den E-Mail-Entwurf für dich vorbereitet! Das Sende-Fenster öffnet sich jetzt.";
+            const successMsg = "Ich habe den E-Mail-Entwurf (inkl. Code) für dich vorbereitet! Das Sende-Fenster öffnet sich jetzt.";
             UI.appendMessage(successMsg, false);
             currentSession.messages.push({ text: successMsg, isUser: false });
             Storage.saveSessions(sessions);
             
-            // Reines Sende-Fenster öffnen
             document.getElementById('email-modal').classList.remove('hidden');
             return; 
         } catch (err) {
-            console.error("Fehler bei der automatischen E-Mail Erstellung", err);
+            console.error("Fehler bei der automatischen E-Mail Erstellung. JSON Parsing fehlgeschlagen.", err);
+            // Wenn es fehlschlägt, geht er jetzt einfach normal in den Chat weiter, statt abzustürzen!
         }
     }
 
@@ -370,8 +377,6 @@ Antworte AUSSCHLIESSLICH im folgenden JSON-Format, ohne jeglichen Markdown-Text 
 
     if (currentSelectedModel === 'pro') {
         UI.showLoading(true, `Coden Pro analysiert Anfrage...`);
-        let historyContext = "";
-        currentSession.messages.slice(-4, -1).forEach(m => historyContext += `${m.isUser ? 'Nutzer' : 'KI'}: ${m.text.substring(0, 100)}...\n`);
 
         const analysisPrompt = `Entscheide, ob die folgende Nachricht des Nutzers eine Code-Aufgabe ist (JA/NEIN).
 Bisheriger Kontext:
