@@ -282,7 +282,7 @@ micBtn.addEventListener('click', () => {
 });
 
 // ==========================================
-// 🚀 HAUPT SENDE FUNKTION
+// 🚀 HAUPT SENDE FUNKTION (Jetzt WIRKLICH kugelsicher!)
 // ==========================================
 async function handleSend() {
     if(!chatInput) return; const text = chatInput.value.trim(); if (!text) return;
@@ -291,65 +291,78 @@ async function handleSend() {
     UI.appendMessage(text, true); currentSession.messages.push({ text: text, isUser: true }); Storage.saveSessions(sessions);
     if (currentSession.messages.length === 1) generateChatTitle(text);
 
-    // Kontext vorbereiten
     let historyContext = "";
-    currentSession.messages.slice(-5, -1).forEach(m => historyContext += `${m.isUser ? 'Nutzer' : 'KI'}: ${m.text.substring(0, 1000)}...\n`);
+    currentSession.messages.slice(-5, -1).forEach(m => historyContext += `${m.isUser ? 'Nutzer' : 'KI'}: ${m.text.substring(0, 1500)}...\n`);
 
     // =================================================================
-    // 🧠 UNIVERSALER E-MAIL CHECK (Kugelsicher V2!)
+    // 🧠 DER NEUE, ABSOLUT STABILE E-MAIL-TRIGGER
     // =================================================================
     const lowerText = text.toLowerCase();
     let isEmailCommand = false;
 
-    // Trigger-Wörter drastisch erweitert!
-    const triggerWords = ['mail', 'e-mail', 'email', 'senden', 'schick', 'weiterleiten'];
-    const hasTriggerWord = triggerWords.some(w => lowerText.includes(w));
-
-    if (hasTriggerWord) {
+    // SCHRITT 1: Harte Erkennung (überspringt die KI-Überprüfung komplett!)
+    if (lowerText.includes('sende diese mail') || 
+        lowerText.includes('schreibe eine mail') || 
+        lowerText.includes('schick den per mail') ||
+        lowerText.includes('sende den code per mail') ||
+        (lowerText.includes('mail an') && lowerText.includes('@'))) {
+        isEmailCommand = true;
+    } 
+    // SCHRITT 2: Weiche Erkennung (Wenn Schritt 1 nicht greift, aber "mail" vorkommt)
+    else if (lowerText.includes('mail') || lowerText.includes('e-mail') || lowerText.includes('email')) {
         UI.showLoading(true, "Coden prüft E-Mail Anfrage...");
-        const emailIntentPrompt = `Will der Nutzer in der folgenden Nachricht eine E-Mail versenden, vorbereiten oder weiterleiten? Antworte NUR mit "JA" oder "NEIN".\n\nNachricht: "${text}"`;
+        // Wir verlangen als Antwort jetzt zwingend eine 1 oder 0 (Das kann die KI nicht vermasseln)
+        const emailIntentPrompt = `System: Antworte AUSSCHLIESSLICH mit der Ziffer 1 (für JA) oder 0 (für NEIN).
+Frage: Will der Nutzer in der folgenden Nachricht eine E-Mail versenden oder vorbereiten?
+Nachricht: "${text}"`;
         try {
-            const intentResult = await generateAiResponse([{ role: 'user', content: emailIntentPrompt }], CONFIG.models.normal);
-            // NEU: Egal was GPT noch dazuquatscht, solange "JA" irgendwo drinsteckt, gehts los!
-            if (intentResult.toUpperCase().includes('JA')) {
+            const intentResult = await generateAiResponse([{ role: 'user', content: emailIntentPrompt }], CONFIG.models.flash);
+            if (intentResult.includes('1')) {
                 isEmailCommand = true;
             }
-        } catch (e) { console.error("E-Mail Check fehlgeschlagen", e); }
+        } catch (e) { console.error("Intent Check Error", e); }
     }
 
+    // =================================================================
+    // 📨 E-MAIL EXTRAKTION (Ohne anfälliges JSON!)
+    // =================================================================
     if (isEmailCommand) {
-        UI.showLoading(true, "Coden bereitet E-Mail-Entwurf vor...");
+        UI.showLoading(true, "Coden bereitet das E-Mail-Fenster vor...");
         
         let lastCodeBlock = "";
         const codeRegex = /```[\s\S]*?```/g;
         const allCodeBlocks = currentSession.messages.map(m => m.text.match(codeRegex)).flat().filter(Boolean);
         if (allCodeBlocks.length > 0) lastCodeBlock = allCodeBlocks[allCodeBlocks.length - 1];
 
-        const emailExtractionPrompt = `Erstelle einen E-Mail-Entwurf. Beziehe dich auf den Verlauf. Kopiere Code EXAKT 1:1.
-LETZTER CODE IM VERLAUF: ${lastCodeBlock || "Keiner"}
-VERLAUF: ${historyContext}
-ANFRAGE: "${text}"
+        // NEU: Wir nutzen ein ganz simples Text-Format statt JSON!
+        const emailExtractionPrompt = `Erstelle einen E-Mail-Entwurf. 
+WICHTIG: Wenn der Nutzer Code verlangt, nimm EXAKT diesen Code hier:
+${lastCodeBlock || "Kein Code vorhanden."}
 
-WICHTIG: Antworte AUSSCHLIESSLICH mit gültigem JSON, OHNE Text davor oder danach!
-Format:
-{"to": "empfänger_oder_leer", "subject": "Betreff", "body": "Dein Text hier..."}`;
+Bisheriger Verlauf: ${historyContext}
+Nutzer-Anfrage: "${text}"
+
+Antworte EXAKT in diesem Format (mit den eckigen Klammern!):
+[TO]: empfaenger@adresse.de (oder leer)
+[SUBJECT]: Der Betreff
+[BODY]: 
+Hier kommt der komplette E-Mail Text hin (inklusive Code).`;
 
         try {
-            const jsonResponse = await generateAiResponse([{ role: 'user', content: emailExtractionPrompt }], CONFIG.models.normal);
+            const responseText = await generateAiResponse([{ role: 'user', content: emailExtractionPrompt }], CONFIG.models.normal);
             
-            const firstBrace = jsonResponse.indexOf('{');
-            const lastBrace = jsonResponse.lastIndexOf('}');
+            // Text sicher aufteilen mit Regex
+            const toMatch = responseText.match(/\[TO\]:\s*(.*)/i);
+            const subjectMatch = responseText.match(/\[SUBJECT\]:\s*(.*)/i);
+            const bodySplit = responseText.split(/\[BODY\]:/i);
             
-            if (firstBrace === -1 || lastBrace === -1) {
-                throw new Error("KI hat kein gültiges JSON-Format geliefert.");
-            }
+            const emailTo = toMatch ? toMatch[1].trim() : '';
+            const emailSubject = subjectMatch ? subjectMatch[1].trim() : '';
+            const emailBody = bodySplit.length > 1 ? bodySplit[1].trim() : responseText.trim(); // Fallback
 
-            const cleanJson = jsonResponse.substring(firstBrace, lastBrace + 1);
-            const emailData = JSON.parse(cleanJson);
-
-            document.getElementById('email-recipient').value = emailData.to || '';
-            document.getElementById('email-subject').value = emailData.subject || '';
-            document.getElementById('email-draft-output').value = emailData.body || '';
+            document.getElementById('email-recipient').value = emailTo.replace('(oder leer)', '');
+            document.getElementById('email-subject').value = emailSubject;
+            document.getElementById('email-draft-output').value = emailBody;
 
             UI.showLoading(false);
             const successMsg = "Ich habe das E-Mail-Fenster für dich vorbereitet!";
@@ -358,22 +371,21 @@ Format:
             Storage.saveSessions(sessions);
             
             document.getElementById('email-modal').classList.remove('hidden');
-            return; // WICHTIG: Stoppt den normalen Chat!
+            return; // STOPPT HIER!
             
         } catch (err) { 
             console.error("E-Mail Generierung fehlgeschlagen:", err); 
             UI.showLoading(false);
-            
-            const errorMsg = "Entschuldigung, beim Erstellen des E-Mail-Entwurfs gab es einen Formatierungsfehler. Bitte versuche den Befehl nochmal (z.B. 'Schicke den Code per Mail an...').";
+            const errorMsg = "Entschuldigung, beim Formatieren der E-Mail gab es einen Fehler. Bitte öffne die E-Mail Einstellungen manuell.";
             UI.appendMessage(errorMsg, false);
             currentSession.messages.push({ text: errorMsg, isUser: false });
             Storage.saveSessions(sessions);
-            return; // WICHTIG: Stoppt hier und verhindert, dass der Chat normal weiterredet!
+            return; // STOPPT HIER!
         }
     }
 
     // =================================================================
-    // 🤖 NORMALER MODELL-ABLAUF 
+    // 🤖 NORMALER MODELL-ABLAUF (Wird bei E-Mails ignoriert)
     // =================================================================
     const context = currentSession.messages.map(m => ({ role: m.isUser ? 'user' : 'assistant', content: m.text }));
     const settings = Storage.getSettings();
