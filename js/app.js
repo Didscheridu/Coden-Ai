@@ -291,22 +291,23 @@ async function handleSend() {
     UI.appendMessage(text, true); currentSession.messages.push({ text: text, isUser: true }); Storage.saveSessions(sessions);
     if (currentSession.messages.length === 1) generateChatTitle(text);
 
-    // Kontext für alle Logiken vorbereiten
+    // Kontext vorbereiten
     let historyContext = "";
     currentSession.messages.slice(-5, -1).forEach(m => historyContext += `${m.isUser ? 'Nutzer' : 'KI'}: ${m.text.substring(0, 1000)}...\n`);
 
     // =================================================================
-    // 🧠 UNIVERSALER E-MAIL CHECK (Funktioniert in jedem Modus!)
+    // 🧠 UNIVERSALER E-MAIL CHECK (Kugelsicher!)
     // =================================================================
     const lowerText = text.toLowerCase();
     let isEmailCommand = false;
 
     if (lowerText.includes('mail') || lowerText.includes('e-mail') || lowerText.includes('email')) {
         UI.showLoading(true, "Coden prüft E-Mail Anfrage...");
-        const emailIntentPrompt = `Will der Nutzer in der folgenden Nachricht eine E-Mail verfassen oder senden? Antworte NUR mit "JA" oder "NEIN".\n\nNachricht: "${text}"`;
+        const emailIntentPrompt = `Will der Nutzer in der folgenden Nachricht eine E-Mail verfassen oder senden? Antworte AUSSCHLIESSLICH mit einem einzigen Wort: "JA" oder "NEIN".\n\nNachricht: "${text}"`;
         try {
             const intentResult = await generateAiResponse([{ role: 'user', content: emailIntentPrompt }], CONFIG.models.normal);
-            if (intentResult.toUpperCase().includes('JA')) isEmailCommand = true;
+            // Strengere Überprüfung
+            if (intentResult.trim().toUpperCase().startsWith('JA')) isEmailCommand = true;
         } catch (e) { console.error("E-Mail Check fehlgeschlagen", e); }
     }
 
@@ -318,15 +319,27 @@ async function handleSend() {
         const allCodeBlocks = currentSession.messages.map(m => m.text.match(codeRegex)).flat().filter(Boolean);
         if (allCodeBlocks.length > 0) lastCodeBlock = allCodeBlocks[allCodeBlocks.length - 1];
 
-        const emailExtractionPrompt = `Erstelle einen E-Mail-Entwurf. Beziehe dich auf den Verlauf, wenn nötig. Kopiere Code EXAKT.
-LETZTER CODE: ${lastCodeBlock || "Keiner"}
+        const emailExtractionPrompt = `Erstelle einen E-Mail-Entwurf. Beziehe dich auf den Verlauf. Kopiere Code EXAKT.
+LETZTER CODE IM VERLAUF: ${lastCodeBlock || "Keiner"}
 VERLAUF: ${historyContext}
 ANFRAGE: "${text}"
-ANTWORTE NUR ALS JSON: {"to": "...", "subject": "...", "body": "..."}`;
+
+WICHTIG: Antworte AUSSCHLIESSLICH mit gültigem JSON, OHNE Text davor oder danach!
+Format:
+{"to": "empfänger_oder_leer", "subject": "Betreff", "body": "Dein Text hier..."}`;
 
         try {
             const jsonResponse = await generateAiResponse([{ role: 'user', content: emailExtractionPrompt }], CONFIG.models.normal);
-            const cleanJson = jsonResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+            
+            // NEU: Kugelsicherer JSON-Staubsauger (Sucht das erste { und das letzte })
+            const firstBrace = jsonResponse.indexOf('{');
+            const lastBrace = jsonResponse.lastIndexOf('}');
+            
+            if (firstBrace === -1 || lastBrace === -1) {
+                throw new Error("KI hat kein gültiges JSON-Format geliefert.");
+            }
+
+            const cleanJson = jsonResponse.substring(firstBrace, lastBrace + 1);
             const emailData = JSON.parse(cleanJson);
 
             document.getElementById('email-recipient').value = emailData.to || '';
@@ -334,14 +347,29 @@ ANTWORTE NUR ALS JSON: {"to": "...", "subject": "...", "body": "..."}`;
             document.getElementById('email-draft-output').value = emailData.body || '';
 
             UI.showLoading(false);
-            UI.appendMessage("Ich habe das E-Mail-Fenster für dich vorbereitet!", false);
+            const successMsg = "Ich habe das E-Mail-Fenster für dich vorbereitet!";
+            UI.appendMessage(successMsg, false);
+            currentSession.messages.push({ text: successMsg, isUser: false });
+            Storage.saveSessions(sessions);
+            
             document.getElementById('email-modal').classList.remove('hidden');
-            return; 
-        } catch (err) { console.error("E-Mail Generierung fehlgeschlagen", err); }
+            return; // WICHTIG: Stoppt hier!
+            
+        } catch (err) { 
+            console.error("E-Mail Generierung fehlgeschlagen:", err); 
+            UI.showLoading(false);
+            
+            // NEU: Wenn es abstürzt, sagen wir es dem Nutzer, statt normal weiter zu chatten!
+            const errorMsg = "Entschuldigung, ich konnte den E-Mail-Entwurf nicht richtig formatieren. Bitte versuche den Befehl nochmal.";
+            UI.appendMessage(errorMsg, false);
+            currentSession.messages.push({ text: errorMsg, isUser: false });
+            Storage.saveSessions(sessions);
+            return; // WICHTIG: Stoppt hier und verhindert, dass der normale Chat antwortet!
+        }
     }
 
     // =================================================================
-    // 🤖 NORMALER MODELL-ABLAUF (Flash, Thinking, Pro)
+    // 🤖 NORMALER MODELL-ABLAUF (Wird bei E-Mails jetzt übersprungen!)
     // =================================================================
     const context = currentSession.messages.map(m => ({ role: m.isUser ? 'user' : 'assistant', content: m.text }));
     const settings = Storage.getSettings();
