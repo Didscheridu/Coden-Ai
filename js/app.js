@@ -352,7 +352,7 @@ async function handleSend() {
     }
 
     // =================================================================
-    // 📨 E-MAIL EXTRAKTION (Mit E-Mail-Staubsauger Regex!)
+    // 📨 E-MAIL EXTRAKTION (Striktes Redeverbot für die KI!)
     // =================================================================
     if (isEmailCommand) {
         UI.showLoading(true, "Coden bereitet das E-Mail-Fenster vor...");
@@ -362,20 +362,26 @@ async function handleSend() {
         const allCodeBlocks = currentSession.messages.map(m => m.text.match(codeRegex)).flat().filter(Boolean);
         if (allCodeBlocks.length > 0) lastCodeBlock = allCodeBlocks[allCodeBlocks.length - 1];
 
-        // Prompt massiv verschärft auf die E-Mail-Suche in der Nutzer-Anfrage
-        const emailExtractionPrompt = `Erstelle einen E-Mail-Entwurf. 
-WICHTIG: Wenn der Nutzer Code verlangt, nimm EXAKT diesen Code hier:
+        // Prompt extrem verschärft: Die KI bekommt "Redeverbot" und darf nur die Mail schreiben!
+        const emailExtractionPrompt = `DU BIST EIN UNSICHTBARER E-MAIL-GENERATOR. Deine EINZIGE Aufgabe ist es, einen fertigen E-Mail-Entwurf zu erstellen.
+        
+WICHTIGE REGELN:
+1. Sprich NICHT mit dem Nutzer. Stelle KEINE Rückfragen (wie "Soll ich das senden?"). Antworte NICHT auf die Befehle des Nutzers.
+2. Generiere AUSSCHLIESSLICH den Text, der an den Empfänger der E-Mail geschickt werden soll.
+3. Wenn der Nutzer Code verlangt, kopiere EXAKT diesen Code:
 ${lastCodeBlock || "Kein Code vorhanden."}
 
-Bisheriger Verlauf: ${historyContext}
-Nutzer-Anfrage: "${text}"
+Bisheriger Verlauf als Kontext: 
+${historyContext}
+
+Der Befehl des Nutzers (Was in die Mail soll): "${text}"
 
 Anweisung für die Felder:
-1. Suche in der "Nutzer-Anfrage" nach der E-Mail-Adresse. Schreibe AUSSCHLIESSLICH diese E-Mail-Adresse in die [TO] Zeile (keine spitzen Klammern, keinen Text dazu!).
-2. Schreibe einen passenden Betreff.
-3. Verfasse die E-Mail.
+- [TO]: Suche in der Nutzer-Anfrage nach der Adresse. Schreibe NUR die nackte E-Mail-Adresse (keine Klammern, keine Sätze).
+- [SUBJECT]: Ein passender, professioneller Betreff.
+- [BODY]: Der finale, fertige E-Mail-Text an den Empfänger. Nichts anderes!
 
-Antworte EXAKT in diesem Format (mit den eckigen Klammern!):
+Antworte EXAKT in diesem Format:
 [TO]: 
 [SUBJECT]: 
 [BODY]: 
@@ -397,13 +403,12 @@ Antworte EXAKT in diesem Format (mit den eckigen Klammern!):
             const emailSubject = subjectMatch ? subjectMatch[1].trim() : '';
             const emailBody = bodySplit.length > 1 ? bodySplit[1].trim() : responseText.trim(); 
 
-            // --- DER E-MAIL STAUBSAUGER (Regex) ---
-            // Entfernt < > Klammern und sucht nach einem sauberen name@domain.endung Format
+            // E-MAIL STAUBSAUGER (Regex)
             emailTo = emailTo.replace(/[<>]/g, '').trim(); 
             const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/;
             const extractedEmail = emailTo.match(emailRegex);
             if(extractedEmail) {
-                emailTo = extractedEmail[0]; // Setzt wirklich NUR die reine E-Mail-Adresse ein
+                emailTo = extractedEmail[0]; 
             }
 
             document.getElementById('email-recipient').value = emailTo;
