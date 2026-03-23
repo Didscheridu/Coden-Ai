@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coden AI</title>
+    
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/layout.css">
+    <link rel="stylesheet" href="css/chat.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/animations.css">
+    <link rel="stylesheet" href="css/settings.css">
+    <link rel="stylesheet" href="css/auth.css"> </head>
+<body>
+
+    <div id="login-screen" class="login-screen">
+        <div class="login-box">
+            <img src="./images/coden_logo.jpg" onerror="this.style.display='none'">
+            <h2>Coden AI Login</h2>
+            
+            <button id="btn-google-login" class="btn-google">
+                <img src="https://fonts.gstatic.com/s/i/productlogos/googleg/v6/24px.svg" style="width: 18px; height: 18px; margin: 0; border-radius: 0;">
+                Mit Google anmelden
+            </button>
+            
+            <div class="auth-divider">oder per E-Mail</div>
+            
+            <div class="auth-form">
+                <input type="email" id="auth-email" class="settings-input" placeholder="E-Mail Adresse">
+                <input type="password" id="auth-password" class="settings-input" placeholder="Passwort">
+                <div class="auth-buttons">
+                    <button id="btn-email-login" class="btn-save" style="flex: 1;">Einloggen</button>
+                    <button id="btn-email-register" class="btn-cancel" style="flex: 1;">Registrieren</button>
+                </div>
+            </div>
+            
+            <div id="auth-error-msg" class="auth-error">Fehler aufgetreten.</div>
+        </div>
+    </div>
+
+    <div id="app" class="app-container hidden">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <button class="icon-btn"><span class="material-symbols-outlined">menu</span></button>
+                <button class="icon-btn"><span class="material-symbols-outlined">search</span></button>
+            </div>
+
+            <button class="new-chat-btn active">
+                <span class="material-symbols-outlined">chat_bubble</span>
+                Neuer Projekt-Chat
+            </button>
+
+            <div class="sidebar-scroll-area"></div>
+
+            <div class="sidebar-footer">
+                <a href="#" class="nav-item" id="open-settings-btn"><span class="material-symbols-outlined">settings</span> Einstellungen</a>
+                <a href="#" class="nav-item" id="logout-btn" style="color: #ff5555;"><span class="material-symbols-outlined">logout</span> Abmelden</a>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <header class="top-bar">
+                <div class="brand">Coden AI</div>
+                <div id="user-email-display" style="font-size: 13px; color: var(--text-muted);"></div>
+            </header>
+
+            <div class="chat-scroll-area" id="chat-container">
+                <div class="welcome-screen" id="welcome-screen">
+                    <img src="./images/coden_logo.jpg" class="welcome-logo" onerror="this.style.display='none'">
+                    <h1 class="greeting">Hallo Entwickler.</h1>
+                    <h2 class="sub-greeting">Was machen wir heute?</h2>
+                </div>
+            </div>
+
+            <div class="input-section">
+                <div class="input-box">
+                    <textarea id="main-input" rows="1" placeholder="Einen Prompt für Coden AI eingeben..."></textarea>
+                    
+                    <div class="input-footer">
+                        <div class="left-tools">
+                            <button class="icon-btn" id="attachment-btn"><span class="material-symbols-outlined">add</span></button>
+                            <input type="file" id="file-upload-input" multiple style="display: none;">
+                        </div>
+                        <div class="right-tools">
+                            <div class="model-dropdown-container" style="position: relative;">
+                                <button class="text-btn" id="model-selector-btn">
+                                    <span id="current-model-text">Coden Flash</span> 
+                                    <span class="material-symbols-outlined">expand_more</span>
+                                </button>
+                                
+                                <div class="model-dropdown-menu hidden" id="model-dropdown-menu">
+                                    <div class="model-option active" data-model="flash"><span class="material-symbols-outlined">bolt</span> <span class="name">Coden Flash</span></div>
+                                    <div class="model-option" data-model="normal"><span class="material-symbols-outlined">auto_awesome</span> <span class="name">Coden Thinking</span></div>
+                                    <div class="model-option" data-model="pro"><span class="material-symbols-outlined">magic_button</span> <span class="name">Coden Pro</span></div>
+                                </div>
+                            </div>
+                            <button class="icon-btn" id="mic-btn"><span class="material-symbols-outlined">mic</span></button>
+                            <button class="icon-btn" id="send-btn" style="color: var(--accent-blue);"><span class="material-symbols-outlined">send</span></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div id="settings-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 style="display: flex; align-items: center; gap: 8px; font-weight: 500;">
+                    <span class="material-symbols-outlined" style="color: var(--accent-blue);">settings</span> Einstellungen
+                </h3>
+                <button class="icon-btn" id="close-settings"><span class="material-symbols-outlined">close</span></button>
+            </div>
+            <div class="modal-body">
+                <label>🎭 KI Persona (Charakter)</label>
+                <select id="persona-select" class="settings-input">
+                    <option value="Standard">Standard</option>
+                    <option value="Senior Dev">Senior Dev</option>
+                    <option value="Erklärbär">Erklärbär</option>
+                    <option value="Hacker">Hacker</option>
+                    <option value="Eigene (Custom)">Eigene (Custom)</option>
+                </select>
+                <div id="custom-persona-container" class="hidden" style="margin-top: 12px;">
+                    <textarea id="custom-persona-input" class="settings-input" rows="3" placeholder="Schreibe deinen eigenen System-Prompt..."></textarea>
+                </div>
+                <label style="margin-top: 24px; display: block;">🔠 Chat Schriftgröße: <span id="font-size-display">15</span>px</label>
+                <input type="range" id="font-size-slider" min="12" max="22" value="15" class="settings-slider">
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" id="cancel-settings">Abbrechen</button>
+                <button class="btn-save" id="save-settings">Speichern</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>

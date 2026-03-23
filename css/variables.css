@@ -1,0 +1,29 @@
+:root {
+    --bg-main: #131314;       /* Dunkler Hintergrund Hauptbereich */
+    --bg-sidebar: #1e1f20;    /* Etwas hellerer Sidebar Hintergrund */
+    --bg-input: #1e1f20;      /* Hintergrund der Input Box */
+    --bg-surface: #282a2c;    /* Hover States, Chips, Code-Header */
+    --bg-code: #1e1f20;       /* Code Block Hintergrund */
+    
+    --text-primary: #e3e3e3;
+    --text-secondary: #c4c7c5;
+    --text-muted: #8e918f;
+    
+    --border-color: #444746;
+    
+    --accent-blue: #a8c7fa;   /* Gemini Blau */
+    --accent-green: #6dd58c;
+    --accent-purple: #d3e3fd;
+    
+    --font-main: 'Inter', sans-serif;
+    --font-mono: 'Courier New', Courier, monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    font-family: var(--font-main);
+    overflow: hidden;
+}
+.hidden { display: none !important; }

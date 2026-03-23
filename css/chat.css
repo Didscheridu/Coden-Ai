@@ -1,0 +1,111 @@
+/* css/chat.css */
+
+/* =========================================
+   ✨ WELCOME SCREEN (Zentriert & Logo) ✨
+========================================= */
+.welcome-screen { 
+    margin-top: 8vh; 
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+.welcome-logo {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    object-fit: cover;
+    margin-bottom: 24px;
+    box-shadow: 0 8px 32px rgba(168, 199, 250, 0.15);
+}
+
+/* NEU: Größer und mit Farbverlauf */
+.greeting { 
+    font-size: 56px; 
+    font-weight: 600; 
+    margin-bottom: 12px; 
+    background: linear-gradient(135deg, #63A4FF, #8E54E9);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    color: transparent;
+}
+
+.sub-greeting { 
+    font-size: 32px; 
+    font-weight: 400; 
+    color: var(--text-secondary); 
+    margin-bottom: 32px; 
+}
+
+
+/* =========================================
+   Processing Box (Die Modell-Kette)
+========================================= */
+.processing-box {
+    background-color: transparent; 
+    border-radius: 16px; padding: 16px;
+    margin-bottom: 24px; border: none;
+}
+.model-chain { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.model-step {
+    display: flex; align-items: center; gap: 6px; padding: 8px 16px;
+    border-radius: 20px; font-size: 14px; border: 1px solid var(--border-color);
+}
+.model-step.active { background-color: rgba(168, 199, 250, 0.1); color: var(--accent-blue); border-color: var(--accent-blue); }
+.model-step.pending { color: var(--text-muted); }
+.arrow { color: var(--text-muted); font-size: 16px; }
+
+.progress-text { font-size: 14px; color: var(--text-secondary); margin-bottom: 8px; }
+.progress-bar-container { width: 100%; height: 4px; background: var(--bg-surface); border-radius: 2px; overflow: hidden; }
+.progress-bar { height: 100%; background: var(--accent-blue); transition: width 0.3s ease; }
+
+
+/* =========================================
+   Logs
+========================================= */
+.process-logs { margin-bottom: 24px; padding-left: 8px; }
+.log-item { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; font-size: 14px; }
+.log-item.done { color: var(--text-muted); }
+.log-item.active { color: var(--text-primary); }
+.log-item.pending { color: rgba(255,255,255,0.2); }
+.log-item span { font-size: 18px; }
+
+
+/* =========================================
+   💻 CODE BLOCKS (Responsive Fix)
+========================================= */
+.code-block-wrapper {
+    background-color: var(--bg-code); 
+    border: 1px solid var(--border-color);
+    border-radius: 16px; 
+    margin-top: 20px;
+    max-width: 100%; 
+    width: 100%;
+    overflow: hidden; 
+}
+
+.code-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 16px; background-color: #2a2b2e;
+}
+.code-header .lang { font-size: 12px; color: var(--text-secondary); text-transform: capitalize; }
+.code-actions { display: flex; gap: 12px; }
+.code-actions button {
+    background: transparent; border: none; color: var(--text-secondary);
+    display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer;
+}
+
+.code-block-wrapper pre { 
+    margin: 0; 
+    padding: 16px; 
+    overflow-x: auto; 
+    max-width: 100%;
+}
+
+.code-block-wrapper code { 
+    font-family: var(--font-mono); 
+    font-size: 14px; 
+    line-height: 1.5; 
+}
