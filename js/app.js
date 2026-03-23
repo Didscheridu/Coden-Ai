@@ -83,13 +83,12 @@ function initApp() {
 }
 
 // ==========================================
-// ✉️ EMAIL ASSISTENT LOGIK
+// ✉️ EMAIL ASSISTENT LOGIK (Aufgeräumt)
 // ==========================================
 const emailModal = document.getElementById('email-modal');
 const openEmailBtn = document.getElementById('open-email-btn');
 const closeEmailBtn = document.getElementById('close-email-btn');
 const saveEmailSettingsBtn = document.getElementById('save-email-settings');
-const generateEmailBtn = document.getElementById('generate-email-btn');
 const sendRealEmailBtn = document.getElementById('send-real-email-btn');
 
 openEmailBtn.addEventListener('click', (e) => {
@@ -100,6 +99,7 @@ openEmailBtn.addEventListener('click', (e) => {
         document.getElementById('email-address').value = settings.emailConfig.address || '';
         document.getElementById('email-password').value = settings.emailConfig.password || '';
     }
+    document.getElementById('email-result-container').classList.add('hidden'); // Verstecken beim normalen Öffnen
     emailModal.classList.remove('hidden');
 });
 
@@ -119,43 +119,7 @@ saveEmailSettingsBtn.addEventListener('click', () => {
     setTimeout(() => feedback.style.display = 'none', 3000);
 });
 
-generateEmailBtn.addEventListener('click', async () => {
-    const emailText = document.getElementById('email-draft-input').value.trim();
-    if (!emailText) return;
-
-    generateEmailBtn.innerHTML = '<div class="spinner" style="width: 16px; height: 16px; border-color: var(--bg-main) transparent var(--bg-main) transparent;"></div> Verarbeite...';
-    generateEmailBtn.disabled = true;
-
-    const emailSystemPrompt = `Du bist der "Coden Email Assistent". Deine Aufgabe ist es, E-Mails zu analysieren und Antworten zu verfassen.
-WICHTIGE REGELN:
-1. Du darfst NIEMALS finanzielle Deals abschließen, Zahlungen bestätigen oder über Geld verhandeln.
-2. Formatiere deine Antwort IMMER genau so:
-ZUSAMMENFASSUNG: [Zusammenfassung in 2-3 Sätzen]
-ANTWORT: [E-Mail-Antwort]
-3. AM ENDE JEDER ANTWORT MUSS ZWINGEND DIESER TEXT STEHEN: "\n\nHinweis: Diese E-Mail wurde von einer KI verfasst und kann Fehler enthalten."`;
-
-    try {
-        const responseText = await generateAiResponse([
-            { role: 'system', content: emailSystemPrompt },
-            { role: 'user', content: `Hier ist die E-Mail:\n\n${emailText}` }
-        ], CONFIG.models.normal);
-
-        const parts = responseText.split('ANTWORT:');
-        const summaryPart = parts[0].replace('ZUSAMMENFASSUNG:', '').trim();
-        const replyPart = parts.length > 1 ? parts[1].trim() : 'Fehler bei der Generierung.';
-
-        document.getElementById('email-summary').textContent = summaryPart;
-        document.getElementById('email-draft-output').value = replyPart; 
-        document.getElementById('email-result-container').classList.remove('hidden');
-
-    } catch (error) {
-        document.getElementById('email-summary').textContent = "Fehler bei der API-Verbindung.";
-    }
-
-    generateEmailBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">auto_awesome</span> Mit GPT-4o generieren';
-    generateEmailBtn.disabled = false;
-});
-
+// E-Mail echt versenden
 sendRealEmailBtn.addEventListener('click', async () => {
     const settings = Storage.getSettings();
     if (!settings.emailConfig || !settings.emailConfig.address || !settings.emailConfig.password) {
@@ -340,12 +304,24 @@ async function handleSend() {
     if (currentSession.messages.length === 1) generateChatTitle(text);
 
     // =================================================================
-    // 🧠 NEU: CHAT-BEFEHL ERKENNUNG FÜR EMAILS ("Schreibe E-Mail an...")
+    // 🧠 NEU: SMARTER GPT-4o CHECK FÜR EMAILS
     // =================================================================
     const lowerText = text.toLowerCase();
-    const isEmailCommand = lowerText.startsWith('schreibe eine email an') || 
-                           lowerText.startsWith('schreibe eine e-mail an') || 
-                           lowerText.startsWith('sende eine email an');
+    let isEmailCommand = false;
+
+    // Nur prüfen, wenn das Wort "Mail" überhaupt vorkommt (Spart extrem viel Zeit!)
+    if (lowerText.includes('mail') || lowerText.includes('e-mail')) {
+        UI.showLoading(true, "Coden analysiert deine E-Mail Anfrage...");
+        
+        const emailIntentPrompt = `Will der Nutzer in der folgenden Nachricht eine E-Mail verfassen, schreiben oder senden? Antworte AUSSCHLIESSLICH mit "JA" oder "NEIN".\n\nNutzer-Nachricht: "${text}"`;
+        
+        try {
+            const intentResult = await generateAiResponse([{ role: 'user', content: emailIntentPrompt }], CONFIG.models.normal);
+            if (intentResult.toUpperCase().includes('JA')) isEmailCommand = true;
+        } catch (e) {
+            console.error("Intent Check Fehler:", e);
+        }
+    }
 
     if (isEmailCommand) {
         UI.showLoading(true, "Coden bereitet den E-Mail-Entwurf vor...");
@@ -361,21 +337,15 @@ Antworte AUSSCHLIESSLICH im folgenden JSON-Format, ohne jeglichen Markdown-Text 
 }`;
 
         try {
-            // Wir nutzen Coden Thinking (GPT-4o), um das JSON zu bauen
             const jsonResponse = await generateAiResponse([{ role: 'user', content: emailExtractionPrompt }], CONFIG.models.normal);
-            
-            // JSON bereinigen (falls GPT-4o trotzdem Markdown mitschickt)
             const cleanJson = jsonResponse.replace(/```json/g, '').replace(/```/g, '').trim();
             const emailData = JSON.parse(cleanJson);
 
-            // Felder im Modal ausfüllen
             document.getElementById('email-recipient').value = emailData.to || '';
             document.getElementById('email-subject').value = emailData.subject || '';
             document.getElementById('email-draft-output').value = emailData.body || '';
             document.getElementById('email-result-container').classList.remove('hidden');
-            document.getElementById('email-summary').textContent = "E-Mail Entwurf via Chat-Befehl erstellt.";
 
-            // Einstellungen vorladen
             const settings = Storage.getSettings();
             if (settings.emailConfig) {
                 document.getElementById('email-provider').value = settings.emailConfig.provider || 'gmail';
@@ -383,19 +353,16 @@ Antworte AUSSCHLIESSLICH im folgenden JSON-Format, ohne jeglichen Markdown-Text 
                 document.getElementById('email-password').value = settings.emailConfig.password || '';
             }
 
-            // Chat-Antwort
             UI.showLoading(false);
             const successMsg = "Ich habe den E-Mail-Entwurf für dich vorbereitet! Das Sende-Fenster öffnet sich jetzt.";
             UI.appendMessage(successMsg, false);
             currentSession.messages.push({ text: successMsg, isUser: false });
             Storage.saveSessions(sessions);
             
-            // Modal öffnen
             document.getElementById('email-modal').classList.remove('hidden');
-            return; // Wir brechen hier ab, damit der normale KI-Chat nicht noch extra antwortet!
+            return; 
         } catch (err) {
             console.error("Fehler bei der automatischen E-Mail Erstellung", err);
-            // Falls das JSON kaputt ist, geht es einfach im normalen Chat weiter
         }
     }
 
