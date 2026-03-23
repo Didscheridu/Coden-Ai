@@ -90,8 +90,8 @@ const openEmailBtn = document.getElementById('open-email-btn');
 const closeEmailBtn = document.getElementById('close-email-btn');
 const saveEmailSettingsBtn = document.getElementById('save-email-settings');
 const generateEmailBtn = document.getElementById('generate-email-btn');
+const sendRealEmailBtn = document.getElementById('send-real-email-btn'); // NEU
 
-// Öffnen & Einstellungen laden
 openEmailBtn.addEventListener('click', (e) => {
     e.preventDefault();
     const settings = Storage.getSettings();
@@ -103,10 +103,8 @@ openEmailBtn.addEventListener('click', (e) => {
     emailModal.classList.remove('hidden');
 });
 
-// Schließen
 closeEmailBtn.addEventListener('click', () => emailModal.classList.add('hidden'));
 
-// Speichern des App-Passworts
 saveEmailSettingsBtn.addEventListener('click', () => {
     const settings = Storage.getSettings();
     settings.emailConfig = {
@@ -121,7 +119,7 @@ saveEmailSettingsBtn.addEventListener('click', () => {
     setTimeout(() => feedback.style.display = 'none', 3000);
 });
 
-// KI-Generierung (Zusammenfassung & Antwort)
+// KI Text generieren
 generateEmailBtn.addEventListener('click', async () => {
     const emailText = document.getElementById('email-draft-input').value.trim();
     if (!emailText) return;
@@ -129,29 +127,27 @@ generateEmailBtn.addEventListener('click', async () => {
     generateEmailBtn.innerHTML = '<div class="spinner" style="width: 16px; height: 16px; border-color: var(--bg-main) transparent var(--bg-main) transparent;"></div> Verarbeite...';
     generateEmailBtn.disabled = true;
 
-    // Der strikte System Prompt für Emails
     const emailSystemPrompt = `Du bist der "Coden Email Assistent". Deine Aufgabe ist es, E-Mails zu analysieren und Antworten zu verfassen.
 WICHTIGE REGELN:
 1. Du darfst NIEMALS finanzielle Deals abschließen, Zahlungen bestätigen oder über Geld verhandeln. Wenn es um Geld geht, weise höflich darauf hin, dass dies persönlich geklärt werden muss.
 2. Formatiere deine Antwort IMMER genau so:
 ZUSAMMENFASSUNG: [Hier eine kurze Zusammenfassung der erhaltenen E-Mail in 2-3 Sätzen]
 ANTWORT: [Hier der Text für die E-Mail-Antwort]
-3. AM ENDE JEDER ANTWORT MUSS ZWINGEND DIESER TEXT STEHEN: "Hinweis: Diese E-Mail wurde von einer KI verfasst und kann Fehler enthalten."`;
+3. AM ENDE JEDER ANTWORT MUSS ZWINGEND DIESER TEXT STEHEN: "\n\nHinweis: Diese E-Mail wurde von einer KI verfasst und kann Fehler enthalten."`;
 
     try {
-        // Wir nutzen GPT-4o (Normal) für Emails
         const responseText = await generateAiResponse([
             { role: 'system', content: emailSystemPrompt },
             { role: 'user', content: `Hier ist die E-Mail:\n\n${emailText}` }
         ], CONFIG.models.normal);
 
-        // Text aufsplitten in Zusammenfassung und Antwort
         const parts = responseText.split('ANTWORT:');
         const summaryPart = parts[0].replace('ZUSAMMENFASSUNG:', '').trim();
         const replyPart = parts.length > 1 ? parts[1].trim() : 'Fehler bei der Generierung.';
 
         document.getElementById('email-summary').textContent = summaryPart;
-        document.getElementById('email-draft-output').textContent = replyPart;
+        // Text in das editierbare Textarea schreiben!
+        document.getElementById('email-draft-output').value = replyPart; 
         document.getElementById('email-result-container').classList.remove('hidden');
 
     } catch (error) {
@@ -160,6 +156,60 @@ ANTWORT: [Hier der Text für die E-Mail-Antwort]
 
     generateEmailBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">auto_awesome</span> Mit GPT-4o generieren';
     generateEmailBtn.disabled = false;
+});
+
+// NEU: E-Mail echt versenden!
+sendRealEmailBtn.addEventListener('click', async () => {
+    const settings = Storage.getSettings();
+    if (!settings.emailConfig || !settings.emailConfig.address || !settings.emailConfig.password) {
+        alert("Bitte speichere zuerst deine E-Mail und dein App-Passwort in den Einstellungen oben!");
+        return;
+    }
+
+    const recipient = document.getElementById('email-recipient').value.trim();
+    const subject = document.getElementById('email-subject').value.trim();
+    const draftText = document.getElementById('email-draft-output').value.trim();
+    const feedback = document.getElementById('email-send-feedback');
+
+    if (!recipient || !draftText) {
+        alert("Bitte Empfänger und Text ausfüllen!");
+        return;
+    }
+
+    sendRealEmailBtn.innerHTML = '<div class="spinner" style="width: 16px; height: 16px; border-color: white transparent white transparent;"></div> Sende...';
+    sendRealEmailBtn.disabled = true;
+
+    try {
+        const response = await fetch('/api/send-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                provider: settings.emailConfig.provider,
+                email: settings.emailConfig.address,
+                password: settings.emailConfig.password,
+                to: recipient,
+                subject: subject,
+                text: draftText
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+            feedback.style.color = 'var(--accent-green)';
+            feedback.textContent = '✅ E-Mail erfolgreich versendet!';
+            feedback.style.display = 'block';
+        } else {
+            throw new Error(data.error || 'Unbekannter Serverfehler');
+        }
+    } catch (error) {
+        feedback.style.color = '#ff4444';
+        feedback.textContent = '❌ Fehler: ' + error.message;
+        feedback.style.display = 'block';
+    }
+
+    sendRealEmailBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">send</span> E-Mail jetzt versenden';
+    sendRealEmailBtn.disabled = false;
 });
 
 
@@ -184,7 +234,7 @@ document.getElementById('close-settings').addEventListener('click', () => settin
 document.getElementById('cancel-settings').addEventListener('click', () => settingsModal.classList.add('hidden'));
 
 document.getElementById('save-settings').addEventListener('click', () => {
-    const currentSettings = Storage.getSettings(); // Wichtig: Alte Config (Email) behalten!
+    const currentSettings = Storage.getSettings(); 
     currentSettings.persona = document.getElementById('persona-select').value;
     currentSettings.customPersona = document.getElementById('custom-persona-input').value;
     currentSettings.fontSize = parseInt(document.getElementById('font-size-slider').value);
