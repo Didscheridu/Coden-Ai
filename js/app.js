@@ -318,22 +318,35 @@ async function handleSend() {
         }
     }
 
+    // ... (oberer Teil bleibt gleich bis zur Zeile ca. 250)
+
     if (isEmailCommand) {
         UI.showLoading(true, "Coden bereitet den E-Mail-Entwurf vor...");
         
-        const emailExtractionPrompt = `Der Nutzer möchte eine E-Mail senden.
-Bisheriger Chat-Verlauf (EXTREM WICHTIG, falls der Nutzer Dinge wie "schicke den Code" sagt, nimm den Code von hier!):
-${historyContext || "(Kein vorheriger Kontext)"}
+        // Wir suchen im Verlauf explizit nach dem letzten Code-Block, um der KI zu helfen
+        let lastCodeBlock = "";
+        const codeRegex = /```[\s\S]*?```/g;
+        const allCodeBlocks = currentSession.messages.map(m => m.text.match(codeRegex)).flat().filter(Boolean);
+        if (allCodeBlocks.length > 0) {
+            lastCodeBlock = allCodeBlocks[allCodeBlocks.length - 1]; // Den aktuellsten Code nehmen
+        }
 
-Aktuelle Eingabe des Nutzers: "${text}"
+        const emailExtractionPrompt = `Du bist ein Assistent, der E-Mails vorbereitet. 
+WICHTIG: Wenn der Nutzer sich auf Code aus dem Chat bezieht (z.B. "den Code von eben"), dann kopiere EXAKT diesen Code hier unten in den E-Mail Body. Erfinde KEINEN neuen Code!
 
-Extrahiere die E-Mail-Adresse des Empfängers, schreibe einen passenden Betreff und verfasse den Text der E-Mail (inklusive Code oder Infos aus dem Chat-Verlauf, falls angefragt).
+DER LETZTE GENERIERTE CODE AUS DEM CHAT:
+${lastCodeBlock || "Kein Code im Verlauf gefunden."}
 
-Antworte AUSSCHLIESSLICH im folgenden JSON-Format, ohne jeglichen Markdown-Text drumherum:
+VOLLSTÄNDIGER CHAT-VERLAUF:
+${historyContext}
+
+AKTUELLE NUTZER-ANFRAGE: "${text}"
+
+Antworte AUSSCHLIESSLICH im JSON-Format:
 {
-  "to": "email_adresse_hier_oder_leer_lassen",
-  "subject": "Dein generierter Betreff",
-  "body": "Dein professionell verfasster Text. Ergänze am Ende immer:\\n\\nHinweis: Diese E-Mail wurde von einer KI verfasst und kann Fehler enthalten."
+  "to": "email_adresse",
+  "subject": "Betreff",
+  "body": "Hier der Text. Wenn Code angefragt wurde, füge den oben stehenden Code UNVERÄNDERT ein.\\n\\nHinweis: Diese E-Mail wurde von einer KI verfasst."
 }`;
 
         try {
@@ -346,18 +359,14 @@ Antworte AUSSCHLIESSLICH im folgenden JSON-Format, ohne jeglichen Markdown-Text 
             document.getElementById('email-draft-output').value = emailData.body || '';
 
             UI.showLoading(false);
-            const successMsg = "Ich habe den E-Mail-Entwurf (inkl. Code) für dich vorbereitet! Das Sende-Fenster öffnet sich jetzt.";
-            UI.appendMessage(successMsg, false);
-            currentSession.messages.push({ text: successMsg, isUser: false });
-            Storage.saveSessions(sessions);
-            
+            UI.appendMessage("Ich habe den E-Mail-Entwurf mit dem Original-Code vorbereitet!", false);
             document.getElementById('email-modal').classList.remove('hidden');
             return; 
         } catch (err) {
-            console.error("Fehler bei der automatischen E-Mail Erstellung. JSON Parsing fehlgeschlagen.", err);
-            // Wenn es fehlschlägt, geht er jetzt einfach normal in den Chat weiter, statt abzustürzen!
+            console.error("Fehler beim E-Mail Parsing", err);
         }
     }
+// ... (Rest der Datei bleibt gleich)
 
     // --- NORMALER CHAT ABLAUF ---
     const context = currentSession.messages.map(m => ({ role: m.isUser ? 'user' : 'assistant', content: m.text }));
