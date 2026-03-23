@@ -47,7 +47,6 @@ onAuthStateChanged(auth, async (user) => {
     }
 });
 
-
 // --- INITIALISIERUNG DER APP ---
 const chatInput = document.getElementById('main-input');
 const sendBtn = document.getElementById('send-btn');
@@ -83,7 +82,7 @@ function initApp() {
 }
 
 // ==========================================
-// ✉️ PURES EMAIL SENDE-FENSTER LOGIK
+// ✉️ EMAIL MODAL STEUERUNG
 // ==========================================
 const emailModal = document.getElementById('email-modal');
 const closeEmailBtn = document.getElementById('close-email-btn');
@@ -91,7 +90,6 @@ const sendRealEmailBtn = document.getElementById('send-real-email-btn');
 
 closeEmailBtn.addEventListener('click', () => emailModal.classList.add('hidden'));
 
-// E-Mail echt versenden
 sendRealEmailBtn.addEventListener('click', async () => {
     const settings = Storage.getSettings();
     if (!settings.emailConfig || !settings.emailConfig.address || !settings.emailConfig.password) {
@@ -146,7 +144,6 @@ sendRealEmailBtn.addEventListener('click', async () => {
     sendRealEmailBtn.disabled = false;
 });
 
-
 // --- EINSTELLUNGEN LOGIK ---
 const settingsModal = document.getElementById('settings-modal');
 const openSettingsBtn = document.getElementById('open-settings-btn');
@@ -165,7 +162,6 @@ function openSettings() {
         document.getElementById('email-address').value = s.emailConfig.address || '';
         document.getElementById('email-password').value = s.emailConfig.password || '';
     }
-    
     settingsModal.classList.remove('hidden'); 
 }
 
@@ -196,7 +192,7 @@ document.getElementById('save-settings').addEventListener('click', () => {
     settingsModal.classList.add('hidden');
 });
 
-// --- UI / CHAT STEUERUNG ---
+// --- UI / MODELL STEUERUNG ---
 let currentSelectedModel = 'flash';
 document.getElementById('model-selector-btn').addEventListener('click', (e) => {
     e.stopPropagation(); 
@@ -285,8 +281,9 @@ micBtn.addEventListener('click', () => {
     isListening ? recognition.stop() : recognition.start();
 });
 
-
-// HAUPT SENDE FUNKTION
+// ==========================================
+// 🚀 HAUPT SENDE FUNKTION
+// ==========================================
 async function handleSend() {
     if(!chatInput) return; const text = chatInput.value.trim(); if (!text) return;
     chatInput.value = ''; chatInput.style.height = 'auto';
@@ -294,60 +291,38 @@ async function handleSend() {
     UI.appendMessage(text, true); currentSession.messages.push({ text: text, isUser: true }); Storage.saveSessions(sessions);
     if (currentSession.messages.length === 1) generateChatTitle(text);
 
-    // Bisheriger Verlauf (WICHTIG für Code und E-Mails)
+    // Kontext für alle Logiken vorbereiten
     let historyContext = "";
-    // Wir nehmen die letzten 4 Nachrichten, aber kürzen den Text nicht so stark ab, damit Code drin bleibt!
     currentSession.messages.slice(-5, -1).forEach(m => historyContext += `${m.isUser ? 'Nutzer' : 'KI'}: ${m.text.substring(0, 1000)}...\n`);
 
     // =================================================================
-    // 🧠 SMARTER GPT-4o CHECK FÜR EMAILS
+    // 🧠 UNIVERSALER E-MAIL CHECK (Funktioniert in jedem Modus!)
     // =================================================================
     const lowerText = text.toLowerCase();
     let isEmailCommand = false;
 
     if (lowerText.includes('mail') || lowerText.includes('e-mail') || lowerText.includes('email')) {
-        UI.showLoading(true, "Coden analysiert deine E-Mail Anfrage...");
-        
-        const emailIntentPrompt = `Will der Nutzer in der folgenden Nachricht eine E-Mail verfassen, schreiben oder senden? Antworte AUSSCHLIESSLICH mit "JA" oder "NEIN".\n\nNutzer-Nachricht: "${text}"`;
-        
+        UI.showLoading(true, "Coden prüft E-Mail Anfrage...");
+        const emailIntentPrompt = `Will der Nutzer in der folgenden Nachricht eine E-Mail verfassen oder senden? Antworte NUR mit "JA" oder "NEIN".\n\nNachricht: "${text}"`;
         try {
             const intentResult = await generateAiResponse([{ role: 'user', content: emailIntentPrompt }], CONFIG.models.normal);
             if (intentResult.toUpperCase().includes('JA')) isEmailCommand = true;
-        } catch (e) {
-            console.error("Intent Check Fehler:", e);
-        }
+        } catch (e) { console.error("E-Mail Check fehlgeschlagen", e); }
     }
 
-    // ... (oberer Teil bleibt gleich bis zur Zeile ca. 250)
-
     if (isEmailCommand) {
-        UI.showLoading(true, "Coden bereitet den E-Mail-Entwurf vor...");
+        UI.showLoading(true, "Coden bereitet E-Mail-Entwurf vor...");
         
-        // Wir suchen im Verlauf explizit nach dem letzten Code-Block, um der KI zu helfen
         let lastCodeBlock = "";
         const codeRegex = /```[\s\S]*?```/g;
         const allCodeBlocks = currentSession.messages.map(m => m.text.match(codeRegex)).flat().filter(Boolean);
-        if (allCodeBlocks.length > 0) {
-            lastCodeBlock = allCodeBlocks[allCodeBlocks.length - 1]; // Den aktuellsten Code nehmen
-        }
+        if (allCodeBlocks.length > 0) lastCodeBlock = allCodeBlocks[allCodeBlocks.length - 1];
 
-        const emailExtractionPrompt = `Du bist ein Assistent, der E-Mails vorbereitet. 
-WICHTIG: Wenn der Nutzer sich auf Code aus dem Chat bezieht (z.B. "den Code von eben"), dann kopiere EXAKT diesen Code hier unten in den E-Mail Body. Erfinde KEINEN neuen Code!
-
-DER LETZTE GENERIERTE CODE AUS DEM CHAT:
-${lastCodeBlock || "Kein Code im Verlauf gefunden."}
-
-VOLLSTÄNDIGER CHAT-VERLAUF:
-${historyContext}
-
-AKTUELLE NUTZER-ANFRAGE: "${text}"
-
-Antworte AUSSCHLIESSLICH im JSON-Format:
-{
-  "to": "email_adresse",
-  "subject": "Betreff",
-  "body": "Hier der Text. Wenn Code angefragt wurde, füge den oben stehenden Code UNVERÄNDERT ein.\\n\\nHinweis: Diese E-Mail wurde von einer KI verfasst."
-}`;
+        const emailExtractionPrompt = `Erstelle einen E-Mail-Entwurf. Beziehe dich auf den Verlauf, wenn nötig. Kopiere Code EXAKT.
+LETZTER CODE: ${lastCodeBlock || "Keiner"}
+VERLAUF: ${historyContext}
+ANFRAGE: "${text}"
+ANTWORTE NUR ALS JSON: {"to": "...", "subject": "...", "body": "..."}`;
 
         try {
             const jsonResponse = await generateAiResponse([{ role: 'user', content: emailExtractionPrompt }], CONFIG.models.normal);
@@ -359,23 +334,22 @@ Antworte AUSSCHLIESSLICH im JSON-Format:
             document.getElementById('email-draft-output').value = emailData.body || '';
 
             UI.showLoading(false);
-            UI.appendMessage("Ich habe den E-Mail-Entwurf mit dem Original-Code vorbereitet!", false);
+            UI.appendMessage("Ich habe das E-Mail-Fenster für dich vorbereitet!", false);
             document.getElementById('email-modal').classList.remove('hidden');
             return; 
-        } catch (err) {
-            console.error("Fehler beim E-Mail Parsing", err);
-        }
+        } catch (err) { console.error("E-Mail Generierung fehlgeschlagen", err); }
     }
-// ... (Rest der Datei bleibt gleich)
 
-    // --- NORMALER CHAT ABLAUF ---
+    // =================================================================
+    // 🤖 NORMALER MODELL-ABLAUF (Flash, Thinking, Pro)
+    // =================================================================
     const context = currentSession.messages.map(m => ({ role: m.isUser ? 'user' : 'assistant', content: m.text }));
     const settings = Storage.getSettings();
     const now = new Date();
     
-    let basePersona = `Du bist AUSSCHLIESSLICH "Coden", ein hochintelligenter KI-Softwarearchitekt. WICHTIG: Du bist KEINE andere KI. Dein Name ist Coden. Nutze Emojis in deinen Erklärungen. Heute ist ${now.toLocaleDateString('de-DE')} und es ist exakt ${now.toLocaleTimeString('de-DE')} Uhr. `;
-    if (settings.persona === 'Senior Dev') basePersona += ' Antworte wie ein sehr erfahrener Senior Software Engineer.';
-    else if (settings.persona === 'Erklärbär') basePersona += ' Erkläre alles für Anfänger.';
+    let basePersona = `Du bist "Coden", ein KI-Softwarearchitekt. Heute ist ${now.toLocaleDateString('de-DE')} um ${now.toLocaleTimeString('de-DE')}. `;
+    if (settings.persona === 'Senior Dev') basePersona += ' Antworte wie ein Senior Software Engineer.';
+    else if (settings.persona === 'Erklärbär') basePersona += ' Erkläre für Anfänger.';
     else if (settings.persona === 'Hacker') basePersona += ' Du bist Cybersicherheits-Experte.';
     else if (settings.persona === 'Eigene (Custom)' && settings.customPersona.trim() !== '') basePersona += ' ' + settings.customPersona;
 
@@ -386,17 +360,13 @@ Antworte AUSSCHLIESSLICH im JSON-Format:
 
     if (currentSelectedModel === 'pro') {
         UI.showLoading(true, `Coden Pro analysiert Anfrage...`);
-
-        const analysisPrompt = `Entscheide, ob die folgende Nachricht des Nutzers eine Code-Aufgabe ist (JA/NEIN).
-Bisheriger Kontext:
-${historyContext || "(Kein vorheriger Kontext)"}
-Aktuelle Nutzer-Nachricht: "${text}"`;
-        
+        const analysisPrompt = `Ist das eine Code-Aufgabe? (JA/NEIN). Nachricht: "${text}"`;
         try {
-            const analysisResult = await generateAiResponse([{ role: 'user', content: analysisPrompt }], CONFIG.models.normal);
-            if (analysisResult.toUpperCase().includes('JA')) {
-                UI.showLoading(true, `Coden Pro programmiert Code...`); targetModelId = CONFIG.models.openRouterCoder; 
-            } else { UI.showLoading(true, `Coden Pro überlegt tiefgründig...`); }
+            const res = await generateAiResponse([{ role: 'user', content: analysisPrompt }], CONFIG.models.normal);
+            if (res.toUpperCase().includes('JA')) {
+                UI.showLoading(true, `Coden Pro programmiert Code...`);
+                targetModelId = CONFIG.models.openRouterCoder; 
+            } else { UI.showLoading(true, `Coden Pro überlegt...`); }
         } catch (err) { UI.showLoading(true, `Coden Pro überlegt...`); }
     } else {
         UI.showLoading(true, `${currentModelName} denkt...`);
@@ -411,7 +381,7 @@ Aktuelle Nutzer-Nachricht: "${text}"`;
 
 async function generateChatTitle(firstMessage) {
     try {
-        const prompt = 'Generiere einen sehr kurzen Titel (max 4 Worte) für diese Anfrage. Antworte NUR mit dem Titel, ohne Anführungszeichen:\n"' + firstMessage + '"';
+        const prompt = 'Generiere einen Titel (max 4 Worte) für: "' + firstMessage + '"';
         const titleResponse = await generateAiResponse([{ 'role': 'user', 'content': prompt }], CONFIG.models.flash);
         if (titleResponse && titleResponse.length > 1) {
             currentSession.title = titleResponse.trim().replaceAll('"', '');
@@ -419,3 +389,5 @@ async function generateChatTitle(firstMessage) {
         }
     } catch (e) {}
 }
+
+initApp();
