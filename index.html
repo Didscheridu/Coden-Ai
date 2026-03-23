@@ -98,7 +98,7 @@
                                 </button>
                                 <div class="model-dropdown-menu hidden" id="model-dropdown-menu">
                                     <div class="model-option active" data-model="flash"><span class="material-symbols-outlined">bolt</span> <span class="name">Coden Flash</span></div>
-                                    <div class="model-option" data-model="normal"><span class="material-symbols-outlined">auto_awesome</span> <span class="name">Coden Thinking</span></div>
+                                    <div class="model-option" data-model="normal" id="thinking-mode-option"><span class="material-symbols-outlined">auto_awesome</span> <span class="name">Coden Thinking</span></div>
                                     <div class="model-option" data-model="pro"><span class="material-symbols-outlined">magic_button</span> <span class="name">Coden Pro</span></div>
                                 </div>
                             </div>
@@ -175,7 +175,7 @@
                     <label>Deine E-Mail Adresse</label>
                     <input type="email" id="email-address" class="settings-input" placeholder="deine@email.com" style="margin-bottom: 12px;">
 
-                    <label>App-Passwort (Wird verschlüsselt in deiner privaten DB gespeichert)</label>
+                    <label>App-Passwort</label>
                     <input type="password" id="email-password" class="settings-input" placeholder="Z.B. 16-stelliger Google App-Code">
                 </div>
             </div>
@@ -183,6 +183,18 @@
             <div class="modal-footer" style="margin-top: 24px;">
                 <button class="btn-cancel" id="cancel-settings">Abbrechen</button>
                 <button class="btn-save" id="save-settings">Speichern</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="confirm-modal" class="modal-overlay hidden">
+        <div class="modal-content confirm-box">
+            <img src="./images/coden_logo.jpg" class="confirm-logo" onerror="this.style.display='none'">
+            <h3>Aktion erforderlich</h3>
+            <p id="confirm-message">Willst du eine E-Mail senden?</p>
+            <div class="confirm-buttons">
+                <button id="btn-confirm-cancel" class="btn-cancel">Abbrechen</button>
+                <button id="btn-confirm-yes" class="btn-save">JA, senden</button>
             </div>
         </div>
     </div>
