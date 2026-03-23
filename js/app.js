@@ -30,18 +30,14 @@ let sessions = [];
 let currentSession = null;
 let activeSessionId = null;
 let appInitialized = false;
-
 let isThinkingModeLocked = false;
 
-// 🧑‍💻 NEU: Name aus der E-Mail extrahieren
 function extractNameFromEmail(email) {
     if (!email) return "Entwickler";
     const namePart = email.split('@')[0];
-    // Ersetzt Punkte und Unterstriche durch Leerzeichen und macht den 1. Buchstaben groß (z.B. kayden.schunack -> Kayden Schunack)
     return namePart.replace(/[._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 }
 
-// 🧑‍💻 NEU: Begrüßung aktualisieren
 function updateGreeting() {
     const settings = Storage.getSettings();
     const greetingEl = document.getElementById('welcome-greeting');
@@ -57,7 +53,6 @@ onAuthStateChanged(auth, async (user) => {
         userEmailDisplay.textContent = user.email;
         await Storage.loadFromCloud();
         
-        // Namens-Check beim Login
         let settings = Storage.getSettings();
         if (!settings.userName) {
             settings.userName = extractNameFromEmail(user.email);
@@ -99,6 +94,61 @@ function initApp() {
     document.addEventListener('loadChatSession', (e) => loadSession(e.detail));
     document.addEventListener('deleteChatSession', (e) => deleteSession(e.detail));
 }
+
+// ==========================================
+// 🍔 SIDEBAR MENU & SUCHE LOGIK
+// ==========================================
+const mainSidebar = document.getElementById('main-sidebar');
+const closeSidebarBtn = document.getElementById('close-sidebar-btn');
+const openSidebarBtn = document.getElementById('open-sidebar-btn');
+
+const toggleSearchBtn = document.getElementById('toggle-search-btn');
+const searchContainer = document.getElementById('search-container');
+const chatSearchInput = document.getElementById('chat-search-input');
+
+// Menü einklappen
+closeSidebarBtn.addEventListener('click', () => {
+    mainSidebar.classList.add('collapsed');
+    openSidebarBtn.classList.remove('hidden');
+});
+
+// Menü ausklappen
+openSidebarBtn.addEventListener('click', () => {
+    mainSidebar.classList.remove('collapsed');
+    openSidebarBtn.classList.add('hidden');
+});
+
+// Suche ein/ausblenden
+toggleSearchBtn.addEventListener('click', () => {
+    searchContainer.classList.toggle('active');
+    if (searchContainer.classList.contains('active')) {
+        chatSearchInput.focus();
+    } else {
+        // Suche löschen und alle Chats wieder anzeigen
+        chatSearchInput.value = '';
+        UI.renderSidebar(sessions, activeSessionId);
+    }
+});
+
+// Echzeit-Filterung der Chats
+chatSearchInput.addEventListener('input', (e) => {
+    const searchTerm = e.target.value.toLowerCase();
+    
+    if (!searchTerm) {
+        UI.renderSidebar(sessions, activeSessionId);
+        return;
+    }
+
+    // Filtere Sessions nach Titel oder nach Inhalten in den Nachrichten
+    const filteredSessions = sessions.filter(session => {
+        const titleMatch = session.title && session.title.toLowerCase().includes(searchTerm);
+        const messageMatch = session.messages.some(msg => msg.text.toLowerCase().includes(searchTerm));
+        return titleMatch || messageMatch;
+    });
+
+    UI.renderSidebar(filteredSessions, activeSessionId);
+});
+
 
 // ==========================================
 // ✉️ EMAIL MODAL STEUERUNG
@@ -224,7 +274,7 @@ const openEmailSettingsBtn = document.getElementById('open-email-settings-btn');
 
 function openSettings() {
     const s = Storage.getSettings();
-    document.getElementById('user-name-input').value = s.userName || ''; // NAME LADEN
+    document.getElementById('user-name-input').value = s.userName || ''; 
     document.getElementById('persona-select').value = s.persona;
     document.getElementById('custom-persona-input').value = s.customPersona;
     document.getElementById('font-size-slider').value = s.fontSize;
@@ -247,7 +297,7 @@ document.getElementById('cancel-settings').addEventListener('click', () => setti
 
 document.getElementById('save-settings').addEventListener('click', () => {
     const currentSettings = Storage.getSettings(); 
-    currentSettings.userName = document.getElementById('user-name-input').value.trim() || 'Entwickler'; // NAME SPEICHERN
+    currentSettings.userName = document.getElementById('user-name-input').value.trim() || 'Entwickler'; 
     currentSettings.persona = document.getElementById('persona-select').value;
     currentSettings.customPersona = document.getElementById('custom-persona-input').value;
     currentSettings.fontSize = parseInt(document.getElementById('font-size-slider').value);
@@ -259,7 +309,7 @@ document.getElementById('save-settings').addEventListener('click', () => {
     Storage.saveSettings(currentSettings);
     document.documentElement.style.setProperty('--chat-font-size', currentSettings.fontSize + 'px');
     
-    updateGreeting(); // UPDATE STARTBILDSCHIRM
+    updateGreeting(); 
     settingsModal.classList.add('hidden');
 });
 
@@ -385,7 +435,7 @@ async function handleSend() {
     const userName = settings.userName || 'Entwickler';
 
     // =================================================================
-    // 📨 E-MAIL EXTRAKTION (Mit echtem Namen!)
+    // 📨 E-MAIL EXTRAKTION
     // =================================================================
     if (isEmailCommand) {
         UI.showLoading(true, "Coden bereitet das E-Mail-Fenster vor...");
@@ -395,7 +445,6 @@ async function handleSend() {
         const allCodeBlocks = currentSession.messages.map(m => m.text.match(codeRegex)).flat().filter(Boolean);
         if (allCodeBlocks.length > 0) lastCodeBlock = allCodeBlocks[allCodeBlocks.length - 1];
 
-        // 🧑‍💻 NEU: KI bekommt deinen Namen als Absender aufgedrückt!
         const emailExtractionPrompt = `DU BIST EIN UNSICHTBARER E-MAIL-GENERATOR. Deine EINZIGE Aufgabe ist es, einen fertigen E-Mail-Entwurf zu erstellen.
         
 WICHTIGE REGELN:
@@ -436,7 +485,6 @@ Antworte EXAKT in diesem Format:
             const emailSubject = subjectMatch ? subjectMatch[1].trim() : '';
             const emailBody = bodySplit.length > 1 ? bodySplit[1].trim() : responseText.trim(); 
 
-            // E-MAIL STAUBSAUGER (Regex)
             emailTo = emailTo.replace(/[<>]/g, '').trim(); 
             const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/;
             const extractedEmail = emailTo.match(emailRegex);
@@ -474,7 +522,6 @@ Antworte EXAKT in diesem Format:
     const context = currentSession.messages.map(m => ({ role: m.isUser ? 'user' : 'assistant', content: m.text }));
     const now = new Date();
     
-    // 🧑‍💻 NEU: Auch der normale Chat kennt jetzt deinen Namen!
     let basePersona = `Du bist "Coden", ein KI-Softwarearchitekt. Heute ist ${now.toLocaleDateString('de-DE')} um ${now.toLocaleTimeString('de-DE')}. Der Nutzer, mit dem du sprichst, heißt ${userName}. Sprich ihn gelegentlich damit an. `;
     if (settings.persona === 'Senior Dev') basePersona += ' Antworte wie ein Senior Software Engineer.';
     else if (settings.persona === 'Erklärbär') basePersona += ' Erkläre für Anfänger.';
@@ -484,7 +531,6 @@ Antworte EXAKT in diesem Format:
     context.unshift({ role: 'system', content: basePersona });
 
     let targetModelId = CONFIG.models[currentSelectedModel];
-    let modelName = document.getElementById('current-model-text').textContent;
 
     if (currentSelectedModel === 'normal') {
         if (isThinkingModeLocked) {
