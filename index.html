@@ -77,7 +77,7 @@
             <div class="chat-scroll-area" id="chat-container">
                 <div class="welcome-screen" id="welcome-screen">
                     <img src="./images/coden_logo.jpg" class="welcome-logo" onerror="this.style.display='none'">
-                    <h1 class="greeting">Hallo Entwickler.</h1>
+                    <h1 class="greeting" id="welcome-greeting">Hallo Entwickler.</h1>
                     <h2 class="sub-greeting">Was machen wir heute?</h2>
                 </div>
             </div>
@@ -147,6 +147,11 @@
                 <button class="icon-btn" id="close-settings"><span class="material-symbols-outlined">close</span></button>
             </div>
             <div class="modal-body">
+                
+                <h4 style="margin-bottom: 12px; font-weight: 500; font-size: 14px; color: var(--text-primary);">👤 Profil</h4>
+                <label>Dein Name (Wird für E-Mails & Chat genutzt)</label>
+                <input type="text" id="user-name-input" class="settings-input" placeholder="Dein Name" style="margin-bottom: 24px;">
+
                 <label>🎭 KI Persona (Charakter)</label>
                 <select id="persona-select" class="settings-input">
                     <option value="Standard">Standard</option>
