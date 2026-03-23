@@ -1,5 +1,5 @@
 // api/send-email.js
-import nodemailer from 'nodemailer';
+const nodemailer = require('nodemailer'); // FIX: Klassischer Import für den Vercel Server!
 
 export default async function handler(req, res) {
     // Nur POST-Anfragen erlauben
