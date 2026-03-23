@@ -31,8 +31,24 @@ let currentSession = null;
 let activeSessionId = null;
 let appInitialized = false;
 
-// Globale Variable für den Thinking-Modus Sperre
 let isThinkingModeLocked = false;
+
+// 🧑‍💻 NEU: Name aus der E-Mail extrahieren
+function extractNameFromEmail(email) {
+    if (!email) return "Entwickler";
+    const namePart = email.split('@')[0];
+    // Ersetzt Punkte und Unterstriche durch Leerzeichen und macht den 1. Buchstaben groß (z.B. kayden.schunack -> Kayden Schunack)
+    return namePart.replace(/[._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+}
+
+// 🧑‍💻 NEU: Begrüßung aktualisieren
+function updateGreeting() {
+    const settings = Storage.getSettings();
+    const greetingEl = document.getElementById('welcome-greeting');
+    if (greetingEl) {
+        greetingEl.textContent = `Hallo ${settings.userName || 'Entwickler'}.`;
+    }
+}
 
 onAuthStateChanged(auth, async (user) => {
     if (user) {
@@ -40,6 +56,15 @@ onAuthStateChanged(auth, async (user) => {
         appContainer.classList.remove('hidden');
         userEmailDisplay.textContent = user.email;
         await Storage.loadFromCloud();
+        
+        // Namens-Check beim Login
+        let settings = Storage.getSettings();
+        if (!settings.userName) {
+            settings.userName = extractNameFromEmail(user.email);
+            Storage.saveSettings(settings);
+        }
+        updateGreeting();
+
         if (!appInitialized) initApp(); 
     } else {
         loginScreen.classList.remove('hidden');
@@ -136,7 +161,7 @@ sendRealEmailBtn.addEventListener('click', async () => {
 });
 
 // ==========================================
-// 🧠 CUSTOM CONFIRM LOGIK (Mit Logo)
+// 🧠 CUSTOM CONFIRM LOGIK 
 // ==========================================
 const confirmModal = document.getElementById('confirm-modal');
 const confirmMessage = document.getElementById('confirm-message');
@@ -199,6 +224,7 @@ const openEmailSettingsBtn = document.getElementById('open-email-settings-btn');
 
 function openSettings() {
     const s = Storage.getSettings();
+    document.getElementById('user-name-input').value = s.userName || ''; // NAME LADEN
     document.getElementById('persona-select').value = s.persona;
     document.getElementById('custom-persona-input').value = s.customPersona;
     document.getElementById('font-size-slider').value = s.fontSize;
@@ -218,8 +244,10 @@ document.getElementById('persona-select').addEventListener('change', (e) => { do
 document.getElementById('font-size-slider').addEventListener('input', (e) => document.getElementById('font-size-display').textContent = e.target.value);
 document.getElementById('close-settings').addEventListener('click', () => settingsModal.classList.add('hidden'));
 document.getElementById('cancel-settings').addEventListener('click', () => settingsModal.classList.add('hidden'));
+
 document.getElementById('save-settings').addEventListener('click', () => {
     const currentSettings = Storage.getSettings(); 
+    currentSettings.userName = document.getElementById('user-name-input').value.trim() || 'Entwickler'; // NAME SPEICHERN
     currentSettings.persona = document.getElementById('persona-select').value;
     currentSettings.customPersona = document.getElementById('custom-persona-input').value;
     currentSettings.fontSize = parseInt(document.getElementById('font-size-slider').value);
@@ -230,6 +258,8 @@ document.getElementById('save-settings').addEventListener('click', () => {
     };
     Storage.saveSettings(currentSettings);
     document.documentElement.style.setProperty('--chat-font-size', currentSettings.fontSize + 'px');
+    
+    updateGreeting(); // UPDATE STARTBILDSCHIRM
     settingsModal.classList.add('hidden');
 });
 
@@ -351,8 +381,11 @@ async function handleSend() {
         }
     }
 
+    const settings = Storage.getSettings();
+    const userName = settings.userName || 'Entwickler';
+
     // =================================================================
-    // 📨 E-MAIL EXTRAKTION (Striktes Redeverbot für die KI!)
+    // 📨 E-MAIL EXTRAKTION (Mit echtem Namen!)
     // =================================================================
     if (isEmailCommand) {
         UI.showLoading(true, "Coden bereitet das E-Mail-Fenster vor...");
@@ -362,12 +395,12 @@ async function handleSend() {
         const allCodeBlocks = currentSession.messages.map(m => m.text.match(codeRegex)).flat().filter(Boolean);
         if (allCodeBlocks.length > 0) lastCodeBlock = allCodeBlocks[allCodeBlocks.length - 1];
 
-        // Prompt extrem verschärft: Die KI bekommt "Redeverbot" und darf nur die Mail schreiben!
+        // 🧑‍💻 NEU: KI bekommt deinen Namen als Absender aufgedrückt!
         const emailExtractionPrompt = `DU BIST EIN UNSICHTBARER E-MAIL-GENERATOR. Deine EINZIGE Aufgabe ist es, einen fertigen E-Mail-Entwurf zu erstellen.
         
 WICHTIGE REGELN:
-1. Sprich NICHT mit dem Nutzer. Stelle KEINE Rückfragen (wie "Soll ich das senden?"). Antworte NICHT auf die Befehle des Nutzers.
-2. Generiere AUSSCHLIESSLICH den Text, der an den Empfänger der E-Mail geschickt werden soll.
+1. Sprich NICHT mit dem Nutzer. Stelle KEINE Rückfragen.
+2. Der Absender der E-Mail heißt: "${userName}". Unterschreibe die E-Mail zwingend mit diesem Namen am Ende! Verwende NIEMALS Platzhalter wie "[Dein Name]".
 3. Wenn der Nutzer Code verlangt, kopiere EXAKT diesen Code:
 ${lastCodeBlock || "Kein Code vorhanden."}
 
@@ -439,10 +472,10 @@ Antworte EXAKT in diesem Format:
     // 🤖 NORMALER MODELL-ABLAUF
     // =================================================================
     const context = currentSession.messages.map(m => ({ role: m.isUser ? 'user' : 'assistant', content: m.text }));
-    const settings = Storage.getSettings();
     const now = new Date();
     
-    let basePersona = `Du bist "Coden", ein KI-Softwarearchitekt. Heute ist ${now.toLocaleDateString('de-DE')} um ${now.toLocaleTimeString('de-DE')}. `;
+    // 🧑‍💻 NEU: Auch der normale Chat kennt jetzt deinen Namen!
+    let basePersona = `Du bist "Coden", ein KI-Softwarearchitekt. Heute ist ${now.toLocaleDateString('de-DE')} um ${now.toLocaleTimeString('de-DE')}. Der Nutzer, mit dem du sprichst, heißt ${userName}. Sprich ihn gelegentlich damit an. `;
     if (settings.persona === 'Senior Dev') basePersona += ' Antworte wie ein Senior Software Engineer.';
     else if (settings.persona === 'Erklärbär') basePersona += ' Erkläre für Anfänger.';
     else if (settings.persona === 'Hacker') basePersona += ' Du bist Cybersicherheits-Experte.';
