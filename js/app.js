@@ -473,9 +473,9 @@ const legalTexts = {
         <h4 style="color: white; margin-bottom: 10px;">Impressum</h4>
         <p>Angaben gemäß § 5 TMG</p>
         <p style="color: white; font-weight: bold;">
-        DEIN VORNAME & NACHNAME<br>
-        DEINE STRAßE 12<br>
-        12345 DEINE STADT</p>
+        Kayden Schunack<br>
+        Lerchesflurweg<br>
+        66199 Saarbrücken</p>
         <p style="margin-top:10px;"><strong>Kontakt:</strong><br>
         E-Mail: kayden.schunack@gmail.com</p>
     `,
