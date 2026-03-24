@@ -24,7 +24,7 @@ const settingsModal = document.getElementById('settings-modal');
 const confirmModal = document.getElementById('confirm-modal');
 
 // ==========================================
-// 👑 2. GLOBALE VARIABLEN & STATUS
+// 👑 2. GLOBALE VARIABLEN
 // ==========================================
 let sessions = [];
 let currentSession = null;
@@ -40,10 +40,12 @@ let lastUpdateTime = 0;
 
 function showError(msg) { 
     if(errorMsg) { errorMsg.textContent = msg; errorMsg.style.display = 'block'; }
-    console.error("Fehler:", msg);
+    console.error("System-Info:", msg);
 }
 
-// 🛡️ AUTHENTIFIZIERUNG
+// ==========================================
+// 🛡️ 3. AUTHENTIFIZIERUNG & FIREBASE
+// ==========================================
 if (document.getElementById('btn-google-login')) {
     document.getElementById('btn-google-login').addEventListener('click', async () => { try { await loginWithGoogle(); } catch(e) { showError(e.message); } });
 }
@@ -152,6 +154,7 @@ function forceModelChange(newModel, msg) {
     if(!isOwner) UI.appendMessage(msg, false);
 }
 
+// 🛠️ FIX 1: CHAT-WECHSEL GEHT WIEDER!
 function initApp() {
     try {
         appInitialized = true;
@@ -169,19 +172,23 @@ function initApp() {
         const opt = document.querySelector(`.model-option[data-model="${currentSelectedModel}"]`);
         const textEl = document.getElementById('current-model-text');
         if(opt && textEl) textEl.textContent = opt.querySelector('.name').textContent;
+
+        // DIESE BEIDEN ZEILEN HABEN GEFEHLT:
+        document.addEventListener('loadChatSession', (e) => loadSession(e.detail));
+        document.addEventListener('deleteChatSession', (e) => deleteSession(e.detail));
     } catch(e) {}
 }
 
 // ==========================================
-// 🚀 3. OWNER COMMANDS
+// 🚀 4. OWNER COMMANDS
 // ==========================================
 const commands = [
-    { name: "/lock", opts: ["pro", "thinking"], desc: "Sperrt Modell GLOBAL", ownerOnly: true },
-    { name: "/unlock", opts: ["pro", "thinking"], desc: "Entsperrt Modell GLOBAL", ownerOnly: true },
-    { name: "/broadcast", opts: ["<nachricht>"], desc: "Pop-Up an ALLE User", ownerOnly: true },
-    { name: "/model", opts: ["flash", "normal", "pro"], desc: "Ändert Modell GLOBAL", ownerOnly: true },
-    { name: "/theme", opts: ["normal", "matrix"], desc: "Ändert Design GLOBAL", ownerOnly: true },
-    { name: "/api", opts: ["<KEY>"], desc: "Speichert Google Key", ownerOnly: true }
+    { name: "/lock", opts: ["pro", "thinking"], desc: "Sperrt Modell GLOBAL" },
+    { name: "/unlock", opts: ["pro", "thinking"], desc: "Entsperrt Modell GLOBAL" },
+    { name: "/broadcast", opts: ["<nachricht>"], desc: "Pop-Up an ALLE User" },
+    { name: "/model", opts: ["flash", "normal", "pro"], desc: "Ändert Modell GLOBAL" },
+    { name: "/theme", opts: ["normal", "matrix"], desc: "Ändert Design GLOBAL" },
+    { name: "/api", opts: ["<KEY>"], desc: "Speichert Google Key" }
 ];
 
 if (chatInput) {
@@ -247,25 +254,14 @@ async function handleCommand(text) {
 }
 
 // ==========================================
-// 🛠️ 4. UI STEUERUNG & MODEL-MENÜ FIX
+// 🛠️ 5. UI STEUERUNG, MODEL-MENÜ & EINSTELLUNGEN
 // ==========================================
-
-// --- FIX: DAS MODELL-MENÜ LÄSST SICH WIEDER ÖFFNEN ---
 const modelSelectorBtn = document.getElementById('model-selector-btn');
 const modelDropdownMenu = document.getElementById('model-dropdown-menu');
 
 if (modelSelectorBtn && modelDropdownMenu) {
-    modelSelectorBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        modelDropdownMenu.classList.toggle('hidden');
-    });
-
-    document.addEventListener('click', (e) => {
-        if (!modelDropdownMenu.contains(e.target) && e.target !== modelSelectorBtn) {
-            modelDropdownMenu.classList.add('hidden');
-        }
-    });
-
+    modelSelectorBtn.addEventListener('click', (e) => { e.stopPropagation(); modelDropdownMenu.classList.toggle('hidden'); });
+    document.addEventListener('click', (e) => { if (!modelDropdownMenu.contains(e.target) && e.target !== modelSelectorBtn) modelDropdownMenu.classList.add('hidden'); });
     document.querySelectorAll('.model-option').forEach(option => {
         option.addEventListener('click', () => {
             const selectedId = option.id;
@@ -281,7 +277,6 @@ if (modelSelectorBtn && modelDropdownMenu) {
         });
     });
 }
-// ----------------------------------------------------
 
 const mainSidebar = document.getElementById('main-sidebar'); const searchContainer = document.getElementById('search-container'); const chatSearchInput = document.getElementById('chat-search-input');
 if(document.getElementById('close-sidebar-btn')) document.getElementById('close-sidebar-btn').addEventListener('click', () => { mainSidebar.classList.add('collapsed'); document.getElementById('open-sidebar-btn').classList.remove('hidden'); }); 
@@ -289,10 +284,40 @@ if(document.getElementById('open-sidebar-btn')) document.getElementById('open-si
 if(document.getElementById('toggle-search-btn')) document.getElementById('toggle-search-btn').addEventListener('click', () => { searchContainer.classList.toggle('active'); if (searchContainer.classList.contains('active')) chatSearchInput.focus(); else { chatSearchInput.value = ''; UI.renderSidebar(sessions, activeSessionId); } });
 if(chatSearchInput) chatSearchInput.addEventListener('input', (e) => { const st = e.target.value.toLowerCase(); if (!st) { UI.renderSidebar(sessions, activeSessionId); return; } const fs = sessions.filter(s => (s.title && s.title.toLowerCase().includes(st)) || s.messages.some(m => m.text.toLowerCase().includes(st))); UI.renderSidebar(fs, activeSessionId); });
 
+// 🛠️ FIX 2: EINSTELLUNGEN KOMPLETT SPEICHERN & LADEN
 if(document.getElementById('close-settings')) document.getElementById('close-settings').addEventListener('click', () => settingsModal.classList.add('hidden'));
 if(document.getElementById('cancel-settings')) document.getElementById('cancel-settings').addEventListener('click', () => settingsModal.classList.add('hidden'));
-if(document.getElementById('open-settings-btn')) document.getElementById('open-settings-btn').addEventListener('click', (e) => { e.preventDefault(); const s = Storage.getSettings(); document.getElementById('user-name-input').value = s.userName || ''; document.getElementById('font-size-slider').value = s.fontSize || 15; settingsModal.classList.remove('hidden'); });
-if(document.getElementById('save-settings')) document.getElementById('save-settings').addEventListener('click', () => { const s = Storage.getSettings(); s.userName = document.getElementById('user-name-input').value.trim() || 'Entwickler'; s.fontSize = parseInt(document.getElementById('font-size-slider').value); Storage.saveSettings(s); document.documentElement.style.setProperty('--chat-font-size', s.fontSize + 'px'); updateGreeting(); settingsModal.classList.add('hidden'); });
+
+if(document.getElementById('open-settings-btn')) document.getElementById('open-settings-btn').addEventListener('click', (e) => { 
+    e.preventDefault(); 
+    const s = Storage.getSettings(); 
+    document.getElementById('user-name-input').value = s.userName || ''; 
+    document.getElementById('font-size-slider').value = s.fontSize || 15; 
+    if(s.emailConfig) {
+        if(document.getElementById('email-provider')) document.getElementById('email-provider').value = s.emailConfig.provider || 'gmail';
+        if(document.getElementById('email-address')) document.getElementById('email-address').value = s.emailConfig.address || '';
+        if(document.getElementById('email-password')) document.getElementById('email-password').value = s.emailConfig.password || '';
+    }
+    settingsModal.classList.remove('hidden'); 
+});
+
+if(document.getElementById('save-settings')) document.getElementById('save-settings').addEventListener('click', () => { 
+    const s = Storage.getSettings(); 
+    s.userName = document.getElementById('user-name-input').value.trim() || 'Entwickler'; 
+    s.fontSize = parseInt(document.getElementById('font-size-slider').value); 
+    
+    // E-MAIL SETTINGS WIEDER DA!
+    s.emailConfig = {
+        provider: document.getElementById('email-provider') ? document.getElementById('email-provider').value : 'gmail',
+        address: document.getElementById('email-address') ? document.getElementById('email-address').value.trim() : '',
+        password: document.getElementById('email-password') ? document.getElementById('email-password').value.trim() : ''
+    };
+    
+    Storage.saveSettings(s); 
+    document.documentElement.style.setProperty('--chat-font-size', s.fontSize + 'px'); 
+    updateGreeting(); 
+    settingsModal.classList.add('hidden'); 
+});
 
 function showCustomConfirm(message) {
     return new Promise((resolve) => {
@@ -308,8 +333,67 @@ if(newChatBtn) newChatBtn.addEventListener('click', () => { currentSession = Sto
 function loadSession(id) { const s = sessions.find(s => s.id === id); if (s) { activeSessionId = id; currentSession = s; UI.resetUI(); if (currentSession.messages.length > 0) currentSession.messages.forEach(m => UI.appendMessage(m.text, m.isUser)); UI.renderSidebar(sessions, activeSessionId); } }
 function deleteSession(id) { sessions = sessions.filter(s => s.id !== id); if (sessions.length === 0) { currentSession = Storage.createNewSession(); sessions.push(currentSession); activeSessionId = currentSession.id; UI.resetUI(); } else if (id === activeSessionId) { currentSession = sessions[0]; activeSessionId = currentSession.id; loadSession(currentSession.id); return; } Storage.saveSessions(sessions); UI.renderSidebar(sessions, activeSessionId); }
 
+// 🛠️ FIX 3: SPRACHERKENNUNG WIEDER DA
+let recognition = null; let isListening = false;
+if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SpeechRecognition(); recognition.lang = 'de-DE'; recognition.interimResults = false; recognition.continuous = false;
+    recognition.onstart = () => { isListening = true; micBtn.style.color = '#ff4444'; chatInput.placeholder = 'Höre zu...'; };
+    recognition.onresult = (event) => {
+        let finalTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
+        if (finalTranscript && chatInput) { chatInput.value = (chatInput.value + ' ' + finalTranscript).trim(); chatInput.dispatchEvent(new Event('input')); }
+    };
+    recognition.onerror = () => stopListening(); recognition.onend = () => stopListening();
+}
+function stopListening() { isListening = false; if(micBtn) micBtn.style.color = 'var(--text-secondary)'; if(chatInput) chatInput.placeholder = 'Prompt eingeben...'; }
+if(micBtn) micBtn.addEventListener('click', () => { if (!recognition) return alert('Dein Browser unterstützt keine Spracherkennung.'); isListening ? recognition.stop() : recognition.start(); });
+
+// 🛠️ FIX 4: E-MAIL FENSTER & SENDEN GEHT WIEDER
+if (document.getElementById('close-email-btn')) document.getElementById('close-email-btn').addEventListener('click', () => emailModal.classList.add('hidden'));
+
+const sendRealEmailBtn = document.getElementById('send-real-email-btn');
+if (sendRealEmailBtn) {
+    sendRealEmailBtn.addEventListener('click', async () => {
+        const settings = Storage.getSettings();
+        if (!settings.emailConfig || !settings.emailConfig.address || !settings.emailConfig.password) {
+            return alert("Bitte speichere zuerst deine E-Mail-Daten in den Einstellungen!");
+        }
+        const to = document.getElementById('email-recipient').value.trim();
+        const subject = document.getElementById('email-subject').value.trim();
+        const text = document.getElementById('email-draft-output').value.trim();
+        
+        if (!to || !text) return alert("Empfänger und Text ausfüllen!");
+        
+        sendRealEmailBtn.innerHTML = 'Sende...'; sendRealEmailBtn.disabled = true;
+        try {
+            const response = await fetch('/api/send-email', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    provider: settings.emailConfig.provider,
+                    email: settings.emailConfig.address,
+                    password: settings.emailConfig.password,
+                    to: to,
+                    subject: subject,
+                    text: text
+                })
+            });
+            const data = await response.json();
+            if (response.ok && data.success) {
+                const feedback = document.getElementById('email-send-feedback');
+                if(feedback) { feedback.style.display = 'block'; feedback.textContent = '✅ E-Mail gesendet!'; }
+                setTimeout(() => { emailModal.classList.add('hidden'); if(feedback) feedback.style.display = 'none'; }, 2000);
+            } else throw new Error(data.error || "Unbekannter Fehler");
+        } catch (error) {
+            alert("Fehler beim Senden: " + error.message);
+        }
+        sendRealEmailBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">send</span> E-Mail jetzt versenden'; 
+        sendRealEmailBtn.disabled = false;
+    });
+}
+
 // ==========================================
-// 🚀 5. HAUPT SENDE FUNKTION (MIT NEUEM SYSTEM PROMPT)
+// 🚀 6. HAUPT SENDE FUNKTION
 // ==========================================
 async function handleSend() {
     if(!chatInput) return; const text = chatInput.value.trim(); if (!text) return;
@@ -331,11 +415,39 @@ async function handleSend() {
     const userName = Storage.getSettings().userName || 'Entwickler';
     const context = currentSession.messages.map(m => ({ role: m.isUser ? 'user' : 'assistant', content: m.text }));
     
-    // ✨ HIER IST DIE NEUE KI-PERSÖNLICHKEIT (EMOJIS & FORMATIERUNG) ✨
+    let isEmailCommand = false;
+    if (['mail', 'gmail', 'sende', 'schick', 'weiterleiten'].some(w => text.toLowerCase().includes(w))) {
+        if (await showCustomConfirm("Möchtest du eine E-Mail senden?\n\nOK = Fenster öffnen\nAbbrechen = Normaler Chat")) isEmailCommand = true;
+    }
+
+    if (isEmailCommand) {
+        UI.showLoading(true, "Coden bereitet das E-Mail-Fenster vor...");
+        let lastCodeBlock = "";
+        const allCodeBlocks = currentSession.messages.map(m => m.text.match(/```[\s\S]*?```/g)).flat().filter(Boolean);
+        if (allCodeBlocks.length > 0) lastCodeBlock = allCodeBlocks[allCodeBlocks.length - 1];
+
+        const emailPrompt = `DU BIST EIN UNSICHTBARER E-MAIL-GENERATOR. 1. Sprich NICHT mit dem Nutzer. 2. Absender heißt: "${userName}". 3. Code übernehmen: ${lastCodeBlock || "Kein Code."} Anfrage: "${text}" Format: [TO]: \n[SUBJECT]: \n[BODY]: `;
+
+        try {
+            const resText = await generateAiResponse([{ role: 'user', content: emailPrompt }], currentSelectedModel);
+            let emailTo = resText.match(/\[TO\]:\s*(.*)/i)?.[1].trim() || '';
+            const emailSubject = resText.match(/\[SUBJECT\]:\s*(.*)/i)?.[1].trim() || '';
+            const emailBody = resText.split(/\[BODY\]:/i)[1]?.trim() || resText.trim(); 
+
+            emailTo = emailTo.replace(/[<>]/g, '').trim(); 
+            const exEmail = emailTo.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/);
+            if(exEmail) emailTo = exEmail[0]; 
+
+            document.getElementById('email-recipient').value = emailTo; document.getElementById('email-subject').value = emailSubject; document.getElementById('email-draft-output').value = emailBody;
+            UI.showLoading(false); UI.appendMessage(`E-Mail-Fenster vorbereitet!`, false); document.getElementById('email-modal').classList.remove('hidden'); return; 
+        } catch (err) { UI.showLoading(false); UI.appendMessage("❌ Fehler beim E-Mail Erstellen: " + err.message, false); return; }
+    }
+
+    // ✨ DIE KI-PERSÖNLICHKEIT ✨
     const systemPrompt = `Du bist "Coden", ein brillanter, freundlicher KI-Softwarearchitekt.
 WICHTIGE ANWEISUNGEN FÜR DEINE ANTWORTEN:
 1. Strukturiere deinen Text IMMER sehr übersichtlich (nutze Absätze, Listen, Bulletpoints und **Fettdruck** für wichtige Wörter).
-2. Nutze passend und kreativ Emojis 🚀💻✨, um den Text aufzulockern und freundlich wirken zu lassen. Sei aber nicht albern.
+2. Nutze passend und kreativ Emojis 🚀💻✨, um den Text aufzulockern.
 3. Erkläre technische Dinge immer so, dass sie leicht verständlich und nachvollziehbar sind. Formuliere flüssig und angenehm.
 Heute ist ${new Date().toLocaleDateString('de-DE')}. Der Nutzer heißt ${userName}.`;
 
