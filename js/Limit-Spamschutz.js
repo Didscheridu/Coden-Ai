@@ -1,9 +1,7 @@
 // js/Limit-Spamschutz.js
 
 const MAX_REQUESTS = 3;
-const TIME_WINDOW_MS = 60 * 1000; // 60 Sekunden in Millisekunden
-
-let requestTimestamps = [];
+const TIME_WINDOW_MS = 60 * 1000; // 60 Sekunden
 
 export function checkRateLimit(isOwner) {
     // 👑 Der Boss hat VIP-Zugang ohne Limit!
@@ -13,18 +11,26 @@ export function checkRateLimit(isOwner) {
 
     const now = Date.now();
     
-    // Alte Zeitstempel rauswerfen (alles, was älter als 60 Sekunden ist, wird gelöscht)
+    // Hole die alten Zeitstempel hartnäckig aus dem Speicher (F5 bringt nichts mehr!)
+    let savedTimestamps = localStorage.getItem('coden_spam_timestamps');
+    let requestTimestamps = savedTimestamps ? JSON.parse(savedTimestamps) : [];
+
+    // Alte Zeitstempel rauswerfen (alles älter als 60 Sekunden)
     requestTimestamps = requestTimestamps.filter(timestamp => now - timestamp < TIME_WINDOW_MS);
 
-    // Wenn der Nutzer schon 3 (oder mehr) Anfragen in der letzten Minute hatte:
+    // Wenn das Limit erreicht ist:
     if (requestTimestamps.length >= MAX_REQUESTS) {
-        // Berechnen, wie viele Sekunden er noch warten muss
         const oldestRequest = requestTimestamps[0];
         const timeToWait = Math.ceil((TIME_WINDOW_MS - (now - oldestRequest)) / 1000);
+        
+        // Gesäuberte Liste trotzdem speichern!
+        localStorage.setItem('coden_spam_timestamps', JSON.stringify(requestTimestamps));
         return { allowed: false, timeToWait: timeToWait };
     }
 
-    // Anfrage ist erlaubt! Wir speichern den aktuellen Zeitstempel ab.
+    // Anfrage ist erlaubt! Wir pushen die neue Zeit und speichern es sofort ab.
     requestTimestamps.push(now);
+    localStorage.setItem('coden_spam_timestamps', JSON.stringify(requestTimestamps));
+    
     return { allowed: true };
 }
