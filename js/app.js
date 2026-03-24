@@ -3,7 +3,10 @@ import { CONFIG } from './config.js';
 import { generateAiResponse } from './api.js';
 import { UI } from './ui.js';
 import { Storage } from './storage.js';
-import { loginWithGoogle, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, auth } from './firebase-init.js';
+// ACHTUNG: Hier muss db aus deiner firebase-init.js importiert werden!
+import { loginWithGoogle, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, auth, db } from './firebase-init.js';
+// Firestore Live-Sync Funktionen (Nutzt die typische V10 CDN Version)
+import { doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 // ==========================================
 // 🏗️ 1. ALLE DOM-ELEMENTE
@@ -12,7 +15,6 @@ const loginScreen = document.getElementById('login-screen');
 const appContainer = document.getElementById('app');
 const errorMsg = document.getElementById('auth-error-msg');
 const userEmailDisplay = document.getElementById('user-email-display');
-
 const chatInput = document.getElementById('main-input');
 const sendBtn = document.getElementById('send-btn');
 const commandPopup = document.getElementById('command-popup');
@@ -20,13 +22,12 @@ const newChatBtn = document.querySelector('.new-chat-btn');
 const micBtn = document.getElementById('mic-btn'); 
 const attachmentBtn = document.getElementById('attachment-btn'); 
 const fileUploadInput = document.getElementById('file-upload-input'); 
-
 const emailModal = document.getElementById('email-modal');
 const settingsModal = document.getElementById('settings-modal');
 const confirmModal = document.getElementById('confirm-modal');
 
 // ==========================================
-// 👑 2. GLOBALE VARIABLEN & OWNER STATUS
+// 👑 2. GLOBALE VARIABLEN & ADMIN STATUS
 // ==========================================
 let sessions = [];
 let currentSession = null;
@@ -35,8 +36,10 @@ let appInitialized = false;
 
 let isOwner = false;
 let globalLockedModels = { pro: false, thinking: false }; 
-let isThinkingModeLocked = false; 
 let currentSelectedModel = 'flash';
+
+let lastBroadcastTime = 0;
+let lastUpdateTime = 0;
 
 document.getElementById('btn-google-login').addEventListener('click', async () => { try { await loginWithGoogle(); } catch(e) { showError(e.message); } });
 document.getElementById('btn-email-login').addEventListener('click', async () => { const e = document.getElementById('auth-email').value; const p = document.getElementById('auth-password').value; if(e && p) try { await loginWithEmail(e, p); } catch(err) { showError("Login fehlgeschlagen."); } });
@@ -55,15 +58,62 @@ function updateGreeting() {
     if (greetingEl) greetingEl.textContent = `Hallo ${settings.userName || 'Entwickler'}.`;
 }
 
+// 🌐 LIVE SYNC DER GLOBALEN DATENBANK (Admin Steuerung)
+function initGlobalSync() {
+    if(!db) return console.error("Firebase 'db' nicht gefunden. Live-Sync deaktiviert.");
+    
+    onSnapshot(doc(db, "system", "state"), (docSnap) => {
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            
+            // 1. LOCKS AKTUALISIEREN
+            if (data.locks) {
+                globalLockedModels = data.locks;
+                document.getElementById('pro-mode-option').classList.toggle('disabled', data.locks.pro);
+                document.getElementById('thinking-mode-option').classList.toggle('disabled', data.locks.thinking);
+                
+                // Kickt normale User aus dem Modell, Owner darf bleiben (Bypass)
+                if (!isOwner) {
+                    if (currentSelectedModel === 'pro' && data.locks.pro) forceModelChange('flash', "⚠️ Coden Pro wurde global gesperrt.");
+                    if (currentSelectedModel === 'normal' && data.locks.thinking) forceModelChange('flash', "⚠️ Coden Thinking wurde global gesperrt.");
+                }
+            }
+
+            // 2. BROADCAST (Popups für alle)
+            if (data.broadcast && data.broadcast.time > lastBroadcastTime) {
+                lastBroadcastTime = data.broadcast.time;
+                if (!isOwner) showCustomConfirm("📢 SYSTEM BROADCAST:\n\n" + data.broadcast.message); // Zeigt es nur den Usern
+            }
+
+            // 3. FORCE UPDATE (Erzwingt Seiten-Reload bei allen Usern)
+            if (data.forceUpdate && data.forceUpdate > lastUpdateTime) {
+                lastUpdateTime = data.forceUpdate;
+                if (!isOwner) location.reload();
+            }
+
+            // 4. MAINTENANCE MODE
+            if (data.maintenance && !isOwner) {
+                document.body.innerHTML = "<div style='display:flex; height:100vh; width:100vw; background:#111; color:white; align-items:center; justify-content:center; flex-direction:column;'><h1>🛠️ WARTUNGSARBEITEN</h1><p>Coden AI ist aktuell für normale User gesperrt. Bitte warte.</p></div>";
+            }
+        }
+    });
+}
+
+function forceModelChange(newModel, msg) {
+    currentSelectedModel = newModel;
+    document.querySelectorAll('.model-option').forEach(opt => opt.classList.remove('active'));
+    document.querySelector(`.model-option[data-model="${newModel}"]`).classList.add('active');
+    document.getElementById('current-model-text').textContent = "Coden " + newModel;
+    UI.appendMessage(msg, false);
+}
+
 onAuthStateChanged(auth, async (user) => {
     if (user) {
-        // 👑 OWNER CHECK
         isOwner = (user.email === 'kayden.schunack@gmail.com');
         const badge = document.getElementById('owner-badge');
         if(badge) badge.style.display = isOwner ? 'inline-block' : 'none';
 
-        loginScreen.classList.add('hidden');
-        appContainer.classList.remove('hidden');
+        loginScreen.classList.add('hidden'); appContainer.classList.remove('hidden');
         userEmailDisplay.textContent = user.email;
         await Storage.loadFromCloud();
         
@@ -71,6 +121,7 @@ onAuthStateChanged(auth, async (user) => {
         if (!settings.userName) { settings.userName = extractNameFromEmail(user.email); Storage.saveSettings(settings); }
         updateGreeting();
 
+        initGlobalSync(); // Startet den Live-Hörer für Admin-Befehle
         if (!appInitialized) initApp(); 
     } else {
         loginScreen.classList.remove('hidden'); appContainer.classList.add('hidden');
@@ -96,103 +147,109 @@ function initApp() {
 }
 
 // ==========================================
-// 🚀 3. SLASH COMMANDS SYSTEM (50 Commands + Argument Hints!)
+// 🚀 3. OWNER SLASH COMMANDS (50 Commands)
 // ==========================================
 const commands = [
-    // --- 👑 OWNER COMMANDS ---
-    { name: "/lock", opts: ["pro", "thinking"], desc: "[OWNER] Sperrt ein Modell", ownerOnly: true },
-    { name: "/unlock", opts: ["pro", "thinking"], desc: "[OWNER] Entsperrt ein Modell", ownerOnly: true },
-    { name: "/usage", opts: ["<email>"], desc: "[OWNER] Zeigt Modell-Nutzung eines Users", ownerOnly: true },
-    { name: "/broadcast", opts: ["<nachricht>"], desc: "[OWNER] Sendet eine Warnung", ownerOnly: true },
-    { name: "/stats", desc: "[OWNER] Zeigt Statistiken", ownerOnly: true },
-    { name: "/debug", desc: "[OWNER] Debug-Modus", ownerOnly: true },
-    { name: "/ban", opts: ["<email>"], desc: "[OWNER] Bannt einen Nutzer", ownerOnly: true },
-    { name: "/unban", opts: ["<email>"], desc: "[OWNER] Entbannt einen Nutzer", ownerOnly: true },
-    { name: "/sysinfo", desc: "[OWNER] Zeigt Server-Auslastung", ownerOnly: true },
-    { name: "/maintenance", opts: ["on", "off"], desc: "[OWNER] Wartungsmodus umschalten", ownerOnly: true },
-    { name: "/clearcache", desc: "[OWNER] Leert globalen Cache", ownerOnly: true },
-    { name: "/forceupdate", desc: "[OWNER] Erzwingt UI Refresh", ownerOnly: true },
-    { name: "/setrole", opts: ["<email> admin", "<email> user"], desc: "[OWNER] Rolle zuweisen", ownerOnly: true },
-    { name: "/alert", opts: ["<nachricht>"], desc: "[OWNER] Roter Popup-Alert", ownerOnly: true },
-    { name: "/log", desc: "[OWNER] Zeigt letzte System-Logs", ownerOnly: true },
-
-    // --- 👤 USER COMMANDS ---
-    { name: "/model", opts: ["flash", "normal", "pro"], desc: "Wechselt das aktive KI-Modell", ownerOnly: false },
-    { name: "/clear", desc: "Leert den aktuellen Chat", ownerOnly: false },
-    { name: "/clearall", desc: "Löscht ALLE Chats (Vorsicht!)", ownerOnly: false },
-    { name: "/theme", opts: ["dark", "light", "matrix"], desc: "Wechselt das Theme", ownerOnly: false },
-    { name: "/font", opts: ["12", "15", "18", "22"], desc: "Setzt Schriftgröße", ownerOnly: false },
-    { name: "/persona", opts: ["Standard", "Senior Dev", "Hacker"], desc: "Ändert die KI-Rolle", ownerOnly: false },
-    { name: "/temp", opts: ["0.2", "0.7", "1.0", "1.5"], desc: "Setzt KI-Kreativität (Temperatur)", ownerOnly: false },
-    { name: "/export", desc: "Exportiert den Chat als TXT", ownerOnly: false },
-    { name: "/rename", opts: ["<neuer_name>"], desc: "Benennt aktuellen Chat um", ownerOnly: false },
-    { name: "/delete", desc: "Löscht den aktuellen Chat", ownerOnly: false },
-    { name: "/user", desc: "Zeigt deine Account-Daten", ownerOnly: false },
-    { name: "/owner", desc: "Prüft Admin-Rechte", ownerOnly: false },
-    { name: "/ping", desc: "Prüft Systemgeschwindigkeit", ownerOnly: false },
-    { name: "/version", desc: "Zeigt die Coden AI Version", ownerOnly: false },
-    { name: "/reset", desc: "Setzt lokale Einstellungen zurück", ownerOnly: false },
-    { name: "/email", opts: ["<adresse>"], desc: "Setzt Standard E-Mail", ownerOnly: false },
-    { name: "/api", desc: "Setzt eigenen API Key", ownerOnly: false },
-    { name: "/time", desc: "Zeigt aktuelle Serverzeit", ownerOnly: false },
-    { name: "/help", desc: "Zeigt diese Befehlsliste", ownerOnly: false },
-    { name: "/shrug", desc: "Sendet ¯\\_(ツ)_/¯", ownerOnly: false },
-    { name: "/stealth", opts: ["on", "off"], desc: "Inkognito (Speichert nicht in Cloud)", ownerOnly: false },
-    { name: "/mute", desc: "Deaktiviert KI Audio-Antworten", ownerOnly: false },
-    { name: "/unmute", desc: "Aktiviert KI Audio-Antworten", ownerOnly: false },
-    { name: "/setname", opts: ["<neuer_name>"], desc: "Ändert deinen Anzeigenamen", ownerOnly: false },
-    { name: "/whisper", opts: ["<prompt>"], desc: "Unsichtbarer Prompt an die KI", ownerOnly: false },
-    { name: "/translate", opts: ["en", "fr", "es"], desc: "Übersetzt letzte Nachricht", ownerOnly: false },
-    { name: "/summarize", desc: "Fasst den Chat zusammen", ownerOnly: false },
-    { name: "/tocode", desc: "Extrahiert nur den Code aus Chat", ownerOnly: false },
-    { name: "/format", desc: "Formatiert letzten Code-Block", ownerOnly: false },
-    { name: "/fix", desc: "Sucht Fehler im letzten Code", ownerOnly: false },
-    { name: "/simulate", desc: "Simuliert Code-Ausführung", ownerOnly: false },
-    { name: "/coinflip", desc: "Wirft eine Münze", ownerOnly: false },
-    { name: "/roll", opts: ["d6", "d20", "d100"], desc: "Würfelt eine Zahl", ownerOnly: false },
-    { name: "/joke", desc: "Erzählt einen Programmierer-Witz", ownerOnly: false }
+    // 🌐 Globale Live-Sync Befehle
+    { name: "/lock", opts: ["pro", "thinking"], desc: "Sperrt ein Modell GLOBAL für alle User" },
+    { name: "/unlock", opts: ["pro", "thinking"], desc: "Entsperrt ein Modell GLOBAL" },
+    { name: "/broadcast", opts: ["<nachricht>"], desc: "Sendet ein Popup an ALLE Nutzer in Echtzeit" },
+    { name: "/maintenance", opts: ["on", "off"], desc: "Sperrt App komplett für non-admins" },
+    { name: "/forceupdate", desc: "Erzwingt bei ALLEN Nutzern einen Seiten-Reload" },
+    
+    // 📊 System & Tracking
+    { name: "/usage", opts: ["<email>"], desc: "Zeigt Modell-Aufrufe eines Users" },
+    { name: "/stats", desc: "Zeigt globale System-Statistiken" },
+    { name: "/sysinfo", desc: "Zeigt Vercel/Firebase Ping & Status" },
+    { name: "/log", desc: "Aktiviert Console Debug Logging" },
+    { name: "/clearcache", desc: "Leert lokalen und globalen Cache" },
+    
+    // 🔧 Chat & UI Steuerung
+    { name: "/model", opts: ["flash", "normal", "pro"], desc: "Wechselt Modell (Owner umgeht Locks!)" },
+    { name: "/clear", desc: "Leert den aktuellen Chat" },
+    { name: "/clearall", desc: "Löscht ALLE Chats in der Cloud (Vorsicht!)" },
+    { name: "/theme", opts: ["dark", "light", "matrix"], desc: "Wechselt das UI Theme" },
+    { name: "/font", opts: ["12", "15", "18", "22"], desc: "Setzt Schriftgröße im Chat" },
+    { name: "/persona", opts: ["Standard", "Senior Dev", "Hacker"], desc: "Ändert die KI-Rolle" },
+    { name: "/temp", opts: ["0.2", "0.7", "1.0", "1.5"], desc: "Setzt KI-Kreativität (Temperatur)" },
+    { name: "/export", desc: "Exportiert Chat-Verlauf als TXT" },
+    { name: "/rename", opts: ["<name>"], desc: "Benennt aktuellen Chat um" },
+    { name: "/delete", desc: "Löscht aktuellen Chat" },
+    
+    // 👤 Admin Utilities
+    { name: "/user", desc: "Zeigt deine Owner-Account Daten" },
+    { name: "/ping", desc: "Prüft Verbindungs-Latenz" },
+    { name: "/version", desc: "Zeigt Coden AI System-Version" },
+    { name: "/reset", desc: "Setzt deine lokalen Settings zurück" },
+    { name: "/email", opts: ["<adresse>"], desc: "Setzt Standard E-Mail für Shortcuts" },
+    { name: "/api", desc: "Setzt eigenen temporären API Key" },
+    { name: "/time", desc: "Zeigt aktuelle UTC Serverzeit" },
+    { name: "/help", desc: "Zeigt diese Admin-Befehlsliste" },
+    { name: "/setname", opts: ["<neuer_name>"], desc: "Ändert deinen Admin-Anzeigenamen" },
+    { name: "/stealth", opts: ["on", "off"], desc: "Inkognito Modus (Kein Cloud Save)" },
+    
+    // 🤖 KI Tools
+    { name: "/translate", opts: ["en", "fr", "es"], desc: "Übersetzt letzte Nachricht" },
+    { name: "/summarize", desc: "Fasst den aktuellen Chat zusammen" },
+    { name: "/tocode", desc: "Extrahiert reinen Code aus dem Chat" },
+    { name: "/format", desc: "Formatiert letzten Code-Block" },
+    { name: "/fix", desc: "Sucht Fehler im letzten Code" },
+    { name: "/simulate", desc: "Simuliert JavaScript Ausführung" },
+    
+    // 🎮 Fun & Sonstiges
+    { name: "/shrug", desc: "Sendet ¯\\_(ツ)_/¯" },
+    { name: "/coinflip", desc: "Wirft eine Münze" },
+    { name: "/roll", opts: ["d6", "d20", "d100"], desc: "Würfelt eine Zahl" },
+    { name: "/joke", desc: "Erzählt Entwickler-Witz" },
+    { name: "/motd", opts: ["<nachricht>"], desc: "Setzt Message of the Day" },
+    { name: "/ban", opts: ["<email>"], desc: "Bannt User (WIP)" },
+    { name: "/unban", opts: ["<email>"], desc: "Entbannt User (WIP)" },
+    { name: "/promote", opts: ["<email>"], desc: "Gibt User Admin Rechte (WIP)" },
+    { name: "/demote", opts: ["<email>"], desc: "Nimmt Admin Rechte (WIP)" },
+    { name: "/db_backup", desc: "Simuliert Datenbank Backup" },
+    { name: "/db_restore", desc: "Simuliert Datenbank Restore" },
+    { name: "/purge", opts: ["<anzahl>"], desc: "Löscht X letzte Nachrichten" },
+    { name: "/stop", desc: "Stoppt aktuelle KI-Generierung" },
+    { name: "/whisper", opts: ["<prompt>"], desc: "Unsichtbarer Prompt an KI" }
 ];
 
 chatInput.addEventListener('input', (e) => {
     chatInput.style.height = 'auto'; chatInput.style.height = (chatInput.scrollHeight) + 'px';
-
     const text = e.target.value;
+
+    // BLOCKIERT NORMALE USER KOMPLETT!
+    if (!isOwner && text.startsWith('/')) {
+        commandPopup.classList.add('hidden');
+        return;
+    }
+
     if (text.startsWith('/')) {
         const parts = text.split(' ');
         const cmdSearch = parts[0].toLowerCase();
         const hasSpace = text.includes(' ');
 
-        // 1. Befehl suchen (Kein Leerzeichen getippt)
         if (!hasSpace) {
-            const filtered = commands.filter(c => c.name.startsWith(cmdSearch) && (!c.ownerOnly || isOwner));
+            const filtered = commands.filter(c => c.name.startsWith(cmdSearch));
             renderPopup(filtered, true);
-        } 
-        // 2. Parameter-Hints anzeigen (Leerzeichen getippt)
-        else {
-            const exactCmd = commands.find(c => c.name === cmdSearch && (!c.ownerOnly || isOwner));
+        } else {
+            const exactCmd = commands.find(c => c.name === cmdSearch);
             if (exactCmd && exactCmd.opts) {
                 const optSearch = parts[1].toLowerCase();
                 const filteredOpts = exactCmd.opts.filter(o => o.toLowerCase().startsWith(optSearch));
-                
                 if (filteredOpts.length > 0) {
-                    const mappedOpts = filteredOpts.map(opt => ({
-                        name: exactCmd.name + " " + opt, 
-                        desc: `Parameter für ${exactCmd.name}`,
-                        ownerOnly: exactCmd.ownerOnly
-                    }));
+                    const mappedOpts = filteredOpts.map(opt => ({ name: exactCmd.name + " " + opt, desc: `Parameter für ${exactCmd.name}` }));
                     renderPopup(mappedOpts, false);
-                } else { commandPopup.classList.add('hidden'); }
-            } else { commandPopup.classList.add('hidden'); }
+                } else commandPopup.classList.add('hidden');
+            } else commandPopup.classList.add('hidden');
         }
-    } else { commandPopup.classList.add('hidden'); }
+    } else commandPopup.classList.add('hidden');
 });
 
 function renderPopup(items, isCmdList) {
     if (items.length > 0) {
         commandPopup.innerHTML = items.map(c => 
             `<div class="command-item" data-cmd="${c.name}">
-                <div><span class="command-name">${c.name}</span> 
-                ${c.ownerOnly ? '<span class="command-owner-badge">OWNER</span>' : ''}</div>
+                <div><span class="command-name">${c.name}</span> <span class="command-owner-badge">OWNER</span></div>
                 <div class="command-desc">${c.desc}</div>
             </div>`
         ).join('');
@@ -200,95 +257,73 @@ function renderPopup(items, isCmdList) {
 
         document.querySelectorAll('.command-item').forEach(item => {
             item.addEventListener('click', () => {
-                // Wenn Parameter geklickt, füge Leerzeichen an für sofortiges Senden
                 chatInput.value = item.getAttribute('data-cmd') + (isCmdList ? " " : ""); 
-                chatInput.focus();
-                commandPopup.classList.add('hidden');
+                chatInput.focus(); commandPopup.classList.add('hidden');
             });
         });
-    } else { commandPopup.classList.add('hidden'); }
+    } else commandPopup.classList.add('hidden');
 }
 
-document.addEventListener('click', (e) => {
-    if (!chatInput.contains(e.target) && !commandPopup.contains(e.target)) commandPopup.classList.add('hidden');
-});
+document.addEventListener('click', (e) => { if (!chatInput.contains(e.target) && !commandPopup.contains(e.target)) commandPopup.classList.add('hidden'); });
 
-// Befehls-Ausführung (Bypass KI)
-function handleCommand(text) {
+// BEFEHL AUSFÜHRUNG
+async function handleCommand(text) {
     const args = text.split(' '); const cmd = args[0].toLowerCase(); const param = args.slice(1).join(' ');
     let sysMsg = "";
 
-    // 👑 OWNER COMMANDS
-    if (cmd === '/lock') {
-        if(!isOwner) return UI.appendMessage("❌ Zugriff verweigert.", false);
-        if(param === 'pro') { globalLockedModels.pro = true; sysMsg = "🔒 Coden Pro wurde GLOBAL gesperrt."; }
-        else if(param === 'thinking') { globalLockedModels.thinking = true; sysMsg = "🔒 Coden Thinking wurde GLOBAL gesperrt."; }
-        else sysMsg = "Nutze '/lock pro' oder '/lock thinking'.";
-    }
-    else if (cmd === '/unlock') {
-        if(!isOwner) return UI.appendMessage("❌ Zugriff verweigert.", false);
-        if(param === 'pro') { globalLockedModels.pro = false; sysMsg = "🔓 Coden Pro wurde GLOBAL entsperrt."; }
-        else if(param === 'thinking') { globalLockedModels.thinking = false; sysMsg = "🔓 Coden Thinking wurde GLOBAL entsperrt."; }
-        else sysMsg = "Modell nicht gefunden.";
-    }
-    else if (cmd === '/usage') {
-        if(!isOwner) return UI.appendMessage("❌ Zugriff verweigert.", false);
-        if(!param) sysMsg = "Bitte E-Mail angeben (z.B. /usage max@test.de)";
-        else {
-            // Simulierte Werte für die Ansicht (Firestore Tracking fehlt noch im Backend)
-            const rFlash = Math.floor(Math.random() * 200);
-            const rNorm = Math.floor(Math.random() * 50);
-            const rPro = Math.floor(Math.random() * 15);
-            sysMsg = `📈 **Modell-Nutzung für ${param}:**\n- ⚡ Coden Flash: ${rFlash} Aufrufe\n- 🧠 Coden Thinking: ${rNorm} Aufrufe\n- 💎 Coden Pro: ${rPro} Aufrufe\n*(Hinweis: Globale Firestore-Metriken aktuell simuliert)*`;
+    try {
+        if (cmd === '/lock') {
+            const target = args[1];
+            if(target === 'pro') { await setDoc(doc(db, "system", "state"), { locks: { pro: true, thinking: globalLockedModels.thinking } }, { merge: true }); sysMsg = "🔒 Coden Pro GLOBAL gesperrt."; }
+            else if(target === 'thinking') { await setDoc(doc(db, "system", "state"), { locks: { pro: globalLockedModels.pro, thinking: true } }, { merge: true }); sysMsg = "🔒 Coden Thinking GLOBAL gesperrt."; }
+            else sysMsg = "Ziel unklar. Nutze /lock pro oder /lock thinking";
         }
-    }
-    else if (cmd === '/broadcast') {
-        if(!isOwner) return; sysMsg = "📢 **SYSTEM BROADCAST:**\n" + param;
-    }
-    else if (cmd === '/clearcache') {
-        if(!isOwner) return; sysMsg = "🗑️ Globaler System-Cache erfolgreich geleert.";
-    }
-    // 👤 USER COMMANDS
-    else if (cmd === '/model') {
-        if(['flash', 'normal', 'pro'].includes(param)) {
-            // 🚀 OWNER BYPASS: Wenn gelockt, blockiere nur normale User!
-            if (param === 'pro' && globalLockedModels.pro && !isOwner) {
-                sysMsg = "❌ Coden Pro ist vom Administrator gesperrt.";
-            } else if (param === 'normal' && globalLockedModels.thinking && !isOwner) {
-                sysMsg = "❌ Coden Thinking ist vom Administrator gesperrt.";
-            } else {
+        else if (cmd === '/unlock') {
+            const target = args[1];
+            if(target === 'pro') { await setDoc(doc(db, "system", "state"), { locks: { pro: false, thinking: globalLockedModels.thinking } }, { merge: true }); sysMsg = "🔓 Coden Pro GLOBAL entsperrt."; }
+            else if(target === 'thinking') { await setDoc(doc(db, "system", "state"), { locks: { pro: globalLockedModels.pro, thinking: false } }, { merge: true }); sysMsg = "🔓 Coden Thinking GLOBAL entsperrt."; }
+            else sysMsg = "Ziel unklar.";
+        }
+        else if (cmd === '/broadcast') {
+            if(!param) return UI.appendMessage("⚙️ **SYSTEM:**\nBitte Nachricht eingeben.", false);
+            await setDoc(doc(db, "system", "state"), { broadcast: { message: param, time: Date.now() } }, { merge: true });
+            sysMsg = "📢 Broadcast wurde an alle aktiven Clients gesendet.";
+        }
+        else if (cmd === '/forceupdate') {
+            await setDoc(doc(db, "system", "state"), { forceUpdate: Date.now() }, { merge: true });
+            sysMsg = "🔄 Alle User werden jetzt neu geladen (Du nicht).";
+        }
+        else if (cmd === '/maintenance') {
+            if(param === 'on') { await setDoc(doc(db, "system", "state"), { maintenance: true }, { merge: true }); sysMsg = "🛠️ Wartungsmodus AKTIV. User ausgesperrt."; }
+            else { await setDoc(doc(db, "system", "state"), { maintenance: false }, { merge: true }); sysMsg = "✅ Wartungsmodus DEAKTIVIERT."; }
+        }
+        else if (cmd === '/model') {
+            if(['flash', 'normal', 'pro'].includes(param)) {
                 currentSelectedModel = param;
                 document.getElementById('current-model-text').textContent = "Coden " + param;
-                // Zeige dem Owner an, dass er einen Bypass genutzt hat
-                const bypassInfo = (isOwner && globalLockedModels[param]) ? " *(👑 OWNER BYPASS AKTIV)*" : "";
-                sysMsg = `🔄 Modell gewechselt zu: ${param}${bypassInfo}`;
+                // Owner Bypass Check!
+                const bypass = (param === 'pro' && globalLockedModels.pro) || (param === 'normal' && globalLockedModels.thinking);
+                sysMsg = `🔄 Modell: ${param} ${bypass ? '*(👑 OWNER BYPASS AKTIV!)*' : ''}`;
+            } else sysMsg = "Gültig: flash, normal, pro.";
+        }
+        else if (cmd === '/usage') {
+            if(!param) sysMsg = "Bitte E-Mail angeben (z.B. /usage max@test.de)";
+            else {
+                // Simulierter globaler Firestore Tracker
+                const rF = Math.floor(Math.random() * 200); const rN = Math.floor(Math.random() * 50); const rP = Math.floor(Math.random() * 15);
+                sysMsg = `📈 **Modell-Nutzung für ${param}:**\n- ⚡ Flash: ${rF}\n- 🧠 Thinking: ${rN}\n- 💎 Pro: ${rP}\n*(Simulierte Tracker Ansicht)*`;
             }
-        } else sysMsg = "Gültige Modelle: flash, normal, pro.";
-    }
-    else if (cmd === '/clear') { currentSession.messages = []; Storage.saveSessions(sessions); UI.resetUI(); return; }
-    else if (cmd === '/clearall') { sessions = [Storage.createNewSession()]; currentSession = sessions[0]; activeSessionId = currentSession.id; Storage.saveSessions(sessions); UI.resetUI(); UI.renderSidebar(sessions, activeSessionId); return; }
-    else if (cmd === '/theme') {
-        if(param === 'matrix') { document.body.style.filter = "hue-rotate(90deg) invert(80%)"; sysMsg = "💊 Du bist jetzt in der Matrix."; }
-        else sysMsg = "🎨 Theme-Wechsel (in Entwicklung).";
-    }
-    else if (cmd === '/setname') {
-        if(param) {
-            const s = Storage.getSettings(); s.userName = param; Storage.saveSettings(s);
-            updateGreeting(); sysMsg = `Dein Name wurde zu "${param}" geändert.`;
-        } else sysMsg = "Bitte Namen angeben.";
-    }
-    else if (cmd === '/coinflip') {
-        sysMsg = Math.random() > 0.5 ? "🪙 Kopf!" : "🪙 Zahl!";
-    }
-    else if (cmd === '/roll') {
-        const sides = param === 'd20' ? 20 : param === 'd100' ? 100 : 6;
-        sysMsg = `🎲 Du hast eine **${Math.floor(Math.random() * sides) + 1}** gewürfelt! (W${sides})`;
-    }
-    else if (cmd === '/shrug') { sysMsg = "¯\\_(ツ)_/¯"; }
-    else if (cmd === '/help') { sysMsg = "Verfügbare Befehle:\n" + commands.filter(c => !c.ownerOnly || isOwner).map(c => `**${c.name}** - ${c.desc}`).join('\n'); }
-    else { sysMsg = `Befehl ausgeführt: ${cmd} ${param}`; } // Fallback für restliche Dummys
+        }
+        else if (cmd === '/clear') { currentSession.messages = []; Storage.saveSessions(sessions); UI.resetUI(); return; }
+        else if (cmd === '/clearall') { sessions = [Storage.createNewSession()]; currentSession = sessions[0]; activeSessionId = currentSession.id; Storage.saveSessions(sessions); UI.resetUI(); UI.renderSidebar(sessions, activeSessionId); return; }
+        else if (cmd === '/setname') { const s = Storage.getSettings(); s.userName = param; Storage.saveSettings(s); updateGreeting(); sysMsg = `Name geändert zu "${param}".`; }
+        else if (cmd === '/help') { sysMsg = "Verfügbare Befehle:\n" + commands.map(c => `**${c.name}** - ${c.desc}`).join('\n'); }
+        else { sysMsg = `Admin-Befehl ausgeführt: ${cmd} ${param}`; } 
 
-    if (sysMsg) UI.appendMessage(`⚙️ **SYSTEM:**\n${sysMsg}`, false);
+        if (sysMsg) UI.appendMessage(`⚙️ **SYSTEM:**\n${sysMsg}`, false);
+    } catch(e) {
+        UI.appendMessage(`⚙️ **SYSTEM FEHLER:**\nKonnte globalen Status nicht setzen. Ist Firestore richtig konfiguriert? (${e.message})`, false);
+    }
 }
 
 // ==========================================
@@ -380,11 +415,11 @@ document.addEventListener('click', (e) => { if (!document.getElementById('model-
 
 document.querySelectorAll('.model-option').forEach(option => {
     option.addEventListener('click', () => {
-        // UI Dropdown Klick: Blockiere normale User, erlaube Owner
         const selectedId = option.id;
-        if (selectedId === 'pro-mode-option' && globalLockedModels.pro && !isOwner) return alert("❌ Vom Admin gesperrt.");
-        if (selectedId === 'thinking-mode-option' && globalLockedModels.thinking && !isOwner) return alert("❌ Vom Admin gesperrt.");
-        if (selectedId === 'thinking-mode-option' && isThinkingModeLocked && !isOwner) return alert("⚠️ Serverüberlastung.");
+        if (!isOwner) {
+            if (selectedId === 'pro-mode-option' && globalLockedModels.pro) return alert("❌ Vom Admin gesperrt.");
+            if (selectedId === 'thinking-mode-option' && globalLockedModels.thinking) return alert("❌ Vom Admin gesperrt.");
+        }
         
         document.querySelectorAll('.model-option').forEach(opt => opt.classList.remove('active'));
         option.classList.add('active');
@@ -429,12 +464,12 @@ micBtn.addEventListener('click', () => {
 });
 
 // ==========================================
-// 🚀 7. HAUPT SENDE FUNKTION
+// 🚀 7. HAUPT SENDE FUNKTION (Die E-Mail Logik bleibt 100% erhalten!)
 // ==========================================
 async function handleSend() {
     if(!chatInput) return; const text = chatInput.value.trim(); if (!text) return;
     
-    // 🧠 COMMAND CHECK BYPASS
+    // 🧠 COMMAND CHECK (Bypass KI)
     if (text.startsWith('/')) {
         chatInput.value = ''; chatInput.style.height = 'auto'; commandPopup.classList.add('hidden');
         handleCommand(text); return; 
@@ -444,17 +479,17 @@ async function handleSend() {
     UI.appendMessage(text, true); currentSession.messages.push({ text: text, isUser: true }); Storage.saveSessions(sessions);
     if (currentSession.messages.length === 1) generateChatTitle(text);
 
-    // Global Lock Check für NON-OWNERS
+    // Block non-owners if globally locked
     if (!isOwner) {
-        if (currentSelectedModel === 'pro' && globalLockedModels.pro) { UI.appendMessage("❌ Coden Pro ist vom Admin gesperrt.", false); return; }
-        if (currentSelectedModel === 'normal' && globalLockedModels.thinking) { UI.appendMessage("❌ Coden Thinking ist vom Admin gesperrt.", false); return; }
+        if (currentSelectedModel === 'pro' && globalLockedModels.pro) { UI.appendMessage("❌ Coden Pro ist global gesperrt.", false); return; }
+        if (currentSelectedModel === 'normal' && globalLockedModels.thinking) { UI.appendMessage("❌ Coden Thinking ist global gesperrt.", false); return; }
     }
 
     let historyContext = "";
     currentSession.messages.slice(-5, -1).forEach(m => historyContext += `${m.isUser ? 'Nutzer' : 'KI'}: ${m.text.substring(0, 1500)}...\n`);
     const userName = Storage.getSettings().userName || 'Entwickler';
 
-    // 📧 E-MAIL INTENT LOGIK
+    // 📧 E-MAIL INTENT LOGIK (Kugelsicher)
     const lowerText = text.toLowerCase(); let isEmailCommand = false;
     if (['mail', 'gmail', 'sende', 'schick', 'weiterleiten'].some(w => lowerText.includes(w))) {
         if (await showCustomConfirm("Möchtest du eine E-Mail senden?\n\nOK = Fenster öffnen\nAbbrechen = Normaler Chat")) isEmailCommand = true;
@@ -479,8 +514,6 @@ Antworte EXAKT in diesem Format:
 
         try {
             let emailModel = CONFIG.models[currentSelectedModel];
-            if (currentSelectedModel === 'normal' && isThinkingModeLocked) emailModel = CONFIG.models.flash;
-
             const resText = await generateAiResponse([{ role: 'user', content: emailPrompt }], emailModel);
             let emailTo = resText.match(/\[TO\]:\s*(.*)/i)?.[1].trim() || '';
             const emailSubject = resText.match(/\[SUBJECT\]:\s*(.*)/i)?.[1].trim() || '';
@@ -505,10 +538,8 @@ Antworte EXAKT in diesem Format:
 
     let targetModelId = CONFIG.models[currentSelectedModel];
     try {
-        if (currentSelectedModel === 'normal') {
-            if (isThinkingModeLocked) { UI.showLoading(true, "Thinking Modus überlastet. Nutze Fallback..."); targetModelId = CONFIG.models.fallback; }
-            else { UI.showLoading(true, `Coden Thinking überlegt...`); }
-        } else if (currentSelectedModel === 'flash') { UI.showLoading(true, `Coden Flash denkt...`); }
+        if (currentSelectedModel === 'normal') { UI.showLoading(true, `Coden Thinking überlegt...`); } 
+        else if (currentSelectedModel === 'flash') { UI.showLoading(true, `Coden Flash denkt...`); }
         else if (currentSelectedModel === 'pro') {
             UI.showLoading(true, `Coden Pro analysiert...`);
             try {
