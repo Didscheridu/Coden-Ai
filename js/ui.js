@@ -74,13 +74,14 @@ export const UI = {
         if (welcomeScreen) welcomeScreen.style.display = 'none';
 
         const msgDiv = document.createElement('div');
-        msgDiv.className = `message ${isUser ? 'user-message' : 'ai-message'}`;
+        // 🔥 HIER WAR DER FEHLER: Es muss "message-row" heißen! 🔥
+        msgDiv.className = `message-row ${isUser ? 'user-message' : 'ai-message'}`;
 
         const avatar = document.createElement('div');
         avatar.className = 'avatar';
         if (!isUser) {
             avatar.classList.add('ai-avatar');
-            avatar.innerHTML = '<img src="./images/coden_logo.jpg" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" onerror="this.style.display=\'none\'">';
+            avatar.innerHTML = `<img src="${AI_PROFILE_PIC_SRC}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" onerror="this.style.display='none'">`;
         } else {
             avatar.innerHTML = '<span class="material-symbols-outlined">person</span>';
         }
@@ -88,16 +89,14 @@ export const UI = {
         const content = document.createElement('div');
         content.className = 'content';
         
-        // 🌟 DER FIX: Markdown (inkl. Bilder) zu echtem HTML umwandeln! 🌟
         if (!isUser) {
-            // Wir nutzen die marked.js Bibliothek, um den KI-Text zu rendern
+            // KI-Text mit Markdown rendern
             content.innerHTML = marked.parse(text);
         } else {
-            // Wenn der Nutzer Code oder Anhänge mitschickt, rendern wir das auch als HTML
+            // User-Text roh lassen
             content.innerHTML = text; 
         }
 
-        // Code-Blöcke nach dem Rendern hübsch machen (Syntax Highlighting & Copy Button)
         if (!isUser) {
             content.querySelectorAll('pre code').forEach((block) => {
                 hljs.highlightElement(block);
@@ -126,7 +125,7 @@ export const UI = {
                 pre.appendChild(copyBtn);
             });
             
-            // Bilder im Chat responsiv machen (damit sie nicht den Bildschirm sprengen)
+            // Bilder im Chat responsiv machen
             content.querySelectorAll('img').forEach((img) => {
                 img.style.maxWidth = '100%';
                 img.style.borderRadius = '8px';
@@ -139,14 +138,13 @@ export const UI = {
         chatContainer.appendChild(msgDiv);
         
         chatContainer.scrollTop = chatContainer.scrollHeight;
-    }
+    },
+
     createLoadingAnimation: () => {
         UI.loadingSpinnerBox = document.createElement('div');
         UI.loadingSpinnerBox.id = 'coden-loading-spinner';
         UI.loadingSpinnerBox.className = 'ai-response-area hidden';
         
-        // KOMPLETT BEFREIT VON ALLEN "BOX" KLASSEN!
-        // Hier sind keine Rahmen oder Hintergründe mehr, nur pures HTML für das Icon.
         UI.loadingSpinnerBox.innerHTML = `
             <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 24px; padding-left: 8px;">
                 <div class="spinner-container">
@@ -224,9 +222,10 @@ export const UI = {
     },
 
     resetUI: () => {
+        // 🔥 WICHTIG: Hier sucht er nach 'message-row' um den Chat zu leeren! 🔥
         const messages = UI.chatContainer.querySelectorAll('.message-row');
         messages.forEach(msg => msg.remove());
-        if (UI.welcomeScreen) UI.welcomeScreen.classList.remove('hidden');
+        if (UI.welcomeScreen) UI.welcomeScreen.style.display = 'flex'; // Sicherstellen, dass das Welcome-Logo wieder kommt
     }
 };
 
