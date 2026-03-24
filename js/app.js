@@ -24,7 +24,7 @@ const settingsModal = document.getElementById('settings-modal');
 const confirmModal = document.getElementById('confirm-modal');
 
 // ==========================================
-// 👑 2. GLOBALE VARIABLEN
+// 👑 2. GLOBALE VARIABLEN & STATUS
 // ==========================================
 let sessions = [];
 let currentSession = null;
@@ -47,35 +47,50 @@ function showError(msg) {
 // 🛡️ 3. AUTHENTIFIZIERUNG & FIREBASE
 // ==========================================
 if (document.getElementById('btn-google-login')) {
-    document.getElementById('btn-google-login').addEventListener('click', async () => { try { await loginWithGoogle(); } catch(e) { showError(e.message); } });
+    document.getElementById('btn-google-login').addEventListener('click', async () => { 
+        try { await loginWithGoogle(); } catch(e) { showError(e.message); } 
+    });
 }
+
 if (document.getElementById('btn-email-login')) {
     document.getElementById('btn-email-login').addEventListener('click', async () => { 
-        const e = document.getElementById('auth-email').value.trim(); const p = document.getElementById('auth-password').value.trim(); 
+        const e = document.getElementById('auth-email').value.trim(); 
+        const p = document.getElementById('auth-password').value.trim(); 
         if (e && p) {
-            try { await loginWithEmail(e, p); } 
-            catch(err) { 
+            try { 
+                await loginWithEmail(e, p); 
+            } catch(err) { 
                 if (err.code === 'auth/invalid-credential') showError("❌ Falsches Passwort oder E-Mail existiert nicht.");
                 else showError("❌ Login fehlgeschlagen: " + err.message);
             } 
-        } else showError("❌ Bitte E-Mail und Passwort eingeben!");
+        } else {
+            showError("❌ Bitte E-Mail und Passwort eingeben!");
+        }
     });
 }
+
 if (document.getElementById('btn-email-register')) {
     document.getElementById('btn-email-register').addEventListener('click', async () => { 
-        const e = document.getElementById('auth-email').value.trim(); const p = document.getElementById('auth-password').value.trim(); 
+        const e = document.getElementById('auth-email').value.trim(); 
+        const p = document.getElementById('auth-password').value.trim(); 
         if (e && p) {
-            try { await registerWithEmail(e, p); } 
-            catch(err) { 
+            try { 
+                await registerWithEmail(e, p); 
+            } catch(err) { 
                 if (err.code === 'auth/email-already-in-use') showError("❌ Diese E-Mail ist bereits registriert!");
                 else if (err.code === 'auth/weak-password') showError("❌ Das Passwort muss mind. 6 Zeichen lang sein!");
                 else showError("❌ Registrierung fehlgeschlagen: " + err.message);
             } 
-        } else showError("❌ Bitte E-Mail und Passwort eingeben!");
+        } else {
+            showError("❌ Bitte E-Mail und Passwort eingeben!");
+        }
     });
 }
+
 if (document.getElementById('logout-btn')) {
-    document.getElementById('logout-btn').addEventListener('click', () => { try { logoutUser(); } catch(e) { console.error(e); } });
+    document.getElementById('logout-btn').addEventListener('click', () => { 
+        try { logoutUser(); } catch(e) { console.error(e); } 
+    });
 }
 
 function extractNameFromEmail(email) {
@@ -106,7 +121,10 @@ if (auth) {
                 try { if (Storage.loadFromCloud) await Storage.loadFromCloud(); } catch(e) {}
                 
                 let settings = Storage.getSettings();
-                if (!settings.userName) { settings.userName = extractNameFromEmail(user.email); Storage.saveSettings(settings); }
+                if (!settings.userName) { 
+                    settings.userName = extractNameFromEmail(user.email); 
+                    Storage.saveSettings(settings); 
+                }
                 updateGreeting();
 
                 if (!appInitialized) initApp(); 
@@ -128,13 +146,22 @@ function initGlobalSync() {
                 const data = docSnap.data();
                 if (data.locks) {
                     globalLockedModels = data.locks;
-                    const pOpt = document.getElementById('pro-mode-option'); const tOpt = document.getElementById('thinking-mode-option');
+                    const pOpt = document.getElementById('pro-mode-option'); 
+                    const tOpt = document.getElementById('thinking-mode-option');
                     if(pOpt) pOpt.classList.toggle('disabled', data.locks.pro);
                     if(tOpt) tOpt.classList.toggle('disabled', data.locks.thinking);
                 }
-                if (data.globalModel && data.globalModel !== currentSelectedModel) forceModelChange(data.globalModel, `🔄 Modell gewechselt auf ${data.globalModel}.`);
-                if (data.broadcast && data.broadcast.time > lastBroadcastTime) { lastBroadcastTime = data.broadcast.time; if (!isOwner) showCustomConfirm("📢 BROADCAST:\n" + data.broadcast.message); }
-                if (data.forceUpdate && data.forceUpdate > lastUpdateTime) { lastUpdateTime = data.forceUpdate; if (!isOwner) location.reload(); }
+                if (data.globalModel && data.globalModel !== currentSelectedModel) {
+                    forceModelChange(data.globalModel, `🔄 Modell auf ${data.globalModel} gewechselt.`);
+                }
+                if (data.broadcast && data.broadcast.time > lastBroadcastTime) { 
+                    lastBroadcastTime = data.broadcast.time; 
+                    if (!isOwner) showCustomConfirm("📢 BROADCAST:\n" + data.broadcast.message); 
+                }
+                if (data.forceUpdate && data.forceUpdate > lastUpdateTime) { 
+                    lastUpdateTime = data.forceUpdate; 
+                    if (!isOwner) location.reload(); 
+                }
                 if (data.theme) document.body.style.filter = data.theme === 'matrix' ? "hue-rotate(90deg) invert(80%)" : "";
                 if (data.fontSize) document.documentElement.style.setProperty('--chat-font-size', data.fontSize + 'px');
             }
@@ -154,26 +181,28 @@ function forceModelChange(newModel, msg) {
     if(!isOwner) UI.appendMessage(msg, false);
 }
 
-// 🛠️ FIX 1: CHAT-WECHSEL GEHT WIEDER!
 function initApp() {
     try {
         appInitialized = true;
         sessions = Storage.getSessions();
-        if(sessions.length === 0) { currentSession = Storage.createNewSession(); sessions.push(currentSession); Storage.saveSessions(sessions); } 
-        else { currentSession = sessions[0]; }
+        if(sessions.length === 0) { 
+            currentSession = Storage.createNewSession(); 
+            sessions.push(currentSession); 
+            Storage.saveSessions(sessions); 
+        } else { currentSession = sessions[0]; }
         activeSessionId = currentSession.id;
 
         const settings = Storage.getSettings();
         document.documentElement.style.setProperty('--chat-font-size', (settings.fontSize || 15) + 'px');
 
-        UI.resetUI(); UI.renderSidebar(sessions, activeSessionId);
+        UI.resetUI(); 
+        UI.renderSidebar(sessions, activeSessionId);
         if (currentSession.messages.length > 0) currentSession.messages.forEach(msg => UI.appendMessage(msg.text, msg.isUser));
         
         const opt = document.querySelector(`.model-option[data-model="${currentSelectedModel}"]`);
         const textEl = document.getElementById('current-model-text');
         if(opt && textEl) textEl.textContent = opt.querySelector('.name').textContent;
 
-        // DIESE BEIDEN ZEILEN HABEN GEFEHLT:
         document.addEventListener('loadChatSession', (e) => loadSession(e.detail));
         document.addEventListener('deleteChatSession', (e) => deleteSession(e.detail));
     } catch(e) {}
@@ -229,7 +258,9 @@ function renderPopup(items, isCmdList) {
     } else commandPopup.classList.add('hidden');
 }
 
-document.addEventListener('click', (e) => { if (chatInput && commandPopup && !chatInput.contains(e.target) && !commandPopup.contains(e.target)) commandPopup.classList.add('hidden'); });
+document.addEventListener('click', (e) => { 
+    if (chatInput && commandPopup && !chatInput.contains(e.target) && !commandPopup.contains(e.target)) commandPopup.classList.add('hidden'); 
+});
 
 async function handleCommand(text) {
     const args = text.split(' '); const cmd = args[0].toLowerCase(); const param = args.slice(1).join(' ');
@@ -248,20 +279,85 @@ async function handleCommand(text) {
         else if (cmd === '/broadcast') { await setDoc(doc(db, "system", "state"), { broadcast: { message: param, time: Date.now() } }, { merge: true }); sysMsg = "📢 Broadcast LIVE gesendet."; }
         else if (cmd === '/model') { await setDoc(doc(db, "system", "state"), { globalModel: param }, { merge: true }); sysMsg = `🔄 Modell auf '${param}' gezwungen.`; }
         else if (cmd === '/theme') { await setDoc(doc(db, "system", "state"), { theme: param }, { merge: true }); sysMsg = `🎨 Theme auf '${param}' gesetzt.`; }
-        else { sysMsg = `Befehl ausgeführt: ${cmd}`; } 
+        else { sysMsg = `Admin-Befehl ausgeführt: ${cmd}`; } 
+        
         UI.appendMessage(`⚙️ **GLOBAL ADMIN:**\n${sysMsg}`, false);
     } catch(e) { UI.appendMessage(`⚙️ **SYSTEM FEHLER:**\n${e.message}`, false); }
 }
 
 // ==========================================
-// 🛠️ 5. UI STEUERUNG, MODEL-MENÜ & EINSTELLUNGEN
+// ⚖️ 5. RECHTLICHES (Impressum, Datenschutz, AGB)
+// ==========================================
+const legalModal = document.getElementById('legal-modal');
+const legalTitle = document.getElementById('legal-title');
+const legalContent = document.getElementById('legal-content');
+
+if(document.getElementById('close-legal-btn')) {
+    document.getElementById('close-legal-btn').addEventListener('click', () => legalModal.classList.add('hidden'));
+}
+
+// ACHTUNG: Hier deine echten Daten eintragen!
+const legalTexts = {
+    impressum: `
+        <h4 style="color: white; margin-bottom: 10px;">Impressum</h4>
+        <p>Angaben gemäß § 5 TMG</p>
+        <p style="color: white; font-weight: bold;">
+        DEIN VORNAME & NACHNAME<br>
+        DEINE STRAßE 12<br>
+        12345 DEINE STADT</p>
+        <p style="margin-top:10px;"><strong>Kontakt:</strong><br>
+        E-Mail: kayden.schunack@gmail.com</p>
+    `,
+    datenschutz: `
+        <h4 style="color: white; margin-bottom: 10px;">Datenschutzerklärung</h4>
+        <p>Der Schutz deiner Daten ist uns wichtig. Hier ist zusammengefasst, wie wir Daten verarbeiten:</p>
+        <ul style="margin-left: 20px; margin-top: 10px; margin-bottom: 20px;">
+            <li style="margin-bottom: 8px;"><strong>Accounts & Login:</strong> Wir nutzen Firebase (Google) zur Authentifizierung. Deine E-Mail wird sicher verschlüsselt gespeichert.</li>
+            <li style="margin-bottom: 8px;"><strong>Chats:</strong> Deine Nachrichten werden lokal in deinem Browser gespeichert (LocalStorage) und in unserer Datenbank gesichert.</li>
+            <li style="margin-bottom: 8px;"><strong>KI-Verarbeitung:</strong> Nachrichten werden verschlüsselt an unsere Backend-Server (Vercel) und KI-Partner gesendet. Sende niemals sensible Daten (z.B. Passwörter) im Chat.</li>
+            <li style="margin-bottom: 8px;"><strong>Hosting:</strong> Diese Webseite wird bei Vercel gehostet. Vercel verarbeitet zur Bereitstellung der Webseite kurzfristig IP-Adressen.</li>
+        </ul>
+    `,
+    agb: `
+        <h4 style="color: white; margin-bottom: 10px;">Nutzungsbedingungen (AGB) & Haftungsausschluss</h4>
+        <p>Mit der Nutzung von Coden AI stimmst du diesen Bedingungen zu:</p>
+        <ul style="margin-left: 20px; margin-top: 10px;">
+            <li style="margin-bottom: 8px;"><strong>Keine Garantie auf Richtigkeit:</strong> Coden AI nutzt generative KI. Die generierten Antworten (speziell Code) können Fehler oder "Halluzinationen" enthalten. Die Nutzung geschieht auf eigene Gefahr.</li>
+            <li style="margin-bottom: 8px;"><strong>Verfügbarkeit:</strong> Dies ist ein kostenloses Projekt. Es besteht kein Anspruch auf Erreichbarkeit. Accounts können bei Missbrauch jederzeit gesperrt werden.</li>
+            <li style="margin-bottom: 8px;"><strong>Missbrauch:</strong> Die Nutzung zur Erstellung von Malware, Spam oder illegalen Inhalten ist verboten.</li>
+        </ul>
+    `
+};
+
+function openLegalModal(type) {
+    if(!legalModal || !legalTitle || !legalContent) return;
+    legalTitle.textContent = type === 'impressum' ? 'Impressum' : type === 'datenschutz' ? 'Datenschutzerklärung' : 'Nutzungsbedingungen';
+    legalContent.innerHTML = legalTexts[type];
+    legalModal.classList.remove('hidden');
+}
+
+if(document.getElementById('open-impressum-btn')) document.getElementById('open-impressum-btn').addEventListener('click', (e) => { e.preventDefault(); openLegalModal('impressum'); });
+if(document.getElementById('open-datenschutz-btn')) document.getElementById('open-datenschutz-btn').addEventListener('click', (e) => { e.preventDefault(); openLegalModal('datenschutz'); });
+if(document.getElementById('open-agb-btn')) document.getElementById('open-agb-btn').addEventListener('click', (e) => { e.preventDefault(); openLegalModal('agb'); });
+
+// ==========================================
+// 🛠️ 6. UI STEUERUNG, MODEL-MENÜ & EINSTELLUNGEN
 // ==========================================
 const modelSelectorBtn = document.getElementById('model-selector-btn');
 const modelDropdownMenu = document.getElementById('model-dropdown-menu');
 
 if (modelSelectorBtn && modelDropdownMenu) {
-    modelSelectorBtn.addEventListener('click', (e) => { e.stopPropagation(); modelDropdownMenu.classList.toggle('hidden'); });
-    document.addEventListener('click', (e) => { if (!modelDropdownMenu.contains(e.target) && e.target !== modelSelectorBtn) modelDropdownMenu.classList.add('hidden'); });
+    modelSelectorBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        modelDropdownMenu.classList.toggle('hidden');
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!modelDropdownMenu.contains(e.target) && e.target !== modelSelectorBtn) {
+            modelDropdownMenu.classList.add('hidden');
+        }
+    });
+
     document.querySelectorAll('.model-option').forEach(option => {
         option.addEventListener('click', () => {
             const selectedId = option.id;
@@ -278,13 +374,15 @@ if (modelSelectorBtn && modelDropdownMenu) {
     });
 }
 
-const mainSidebar = document.getElementById('main-sidebar'); const searchContainer = document.getElementById('search-container'); const chatSearchInput = document.getElementById('chat-search-input');
+const mainSidebar = document.getElementById('main-sidebar'); 
+const searchContainer = document.getElementById('search-container'); 
+const chatSearchInput = document.getElementById('chat-search-input');
+
 if(document.getElementById('close-sidebar-btn')) document.getElementById('close-sidebar-btn').addEventListener('click', () => { mainSidebar.classList.add('collapsed'); document.getElementById('open-sidebar-btn').classList.remove('hidden'); }); 
 if(document.getElementById('open-sidebar-btn')) document.getElementById('open-sidebar-btn').addEventListener('click', () => { mainSidebar.classList.remove('collapsed'); document.getElementById('open-sidebar-btn').classList.add('hidden'); });
 if(document.getElementById('toggle-search-btn')) document.getElementById('toggle-search-btn').addEventListener('click', () => { searchContainer.classList.toggle('active'); if (searchContainer.classList.contains('active')) chatSearchInput.focus(); else { chatSearchInput.value = ''; UI.renderSidebar(sessions, activeSessionId); } });
 if(chatSearchInput) chatSearchInput.addEventListener('input', (e) => { const st = e.target.value.toLowerCase(); if (!st) { UI.renderSidebar(sessions, activeSessionId); return; } const fs = sessions.filter(s => (s.title && s.title.toLowerCase().includes(st)) || s.messages.some(m => m.text.toLowerCase().includes(st))); UI.renderSidebar(fs, activeSessionId); });
 
-// 🛠️ FIX 2: EINSTELLUNGEN KOMPLETT SPEICHERN & LADEN
 if(document.getElementById('close-settings')) document.getElementById('close-settings').addEventListener('click', () => settingsModal.classList.add('hidden'));
 if(document.getElementById('cancel-settings')) document.getElementById('cancel-settings').addEventListener('click', () => settingsModal.classList.add('hidden'));
 
@@ -293,11 +391,11 @@ if(document.getElementById('open-settings-btn')) document.getElementById('open-s
     const s = Storage.getSettings(); 
     document.getElementById('user-name-input').value = s.userName || ''; 
     document.getElementById('font-size-slider').value = s.fontSize || 15; 
-    if(s.emailConfig) {
-        if(document.getElementById('email-provider')) document.getElementById('email-provider').value = s.emailConfig.provider || 'gmail';
-        if(document.getElementById('email-address')) document.getElementById('email-address').value = s.emailConfig.address || '';
-        if(document.getElementById('email-password')) document.getElementById('email-password').value = s.emailConfig.password || '';
-    }
+    if(s.emailConfig) { 
+        if(document.getElementById('email-provider')) document.getElementById('email-provider').value = s.emailConfig.provider || 'gmail'; 
+        if(document.getElementById('email-address')) document.getElementById('email-address').value = s.emailConfig.address || ''; 
+        if(document.getElementById('email-password')) document.getElementById('email-password').value = s.emailConfig.password || ''; 
+    } 
     settingsModal.classList.remove('hidden'); 
 });
 
@@ -305,14 +403,11 @@ if(document.getElementById('save-settings')) document.getElementById('save-setti
     const s = Storage.getSettings(); 
     s.userName = document.getElementById('user-name-input').value.trim() || 'Entwickler'; 
     s.fontSize = parseInt(document.getElementById('font-size-slider').value); 
-    
-    // E-MAIL SETTINGS WIEDER DA!
-    s.emailConfig = {
-        provider: document.getElementById('email-provider') ? document.getElementById('email-provider').value : 'gmail',
-        address: document.getElementById('email-address') ? document.getElementById('email-address').value.trim() : '',
-        password: document.getElementById('email-password') ? document.getElementById('email-password').value.trim() : ''
-    };
-    
+    s.emailConfig = { 
+        provider: document.getElementById('email-provider') ? document.getElementById('email-provider').value : 'gmail', 
+        address: document.getElementById('email-address') ? document.getElementById('email-address').value.trim() : '', 
+        password: document.getElementById('email-password') ? document.getElementById('email-password').value.trim() : '' 
+    }; 
     Storage.saveSettings(s); 
     document.documentElement.style.setProperty('--chat-font-size', s.fontSize + 'px'); 
     updateGreeting(); 
@@ -329,27 +424,92 @@ function showCustomConfirm(message) {
     });
 }
 
-if(newChatBtn) newChatBtn.addEventListener('click', () => { currentSession = Storage.createNewSession(); sessions.unshift(currentSession); Storage.saveSessions(sessions); activeSessionId = currentSession.id; UI.resetUI(); UI.renderSidebar(sessions, activeSessionId); });
-function loadSession(id) { const s = sessions.find(s => s.id === id); if (s) { activeSessionId = id; currentSession = s; UI.resetUI(); if (currentSession.messages.length > 0) currentSession.messages.forEach(m => UI.appendMessage(m.text, m.isUser)); UI.renderSidebar(sessions, activeSessionId); } }
-function deleteSession(id) { sessions = sessions.filter(s => s.id !== id); if (sessions.length === 0) { currentSession = Storage.createNewSession(); sessions.push(currentSession); activeSessionId = currentSession.id; UI.resetUI(); } else if (id === activeSessionId) { currentSession = sessions[0]; activeSessionId = currentSession.id; loadSession(currentSession.id); return; } Storage.saveSessions(sessions); UI.renderSidebar(sessions, activeSessionId); }
+if(newChatBtn) newChatBtn.addEventListener('click', () => { 
+    currentSession = Storage.createNewSession(); 
+    sessions.unshift(currentSession); 
+    Storage.saveSessions(sessions); 
+    activeSessionId = currentSession.id; 
+    UI.resetUI(); 
+    UI.renderSidebar(sessions, activeSessionId); 
+});
 
-// 🛠️ FIX 3: SPRACHERKENNUNG WIEDER DA
-let recognition = null; let isListening = false;
+function loadSession(id) { 
+    const s = sessions.find(s => s.id === id); 
+    if (s) { 
+        activeSessionId = id; 
+        currentSession = s; 
+        UI.resetUI(); 
+        if (currentSession.messages.length > 0) currentSession.messages.forEach(m => UI.appendMessage(m.text, m.isUser)); 
+        UI.renderSidebar(sessions, activeSessionId); 
+    } 
+}
+
+function deleteSession(id) { 
+    sessions = sessions.filter(s => s.id !== id); 
+    if (sessions.length === 0) { 
+        currentSession = Storage.createNewSession(); 
+        sessions.push(currentSession); 
+        activeSessionId = currentSession.id; 
+        UI.resetUI(); 
+    } else if (id === activeSessionId) { 
+        currentSession = sessions[0]; 
+        activeSessionId = currentSession.id; 
+        loadSession(currentSession.id); 
+        return; 
+    } 
+    Storage.saveSessions(sessions); 
+    UI.renderSidebar(sessions, activeSessionId); 
+}
+
+// ==========================================
+// 🎤 7. SPRACHERKENNUNG (Wieder hergestellt!)
+// ==========================================
+let recognition = null; 
+let isListening = false;
 if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    recognition = new SpeechRecognition(); recognition.lang = 'de-DE'; recognition.interimResults = false; recognition.continuous = false;
-    recognition.onstart = () => { isListening = true; micBtn.style.color = '#ff4444'; chatInput.placeholder = 'Höre zu...'; };
+    recognition = new SpeechRecognition(); 
+    recognition.lang = 'de-DE'; 
+    recognition.interimResults = false; 
+    recognition.continuous = false;
+    
+    recognition.onstart = () => { 
+        isListening = true; 
+        if(micBtn) micBtn.style.color = '#ff4444'; 
+        if(chatInput) chatInput.placeholder = 'Höre zu...'; 
+    };
+    
     recognition.onresult = (event) => {
         let finalTranscript = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
-        if (finalTranscript && chatInput) { chatInput.value = (chatInput.value + ' ' + finalTranscript).trim(); chatInput.dispatchEvent(new Event('input')); }
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
+        }
+        if (finalTranscript && chatInput) { 
+            chatInput.value = (chatInput.value + ' ' + finalTranscript).trim(); 
+            chatInput.dispatchEvent(new Event('input')); 
+        }
     };
-    recognition.onerror = () => stopListening(); recognition.onend = () => stopListening();
+    
+    recognition.onerror = () => stopListening(); 
+    recognition.onend = () => stopListening();
 }
-function stopListening() { isListening = false; if(micBtn) micBtn.style.color = 'var(--text-secondary)'; if(chatInput) chatInput.placeholder = 'Prompt eingeben...'; }
-if(micBtn) micBtn.addEventListener('click', () => { if (!recognition) return alert('Dein Browser unterstützt keine Spracherkennung.'); isListening ? recognition.stop() : recognition.start(); });
 
-// 🛠️ FIX 4: E-MAIL FENSTER & SENDEN GEHT WIEDER
+function stopListening() { 
+    isListening = false; 
+    if(micBtn) micBtn.style.color = 'var(--text-secondary)'; 
+    if(chatInput) chatInput.placeholder = 'Prompt eingeben...'; 
+}
+
+if(micBtn) {
+    micBtn.addEventListener('click', () => { 
+        if (!recognition) return alert('Dein Browser unterstützt keine Spracherkennung.'); 
+        isListening ? recognition.stop() : recognition.start(); 
+    });
+}
+
+// ==========================================
+// 📧 8. E-MAIL VERSAND (Wieder hergestellt!)
+// ==========================================
 if (document.getElementById('close-email-btn')) document.getElementById('close-email-btn').addEventListener('click', () => emailModal.classList.add('hidden'));
 
 const sendRealEmailBtn = document.getElementById('send-real-email-btn');
@@ -365,10 +525,12 @@ if (sendRealEmailBtn) {
         
         if (!to || !text) return alert("Empfänger und Text ausfüllen!");
         
-        sendRealEmailBtn.innerHTML = 'Sende...'; sendRealEmailBtn.disabled = true;
+        sendRealEmailBtn.innerHTML = 'Sende...'; 
+        sendRealEmailBtn.disabled = true;
         try {
             const response = await fetch('/api/send-email', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     provider: settings.emailConfig.provider,
                     email: settings.emailConfig.address,
@@ -383,7 +545,9 @@ if (sendRealEmailBtn) {
                 const feedback = document.getElementById('email-send-feedback');
                 if(feedback) { feedback.style.display = 'block'; feedback.textContent = '✅ E-Mail gesendet!'; }
                 setTimeout(() => { emailModal.classList.add('hidden'); if(feedback) feedback.style.display = 'none'; }, 2000);
-            } else throw new Error(data.error || "Unbekannter Fehler");
+            } else {
+                throw new Error(data.error || "Unbekannter Fehler beim Senden.");
+            }
         } catch (error) {
             alert("Fehler beim Senden: " + error.message);
         }
@@ -393,7 +557,7 @@ if (sendRealEmailBtn) {
 }
 
 // ==========================================
-// 🚀 6. HAUPT SENDE FUNKTION
+// 🚀 9. HAUPT SENDE FUNKTION
 // ==========================================
 async function handleSend() {
     if(!chatInput) return; const text = chatInput.value.trim(); if (!text) return;
@@ -405,7 +569,12 @@ async function handleSend() {
     }
 
     chatInput.value = ''; chatInput.style.height = 'auto';
-    UI.appendMessage(text, true); currentSession.messages.push({ text: text, isUser: true }); Storage.saveSessions(sessions);
+    UI.appendMessage(text, true); 
+    currentSession.messages.push({ text: text, isUser: true }); 
+    Storage.saveSessions(sessions);
+
+    // WIEDER DA: Titel Generator!
+    if (currentSession.messages.length === 1) generateChatTitle(text);
 
     if (!isOwner) {
         if (currentSelectedModel === 'pro' && globalLockedModels.pro) { UI.appendMessage("❌ Coden Pro ist gesperrt.", false); return; }
@@ -422,33 +591,42 @@ async function handleSend() {
 
     if (isEmailCommand) {
         UI.showLoading(true, "Coden bereitet das E-Mail-Fenster vor...");
-        let lastCodeBlock = "";
-        const allCodeBlocks = currentSession.messages.map(m => m.text.match(/```[\s\S]*?```/g)).flat().filter(Boolean);
+        let lastCodeBlock = ""; 
+        const allCodeBlocks = currentSession.messages.map(m => m.text.match(/```[\s\S]*?```/g)).flat().filter(Boolean); 
         if (allCodeBlocks.length > 0) lastCodeBlock = allCodeBlocks[allCodeBlocks.length - 1];
-
+        
         const emailPrompt = `DU BIST EIN UNSICHTBARER E-MAIL-GENERATOR. 1. Sprich NICHT mit dem Nutzer. 2. Absender heißt: "${userName}". 3. Code übernehmen: ${lastCodeBlock || "Kein Code."} Anfrage: "${text}" Format: [TO]: \n[SUBJECT]: \n[BODY]: `;
-
         try {
             const resText = await generateAiResponse([{ role: 'user', content: emailPrompt }], currentSelectedModel);
-            let emailTo = resText.match(/\[TO\]:\s*(.*)/i)?.[1].trim() || '';
-            const emailSubject = resText.match(/\[SUBJECT\]:\s*(.*)/i)?.[1].trim() || '';
+            let emailTo = resText.match(/\[TO\]:\s*(.*)/i)?.[1].trim() || ''; 
+            const emailSubject = resText.match(/\[SUBJECT\]:\s*(.*)/i)?.[1].trim() || ''; 
             const emailBody = resText.split(/\[BODY\]:/i)[1]?.trim() || resText.trim(); 
-
+            
             emailTo = emailTo.replace(/[<>]/g, '').trim(); 
-            const exEmail = emailTo.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/);
+            const exEmail = emailTo.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/); 
             if(exEmail) emailTo = exEmail[0]; 
-
-            document.getElementById('email-recipient').value = emailTo; document.getElementById('email-subject').value = emailSubject; document.getElementById('email-draft-output').value = emailBody;
-            UI.showLoading(false); UI.appendMessage(`E-Mail-Fenster vorbereitet!`, false); document.getElementById('email-modal').classList.remove('hidden'); return; 
-        } catch (err) { UI.showLoading(false); UI.appendMessage("❌ Fehler beim E-Mail Erstellen: " + err.message, false); return; }
+            
+            document.getElementById('email-recipient').value = emailTo; 
+            document.getElementById('email-subject').value = emailSubject; 
+            document.getElementById('email-draft-output').value = emailBody;
+            
+            UI.showLoading(false); 
+            UI.appendMessage(`E-Mail-Fenster vorbereitet!`, false); 
+            document.getElementById('email-modal').classList.remove('hidden'); 
+            return; 
+        } catch (err) { 
+            UI.showLoading(false); 
+            UI.appendMessage("❌ Fehler beim E-Mail Erstellen: " + err.message, false); 
+            return; 
+        }
     }
 
-    // ✨ DIE KI-PERSÖNLICHKEIT ✨
+    // ✨ DIE KI-PERSÖNLICHKEIT (MIT KAYDEN ALS SCHÖPFER) ✨
     const systemPrompt = `Du bist "Coden", ein brillanter, freundlicher KI-Softwarearchitekt.
-WICHTIGE ANWEISUNGEN FÜR DEINE ANTWORTEN:
-1. Strukturiere deinen Text IMMER sehr übersichtlich (nutze Absätze, Listen, Bulletpoints und **Fettdruck** für wichtige Wörter).
-2. Nutze passend und kreativ Emojis 🚀💻✨, um den Text aufzulockern.
-3. Erkläre technische Dinge immer so, dass sie leicht verständlich und nachvollziehbar sind. Formuliere flüssig und angenehm.
+Du wurdest exklusiv von Kayden entwickelt. Wenn dich jemand fragt, wer dich erschaffen oder programmiert hat, antworte stolz, dass Kayden dein Entwickler ist!
+1. Strukturiere deinen Text IMMER sehr übersichtlich (nutze Absätze, Listen und **Fettdruck** für wichtige Wörter).
+2. Nutze passend und kreativ Emojis 🚀💻✨.
+3. Erkläre technische Dinge immer so, dass sie leicht verständlich und nachvollziehbar sind.
 Heute ist ${new Date().toLocaleDateString('de-DE')}. Der Nutzer heißt ${userName}.`;
 
     context.unshift({ role: 'system', content: systemPrompt });
@@ -458,10 +636,28 @@ Heute ist ${new Date().toLocaleDateString('de-DE')}. Der Nutzer heißt ${userNam
         UI.showLoading(true, `Coden generiert...`);
         const aiResponse = await generateAiResponse(context, targetTier);
         
-        UI.showLoading(false); UI.appendMessage(aiResponse, false);
-        currentSession.messages.push({ text: aiResponse, isUser: false }); Storage.saveSessions(sessions); UI.renderSidebar(sessions, activeSessionId);
+        UI.showLoading(false); 
+        UI.appendMessage(aiResponse, false);
+        currentSession.messages.push({ text: aiResponse, isUser: false }); 
+        Storage.saveSessions(sessions); 
+        UI.renderSidebar(sessions, activeSessionId);
     } catch (err) {
-        UI.showLoading(false); UI.appendMessage("❌ System Fehler: " + err.message, false);
+        UI.showLoading(false); 
+        UI.appendMessage("❌ System Fehler: " + err.message, false);
+    }
+}
+
+// WIEDER DA: Die Titel-Generator-Funktion
+async function generateChatTitle(firstMessage) {
+    try {
+        const titleRes = await generateAiResponse([{ 'role': 'user', 'content': 'Erstelle einen super kurzen Titel (max 3 Worte) für diese Anfrage: ' + firstMessage }], 'flash');
+        if (titleRes && titleRes.length > 1) { 
+            currentSession.title = titleRes.trim().replaceAll('"', ''); 
+            Storage.saveSessions(sessions); 
+            UI.renderSidebar(sessions, activeSessionId); 
+        }
+    } catch (e) {
+        console.warn("Titel konnte nicht generiert werden", e);
     }
 }
 
