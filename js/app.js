@@ -1075,8 +1075,8 @@ Heute ist ${new Date().toLocaleDateString('de-DE')}. Nutzer: ${userName}.`;
     } catch (err) { 
         UI.showLoading(false); 
         UI.appendMessage("❌ System Fehler: " + err.message, false); 
-    }
-
+    }    
+}
 async function generateChatTitle(firstMessage) {
     try {
         const titleRes = await generateAiResponse([{ 'role': 'user', 'content': 'Titel (max 3 Worte) für: ' + firstMessage }], 'flash');
