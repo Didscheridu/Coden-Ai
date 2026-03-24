@@ -24,16 +24,16 @@ customRenderer.code = function(tokenOrCode, language) {
     const encodedCode = encodeURIComponent(codeText);
 
     return `
-    <div class="code-block-wrapper">
-        <div class="code-header">
+    <div class="code-block-wrapper" style="margin: 16px 0; border-radius: 8px; overflow: hidden; background: #1e1e1e; border: 1px solid rgba(255,255,255,0.1);">
+        <div class="code-header" style="display: flex; justify-content: space-between; padding: 8px 16px; background: rgba(255,255,255,0.05); font-size: 12px; color: #aaa;">
             <span class="lang">${langLabel}</span>
             <div class="code-actions">
-                <button class="text-btn copy-code-btn" data-code="${encodedCode}">
-                    <span class="material-symbols-outlined">content_copy</span> Kopieren
+                <button class="text-btn copy-code-btn" data-code="${encodedCode}" style="background: transparent; border: none; color: #aaa; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                    <span class="material-symbols-outlined" style="font-size: 14px;">content_copy</span> Kopieren
                 </button>
             </div>
         </div>
-        <pre><code class="hljs ${validLanguage}" style="font-size: var(--chat-font-size, 14px);">${highlightedCode}</code></pre>
+        <pre style="margin: 0; padding: 16px; overflow-x: auto;"><code class="hljs ${validLanguage}" style="font-size: var(--chat-font-size, 14px); background: transparent; padding: 0;">${highlightedCode}</code></pre>
     </div>`;
 };
 
@@ -52,11 +52,11 @@ export const UI = {
                 try {
                     await navigator.clipboard.writeText(rawCode);
                     const originalHTML = copyBtn.innerHTML;
-                    copyBtn.innerHTML = `<span class="material-symbols-outlined">check</span> Kopiert!`;
-                    copyBtn.style.color = "var(--accent-green)";
+                    copyBtn.innerHTML = `<span class="material-symbols-outlined" style="font-size: 14px;">check</span> Kopiert!`;
+                    copyBtn.style.color = "var(--accent-green, #4caf50)";
                     setTimeout(() => {
                         copyBtn.innerHTML = originalHTML;
-                        copyBtn.style.color = "var(--text-secondary)";
+                        copyBtn.style.color = "#aaa";
                     }, 2000);
                 } catch (err) {
                     console.error('Fehler beim Kopieren:', err);
@@ -75,63 +75,88 @@ export const UI = {
 
         const msgDiv = document.createElement('div');
         msgDiv.className = `message-row ${isUser ? 'user-message' : 'ai-message'}`;
-
-        const avatar = document.createElement('div');
-        avatar.className = 'avatar';
-        if (!isUser) {
-            avatar.classList.add('ai-avatar');
-            // Original-Profilbild-Code wiederhergestellt
-            avatar.innerHTML = `<img src="${AI_PROFILE_PIC_SRC}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" onerror="this.style.display='none'">`;
-        } else {
-            avatar.innerHTML = '<span class="material-symbols-outlined">person</span>';
+        
+        // 🌟 NEUES CLEAN DESIGN: Flexbox Layout 🌟
+        msgDiv.style.display = 'flex';
+        msgDiv.style.gap = '16px';
+        msgDiv.style.marginBottom = '32px';
+        msgDiv.style.alignItems = 'flex-start';
+        
+        // Nutzer wandert nach rechts
+        if (isUser) {
+            msgDiv.style.flexDirection = 'row-reverse';
         }
 
+        // --- AVATAR BEREICH ---
+        const avatar = document.createElement('div');
+        avatar.className = 'avatar';
+        avatar.style.flexShrink = '0';
+        avatar.style.width = '36px';
+        avatar.style.height = '36px';
+        avatar.style.borderRadius = '50%';
+        avatar.style.overflow = 'hidden';
+        avatar.style.display = 'flex';
+        avatar.style.alignItems = 'center';
+        avatar.style.justifyContent = 'center';
+
+        if (!isUser) {
+            // KI Avatar: Neben dem Text, KEIN Hintergrund-Kasten
+            avatar.style.background = 'transparent';
+            avatar.innerHTML = `<img src="${AI_PROFILE_PIC_SRC}" style="width:100%; height:100%; object-fit:contain;" onerror="this.style.display='none'">`;
+        } else {
+            // Nutzer Avatar: Google Account Bild abrufen
+            const userPhoto = localStorage.getItem('coden_user_photo');
+            if (userPhoto) {
+                avatar.innerHTML = `<img src="${userPhoto}" style="width:100%; height:100%; object-fit:cover;">`;
+            } else {
+                // Fallback, falls kein Google-Bild da ist
+                avatar.style.background = 'var(--accent-blue, #2b6cb0)';
+                avatar.innerHTML = '<span class="material-symbols-outlined" style="color:white; font-size: 20px;">person</span>';
+            }
+        }
+
+        // --- CONTENT BEREICH ---
         const content = document.createElement('div');
         content.className = 'content';
+        content.style.maxWidth = '75%';
+        content.style.lineHeight = '1.6';
         
-        // 🌟 MARKDOWN FIX: Beide (Nutzer & KI) nutzen jetzt marked, damit Bilder laden! 🔥
-        content.innerHTML = marked.parse(text);
+        if (isUser) {
+            // Nutzer: Schicke Chatblase
+            content.style.background = 'var(--accent-blue, #2b6cb0)'; 
+            content.style.color = '#ffffff';
+            content.style.padding = '12px 18px';
+            content.style.borderRadius = '18px 18px 4px 18px';
+            content.style.fontSize = '15px';
+            content.innerHTML = marked.parse(text); // Auch Nutzer dürfen Markdown!
+        } else {
+            // KI: KEINE Chatblase, cleaner Text direkt auf dem Hintergrund
+            content.style.background = 'transparent';
+            content.style.color = 'var(--text-primary, #ececec)';
+            content.style.padding = '4px 0';
+            content.innerHTML = marked.parse(text);
+        }
 
+        // Highlight.js anwenden und Bilder anpassen (nur für KI nötig, da Nutzer meist keinen Code schicken)
         if (!isUser) {
             content.querySelectorAll('pre code').forEach((block) => {
                 hljs.highlightElement(block);
-                const pre = block.parentElement;
-                pre.style.position = 'relative';
-                
-                const copyBtn = document.createElement('button');
-                copyBtn.className = 'icon-btn';
-                copyBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px;">content_copy</span>';
-                copyBtn.style.position = 'absolute';
-                copyBtn.style.top = '8px';
-                copyBtn.style.right = '8px';
-                copyBtn.style.background = 'rgba(255,255,255,0.1)';
-                copyBtn.style.border = 'none';
-                copyBtn.style.color = '#fff';
-                copyBtn.style.padding = '4px';
-                copyBtn.style.borderRadius = '4px';
-                copyBtn.style.cursor = 'pointer';
-                
-                copyBtn.onclick = () => {
-                    navigator.clipboard.writeText(block.innerText);
-                    copyBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px; color:#4caf50;">check</span>';
-                    setTimeout(() => copyBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px;">content_copy</span>', 2000);
-                };
-                
-                pre.appendChild(copyBtn);
             });
         }
         
-        // Bilder responsiv machen (sowohl User als auch AI)
+        // Alle Bilder responsiv machen
         content.querySelectorAll('img').forEach((img) => {
             img.style.maxWidth = '100%';
             img.style.borderRadius = '8px';
-            img.style.marginTop = '8px';
+            img.style.marginTop = '12px';
+            img.style.border = '1px solid rgba(255,255,255,0.1)';
         });
 
+        // Zusammenbauen
         msgDiv.appendChild(avatar);
         msgDiv.appendChild(content);
         
-        // 🔥 LADE-ANIMATION FIX: Nachrichten zwingend VOR den Spinner setzen 🔥
+        // Zwingend VOR die Lade-Animation setzen
         if (UI.loadingSpinnerBox && chatContainer.contains(UI.loadingSpinnerBox)) {
             chatContainer.insertBefore(msgDiv, UI.loadingSpinnerBox);
         } else {
@@ -146,19 +171,22 @@ export const UI = {
         UI.loadingSpinnerBox.id = 'coden-loading-spinner';
         UI.loadingSpinnerBox.className = 'ai-response-area hidden';
         
+        // Ladeanimation an das neue, cleane Design angepasst
         UI.loadingSpinnerBox.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 24px; padding-left: 8px;">
-                <div class="spinner-container">
-                    <div class="spinner"></div>
-                    <img src="${AI_PROFILE_PIC_SRC}" class="spinner-logo" onerror="this.style.display='none'">
+            <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 32px;">
+                <div class="spinner-avatar" style="flex-shrink: 0; width: 36px; height: 36px; border-radius: 50%; background: transparent; display: flex; justify-content: center; align-items: center; overflow: hidden;">
+                    <img src="${AI_PROFILE_PIC_SRC}" style="width:100%; height:100%; object-fit:contain;" onerror="this.style.display='none'">
                 </div>
-                <span id="loading-model-name" style="font-size: 15px; font-weight: 500; color: var(--text-secondary);">coden flash denkt...</span>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <div class="spinner"></div>
+                    <span id="loading-model-name" style="font-size: 14px; font-weight: 500; color: var(--text-muted, #888);">Coden denkt nach...</span>
+                </div>
             </div>
         `;
         UI.chatContainer.appendChild(UI.loadingSpinnerBox);
     },
 
-    showLoading: (show, modelNameDisplay = "coden flash denkt...") => {
+    showLoading: (show, modelNameDisplay = "Coden denkt nach...") => {
         if (!UI.loadingSpinnerBox) return;
         if (show) {
             if (UI.welcomeScreen) UI.welcomeScreen.classList.add('hidden');
@@ -226,7 +254,7 @@ export const UI = {
         const messages = UI.chatContainer.querySelectorAll('.message-row');
         messages.forEach(msg => msg.remove());
         if (UI.welcomeScreen) UI.welcomeScreen.classList.remove('hidden');
-        if (UI.loadingSpinnerBox) UI.loadingSpinnerBox.classList.add('hidden'); // Setzt auch den Spinner beim Chatwechsel zurück!
+        if (UI.loadingSpinnerBox) UI.loadingSpinnerBox.classList.add('hidden');
     }
 };
 
