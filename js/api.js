@@ -41,13 +41,14 @@ async function callGoogleDirectly(messages, modelId, apiKey) {
     let systemInstruction = null;
 
     messages.forEach(msg => {
-        if (msg.role === 'system') systemInstruction = { parts: [{ text: msg.content }] };
-        else {
-            let parts = [{ text: msg.content }];
-            // 👁️ VISION FIX FÜR GOOGLE: Bilder einfügen
+        if (msg.role === 'system') {
+            systemInstruction = { parts: [{ text: msg.content }] };
+        } else {
+            // Fix für leere Texte bei reinen Bild-Uploads
+            let parts = [{ text: msg.content || "Beschreibe dieses Bild." }];
+            
             if (msg.images && msg.images.length > 0) {
                 msg.images.forEach(imgBase64 => {
-                    // Base64 Code zerschneiden, da Google den MimeType ("image/jpeg") und die reinen Daten getrennt braucht
                     const mimeType = imgBase64.substring(imgBase64.indexOf(":") + 1, imgBase64.indexOf(";"));
                     const data = imgBase64.substring(imgBase64.indexOf(",") + 1);
                     parts.push({ inlineData: { mimeType: mimeType, data: data } });
@@ -58,10 +59,17 @@ async function callGoogleDirectly(messages, modelId, apiKey) {
     });
 
     const body = { contents };
+    
+    // Gemma braucht System Prompts manchmal direkt im Text
     if (modelId.includes('gemma') && systemInstruction) {
-        if (contents.length > 0) contents[0].parts[0].text = systemInstruction.parts[0].text + "\n\n---\n\n" + contents[0].parts[0].text;
-        else contents.push({ role: 'user', parts: [{ text: systemInstruction.parts[0].text }]});
-    } else if (systemInstruction) { body.systemInstruction = systemInstruction; }
+        if (contents.length > 0) {
+            contents[0].parts[0].text = systemInstruction.parts[0].text + "\n\n---\n\n" + contents[0].parts[0].text;
+        } else {
+            contents.push({ role: 'user', parts: [{ text: systemInstruction.parts[0].text }]});
+        }
+    } else if (systemInstruction) { 
+        body.systemInstruction = systemInstruction; 
+    }
 
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const data = await response.json();
