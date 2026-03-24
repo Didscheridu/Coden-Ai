@@ -1055,20 +1055,27 @@ Heute ist ${new Date().toLocaleDateString('de-DE')}. Nutzer: ${userName}.`;
 
     context.unshift({ role: 'system', content: systemPrompt });
 
-    try {
+   try {
         UI.showLoading(true, `Coden generiert...`);
         const aiResponse = await generateAiResponse(context, currentSelectedModel);
         
         UI.showLoading(false); 
-        UI.appendMessage(aiResponse, false);
+        // WICHTIG: Das 'true' am Ende schaltet die neue Tipp-Animation ein!
+        UI.appendMessage(aiResponse, false, true); 
+        
+        // Nachricht in den Verlauf pushen
         currentSession.messages.push({ text: aiResponse, isUser: false }); 
-        Storage.saveSessions(sessionsToSave); // 💾 Wieder sicher speichern!
+        
+        // 💾 FEHLER BEHOBEN: Wir speichern ERST, wenn die KI fertig geantwortet hat!
+        const finalSessionsToSave = JSON.parse(JSON.stringify(sessions));
+        finalSessionsToSave.forEach(s => s.messages.forEach(m => { if (m.images) delete m.images; }));
+        Storage.saveSessions(finalSessionsToSave); 
+        
         UI.renderSidebar(sessions, activeSessionId);
     } catch (err) { 
         UI.showLoading(false); 
         UI.appendMessage("❌ System Fehler: " + err.message, false); 
     }
-}
 
 async function generateChatTitle(firstMessage) {
     try {
