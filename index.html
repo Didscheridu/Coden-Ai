@@ -21,12 +21,8 @@
     <link rel="stylesheet" href="css/auth.css">
 
     <style>
-        .sidebar.collapsed {
-            display: none;
-        }
-        .search-container.active {
-            display: flex !important;
-        }
+        .sidebar.collapsed { display: none; }
+        .search-container.active { display: flex !important; }
     </style>
 </head>
 <body>
@@ -35,14 +31,11 @@
         <div class="login-box">
             <img src="./images/coden_logo.jpg" onerror="this.style.display='none'">
             <h2>Coden AI Login</h2>
-            
             <button id="btn-google-login" class="btn-google">
-                <img src="https://fonts.gstatic.com/s/i/productlogos/googleg/v6/24px.svg" style="width: 18px; height: 18px; margin: 0; border-radius: 0;">
+                <img src="https://fonts.gstatic.com/s/i/productlogos/googleg/v6/24px.svg" style="width: 18px; height: 18px; margin: 0;">
                 Mit Google anmelden
             </button>
-            
             <div class="auth-divider">oder per E-Mail</div>
-            
             <div class="auth-form">
                 <input type="email" id="auth-email" class="settings-input" placeholder="E-Mail Adresse">
                 <input type="password" id="auth-password" class="settings-input" placeholder="Passwort">
@@ -51,7 +44,6 @@
                     <button id="btn-email-register" class="btn-cancel" style="flex: 1;">Registrieren</button>
                 </div>
             </div>
-            
             <div id="auth-error-msg" class="auth-error">Fehler aufgetreten.</div>
         </div>
     </div>
@@ -61,21 +53,13 @@
         <aside class="sidebar" id="main-sidebar">
             <div class="sidebar-header">
                 <button class="icon-btn" id="close-sidebar-btn" title="Menü einklappen"><span class="material-symbols-outlined">menu_open</span></button>
-                
                 <div id="search-container" class="hidden" style="flex: 1; margin: 0 8px; background: rgba(255,255,255,0.1); border-radius: 6px; padding: 4px 8px; display: none; align-items: center;">
                     <input type="text" id="chat-search-input" placeholder="Chat suchen..." style="background: transparent; border: none; color: white; width: 100%; outline: none; font-size: 13px;">
                 </div>
-
                 <button class="icon-btn" id="toggle-search-btn" title="Chats durchsuchen"><span class="material-symbols-outlined">search</span></button>
             </div>
-
-            <button class="new-chat-btn active">
-                <span class="material-symbols-outlined">chat_bubble</span>
-                Neuer Projekt-Chat
-            </button>
-
+            <button class="new-chat-btn active"><span class="material-symbols-outlined">chat_bubble</span> Neuer Projekt-Chat</button>
             <div class="sidebar-scroll-area"></div>
-
             <div class="sidebar-footer">
                 <a href="#" class="nav-item" id="open-email-settings-btn"><span class="material-symbols-outlined">mail</span> Email Setup</a>
                 <a href="#" class="nav-item" id="open-settings-btn"><span class="material-symbols-outlined">settings</span> Einstellungen</a>
@@ -87,7 +71,7 @@
             <header class="top-bar">
                 <div style="display: flex; align-items: center;">
                     <button class="icon-btn hidden" id="open-sidebar-btn" style="margin-right: 12px; color: var(--text-primary);"><span class="material-symbols-outlined">menu</span></button>
-                    <div class="brand">Coden AI</div>
+                    <div class="brand">Coden AI <span id="owner-badge" style="display:none; background:#ff4444; color:white; font-size:10px; padding:2px 6px; border-radius:4px; margin-left:8px; vertical-align:middle;">OWNER</span></div>
                 </div>
                 <div id="user-email-display" style="font-size: 13px; color: var(--text-muted);"></div>
             </header>
@@ -101,8 +85,12 @@
             </div>
 
             <div class="input-section">
-                <div class="input-box">
-                    <textarea id="main-input" rows="1" placeholder="Einen Prompt für Coden AI eingeben... (Tipp: 'Schreibe eine E-Mail an...')"></textarea>
+                <div class="input-box" style="position: relative;">
+                    
+                    <div id="command-popup" class="command-popup hidden"></div>
+
+                    <textarea id="main-input" rows="1" placeholder="Prompt eingeben... (Tippe '/' für Befehle)"></textarea>
+                    
                     <div class="input-footer">
                         <div class="left-tools">
                             <button class="icon-btn" id="attachment-btn"><span class="material-symbols-outlined">add</span></button>
@@ -117,7 +105,7 @@
                                 <div class="model-dropdown-menu hidden" id="model-dropdown-menu">
                                     <div class="model-option active" data-model="flash"><span class="material-symbols-outlined">bolt</span> <span class="name">Coden Flash</span></div>
                                     <div class="model-option" data-model="normal" id="thinking-mode-option"><span class="material-symbols-outlined">auto_awesome</span> <span class="name">Coden Thinking</span></div>
-                                    <div class="model-option" data-model="pro"><span class="material-symbols-outlined">magic_button</span> <span class="name">Coden Pro</span></div>
+                                    <div class="model-option" data-model="pro" id="pro-mode-option"><span class="material-symbols-outlined">magic_button</span> <span class="name">Coden Pro</span></div>
                                 </div>
                             </div>
                             <button class="icon-btn" id="mic-btn"><span class="material-symbols-outlined">mic</span></button>
@@ -129,98 +117,11 @@
         </main>
     </div>
 
-    <div id="email-modal" class="modal-overlay hidden">
-        <div class="modal-content" style="max-width: 600px;">
-            <div class="modal-header">
-                <h3 style="display: flex; align-items: center; gap: 8px; font-weight: 500;">
-                    <span class="material-symbols-outlined" style="color: #63A4FF;">mail</span> E-Mail Entwurf
-                </h3>
-                <button class="icon-btn" id="close-email-btn"><span class="material-symbols-outlined">close</span></button>
-            </div>
-            
-            <div class="modal-body">
-                <label>Empfänger E-Mail</label>
-                <input type="email" id="email-recipient" class="settings-input" placeholder="empfaenger@beispiel.com" style="margin-bottom: 12px;">
-                
-                <label>Betreff</label>
-                <input type="text" id="email-subject" class="settings-input" placeholder="RE: Deine Nachricht" style="margin-bottom: 16px;">
+    <div id="email-modal" class="modal-overlay hidden"><div class="modal-content" style="max-width: 600px;"><div class="modal-header"><h3 style="display: flex; align-items: center; gap: 8px; font-weight: 500;"><span class="material-symbols-outlined" style="color: #63A4FF;">mail</span> E-Mail Entwurf</h3><button class="icon-btn" id="close-email-btn"><span class="material-symbols-outlined">close</span></button></div><div class="modal-body"><label>Empfänger E-Mail</label><input type="email" id="email-recipient" class="settings-input" placeholder="empfaenger@beispiel.com" style="margin-bottom: 12px;"><label>Betreff</label><input type="text" id="email-subject" class="settings-input" placeholder="RE: Deine Nachricht" style="margin-bottom: 16px;"><label style="color: var(--accent-green);">✉️ KI-Antwortentwurf (Bearbeitbar):</label><textarea id="email-draft-output" class="settings-input" style="height: 200px; margin-bottom: 16px; resize: vertical; line-height: 1.5;"></textarea><button class="btn-save" id="send-real-email-btn" style="width: 100%; display: flex; justify-content: center; gap: 8px; background: #28a745; color: white;"><span class="material-symbols-outlined" style="font-size: 18px;">send</span> E-Mail jetzt versenden</button><div id="email-send-feedback" style="font-size: 13px; text-align: center; margin-top: 12px; display: none;"></div></div></div></div>
 
-                <label style="color: var(--accent-green);">✉️ KI-Antwortentwurf (Bearbeitbar):</label>
-                <textarea id="email-draft-output" class="settings-input" style="height: 200px; margin-bottom: 16px; resize: vertical; line-height: 1.5;"></textarea>
+    <div id="settings-modal" class="modal-overlay hidden"><div class="modal-content" style="max-height: 80vh; overflow-y: auto;"><div class="modal-header"><h3 style="display: flex; align-items: center; gap: 8px; font-weight: 500;"><span class="material-symbols-outlined" style="color: var(--accent-blue);">settings</span> Einstellungen</h3><button class="icon-btn" id="close-settings"><span class="material-symbols-outlined">close</span></button></div><div class="modal-body"><h4 style="margin-bottom: 12px; font-weight: 500; font-size: 14px; color: var(--text-primary);">👤 Profil</h4><label>Dein Name</label><input type="text" id="user-name-input" class="settings-input" placeholder="Dein Name" style="margin-bottom: 24px;"><label>🎭 KI Persona (Charakter)</label><select id="persona-select" class="settings-input"><option value="Standard">Standard</option><option value="Senior Dev">Senior Dev</option><option value="Erklärbär">Erklärbär</option><option value="Hacker">Hacker</option><option value="Eigene (Custom)">Eigene (Custom)</option></select><div id="custom-persona-container" class="hidden" style="margin-top: 12px;"><textarea id="custom-persona-input" class="settings-input" rows="3" placeholder="Schreibe deinen eigenen System-Prompt..."></textarea></div><label style="margin-top: 24px; display: block;">🔠 Chat Schriftgröße: <span id="font-size-display">15</span>px</label><input type="range" id="font-size-slider" min="12" max="22" value="15" class="settings-slider"><div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border-color);"><h4 style="margin-bottom: 16px; font-weight: 500; font-size: 14px; color: var(--accent-blue);">⚙️ E-Mail Konto verknüpfen</h4><label>E-Mail Anbieter</label><select id="email-provider" class="settings-input" style="margin-bottom: 12px;"><option value="gmail">Gmail</option><option value="outlook">Outlook</option><option value="imap">Anderer Anbieter</option></select><label>Deine E-Mail Adresse</label><input type="email" id="email-address" class="settings-input" placeholder="deine@email.com" style="margin-bottom: 12px;"><label>App-Passwort</label><input type="password" id="email-password" class="settings-input" placeholder="Z.B. 16-stelliger Google App-Code"></div></div><div class="modal-footer" style="margin-top: 24px;"><button class="btn-cancel" id="cancel-settings">Abbrechen</button><button class="btn-save" id="save-settings">Speichern</button></div></div></div>
 
-                <button class="btn-save" id="send-real-email-btn" style="width: 100%; display: flex; justify-content: center; gap: 8px; background: #28a745; color: white;">
-                    <span class="material-symbols-outlined" style="font-size: 18px;">send</span> E-Mail jetzt versenden
-                </button>
-                <div id="email-send-feedback" style="font-size: 13px; text-align: center; margin-top: 12px; display: none;"></div>
-            </div>
-        </div>
-    </div>
-
-    <div id="settings-modal" class="modal-overlay hidden">
-        <div class="modal-content" style="max-height: 80vh; overflow-y: auto;">
-            <div class="modal-header">
-                <h3 style="display: flex; align-items: center; gap: 8px; font-weight: 500;">
-                    <span class="material-symbols-outlined" style="color: var(--accent-blue);">settings</span> Einstellungen
-                </h3>
-                <button class="icon-btn" id="close-settings"><span class="material-symbols-outlined">close</span></button>
-            </div>
-            <div class="modal-body">
-                
-                <h4 style="margin-bottom: 12px; font-weight: 500; font-size: 14px; color: var(--text-primary);">👤 Profil</h4>
-                <label>Dein Name</label>
-                <input type="text" id="user-name-input" class="settings-input" placeholder="Dein Name" style="margin-bottom: 24px;">
-
-                <label>🎭 KI Persona (Charakter)</label>
-                <select id="persona-select" class="settings-input">
-                    <option value="Standard">Standard</option>
-                    <option value="Senior Dev">Senior Dev</option>
-                    <option value="Erklärbär">Erklärbär</option>
-                    <option value="Hacker">Hacker</option>
-                    <option value="Eigene (Custom)">Eigene (Custom)</option>
-                </select>
-                <div id="custom-persona-container" class="hidden" style="margin-top: 12px;">
-                    <textarea id="custom-persona-input" class="settings-input" rows="3" placeholder="Schreibe deinen eigenen System-Prompt..."></textarea>
-                </div>
-                
-                <label style="margin-top: 24px; display: block;">🔠 Chat Schriftgröße: <span id="font-size-display">15</span>px</label>
-                <input type="range" id="font-size-slider" min="12" max="22" value="15" class="settings-slider">
-
-                <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border-color);">
-                    <h4 style="margin-bottom: 16px; font-weight: 500; font-size: 14px; color: var(--accent-blue);">⚙️ E-Mail Konto verknüpfen</h4>
-                    
-                    <label>E-Mail Anbieter</label>
-                    <select id="email-provider" class="settings-input" style="margin-bottom: 12px;">
-                        <option value="gmail">Gmail</option>
-                        <option value="outlook">Outlook</option>
-                        <option value="imap">Anderer Anbieter</option>
-                    </select>
-
-                    <label>Deine E-Mail Adresse</label>
-                    <input type="email" id="email-address" class="settings-input" placeholder="deine@email.com" style="margin-bottom: 12px;">
-
-                    <label>App-Passwort</label>
-                    <input type="password" id="email-password" class="settings-input" placeholder="Z.B. 16-stelliger Google App-Code">
-                </div>
-            </div>
-            
-            <div class="modal-footer" style="margin-top: 24px;">
-                <button class="btn-cancel" id="cancel-settings">Abbrechen</button>
-                <button class="btn-save" id="save-settings">Speichern</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="confirm-modal" class="modal-overlay hidden">
-        <div class="modal-content confirm-box">
-            <img src="./images/coden_logo.jpg" class="confirm-logo" onerror="this.style.display='none'">
-            <h3>Aktion erforderlich</h3>
-            <p id="confirm-message">Willst du eine E-Mail senden?</p>
-            <div class="confirm-buttons">
-                <button id="btn-confirm-cancel" class="btn-cancel">Abbrechen</button>
-                <button id="btn-confirm-yes" class="btn-save">JA, senden</button>
-            </div>
-        </div>
-    </div>
+    <div id="confirm-modal" class="modal-overlay hidden"><div class="modal-content confirm-box"><img src="./images/coden_logo.jpg" class="confirm-logo" onerror="this.style.display='none'"><h3>Aktion erforderlich</h3><p id="confirm-message">Willst du eine E-Mail senden?</p><div class="confirm-buttons"><button id="btn-confirm-cancel" class="btn-cancel">Abbrechen</button><button id="btn-confirm-yes" class="btn-save">JA, senden</button></div></div></div>
 
     <script type="module" src="js/app.js"></script>
 </body>
