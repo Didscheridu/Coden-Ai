@@ -66,7 +66,8 @@ export const UI = {
         UI.createLoadingAnimation();
     },
 
-    appendMessage(text, isUser) {
+    // 🛡️ FEHLER FIX: Kein static, da wir ein Objekt verwenden, keine Klasse!
+    appendMessage: (text, isUser) => {
         const chatContainer = document.getElementById('chat-container');
         if (!chatContainer) return;
         
@@ -74,14 +75,14 @@ export const UI = {
         if (welcomeScreen) welcomeScreen.style.display = 'none';
 
         const msgDiv = document.createElement('div');
-        // 🔥 HIER WAR DER FEHLER: Es muss "message-row" heißen! 🔥
         msgDiv.className = `message-row ${isUser ? 'user-message' : 'ai-message'}`;
 
         const avatar = document.createElement('div');
         avatar.className = 'avatar';
         if (!isUser) {
             avatar.classList.add('ai-avatar');
-            avatar.innerHTML = `<img src="${AI_PROFILE_PIC_SRC}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" onerror="this.style.display='none'">`;
+            // 🛡️ Avatar Fix: Wenn das Bild fehlt, kommt ein Stern-Icon
+            avatar.innerHTML = `<img src="${AI_PROFILE_PIC_SRC}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" onerror="this.parentNode.innerHTML='<span class=\'material-symbols-outlined\'>star</span>'">`;
         } else {
             avatar.innerHTML = '<span class="material-symbols-outlined">person</span>';
         }
@@ -89,49 +90,43 @@ export const UI = {
         const content = document.createElement('div');
         content.className = 'content';
         
-        if (!isUser) {
-            // KI-Text mit Markdown rendern
-            content.innerHTML = marked.parse(text);
-        } else {
-            // User-Text roh lassen
-            content.innerHTML = text; 
-        }
+        // 🌟 FORMATIERUNG FIX: Markdown (inkl. Bilder) für JEDE Nachricht parsen!
+        content.innerHTML = marked.parse(text);
 
-        if (!isUser) {
-            content.querySelectorAll('pre code').forEach((block) => {
-                hljs.highlightElement(block);
-                const pre = block.parentElement;
-                pre.style.position = 'relative';
-                
-                const copyBtn = document.createElement('button');
-                copyBtn.className = 'icon-btn';
-                copyBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px;">content_copy</span>';
-                copyBtn.style.position = 'absolute';
-                copyBtn.style.top = '8px';
-                copyBtn.style.right = '8px';
-                copyBtn.style.background = 'rgba(255,255,255,0.1)';
-                copyBtn.style.border = 'none';
-                copyBtn.style.color = '#fff';
-                copyBtn.style.padding = '4px';
-                copyBtn.style.borderRadius = '4px';
-                copyBtn.style.cursor = 'pointer';
-                
-                copyBtn.onclick = () => {
-                    navigator.clipboard.writeText(block.innerText);
-                    copyBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px; color:#4caf50;">check</span>';
-                    setTimeout(() => copyBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px;">content_copy</span>', 2000);
-                };
-                
-                pre.appendChild(copyBtn);
-            });
+        // Code-Blöcke & responsive Bilder nach dem Rendern hübsch machen
+        content.querySelectorAll('pre code').forEach((block) => {
+            hljs.highlightElement(block);
+            const pre = block.parentElement;
+            pre.style.position = 'relative';
             
-            // Bilder im Chat responsiv machen
-            content.querySelectorAll('img').forEach((img) => {
-                img.style.maxWidth = '100%';
-                img.style.borderRadius = '8px';
-                img.style.marginTop = '8px';
-            });
-        }
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'icon-btn';
+            copyBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px;">content_copy</span>';
+            copyBtn.style.position = 'absolute';
+            copyBtn.style.top = '8px';
+            copyBtn.style.right = '8px';
+            copyBtn.style.background = 'rgba(255,255,255,0.1)';
+            copyBtn.style.border = 'none';
+            copyBtn.style.color = '#fff';
+            copyBtn.style.padding = '4px';
+            copyBtn.style.borderRadius = '4px';
+            copyBtn.style.cursor = 'pointer';
+            
+            copyBtn.onclick = () => {
+                navigator.clipboard.writeText(block.innerText);
+                copyBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px; color:#4caf50;">check</span>';
+                setTimeout(() => copyBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px;">content_copy</span>', 2000);
+            };
+            
+            pre.appendChild(copyBtn);
+        });
+        
+        // Bilder im Chat responsiv machen
+        content.querySelectorAll('img').forEach((img) => {
+            img.style.maxWidth = '100%';
+            img.style.borderRadius = '8px';
+            img.style.marginTop = '8px';
+        });
 
         msgDiv.appendChild(avatar);
         msgDiv.appendChild(content);
@@ -222,10 +217,9 @@ export const UI = {
     },
 
     resetUI: () => {
-        // 🔥 WICHTIG: Hier sucht er nach 'message-row' um den Chat zu leeren! 🔥
         const messages = UI.chatContainer.querySelectorAll('.message-row');
         messages.forEach(msg => msg.remove());
-        if (UI.welcomeScreen) UI.welcomeScreen.style.display = 'flex'; // Sicherstellen, dass das Welcome-Logo wieder kommt
+        if (UI.welcomeScreen) UI.welcomeScreen.classList.remove('hidden');
     }
 };
 
