@@ -971,10 +971,17 @@ async function handleSend() {
         chatInput.value = ''; chatInput.style.height = 'auto'; if (commandPopup) commandPopup.classList.add('hidden'); handleCommand(text); return; 
     }
 
-    // 🌟 BILDER SPEICHERN 🌟
+    // 🛡️ SPAM SCHUTZ HINZUGEFÜGT!
+    const rateLimit = checkRateLimit(isOwner);
+    if (!rateLimit.allowed) {
+        UI.appendMessage(`⏳ **Spam-Schutz aktiv:** Bitte warte noch ${rateLimit.timeToWait} Sekunden!`, false);
+        return; 
+    }
+
+    // 🌟 BILDER VERARBEITEN 🌟
     let displayMessage = text;      
     let internalPrompt = text;      
-    let attachedImages = []; // NEU: Hier sammeln wir die echten Bilddaten!
+    let attachedImages = []; 
 
     if (pendingAttachments.length > 0) {
         pendingAttachments.forEach(att => {
@@ -984,7 +991,7 @@ async function handleSend() {
             } else if (att.type === 'image') {
                 displayMessage += `\n\n![${att.name}](${att.data})`;
                 internalPrompt += `\n\n[Der Nutzer hat dir ein Bild hochgeladen. Bitte beachte das Bild in deiner Antwort.]`; 
-                attachedImages.push(att.data); // Das Bild für die KI in den Rucksack packen!
+                attachedImages.push(att.data); 
             }
         });
     }
@@ -993,9 +1000,16 @@ async function handleSend() {
     chatInput.style.height = 'auto';
     
     UI.appendMessage(displayMessage, true); 
-    // NEU: Wir speichern das Array "images" in unserem Chat-Verlauf!
     currentSession.messages.push({ text: internalPrompt, images: attachedImages, isUser: true, displayHTML: displayMessage }); 
-    Storage.saveSessions(sessions);
+
+    // 💾 LOCALSTORAGE-CRASH VERHINDERN! (Wir löschen die Bilder VOR dem Speichern)
+    const sessionsToSave = JSON.parse(JSON.stringify(sessions));
+    sessionsToSave.forEach(s => {
+        s.messages.forEach(m => {
+            if (m.images) delete m.images; // Löscht die 2MB Bilder aus dem lokalen Speicher!
+        });
+    });
+    Storage.saveSessions(sessionsToSave);
     
     pendingAttachments = [];
     renderAttachmentPreviews();
@@ -1009,11 +1023,10 @@ async function handleSend() {
 
     const userName = Storage.getSettings().userName || 'Entwickler';
     
-    // NEU: Wir mappen jetzt auch das Bilder-Array in den KI-Kontext!
     const context = currentSession.messages.map(m => ({ 
         role: m.isUser ? 'user' : 'assistant', 
         content: m.text,
-        images: m.images || [] // Bilder an die API übergeben
+        images: m.images || [] 
     }));
     
     let isEmailCommand = false;
@@ -1049,10 +1062,29 @@ Heute ist ${new Date().toLocaleDateString('de-DE')}. Nutzer: ${userName}.`;
         UI.showLoading(false); 
         UI.appendMessage(aiResponse, false);
         currentSession.messages.push({ text: aiResponse, isUser: false }); 
-        Storage.saveSessions(sessions); 
+        Storage.saveSessions(sessionsToSave); // 💾 Wieder sicher speichern!
         UI.renderSidebar(sessions, activeSessionId);
     } catch (err) { 
         UI.showLoading(false); 
         UI.appendMessage("❌ System Fehler: " + err.message, false); 
     }
 }
+
+async function generateChatTitle(firstMessage) {
+    try {
+        const titleRes = await generateAiResponse([{ 'role': 'user', 'content': 'Titel (max 3 Worte) für: ' + firstMessage }], 'flash');
+        if (titleRes && titleRes.length > 1) { 
+            currentSession.title = titleRes.trim().replaceAll('"', ''); 
+            
+            // 💾 AUCH HIER: Bilder nicht im LocalStorage speichern!
+            const sessionsToSave = JSON.parse(JSON.stringify(sessions));
+            sessionsToSave.forEach(s => s.messages.forEach(m => { if (m.images) delete m.images; }));
+            
+            Storage.saveSessions(sessionsToSave); 
+            UI.renderSidebar(sessions, activeSessionId); 
+        }
+    } catch (e) {}
+}
+
+if (chatInput) { chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }); }
+if (sendBtn) { sendBtn.addEventListener('click', handleSend); }
