@@ -5,6 +5,7 @@ import { UI } from './ui.js';
 import { Storage } from './storage.js';
 import { loginWithGoogle, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, auth, db } from './firebase-init.js';
 import { doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+import { checkRateLimit } from './Limit-Spamschutz.js';
 
 // ==========================================
 // 🏗️ 1. ALLE DOM-ELEMENTE
@@ -963,13 +964,19 @@ async function handleSend() {
     if (!chatInput) return; 
     const text = chatInput.value.trim(); 
     
-    // Wir können auch senden, wenn das Textfeld leer ist, aber wir einen Anhang haben!
     if (!text && pendingAttachments.length === 0) return;
     
     // Slash-Befehle
     if (text.startsWith('/')) { 
         if (!isOwner) { chatInput.value = ''; UI.appendMessage("❌ Administrator-Befehle sind gesperrt.", false); return; } 
         chatInput.value = ''; chatInput.style.height = 'auto'; if (commandPopup) commandPopup.classList.add('hidden'); handleCommand(text); return; 
+    }
+
+    // 🛡️ NEU: DER SPAM-SCHUTZ BODYGUARD 🛡️
+    const rateLimit = checkRateLimit(isOwner);
+    if (!rateLimit.allowed) {
+        UI.appendMessage(`⏳ **Spam-Schutz aktiv:** Wow, nicht so schnell! Bitte warte noch ${rateLimit.timeToWait} Sekunden, bevor du die nächste Anfrage sendest.`, false);
+        return; // Stoppt die Funktion hier, die KI wird gar nicht erst angefragt!
     }
 
     // 🌟 ANHÄNGE VERARBEITEN BEIM SENDEN 🌟
