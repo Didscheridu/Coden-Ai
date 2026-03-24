@@ -959,42 +959,32 @@ function renderAttachmentPreviews() {
 
 
 // ==========================================
-// 🚀 HAUPT SENDE FUNKTION (KI LOGIK)
+// 🚀 12. HAUPT SENDE FUNKTION (KI LOGIK)
 // ==========================================
 async function handleSend() {
     if (!chatInput) return; 
     const text = chatInput.value.trim(); 
-    
     if (!text && pendingAttachments.length === 0) return;
     
-    // Slash-Befehle
     if (text.startsWith('/')) { 
         if (!isOwner) { chatInput.value = ''; UI.appendMessage("❌ Administrator-Befehle sind gesperrt.", false); return; } 
         chatInput.value = ''; chatInput.style.height = 'auto'; if (commandPopup) commandPopup.classList.add('hidden'); handleCommand(text); return; 
     }
 
-    // 🛡️ NEU: DER SPAM-SCHUTZ BODYGUARD 🛡️
-    const rateLimit = checkRateLimit(isOwner);
-    if (!rateLimit.allowed) {
-        UI.appendMessage(`⏳ **Spam-Schutz aktiv:** Wow, nicht so schnell! Bitte warte noch ${rateLimit.timeToWait} Sekunden, bevor du die nächste Anfrage sendest.`, false);
-        return; // Stoppt die Funktion hier, die KI wird gar nicht erst angefragt!
-    }
-
-    // 🌟 ANHÄNGE VERARBEITEN BEIM SENDEN 🌟
-    let displayMessage = text;      // Das sieht der Nutzer im Chat
-    let internalPrompt = text;      // Das sieht die KI heimlich
+    // 🌟 BILDER SPEICHERN 🌟
+    let displayMessage = text;      
+    let internalPrompt = text;      
+    let attachedImages = []; // NEU: Hier sammeln wir die echten Bilddaten!
 
     if (pendingAttachments.length > 0) {
         pendingAttachments.forEach(att => {
             if (att.type === 'text') {
-                // Dem Nutzer zeigen wir nur einen schönen Tag
                 displayMessage += `\n\n<div style="display:inline-block; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); padding:4px 10px; border-radius:12px; font-size:12px; margin-top:8px;">📎 <b>Datei angehängt:</b> <code>${att.name}</code></div>`;
-                // Der KI schieben wir heimlich den ganzen Code unter
                 internalPrompt += `\n\n[Inhalt der angehängten Datei: ${att.name}]\n\`\`\`\n${att.content}\n\`\`\`\n`;
             } else if (att.type === 'image') {
-                // Bild im Chat mit Markdown anzeigen!
                 displayMessage += `\n\n![${att.name}](${att.data})`;
-                internalPrompt += `\n\n[Der Nutzer hat das Bild '${att.name}' angehängt.]`; 
+                internalPrompt += `\n\n[Der Nutzer hat dir ein Bild hochgeladen. Bitte beachte das Bild in deiner Antwort.]`; 
+                attachedImages.push(att.data); // Das Bild für die KI in den Rucksack packen!
             }
         });
     }
@@ -1002,12 +992,11 @@ async function handleSend() {
     chatInput.value = ''; 
     chatInput.style.height = 'auto';
     
-    // Wir übergeben displayMessage für die Optik, speichern aber internalPrompt für das KI-Gedächtnis
     UI.appendMessage(displayMessage, true); 
-    currentSession.messages.push({ text: internalPrompt, isUser: true, displayHTML: displayMessage }); 
+    // NEU: Wir speichern das Array "images" in unserem Chat-Verlauf!
+    currentSession.messages.push({ text: internalPrompt, images: attachedImages, isUser: true, displayHTML: displayMessage }); 
     Storage.saveSessions(sessions);
     
-    // Vorschau-Box leeren
     pendingAttachments = [];
     renderAttachmentPreviews();
     
@@ -1019,7 +1008,13 @@ async function handleSend() {
     }
 
     const userName = Storage.getSettings().userName || 'Entwickler';
-    const context = currentSession.messages.map(m => ({ role: m.isUser ? 'user' : 'assistant', content: m.text }));
+    
+    // NEU: Wir mappen jetzt auch das Bilder-Array in den KI-Kontext!
+    const context = currentSession.messages.map(m => ({ 
+        role: m.isUser ? 'user' : 'assistant', 
+        content: m.text,
+        images: m.images || [] // Bilder an die API übergeben
+    }));
     
     let isEmailCommand = false;
     if (['mail', 'gmail', 'sende', 'schick', 'weiterleiten'].some(w => text.toLowerCase().includes(w))) {
@@ -1039,7 +1034,6 @@ async function handleSend() {
         } catch (err) { UI.showLoading(false); return UI.appendMessage("❌ Fehler: " + err.message, false); }
     }
 
-    // ✨ DIE KI-PERSÖNLICHKEIT ✨
     const systemPrompt = `Du bist "Coden", ein brillanter, freundlicher KI-Softwarearchitekt.
 WICHTIG: Du wurdest von Kayden entwickelt. Erwähne Kayden aber NUR DANN, wenn der Nutzer dich explizit danach fragt. Erwähne ihn NIEMALS ungefragt!
 1. Strukturiere deinen Text übersichtlich (Absätze, Listen, **Fettdruck**).
@@ -1062,17 +1056,3 @@ Heute ist ${new Date().toLocaleDateString('de-DE')}. Nutzer: ${userName}.`;
         UI.appendMessage("❌ System Fehler: " + err.message, false); 
     }
 }
-
-async function generateChatTitle(firstMessage) {
-    try {
-        const titleRes = await generateAiResponse([{ 'role': 'user', 'content': 'Titel (max 3 Worte) für: ' + firstMessage }], 'flash');
-        if (titleRes && titleRes.length > 1) { 
-            currentSession.title = titleRes.trim().replaceAll('"', ''); 
-            Storage.saveSessions(sessions); 
-            UI.renderSidebar(sessions, activeSessionId); 
-        }
-    } catch (e) {}
-}
-
-if (chatInput) { chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }); }
-if (sendBtn) { sendBtn.addEventListener('click', handleSend); }
