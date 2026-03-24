@@ -40,16 +40,15 @@ export async function generateAiResponse(messages, tierOrModelId) {
         try {
             let responseText = "";
             
+            // 🔥 LEISER MODUS: Keine console.logs mehr!
             if (modelConfig.provider === 'google' && googleKey) {
-                console.log(`⚡ Kaskade: Versuche Google AI API mit [${modelConfig.id}]...`);
                 responseText = await callGoogleDirectly(messages, modelConfig.id, googleKey);
             } 
             else if (modelConfig.provider !== 'google' || !googleKey) {
-                console.log(`⚡ Kaskade: Versuche Backend (${modelConfig.provider}) mit [${modelConfig.id}]...`);
                 responseText = await callVercelBackend(messages, modelConfig.id, modelConfig.provider);
             }
 
-            // 🧹 DER GEDANKEN-STAUBSAUGER: Filtert <think> Blöcke sauber heraus!
+            // 🧹 GEDANKEN-STAUBSAUGER
             if (responseText) {
                 responseText = responseText.replace(/<think>[\s\S]*?<\/think>\n*/gi, '').trim();
             }
@@ -57,23 +56,19 @@ export async function generateAiResponse(messages, tierOrModelId) {
             return responseText;
 
         } catch (error) {
-            console.warn(`[FALLBACK] Modell ${modelConfig.id} über ${modelConfig.provider} fehlgeschlagen:`, error.message);
+            // Wir speichern den Fehler nur intern, falls alles abstürzt
             lastError = error;
         }
     }
 
-    throw new Error(`Alle Fallback-Server sind überlastet. Letzter Fehler: ${lastError?.message}`);
+    throw new Error(`Alle Server sind überlastet. Letzter Fehler: ${lastError?.message}`);
 }
 
 async function callVercelBackend(messages, modelId, providerTarget) {
     const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-            messages: messages, 
-            modelId: modelId,
-            provider: providerTarget 
-        })
+        body: JSON.stringify({ messages, modelId, provider: providerTarget })
     });
     
     const textResponse = await response.text();
@@ -81,8 +76,8 @@ async function callVercelBackend(messages, modelId, providerTarget) {
     try { 
         data = JSON.parse(textResponse); 
     } catch (e) {
-        if (textResponse.includes("Too many") || response.status === 429) throw new Error("Rate Limit erreicht.");
-        throw new Error("Backend Server Fehler.");
+        if (textResponse.includes("Too many") || response.status === 429) throw new Error("Rate Limit.");
+        throw new Error("Backend Fehler.");
     }
     
     if (!response.ok || data.error) throw new Error(data.error || `HTTP ${response.status}`);
@@ -117,5 +112,5 @@ async function callGoogleDirectly(messages, modelId, apiKey) {
 
     if (!response.ok) throw new Error(`${data.error?.message || response.statusText}`);
     if (data.candidates && data.candidates.length > 0) return data.candidates[0].content.parts[0].text;
-    throw new Error("Leere Antwort von Google.");
+    throw new Error("Leere Antwort.");
 }
