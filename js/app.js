@@ -6,6 +6,9 @@ import { Storage } from './storage.js';
 import { loginWithGoogle, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, auth, db } from './firebase-init.js';
 import { doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 
+// ==========================================
+// 🏗️ 1. ALLE DOM-ELEMENTE
+// ==========================================
 const loginScreen = document.getElementById('login-screen');
 const appContainer = document.getElementById('app');
 const errorMsg = document.getElementById('auth-error-msg');
@@ -21,6 +24,9 @@ const emailModal = document.getElementById('email-modal');
 const settingsModal = document.getElementById('settings-modal');
 const confirmModal = document.getElementById('confirm-modal');
 
+// ==========================================
+// 👑 2. GLOBALE VARIABLEN & ADMIN STATUS
+// ==========================================
 let sessions = [];
 let currentSession = null;
 let activeSessionId = null;
@@ -28,7 +34,7 @@ let appInitialized = false;
 
 let isOwner = false;
 let globalLockedModels = { pro: false, thinking: false }; 
-let currentSelectedModel = 'flash'; // Internal keys stay short, display maps to Google
+let currentSelectedModel = 'flash'; // Bleibt 'flash', 'normal', 'pro'
 
 let lastBroadcastTime = 0;
 let lastUpdateTime = 0;
@@ -44,6 +50,7 @@ function extractNameFromEmail(email) {
     if (!email) return "Entwickler";
     return email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 }
+
 function updateGreeting() {
     const settings = Storage.getSettings();
     const greetingEl = document.getElementById('welcome-greeting');
@@ -53,26 +60,29 @@ function updateGreeting() {
 function initGlobalSync() {
     try {
         if(!db) return console.warn("Firebase 'db' fehlt. App läuft offline.");
+        
         onSnapshot(doc(db, "system", "state"), (docSnap) => {
             if (docSnap.exists()) {
                 const data = docSnap.data();
+                
                 if (data.locks) {
                     globalLockedModels = data.locks;
                     document.getElementById('pro-mode-option').classList.toggle('disabled', data.locks.pro);
                     document.getElementById('thinking-mode-option').classList.toggle('disabled', data.locks.thinking);
                 }
                 if (data.globalModel && data.globalModel !== currentSelectedModel) {
-                    forceModelChange(data.globalModel, `🔄 Der Admin hat das Modell auf ${data.globalModel} gewechselt.`);
+                    forceModelChange(data.globalModel, `🔄 Der Admin hat das Modell für alle auf Coden ${data.globalModel} gewechselt.`);
                 }
                 if (data.broadcast && data.broadcast.time > lastBroadcastTime) {
                     lastBroadcastTime = data.broadcast.time;
                     if (!isOwner) showCustomConfirm("📢 SYSTEM BROADCAST:\n\n" + data.broadcast.message); 
                 }
                 if (data.forceUpdate && data.forceUpdate > lastUpdateTime) {
-                    lastUpdateTime = data.forceUpdate; if (!isOwner) location.reload();
+                    lastUpdateTime = data.forceUpdate;
+                    if (!isOwner) location.reload();
                 }
                 if (data.maintenance && !isOwner) {
-                    document.body.innerHTML = "<div style='display:flex; height:100vh; width:100vw; background:#111; color:white; align-items:center; justify-content:center; flex-direction:column;'><h1>🛠️ WARTUNGSARBEITEN</h1><p>Gesperrt.</p></div>";
+                    document.body.innerHTML = "<div style='display:flex; height:100vh; width:100vw; background:#111; color:white; align-items:center; justify-content:center; flex-direction:column;'><h1>🛠️ WARTUNGSARBEITEN</h1><p>Coden AI ist aktuell vom Admin gesperrt. Bitte warte.</p></div>";
                 }
                 if (data.theme) document.body.style.filter = data.theme === 'matrix' ? "hue-rotate(90deg) invert(80%)" : "";
                 if (data.fontSize) document.documentElement.style.setProperty('--chat-font-size', data.fontSize + 'px');
@@ -103,12 +113,15 @@ onAuthStateChanged(auth, async (user) => {
         isOwner = (user.email === 'kayden.schunack@gmail.com');
         const badge = document.getElementById('owner-badge');
         if(badge) badge.style.display = isOwner ? 'inline-block' : 'none';
+
         loginScreen.classList.add('hidden'); appContainer.classList.remove('hidden');
         userEmailDisplay.textContent = user.email;
         await Storage.loadFromCloud();
+        
         let settings = Storage.getSettings();
         if (!settings.userName) { settings.userName = extractNameFromEmail(user.email); Storage.saveSettings(settings); }
         updateGreeting();
+
         if (!appInitialized) initApp(); 
         initGlobalSync(); 
     } else {
@@ -123,29 +136,33 @@ function initApp() {
     if(sessions.length === 0) { currentSession = Storage.createNewSession(); sessions.push(currentSession); Storage.saveSessions(sessions); } 
     else { currentSession = sessions[0]; }
     activeSessionId = currentSession.id;
+
     const settings = Storage.getSettings();
     document.documentElement.style.setProperty('--chat-font-size', settings.fontSize + 'px');
+
     UI.resetUI(); UI.renderSidebar(sessions, activeSessionId);
     if (currentSession.messages.length > 0) currentSession.messages.forEach(msg => UI.appendMessage(msg.text, msg.isUser));
     document.addEventListener('loadChatSession', (e) => loadSession(e.detail));
     document.addEventListener('deleteChatSession', (e) => deleteSession(e.detail));
     
-    // Initiales Label setzen
     const opt = document.querySelector(`.model-option[data-model="${currentSelectedModel}"]`);
     if(opt) document.getElementById('current-model-text').textContent = opt.querySelector('.name').textContent;
 }
 
+// ==========================================
+// 🚀 4. COMMANDS (OWNER ONLY)
+// ==========================================
 const commands = [
     { name: "/lock", opts: ["pro", "thinking"], desc: "Sperrt ein Modell GLOBAL", ownerOnly: true },
     { name: "/unlock", opts: ["pro", "thinking"], desc: "Entsperrt ein Modell GLOBAL", ownerOnly: true },
     { name: "/broadcast", opts: ["<nachricht>"], desc: "Pop-Up an ALLE User", ownerOnly: true },
-    { name: "/maintenance", opts: ["on", "off"], desc: "Sperrt App komplett für User", ownerOnly: true },
-    { name: "/forceupdate", desc: "Erzwingt bei ALLEN einen Reload", ownerOnly: true },
-    { name: "/model", opts: ["flash", "normal", "pro"], desc: "Ändert das Modell GLOBAL", ownerOnly: true },
-    { name: "/theme", opts: ["normal", "matrix"], desc: "Ändert das Design GLOBAL", ownerOnly: true },
-    { name: "/font", opts: ["12", "15", "18", "22"], desc: "Ändert die Schriftgröße GLOBAL", ownerOnly: true },
-    { name: "/clearall", desc: "Leert die Chats bei ALLEN Usern", ownerOnly: true },
-    { name: "/api", opts: ["<DEIN_KEY>"], desc: "Speichert Google AI Key im Browser", ownerOnly: true },
+    { name: "/maintenance", opts: ["on", "off"], desc: "Sperrt App komplett", ownerOnly: true },
+    { name: "/forceupdate", desc: "Erzwingt Reload bei Usern", ownerOnly: true },
+    { name: "/model", opts: ["flash", "normal", "pro"], desc: "Ändert Modell GLOBAL", ownerOnly: true },
+    { name: "/theme", opts: ["normal", "matrix"], desc: "Ändert Design GLOBAL", ownerOnly: true },
+    { name: "/font", opts: ["12", "15", "18", "22"], desc: "Ändert Schriftgröße GLOBAL", ownerOnly: true },
+    { name: "/clearall", desc: "Leert Chats bei ALLEN Usern", ownerOnly: true },
+    { name: "/api", opts: ["<DEIN_KEY>"], desc: "Speichert Google Key im Browser", ownerOnly: true },
     { name: "/usage", opts: ["<email>"], desc: "Zeigt Modell-Aufrufe", ownerOnly: true },
     { name: "/stats", desc: "Zeigt globale System-Statistiken", ownerOnly: true }
 ];
@@ -153,7 +170,9 @@ const commands = [
 chatInput.addEventListener('input', (e) => {
     chatInput.style.height = 'auto'; chatInput.style.height = (chatInput.scrollHeight) + 'px';
     const text = e.target.value;
+
     if (!isOwner && text.startsWith('/')) { commandPopup.classList.add('hidden'); return; }
+
     if (text.startsWith('/')) {
         const parts = text.split(' '); const cmdSearch = parts[0].toLowerCase(); const hasSpace = text.includes(' ');
         if (!hasSpace) {
@@ -192,13 +211,11 @@ async function handleCommand(text) {
     if(!isOwner) return UI.appendMessage("❌ Zugriff verweigert.", false);
     
     let sysMsg = "";
-
-    // 🚀 NEU: API KEY LOKAL SPEICHERN
     if (cmd === '/api') {
         if(!param) { sysMsg = "❌ Bitte Key angeben: /api DEIN_KEY"; }
         else {
             const s = Storage.getSettings(); s.apiKey = param; Storage.saveSettings(s);
-            sysMsg = "🔑 Google AI Studio API Key erfolgreich im Browser gespeichert! Die App funkt ab sofort DIREKT zu Google (Ohne Rate Limits).";
+            sysMsg = "🔑 Google AI Studio API Key erfolgreich im Browser gespeichert!";
         }
         return UI.appendMessage(`⚙️ **SYSTEM:**\n${sysMsg}`, false);
     }
@@ -206,20 +223,21 @@ async function handleCommand(text) {
     if (!db) return UI.appendMessage("❌ Datenbank-Fehler.", false);
     try {
         if (cmd === '/lock') {
-            if(args[1] === 'pro') { await setDoc(doc(db, "system", "state"), { locks: { pro: true, thinking: globalLockedModels.thinking } }, { merge: true }); sysMsg = "🔒 Gemini 2.5 Pro GLOBAL gesperrt."; }
-            else if(args[1] === 'thinking') { await setDoc(doc(db, "system", "state"), { locks: { pro: globalLockedModels.pro, thinking: true } }, { merge: true }); sysMsg = "🔒 Gemma 3 GLOBAL gesperrt."; }
+            if(args[1] === 'pro') { await setDoc(doc(db, "system", "state"), { locks: { pro: true, thinking: globalLockedModels.thinking } }, { merge: true }); sysMsg = "🔒 Coden Pro GLOBAL gesperrt."; }
+            else if(args[1] === 'thinking') { await setDoc(doc(db, "system", "state"), { locks: { pro: globalLockedModels.pro, thinking: true } }, { merge: true }); sysMsg = "🔒 Coden Thinking GLOBAL gesperrt."; }
         }
         else if (cmd === '/unlock') {
-            if(args[1] === 'pro') { await setDoc(doc(db, "system", "state"), { locks: { pro: false, thinking: globalLockedModels.thinking } }, { merge: true }); sysMsg = "🔓 Gemini 2.5 Pro GLOBAL entsperrt."; }
-            else if(args[1] === 'thinking') { await setDoc(doc(db, "system", "state"), { locks: { pro: globalLockedModels.pro, thinking: false } }, { merge: true }); sysMsg = "🔓 Gemma 3 GLOBAL entsperrt."; }
+            if(args[1] === 'pro') { await setDoc(doc(db, "system", "state"), { locks: { pro: false, thinking: globalLockedModels.thinking } }, { merge: true }); sysMsg = "🔓 Coden Pro GLOBAL entsperrt."; }
+            else if(args[1] === 'thinking') { await setDoc(doc(db, "system", "state"), { locks: { pro: globalLockedModels.pro, thinking: false } }, { merge: true }); sysMsg = "🔓 Coden Thinking GLOBAL entsperrt."; }
         }
         else if (cmd === '/broadcast') { await setDoc(doc(db, "system", "state"), { broadcast: { message: param, time: Date.now() } }, { merge: true }); sysMsg = "📢 Broadcast LIVE gesendet."; }
         else if (cmd === '/forceupdate') { await setDoc(doc(db, "system", "state"), { forceUpdate: Date.now() }, { merge: true }); sysMsg = "🔄 Reload für alle User befohlen."; }
         else if (cmd === '/model') { await setDoc(doc(db, "system", "state"), { globalModel: param }, { merge: true }); sysMsg = `🔄 Modell für ALLE global auf '${param}' gezwungen.`; }
         else if (cmd === '/clearall') { await setDoc(doc(db, "system", "state"), { globalClear: Date.now() }, { merge: true }); sysMsg = `🗑️ ALLE Chats bei ALLEN aktiven Usern gelöscht!`; }
+        else if (cmd === '/theme') { await setDoc(doc(db, "system", "state"), { theme: param }, { merge: true }); sysMsg = `🎨 Theme auf '${param}' gesetzt.`; }
         else if (cmd === '/usage') {
             const rF = Math.floor(Math.random() * 200); const rN = Math.floor(Math.random() * 50); const rP = Math.floor(Math.random() * 15);
-            sysMsg = `📈 **Nutzung für ${param}:**\n- ⚡ Flash: ${rF}\n- 🧠 Gemma: ${rN}\n- 💎 Pro: ${rP}`;
+            sysMsg = `📈 **Nutzung für ${param}:**\n- ⚡ Flash: ${rF}\n- 🧠 Thinking: ${rN}\n- 💎 Pro: ${rP}`;
         }
         else { sysMsg = `Admin-Befehl ausgeführt: ${cmd} ${param}`; } 
 
@@ -233,7 +251,7 @@ toggleSearchBtn.addEventListener('click', () => { searchContainer.classList.togg
 chatSearchInput.addEventListener('input', (e) => { const searchTerm = e.target.value.toLowerCase(); if (!searchTerm) { UI.renderSidebar(sessions, activeSessionId); return; } const filteredSessions = sessions.filter(session => { return (session.title && session.title.toLowerCase().includes(searchTerm)) || session.messages.some(msg => msg.text.toLowerCase().includes(searchTerm)); }); UI.renderSidebar(filteredSessions, activeSessionId); });
 
 document.getElementById('close-email-btn').addEventListener('click', () => emailModal.classList.add('hidden'));
-document.getElementById('send-real-email-btn').addEventListener('click', async () => { /* ... email send logic ... */ });
+document.getElementById('send-real-email-btn').addEventListener('click', async () => { /* email logic handled in UI */ });
 
 function openSettings() {
     const s = Storage.getSettings(); document.getElementById('user-name-input').value = s.userName || ''; document.getElementById('font-size-slider').value = s.fontSize || 15;
@@ -281,8 +299,24 @@ newChatBtn.addEventListener('click', () => { currentSession = Storage.createNewS
 function loadSession(id) { const s = sessions.find(s => s.id === id); if (s) { activeSessionId = id; currentSession = s; UI.resetUI(); if (currentSession.messages.length > 0) currentSession.messages.forEach(m => UI.appendMessage(m.text, m.isUser)); UI.renderSidebar(sessions, activeSessionId); } }
 function deleteSession(id) { sessions = sessions.filter(s => s.id !== id); if (sessions.length === 0) { currentSession = Storage.createNewSession(); sessions.push(currentSession); activeSessionId = currentSession.id; UI.resetUI(); } else if (id === activeSessionId) { currentSession = sessions[0]; activeSessionId = currentSession.id; loadSession(currentSession.id); return; } Storage.saveSessions(sessions); UI.renderSidebar(sessions, activeSessionId); }
 
+// SPRACHERKENNUNG
+let recognition = null; let isListening = false;
+if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SpeechRecognition(); recognition.lang = 'de-DE'; recognition.interimResults = false; recognition.continuous = false;
+    recognition.onstart = () => { isListening = true; micBtn.style.color = '#ff4444'; chatInput.placeholder = 'Höre zu...'; };
+    recognition.onresult = (event) => {
+        let finalTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
+        if (finalTranscript && chatInput) { chatInput.value = (chatInput.value + ' ' + finalTranscript).trim(); chatInput.dispatchEvent(new Event('input')); }
+    };
+    recognition.onerror = () => stopListening(); recognition.onend = () => stopListening();
+}
+function stopListening() { isListening = false; micBtn.style.color = 'var(--text-secondary)'; chatInput.placeholder = 'Prompt eingeben...'; }
+micBtn.addEventListener('click', () => { if (!recognition) return alert('Browser unterstützt keine Spracherkennung.'); isListening ? recognition.stop() : recognition.start(); });
+
 // ==========================================
-// 🚀 8. HAUPT SENDE FUNKTION (MIT GOOGLE IDS)
+// 🚀 8. HAUPT SENDE FUNKTION (Übergibt exakt 'flash', 'normal' oder 'pro')
 // ==========================================
 async function handleSend() {
     if(!chatInput) return; const text = chatInput.value.trim(); if (!text) return;
@@ -298,8 +332,8 @@ async function handleSend() {
     if (currentSession.messages.length === 1) generateChatTitle(text);
 
     if (!isOwner) {
-        if (currentSelectedModel === 'pro' && globalLockedModels.pro) { UI.appendMessage("❌ Gemini 2.5 Pro ist global gesperrt.", false); return; }
-        if (currentSelectedModel === 'normal' && globalLockedModels.thinking) { UI.appendMessage("❌ Gemma 3 ist global gesperrt.", false); return; }
+        if (currentSelectedModel === 'pro' && globalLockedModels.pro) { UI.appendMessage("❌ Coden Pro ist global gesperrt.", false); return; }
+        if (currentSelectedModel === 'normal' && globalLockedModels.thinking) { UI.appendMessage("❌ Coden Thinking ist global gesperrt.", false); return; }
     }
 
     let historyContext = "";
@@ -311,13 +345,8 @@ async function handleSend() {
         if (await showCustomConfirm("Möchtest du eine E-Mail senden?\n\nOK = Fenster öffnen\nAbbrechen = Normaler Chat")) isEmailCommand = true;
     }
 
-    // 🚀 INTERNE NAMEN IN GOOGLE IDS ÜBERSETZEN
-    let googleModelId = 'gemini-2.5-flash';
-    if (currentSelectedModel === 'normal') googleModelId = 'gemma-3-27b-it';
-    if (currentSelectedModel === 'pro') googleModelId = 'gemini-2.5-pro';
-
     if (isEmailCommand) {
-        UI.showLoading(true, `Bereite E-Mail mit ${googleModelId} vor...`);
+        UI.showLoading(true, "Coden bereitet das E-Mail-Fenster vor...");
         let lastCodeBlock = "";
         const allCodeBlocks = currentSession.messages.map(m => m.text.match(/```[\s\S]*?```/g)).flat().filter(Boolean);
         if (allCodeBlocks.length > 0) lastCodeBlock = allCodeBlocks[allCodeBlocks.length - 1];
@@ -325,34 +354,49 @@ async function handleSend() {
         const emailPrompt = `DU BIST EIN UNSICHTBARER E-MAIL-GENERATOR. 1. Sprich NICHT mit dem Nutzer. 2. Absender heißt: "${userName}". 3. Code übernehmen: ${lastCodeBlock || "Kein Code."} Verlauf: ${historyContext} Anfrage: "${text}" Format: [TO]: \n[SUBJECT]: \n[BODY]: `;
 
         try {
-            const resText = await generateAiResponse([{ role: 'user', content: emailPrompt }], googleModelId);
+            // Übergibt einfach das saubere Tier-Wort an die API!
+            let emailModelTier = currentSelectedModel; 
+            const resText = await generateAiResponse([{ role: 'user', content: emailPrompt }], emailModelTier);
+            
             let emailTo = resText.match(/\[TO\]:\s*(.*)/i)?.[1].trim() || '';
             const emailSubject = resText.match(/\[SUBJECT\]:\s*(.*)/i)?.[1].trim() || '';
             const emailBody = resText.split(/\[BODY\]:/i)[1]?.trim() || resText.trim(); 
-            const exEmail = emailTo.replace(/[<>]/g, '').trim().match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/);
+
+            emailTo = emailTo.replace(/[<>]/g, '').trim(); 
+            const exEmail = emailTo.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/);
             if(exEmail) emailTo = exEmail[0]; 
 
             document.getElementById('email-recipient').value = emailTo; document.getElementById('email-subject').value = emailSubject; document.getElementById('email-draft-output').value = emailBody;
             UI.showLoading(false); UI.appendMessage(`E-Mail-Fenster vorbereitet!`, false); document.getElementById('email-modal').classList.remove('hidden'); return; 
-        } catch (err) { UI.showLoading(false); UI.appendMessage("❌ Fehler: " + err.message, false); return; }
+        } catch (err) { UI.showLoading(false); UI.appendMessage("❌ Fehler beim E-Mail Erstellen: " + err.message, false); return; }
     }
 
     const context = currentSession.messages.map(m => ({ role: m.isUser ? 'user' : 'assistant', content: m.text }));
     context.unshift({ role: 'system', content: `Du bist "Coden". Heute ist ${new Date().toLocaleDateString('de-DE')}. Nutzer heißt ${userName}.` });
 
     try {
-        UI.showLoading(true, `🚀 ${googleModelId} generiert...`);
-        const aiResponse = await generateAiResponse(context, googleModelId);
+        let targetTier = currentSelectedModel;
+        
+        if (currentSelectedModel === 'normal') { UI.showLoading(true, `Coden Thinking überlegt...`); } 
+        else if (currentSelectedModel === 'flash') { UI.showLoading(true, `Coden Flash denkt...`); }
+        else if (currentSelectedModel === 'pro') {
+            UI.showLoading(true, `Coden Pro analysiert...`);
+            // Optional: Analyse vorweg
+        }
+
+        // Wir übergeben das pure Tier-Wort (flash, normal, pro) an die mächtige Kaskade in api.js!
+        const aiResponse = await generateAiResponse(context, targetTier);
+        
         UI.showLoading(false); UI.appendMessage(aiResponse, false);
         currentSession.messages.push({ text: aiResponse, isUser: false }); Storage.saveSessions(sessions); UI.renderSidebar(sessions, activeSessionId);
     } catch (err) {
-        UI.showLoading(false); UI.appendMessage("❌ API Fehler: " + err.message, false);
+        UI.showLoading(false); UI.appendMessage("❌ System Fehler: " + err.message, false);
     }
 }
 
 async function generateChatTitle(firstMessage) {
     try {
-        const titleRes = await generateAiResponse([{ 'role': 'user', 'content': 'Titel (max 4 Worte) für: ' + firstMessage }], 'gemini-2.5-flash');
+        const titleRes = await generateAiResponse([{ 'role': 'user', 'content': 'Titel (max 4 Worte) für: ' + firstMessage }], 'flash');
         if (titleRes && titleRes.length > 1) { currentSession.title = titleRes.trim().replaceAll('"', ''); Storage.saveSessions(sessions); UI.renderSidebar(sessions, activeSessionId); }
     } catch (e) {}
 }
