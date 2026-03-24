@@ -1,0 +1,79 @@
+/* css/mobile.css */
+
+/* Alles in diesem Block wird NUR auf Handys und Tablets aktiviert (Bildschirme kleiner als 768px) */
+@media screen and (max-width: 768px) {
+    
+    /* 1. DIE SIDEBAR (Slide-In Menü) */
+    .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 100vh;
+        width: 80%; /* Sidebar nimmt 80% des Handybildschirms ein */
+        max-width: 320px;
+        z-index: 9999;
+        transition: transform 0.3s ease-in-out;
+        box-shadow: 5px 0 20px rgba(0,0,0,0.8);
+    }
+
+    /* Wenn die Sidebar zu ist, schieben wir sie komplett nach links aus dem Bild */
+    .sidebar.collapsed {
+        display: flex !important; /* Überschreibt das alte display:none */
+        transform: translateX(-100%);
+    }
+
+    /* 2. DER HAMBURGER BUTTON (Menü-Knopf oben links) */
+    #open-sidebar-btn {
+        display: block !important; /* Auf dem Handy IMMER anzeigen */
+    }
+    
+    #open-sidebar-btn.hidden {
+        display: none !important; /* Ausblenden, wenn die Sidebar offen ist */
+    }
+
+    /* 3. DER HAUPTBEREICH */
+    .main-content {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    /* 4. CHAT INPUT BEREICH (Kompakter für den Daumen) */
+    .input-section {
+        padding: 10px;
+    }
+    
+    .input-box {
+        border-radius: 12px;
+        padding: 8px;
+    }
+
+    .right-tools, .left-tools {
+        gap: 4px; /* Buttons näher zusammenrücken */
+    }
+
+    .text-btn {
+        font-size: 12px;
+        padding: 4px 6px;
+    }
+
+    /* 5. POP-UP FENSTER (Einstellungen, E-Mail, Rechtliches) */
+    .modal-content {
+        width: 95vw;
+        max-height: 90vh;
+        padding: 16px;
+        margin: 10px;
+    }
+
+    /* 6. MODELL-DROPDOWN (Coden Flash, Pro etc.) */
+    .model-dropdown-menu {
+        right: 0;
+        left: auto;
+        width: 200px;
+    }
+
+    /* 7. LOGIN SCREEN */
+    .login-box {
+        width: 90%;
+        padding: 24px 16px;
+    }
+}
