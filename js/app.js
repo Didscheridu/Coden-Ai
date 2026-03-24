@@ -960,3 +960,51 @@ if (chatInput) {
 if (sendBtn) {
     sendBtn.addEventListener('click', handleSend);
 }
+
+
+// ==========================================
+// 📎 10. DATEI UPLOAD (Das fehlende + Kabel)
+// ==========================================
+if (attachmentBtn && fileUploadInput) {
+    // 1. Wenn man auf das + klickt, öffne den unsichtbaren Datei-Dialog
+    attachmentBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        fileUploadInput.click();
+    });
+
+    // 2. Wenn eine Datei ausgewählt wurde
+    fileUploadInput.addEventListener('change', async (e) => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
+
+        // Lade-Indikator zeigen
+        if(chatInput) chatInput.placeholder = "Lese Datei...";
+
+        for (let file of files) {
+            try {
+                // Wir lesen die Datei als Text ein (Perfekt für Code, .txt, .json etc.)
+                const text = await file.text();
+                
+                // Wir packen den Code sauber formatiert ins Textfeld
+                const fileFormat = `\n\nDatei: ${file.name}\n\`\`\`\n${text}\n\`\`\`\n`;
+                
+                if (chatInput) {
+                    chatInput.value = chatInput.value + fileFormat;
+                    // Textfeld automatisch vergrößern
+                    chatInput.style.height = 'auto'; 
+                    chatInput.style.height = (chatInput.scrollHeight) + 'px';
+                }
+            } catch (err) {
+                console.error("Datei konnte nicht gelesen werden:", err);
+                alert(`Konnte die Datei ${file.name} nicht lesen. Bitte nur Text/Code-Dateien verwenden.`);
+            }
+        }
+        
+        // Input leeren, damit man dieselbe Datei nochmal hochladen kann
+        fileUploadInput.value = '';
+        if(chatInput) {
+            chatInput.placeholder = "Prompt eingeben... (Tippe '/' für Befehle)";
+            chatInput.focus();
+        }
+    });
+}
