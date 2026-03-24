@@ -40,7 +40,7 @@ let isOwner = false;
 let globalLockedModels = { pro: false, thinking: false }; 
 let currentSelectedModel = 'flash';
 
-let lastBroadcastTime = 0;
+let lastBroadcastTime = parseInt(localStorage.getItem('coden_last_broadcast')) || Date.now();
 let lastUpdateTime = 0;
 let lastGlobalClearTime = 0;
 
@@ -217,6 +217,7 @@ function initGlobalSync() {
                 // Broadcasts
                 if (data.broadcast && data.broadcast.time > lastBroadcastTime) { 
                     lastBroadcastTime = data.broadcast.time; 
+                    localStorage.setItem('coden_last_broadcast', lastBroadcastTime.toString()); // <-- NEU: Gemerkt!
                     if (!isOwner) showCustomConfirm("📢 SYSTEM BROADCAST:\n\n" + data.broadcast.message); 
                 }
                 
