@@ -6,7 +6,7 @@ const MODEL_CASCADES = {
     'flash': [
         { provider: 'google',     id: 'gemma-3-4b-it' },
         { provider: 'groq',       id: 'llama-3.1-8b-instant' },
-        { provider: 'openrouter', id: 'meta-llama/llama-3.3-70b-instruct:free'}
+        { provider: 'openrouter', id: 'arcee-ai/trinity-mini:free'}
     ],
     'normal': [
         { provider: 'google',     id: 'gemma-3-12b-it' },
