@@ -9,17 +9,17 @@ export async function generateAiResponse(messages, modelId) {
             body: JSON.stringify({ messages, modelId })
         });
 
-        // SCHUTZSCHILD: Wir lesen die Antwort zuerst als Text, nicht als JSON!
+        // SCHUTZSCHILD: Wir lesen die Antwort zuerst als rohen Text!
         const textResponse = await response.text();
 
         let data;
         try {
-            // Wir versuchen, den Text in JSON umzuwandeln
+            // Wir versuchen, den Text in ein Daten-Objekt (JSON) umzuwandeln
             data = JSON.parse(textResponse);
         } catch (e) {
-            // Wenn es fehlschlägt, prüfen wir auf das Rate Limit!
+            // Wenn das fehlschlägt, ist es meistens das API Rate Limit
             if (textResponse.includes("Too many") || response.status === 429) {
-                throw new Error("⏳ API Limit erreicht (Zu viele Anfragen). Bitte warte ca. 1 Minute.");
+                throw new Error("⏳ API Limit erreicht (Zu viele Anfragen). Bitte warte kurz 1-2 Minuten.");
             }
             throw new Error("Server antwortete nicht richtig: " + textResponse.substring(0, 40) + "...");
         }
@@ -31,6 +31,6 @@ export async function generateAiResponse(messages, modelId) {
         return data.content;
     } catch (error) {
         console.error("API Fehler:", error);
-        throw error; // Wird an die app.js weitergeleitet!
+        throw error; 
     }
 }
