@@ -4,26 +4,17 @@ const AI_PROFILE_PIC_SRC = './images/coden_logo.jpg';
 
 const customRenderer = new marked.Renderer();
 
-// Kompatibilität für marked.js v12 und v13+
 customRenderer.code = function(tokenOrCode, language) {
-    let codeText = '';
-    let lang = '';
+    let codeText = ''; let lang = '';
+    if (typeof tokenOrCode === 'object' && tokenOrCode !== null) { codeText = tokenOrCode.text || ''; lang = tokenOrCode.lang || ''; } 
+    else { codeText = tokenOrCode || ''; lang = language || ''; }
     
-    if (typeof tokenOrCode === 'object' && tokenOrCode !== null) {
-        codeText = tokenOrCode.text || '';
-        lang = tokenOrCode.lang || '';
-    } else {
-        codeText = tokenOrCode || '';
-        lang = language || '';
-    }
-
     codeText = String(codeText);
     const validLanguage = hljs.getLanguage(lang) ? lang : 'plaintext';
     const highlightedCode = hljs.highlight(codeText, { language: validLanguage }).value;
     const langLabel = lang ? lang.charAt(0).toUpperCase() + lang.slice(1) : 'Code';
     const encodedCode = encodeURIComponent(codeText);
 
-    // Ultra-Cleanes Code-Block Design
     return `
     <div class="code-block-wrapper" style="margin: 16px 0; border-radius: 8px; overflow: hidden; background: #1e1e1e; border: 1px solid rgba(255,255,255,0.05);">
         <div class="code-header" style="display: flex; justify-content: space-between; padding: 6px 14px; background: rgba(255,255,255,0.03); font-size: 11px; color: #888; border-bottom: 1px solid rgba(255,255,255,0.05);">
@@ -45,16 +36,6 @@ export const UI = {
     welcomeScreen: document.getElementById('welcome-screen'),
 
     init: () => {
-        // CSS für die pulsierenden Tipp-Punkte dynamisch injizieren
-        const style = document.createElement('style');
-        style.innerHTML = `
-            @keyframes codenPulse { 0% { opacity: 0.3; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1); } 100% { opacity: 0.3; transform: scale(0.8); } }
-            .typing-dot { width: 6px; height: 6px; background: var(--text-muted, #888); border-radius: 50%; opacity: 0.3; animation: codenPulse 1.4s infinite; }
-            .typing-dot:nth-child(2) { animation-delay: 0.2s; }
-            .typing-dot:nth-child(3) { animation-delay: 0.4s; }
-        `;
-        document.head.appendChild(style);
-
         UI.chatContainer.addEventListener('click', async (e) => {
             const copyBtn = e.target.closest('.copy-code-btn');
             if (copyBtn) {
@@ -64,180 +45,146 @@ export const UI = {
                     const originalHTML = copyBtn.innerHTML;
                     copyBtn.innerHTML = `<span class="material-symbols-outlined" style="font-size: 14px;">check</span> Kopiert!`;
                     copyBtn.style.color = "var(--accent-green, #4caf50)";
-                    setTimeout(() => {
-                        copyBtn.innerHTML = originalHTML;
-                        copyBtn.style.color = "#888";
-                    }, 2000);
-                } catch (err) {
-                    console.error('Fehler beim Kopieren:', err);
-                }
+                    setTimeout(() => { copyBtn.innerHTML = originalHTML; copyBtn.style.color = "#888"; }, 2000);
+                } catch (err) { console.error('Fehler beim Kopieren:', err); }
             }
         });
     },
 
-    appendMessage: (text, isUser) => {
-        const chatContainer = document.getElementById('chat-container');
-        if (!chatContainer) return;
-        
-        const welcomeScreen = document.getElementById('welcome-screen');
-        if (welcomeScreen) welcomeScreen.style.display = 'none';
-
-        // 🛡️ FEHLER FIX: Tipp-Indikator entfernen, wenn eine echte Nachricht kommt
-        const typingIndicator = document.getElementById('coden-typing-row');
-        if (typingIndicator) typingIndicator.remove();
-
-        const msgDiv = document.createElement('div');
-        msgDiv.className = `message-row ${isUser ? 'user-message' : 'ai-message'}`;
-        
-        // Flexbox Layout (wiederhergestellt/optimiert)
-        msgDiv.style.display = 'flex';
-        msgDiv.style.gap = '16px';
-        msgDiv.style.marginBottom = '24px'; // Etwas kompakter
-        msgDiv.style.alignItems = 'flex-start';
-        
-        if (isUser) {
-            msgDiv.style.flexDirection = 'row-reverse';
-        }
-
-        // --- AVATAR BEREICH ---
-        const avatar = document.createElement('div');
-        avatar.className = 'avatar';
-        avatar.style.flexShrink = '0';
-        avatar.style.width = '36px';
-        avatar.style.height = '36px';
-        avatar.style.borderRadius = '50%';
-        avatar.style.overflow = 'hidden';
-        avatar.style.display = 'flex';
-        avatar.style.alignItems = 'center';
-        avatar.style.justifyContent = 'center';
-
-        if (!isUser) {
-            // KI Avatar: Neben dem Text, KEIN Hintergrund
-            avatar.style.background = 'transparent';
-            avatar.innerHTML = `<img src="${AI_PROFILE_PIC_SRC}" style="width:100%; height:100%; object-fit:contain;" onerror="this.style.display='none'">`;
-        } else {
-            // Nutzer Avatar: Google Account Bild
-            const userPhoto = localStorage.getItem('coden_user_photo');
-            if (userPhoto) {
-                avatar.innerHTML = `<img src="${userPhoto}" style="width:100%; height:100%; object-fit:cover;">`;
-            } else {
-                avatar.style.background = 'var(--accent-blue, #2b6cb0)';
-                avatar.innerHTML = '<span class="material-symbols-outlined" style="color:white; font-size: 20px;">person</span>';
-            }
-        }
-
-        // --- CONTENT BEREICH ---
-        const content = document.createElement('div');
-        content.className = 'content';
-        content.style.maxWidth = '75%';
-        content.style.lineHeight = '1.6';
-        
-        if (isUser) {
-            // Nutzer: Schicke Chatblase
-            content.style.background = 'var(--accent-blue, #2b6cb0)'; 
-            content.style.color = '#ffffff';
-            content.style.padding = '10px 16px'; // Etwas kompakter
-            content.style.borderRadius = '16px 16px 4px 16px';
-            content.style.fontSize = '15px';
-            content.innerHTML = marked.parse(text);
-        } else {
-            // KI: KEINE Chatblase, cleaner Text
-            content.style.background = 'transparent';
-            content.style.color = 'var(--text-primary, #ececec)';
-            content.style.padding = '4px 0';
-            content.innerHTML = marked.parse(text);
-        }
-
-        // Highlight.js & Bilder
-        if (!isUser) {
-            content.querySelectorAll('pre code').forEach((block) => {
-                hljs.highlightElement(block);
-            });
-        }
+    // Die Helper-Funktion für Code-Highlighting
+    applyPostRendering: (content) => {
+        content.querySelectorAll('pre code').forEach((block) => {
+            hljs.highlightElement(block);
+        });
         content.querySelectorAll('img').forEach((img) => {
             img.style.maxWidth = '100%';
             img.style.borderRadius = '8px';
             img.style.marginTop = '12px';
             img.style.border = '1px solid rgba(255,255,255,0.05)';
         });
+    },
 
-        // Zusammenbauen
+    // Neu: Mit animate Parameter für den Typewriter-Effekt!
+    appendMessage: (text, isUser, animate = false) => {
+        const chatContainer = document.getElementById('chat-container');
+        if (!chatContainer) return;
+        
+        const welcomeScreen = document.getElementById('welcome-screen');
+        if (welcomeScreen) welcomeScreen.style.display = 'none';
+
+        const loadingIndicator = document.getElementById('coden-loading-row');
+        if (loadingIndicator) loadingIndicator.remove();
+
+        const msgDiv = document.createElement('div');
+        msgDiv.className = `message-row ${isUser ? 'user-message' : 'ai-message'}`;
+        
+        msgDiv.style.display = 'flex';
+        msgDiv.style.gap = '16px';
+        msgDiv.style.marginBottom = '24px';
+        msgDiv.style.alignItems = 'flex-start';
+        
+        if (isUser) msgDiv.style.flexDirection = 'row-reverse';
+
+        const avatar = document.createElement('div');
+        avatar.className = 'avatar';
+        avatar.style.flexShrink = '0'; avatar.style.width = '36px'; avatar.style.height = '36px'; avatar.style.borderRadius = '50%'; avatar.style.overflow = 'hidden'; avatar.style.display = 'flex'; avatar.style.alignItems = 'center'; avatar.style.justifyContent = 'center';
+
+        if (!isUser) {
+            avatar.style.background = 'transparent';
+            avatar.innerHTML = `<img src="${AI_PROFILE_PIC_SRC}" style="width:100%; height:100%; object-fit:contain;" onerror="this.style.display='none'">`;
+        } else {
+            const userPhoto = localStorage.getItem('coden_user_photo');
+            if (userPhoto) avatar.innerHTML = `<img src="${userPhoto}" style="width:100%; height:100%; object-fit:cover;">`;
+            else { avatar.style.background = 'var(--accent-blue, #2b6cb0)'; avatar.innerHTML = '<span class="material-symbols-outlined" style="color:white; font-size: 20px;">person</span>'; }
+        }
+
+        const content = document.createElement('div');
+        content.className = 'content';
+        content.style.maxWidth = '75%';
+        content.style.lineHeight = '1.6';
+        
+        if (isUser) {
+            content.style.background = 'var(--accent-blue, #2b6cb0)'; content.style.color = '#ffffff'; content.style.padding = '10px 16px'; content.style.borderRadius = '16px 16px 4px 16px'; content.style.fontSize = '15px';
+            content.innerHTML = marked.parse(text);
+        } else {
+            content.style.background = 'transparent'; content.style.color = 'var(--text-primary, #ececec)'; content.style.padding = '4px 0';
+        }
+
         msgDiv.appendChild(avatar);
         msgDiv.appendChild(content);
         chatContainer.appendChild(msgDiv);
+
+        // 🌟 TYPEWRITER EFFEKT FÜR DIE KI 🌟
+        if (!isUser && animate) {
+            let i = 0;
+            const chunkSize = 2; // Wie viele Buchstaben pro Tick (Geschwindigkeit)
+            const typingInterval = setInterval(() => {
+                i += chunkSize;
+                if (i >= text.length) i = text.length;
+                
+                content.innerHTML = marked.parse(text.substring(0, i));
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+
+                if (i >= text.length) {
+                    clearInterval(typingInterval);
+                    UI.applyPostRendering(content); // Code-Blöcke erst am Ende stylen
+                }
+            }, 10); // Geschwindigkeit (10ms)
+        } else if (!isUser && !animate) {
+            // Wenn Chats geladen werden (keine Animation)
+            content.innerHTML = marked.parse(text);
+            UI.applyPostRendering(content);
+        }
+
         chatContainer.scrollTop = chatContainer.scrollHeight;
     },
 
-    // 🌟 NEUE, DYNAMISCHE LADE-ANIMATION (Messenger-Style) 🌟
+    // 🌟 WIEDER DA: Der Kreis-Spinner um das Logo 🌟
     showLoading: (show, modelNameDisplay = "Coden denkt nach...") => {
         const chatContainer = document.getElementById('chat-container');
         if (!chatContainer) return;
         
-        // Zuerst prüfen, ob schon eine Animation da ist
-        const existingIndicator = document.getElementById('coden-typing-row');
+        const existingIndicator = document.getElementById('coden-loading-row');
         
         if (show) {
             if (UI.welcomeScreen) UI.welcomeScreen.classList.add('hidden');
-            if (existingIndicator) return; // Schon da, nichts tun
+            if (existingIndicator) return; 
 
-            // Dynamisch eine KI-Nachrichten-Reihe für das Laden erzeugen
-            const typingRow = document.createElement('div');
-            typingRow.id = 'coden-typing-row';
-            typingRow.style.display = 'flex';
-            typingRow.style.gap = '16px';
-            typingRow.style.marginBottom = '24px';
-            typingRow.style.alignItems = 'flex-start';
+            const loadingRow = document.createElement('div');
+            loadingRow.id = 'coden-loading-row';
+            loadingRow.style.display = 'flex'; loadingRow.style.gap = '16px'; loadingRow.style.marginBottom = '24px'; loadingRow.style.alignItems = 'flex-start';
 
-            // KI-Avatar für die Tipp-Reihe
-            const avatar = document.createElement('div');
-            avatar.style.flexShrink = '0';
-            avatar.style.width = '36px';
-            avatar.style.height = '36px';
-            avatar.style.borderRadius = '50%';
-            avatar.style.background = 'transparent';
-            avatar.style.display = 'flex';
-            avatar.style.justifyContent = 'center';
-            avatar.style.alignItems = 'center';
-            avatar.style.overflow = 'hidden';
-            avatar.innerHTML = `<img src="${AI_PROFILE_PIC_SRC}" style="width:100%; height:100%; object-fit:contain;" onerror="this.style.display='none'">`;
+            // Platzhalter für das Avatar-Grid
+            const spacer = document.createElement('div');
+            spacer.style.width = '36px'; spacer.style.flexShrink = '0';
 
-            // Der Tipp-Indikator selbst (Text + Punkte)
             const content = document.createElement('div');
-            content.style.display = 'flex';
-            content.style.flexDirection = 'column';
-            content.style.gap = '8px';
-            content.style.padding = '4px 0';
+            content.style.display = 'flex'; content.style.alignItems = 'center'; content.style.gap = '16px'; content.style.padding = '4px 0';
 
-            // Modell-Name (Optional)
-            const nameSpan = document.createElement('span');
-            nameSpan.textContent = modelNameDisplay;
-            nameSpan.style.fontSize = '12px';
-            nameSpan.style.color = 'var(--text-muted, #888)';
-            nameSpan.style.fontWeight = '500';
-
-            // Die pulsierenden Punkte
-            const dotsContainer = document.createElement('div');
-            dotsContainer.style.display = 'flex';
-            dotsContainer.style.gap = '5px';
-            dotsContainer.style.padding = '8px 14px';
-            dotsContainer.style.background = 'rgba(255,255,255,0.03)'; // Sehr dezente Blase für die Punkte
-            dotsContainer.style.borderRadius = '16px';
-            dotsContainer.style.width = 'fit-content';
+            // Hier ist dein geliebter Spinner-Container!
+            const spinnerHTML = `
+                <div class="spinner-container" style="position: relative; width: 36px; height: 36px; display: flex; justify-content: center; align-items: center;">
+                    <div class="spinner" style="position: absolute; width: 100%; height: 100%; border: 3px solid rgba(255,255,255,0.1); border-top-color: var(--accent-blue); border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                    <img src="${AI_PROFILE_PIC_SRC}" class="spinner-logo" style="width: 24px; height: 24px; border-radius: 50%; object-fit: cover;" onerror="this.style.display='none'">
+                </div>
+                <span style="font-size: 13px; color: var(--text-muted, #888); font-weight: 500;">${modelNameDisplay}</span>
+            `;
             
-            dotsContainer.innerHTML = '<div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>';
+            // Falls du die Spin-Animation im CSS nicht mehr hast, injizieren wir sie sicherheitshalber:
+            if (!document.getElementById('spin-keyframes')) {
+                const style = document.createElement('style'); style.id = 'spin-keyframes';
+                style.innerHTML = `@keyframes spin { 100% { transform: rotate(360deg); } }`;
+                document.head.appendChild(style);
+            }
 
-            content.appendChild(nameSpan);
-            content.appendChild(dotsContainer);
-            typingRow.appendChild(avatar);
-            typingRow.appendChild(content);
+            content.innerHTML = spinnerHTML;
+            loadingRow.appendChild(spacer);
+            loadingRow.appendChild(content);
 
-            chatContainer.appendChild(typingRow);
+            chatContainer.appendChild(loadingRow);
             UI.scrollToBottom();
         } else {
-            // Wenn show = false, entfernen wir die dynamische Tipp-Reihe
-            if (existingIndicator) {
-                existingIndicator.remove();
-            }
+            if (existingIndicator) existingIndicator.remove();
         }
     },
 
@@ -251,9 +198,7 @@ export const UI = {
 
         let historySection = document.getElementById('dynamic-history');
         if (!historySection) {
-            historySection = document.createElement('div');
-            historySection.id = 'dynamic-history';
-            historySection.className = 'nav-section';
+            historySection = document.createElement('div'); historySection.id = 'dynamic-history'; historySection.className = 'nav-section';
             list.insertBefore(historySection, list.firstChild);
         }
 
@@ -263,10 +208,7 @@ export const UI = {
             const item = document.createElement('div');
             const isActive = session.id === activeSessionId;
             item.className = `nav-item ${isActive ? 'active-sub' : ''}`;
-            item.style.display = 'flex';
-            item.style.justifyContent = 'space-between';
-            item.style.alignItems = 'center';
-            item.style.cursor = 'pointer';
+            item.style.display = 'flex'; item.style.justifyContent = 'space-between'; item.style.alignItems = 'center'; item.style.cursor = 'pointer';
 
             item.innerHTML = `
                 <div class="nav-item-left" style="display: flex; align-items: center; gap: 12px; overflow: hidden; width: 100%;">
@@ -279,13 +221,11 @@ export const UI = {
             `;
 
             item.querySelector('.nav-item-left').addEventListener('click', (e) => {
-                e.stopPropagation();
-                document.dispatchEvent(new CustomEvent('loadChatSession', { detail: session.id }));
+                e.stopPropagation(); document.dispatchEvent(new CustomEvent('loadChatSession', { detail: session.id }));
             });
 
             item.querySelector('.delete-chat-btn').addEventListener('click', (e) => {
-                e.stopPropagation();
-                document.dispatchEvent(new CustomEvent('deleteChatSession', { detail: session.id }));
+                e.stopPropagation(); document.dispatchEvent(new CustomEvent('deleteChatSession', { detail: session.id }));
             });
             
             historySection.appendChild(item);
@@ -295,12 +235,9 @@ export const UI = {
     resetUI: () => {
         const messages = UI.chatContainer.querySelectorAll('.message-row');
         messages.forEach(msg => msg.remove());
-        
-        // Auch den Lade-Indikator entfernen beim Reset
-        const typingIndicator = document.getElementById('coden-typing-row');
-        if (typingIndicator) typingIndicator.remove();
-
-        if (UI.welcomeScreen) UI.welcomeScreen.classList.remove('hidden');
+        const loadingIndicator = document.getElementById('coden-loading-row');
+        if (loadingIndicator) loadingIndicator.remove();
+        if (UI.welcomeScreen) UI.welcomeScreen.style.display = 'flex';
     }
 };
 
