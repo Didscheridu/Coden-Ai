@@ -4,7 +4,7 @@ import { generateAiResponse } from './api.js';
 import { UI } from './ui.js';
 import { Storage } from './storage.js';
 import { loginWithGoogle, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, auth, db } from './firebase-init.js';
-import { doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 
 // ==========================================
 // 🏗️ 1. ALLE DOM-ELEMENTE
