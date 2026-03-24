@@ -1,29 +1,39 @@
 // api/chat.js
 
-// FIX: Auch hier nutzen wir jetzt module.exports statt export default!
 module.exports = async function handler(req, res) {
     // Wir erlauben nur POST-Anfragen
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method Not Allowed' });
     }
 
-    const { messages, modelId } = req.body;
+    // 🔥 DER FIX: Wir holen uns jetzt auch den 'provider' vom Frontend!
+    const { messages, modelId, provider } = req.body;
+
+    if (!messages || !modelId || !provider) {
+        return res.status(400).json({ error: 'Fehlende Daten: messages, modelId oder provider' });
+    }
 
     let apiUrl = '';
     let apiKey = '';
     let isGitHubModel = false;
 
-    // 1. Router-Logik: Entscheiden, welche API genutzt wird
-    if (modelId.includes('nemotron') || modelId.includes('nvidia') || modelId.includes('openrouter')) {
+    // 1. Router-Logik: Wir hören jetzt auf das Frontend (provider) anstatt zu raten!
+    if (provider === 'openrouter') {
         apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
-        apiKey = process.env.OPENROUTER_API_KEY; // Sicherer Vercel Tresor!
-    } else if (modelId.includes('openai')) {
-        apiUrl = 'https://models.github.ai/inference/chat/completions';
-        apiKey = process.env.GITHUB_API_KEY;     // Sicherer Vercel Tresor!
+        apiKey = process.env.OPENROUTER_API_KEY; 
+    } 
+    else if (provider === 'github') {
+        // Der offizielle, stabile GitHub Models Endpunkt
+        apiUrl = 'https://models.inference.ai.azure.com/chat/completions';
+        apiKey = process.env.GITHUB_TOKEN; // Oder GITHUB_TOKEN, je nachdem was du gespeichert hast
         isGitHubModel = true;
-    } else {
+    } 
+    else if (provider === 'groq') {
         apiUrl = 'https://api.groq.com/openai/v1/chat/completions';
-        apiKey = process.env.GROQ_API_KEY;       // Sicherer Vercel Tresor!
+        apiKey = process.env.GROQ_API_KEY; 
+    } 
+    else {
+        return res.status(400).json({ error: `Unbekannter Provider: ${provider}` });
     }
 
     // 2. Payload vorbereiten
@@ -32,6 +42,7 @@ module.exports = async function handler(req, res) {
         messages: messages,
     };
 
+    // GitHub o1-Modelle brauchen spezielle Parameter, der Rest nutzt Standard
     if (isGitHubModel && (modelId.includes('o3-mini') || modelId.includes('o1'))) {
         payload.max_completion_tokens = 8192;
     } else {
@@ -53,8 +64,9 @@ module.exports = async function handler(req, res) {
         
         const data = await response.json();
         
+        // Wenn die API meckert, fangen wir den Fehler sauber ab
         if (!response.ok || data.error) {
-            throw new Error(data.error?.message || `HTTP ${response.status}`);
+            throw new Error(data.error?.message || data.message || `HTTP ${response.status}`);
         }
         
         // Wir schicken nur den reinen Text-Content zurück ans Frontend
