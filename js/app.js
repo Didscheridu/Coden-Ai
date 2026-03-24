@@ -33,6 +33,8 @@ let currentSession = null;
 let activeSessionId = null;
 let appInitialized = false;
 
+let pendingAttachments = []; // Speichert unsere angehängten Dateien temporär
+
 let isOwner = false;
 let globalLockedModels = { pro: false, thinking: false }; 
 let currentSelectedModel = 'flash';
@@ -827,96 +829,214 @@ if (sendRealEmailBtn) {
 }
 
 // ==========================================
-// 🚀 11. HAUPT SENDE FUNKTION (KI LOGIK)
+// 📎 DATEI UPLOAD UI (Schicke Vorschau-Chips)
+// ==========================================
+const fileUploadInput = document.getElementById('file-upload-input');
+
+// Container für Vorschau über dem Textfeld erstellen
+let previewContainer = document.getElementById('attachment-preview-container');
+if (!previewContainer) {
+    previewContainer = document.createElement('div');
+    previewContainer.id = 'attachment-preview-container';
+    previewContainer.style.display = 'flex';
+    previewContainer.style.gap = '8px';
+    previewContainer.style.padding = '0 12px';
+    previewContainer.style.overflowX = 'auto';
+    previewContainer.style.marginBottom = '8px';
+    
+    const inputBox = document.querySelector('.input-box');
+    if(inputBox) inputBox.insertBefore(previewContainer, inputBox.firstChild);
+}
+
+if (attachmentBtn && fileUploadInput) {
+    attachmentBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        fileUploadInput.click(); // Öffnet Dateidialog
+    });
+
+    fileUploadInput.addEventListener('change', async (e) => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
+
+        for (let file of files) {
+            if (file.size > 2 * 1024 * 1024) { // Max 2MB Schutz
+                alert(`Die Datei ${file.name} ist zu groß! (Maximal 2MB)`);
+                continue;
+            }
+
+            if (file.type.startsWith('image/')) {
+                // Bild einlesen
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    pendingAttachments.push({ type: 'image', name: file.name, data: event.target.result });
+                    renderAttachmentPreviews();
+                };
+                reader.readAsDataURL(file);
+            } else {
+                // Text/Code Datei einlesen
+                try {
+                    const text = await file.text();
+                    pendingAttachments.push({ type: 'text', name: file.name, content: text });
+                    renderAttachmentPreviews();
+                } catch (err) {
+                    alert(`Konnte ${file.name} nicht lesen.`);
+                }
+            }
+        }
+        fileUploadInput.value = ''; // Input leeren für nächste Datei
+    });
+}
+
+function renderAttachmentPreviews() {
+    if (!previewContainer) return;
+    previewContainer.innerHTML = '';
+    
+    pendingAttachments.forEach((att, index) => {
+        const attDiv = document.createElement('div');
+        attDiv.style.position = 'relative';
+        attDiv.style.display = 'inline-block';
+        attDiv.style.background = 'rgba(255,255,255,0.05)';
+        attDiv.style.border = '1px solid rgba(255,255,255,0.1)';
+        attDiv.style.borderRadius = '8px';
+        attDiv.style.padding = '4px';
+        attDiv.style.minWidth = '50px';
+        attDiv.style.textAlign = 'center';
+
+        // Löschen X Button
+        const deleteBtn = document.createElement('button');
+        deleteBtn.innerHTML = '×';
+        deleteBtn.style.position = 'absolute';
+        deleteBtn.style.top = '-8px';
+        deleteBtn.style.right = '-8px';
+        deleteBtn.style.background = '#ff4444';
+        deleteBtn.style.color = 'white';
+        deleteBtn.style.border = 'none';
+        deleteBtn.style.borderRadius = '50%';
+        deleteBtn.style.width = '20px';
+        deleteBtn.style.height = '20px';
+        deleteBtn.style.cursor = 'pointer';
+        deleteBtn.style.fontSize = '14px';
+        deleteBtn.style.display = 'flex';
+        deleteBtn.style.alignItems = 'center';
+        deleteBtn.style.justifyContent = 'center';
+        deleteBtn.onclick = () => {
+            pendingAttachments.splice(index, 1);
+            renderAttachmentPreviews();
+        };
+
+        if (att.type === 'image') {
+            const img = document.createElement('img');
+            img.src = att.data;
+            img.style.height = '40px';
+            img.style.borderRadius = '4px';
+            img.style.objectFit = 'cover';
+            attDiv.appendChild(img);
+        } else {
+            const docIcon = document.createElement('span');
+            docIcon.className = 'material-symbols-outlined';
+            docIcon.innerText = 'description';
+            docIcon.style.fontSize = '24px';
+            docIcon.style.color = 'var(--accent-blue)';
+            docIcon.style.display = 'block';
+            
+            const nameSpan = document.createElement('span');
+            nameSpan.innerText = att.name.length > 10 ? att.name.substring(0, 8) + '...' : att.name;
+            nameSpan.style.fontSize = '10px';
+            nameSpan.style.display = 'block';
+            nameSpan.style.color = 'var(--text-secondary)';
+            
+            attDiv.appendChild(docIcon);
+            attDiv.appendChild(nameSpan);
+        }
+
+        attDiv.appendChild(deleteBtn);
+        previewContainer.appendChild(attDiv);
+    });
+}
+
+
+
+// ==========================================
+// 🚀 HAUPT SENDE FUNKTION (KI LOGIK)
 // ==========================================
 async function handleSend() {
     if (!chatInput) return; 
     const text = chatInput.value.trim(); 
-    if (!text) return;
     
-    // Slash-Befehle abfangen
+    // Wir können auch senden, wenn das Textfeld leer ist, aber wir einen Anhang haben!
+    if (!text && pendingAttachments.length === 0) return;
+    
+    // Slash-Befehle
     if (text.startsWith('/')) { 
-        if (!isOwner) { 
-            chatInput.value = ''; 
-            UI.appendMessage("❌ Administrator-Befehle sind gesperrt.", false); 
-            return; 
-        } 
-        chatInput.value = ''; 
-        chatInput.style.height = 'auto'; 
-        if (commandPopup) commandPopup.classList.add('hidden'); 
-        handleCommand(text); 
-        return; 
+        if (!isOwner) { chatInput.value = ''; UI.appendMessage("❌ Administrator-Befehle sind gesperrt.", false); return; } 
+        chatInput.value = ''; chatInput.style.height = 'auto'; if (commandPopup) commandPopup.classList.add('hidden'); handleCommand(text); return; 
+    }
+
+    // 🌟 ANHÄNGE VERARBEITEN BEIM SENDEN 🌟
+    let displayMessage = text;      // Das sieht der Nutzer im Chat
+    let internalPrompt = text;      // Das sieht die KI heimlich
+
+    if (pendingAttachments.length > 0) {
+        pendingAttachments.forEach(att => {
+            if (att.type === 'text') {
+                // Dem Nutzer zeigen wir nur einen schönen Tag
+                displayMessage += `\n\n<div style="display:inline-block; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); padding:4px 10px; border-radius:12px; font-size:12px; margin-top:8px;">📎 <b>Datei angehängt:</b> <code>${att.name}</code></div>`;
+                // Der KI schieben wir heimlich den ganzen Code unter
+                internalPrompt += `\n\n[Inhalt der angehängten Datei: ${att.name}]\n\`\`\`\n${att.content}\n\`\`\`\n`;
+            } else if (att.type === 'image') {
+                // Bild im Chat mit Markdown anzeigen!
+                displayMessage += `\n\n![${att.name}](${att.data})`;
+                internalPrompt += `\n\n[Der Nutzer hat das Bild '${att.name}' angehängt.]`; 
+            }
+        });
     }
 
     chatInput.value = ''; 
     chatInput.style.height = 'auto';
     
-    UI.appendMessage(text, true); 
-    currentSession.messages.push({ text: text, isUser: true }); 
+    // Wir übergeben displayMessage für die Optik, speichern aber internalPrompt für das KI-Gedächtnis
+    UI.appendMessage(displayMessage, true); 
+    currentSession.messages.push({ text: internalPrompt, isUser: true, displayHTML: displayMessage }); 
     Storage.saveSessions(sessions);
     
-    if (currentSession.messages.length === 1) generateChatTitle(text);
+    // Vorschau-Box leeren
+    pendingAttachments = [];
+    renderAttachmentPreviews();
+    
+    if (currentSession.messages.length === 1) generateChatTitle(internalPrompt);
 
     if (!isOwner) {
-        if (currentSelectedModel === 'pro' && globalLockedModels.pro) {
-            return UI.appendMessage("❌ Coden Pro ist gesperrt.", false);
-        }
-        if (currentSelectedModel === 'normal' && globalLockedModels.thinking) {
-            return UI.appendMessage("❌ Coden Thinking ist gesperrt.", false);
-        }
+        if (currentSelectedModel === 'pro' && globalLockedModels.pro) return UI.appendMessage("❌ Coden Pro ist gesperrt.", false);
+        if (currentSelectedModel === 'normal' && globalLockedModels.thinking) return UI.appendMessage("❌ Coden Thinking ist gesperrt.", false);
     }
 
     const userName = Storage.getSettings().userName || 'Entwickler';
     const context = currentSession.messages.map(m => ({ role: m.isUser ? 'user' : 'assistant', content: m.text }));
     
-    // E-Mail Erkennung
     let isEmailCommand = false;
     if (['mail', 'gmail', 'sende', 'schick', 'weiterleiten'].some(w => text.toLowerCase().includes(w))) {
-        if (await showCustomConfirm("Möchtest du eine E-Mail senden?\n\nOK = Fenster öffnen\nAbbrechen = Normaler Chat")) {
-            isEmailCommand = true;
-        }
+        if (await showCustomConfirm("Möchtest du eine E-Mail senden?")) isEmailCommand = true;
     }
 
     if (isEmailCommand) {
         UI.showLoading(true, "Coden bereitet das E-Mail-Fenster vor...");
-        let lastCodeBlock = ""; 
-        const allCodeBlocks = currentSession.messages.map(m => m.text.match(/```[\s\S]*?```/g)).flat().filter(Boolean); 
-        if (allCodeBlocks.length > 0) lastCodeBlock = allCodeBlocks[allCodeBlocks.length - 1];
-        
-        const emailPrompt = `DU BIST EIN UNSICHTBARER E-MAIL-GENERATOR. 1. Sprich NICHT mit dem Nutzer. 2. Absender heißt: "${userName}". 3. Code übernehmen: ${lastCodeBlock || "Kein Code."} Anfrage: "${text}" Format: [TO]: \n[SUBJECT]: \n[BODY]: `;
-        
+        let lastCodeBlock = ""; const allCodeBlocks = currentSession.messages.map(m => m.text.match(/```[\s\S]*?```/g)).flat().filter(Boolean); if (allCodeBlocks.length > 0) lastCodeBlock = allCodeBlocks[allCodeBlocks.length - 1];
+        const emailPrompt = `DU BIST EIN UNSICHTBARER E-MAIL-GENERATOR. 1. Sprich NICHT mit dem Nutzer. 2. Absender heißt: "${userName}". 3. Code: ${lastCodeBlock || "Kein Code."} Anfrage: "${text}" Format: [TO]: \n[SUBJECT]: \n[BODY]: `;
         try {
             const resText = await generateAiResponse([{ role: 'user', content: emailPrompt }], currentSelectedModel);
-            
-            let emailTo = resText.match(/\[TO\]:\s*(.*)/i)?.[1].trim() || ''; 
-            const emailSubject = resText.match(/\[SUBJECT\]:\s*(.*)/i)?.[1].trim() || ''; 
-            const emailBody = resText.split(/\[BODY\]:/i)[1]?.trim() || resText.trim(); 
-            
-            emailTo = emailTo.replace(/[<>]/g, '').trim(); 
-            const exEmail = emailTo.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/); 
-            if(exEmail) emailTo = exEmail[0]; 
-            
-            document.getElementById('email-recipient').value = emailTo; 
-            document.getElementById('email-subject').value = emailSubject; 
-            document.getElementById('email-draft-output').value = emailBody;
-            
-            UI.showLoading(false); 
-            UI.appendMessage(`E-Mail-Fenster vorbereitet!`, false); 
-            document.getElementById('email-modal').classList.remove('hidden'); 
-            return; 
-        } catch (err) { 
-            UI.showLoading(false); 
-            return UI.appendMessage("❌ Fehler beim E-Mail Erstellen: " + err.message, false); 
-        }
+            let emailTo = resText.match(/\[TO\]:\s*(.*)/i)?.[1].trim() || ''; const emailSubject = resText.match(/\[SUBJECT\]:\s*(.*)/i)?.[1].trim() || ''; const emailBody = resText.split(/\[BODY\]:/i)[1]?.trim() || resText.trim(); 
+            emailTo = emailTo.replace(/[<>]/g, '').trim(); const exEmail = emailTo.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/); if(exEmail) emailTo = exEmail[0]; 
+            document.getElementById('email-recipient').value = emailTo; document.getElementById('email-subject').value = emailSubject; document.getElementById('email-draft-output').value = emailBody;
+            UI.showLoading(false); UI.appendMessage(`E-Mail-Fenster vorbereitet!`, false); document.getElementById('email-modal').classList.remove('hidden'); return; 
+        } catch (err) { UI.showLoading(false); return UI.appendMessage("❌ Fehler: " + err.message, false); }
     }
 
-    // ✨ DIE KI-PERSÖNLICHKEIT (MIT KAYDEN - STRENGE REGELN) ✨
+    // ✨ DIE KI-PERSÖNLICHKEIT ✨
     const systemPrompt = `Du bist "Coden", ein brillanter, freundlicher KI-Softwarearchitekt.
-WICHTIGE REGEL ZU DEINER IDENTITÄT: Du wurdest von Kayden entwickelt. Erwähne Kayden aber NUR DANN, wenn der Nutzer dich explizit danach fragt (z.B. "Wer hat dich entwickelt?"). Erwähne Kayden NIEMALS ungefragt in normalen Antworten!
-1. Strukturiere deinen Text IMMER sehr übersichtlich (nutze Absätze, Listen und **Fettdruck** für wichtige Wörter).
-2. Nutze passend und kreativ Emojis 🚀💻✨.
-3. Erkläre technische Dinge immer so, dass sie leicht verständlich und nachvollziehbar sind.
-Heute ist ${new Date().toLocaleDateString('de-DE')}. Der Nutzer heißt ${userName}.`;
+WICHTIG: Du wurdest von Kayden entwickelt. Erwähne Kayden aber NUR DANN, wenn der Nutzer dich explizit danach fragt. Erwähne ihn NIEMALS ungefragt!
+1. Strukturiere deinen Text übersichtlich (Absätze, Listen, **Fettdruck**).
+2. Nutze passend Emojis 🚀💻✨.
+Heute ist ${new Date().toLocaleDateString('de-DE')}. Nutzer: ${userName}.`;
 
     context.unshift({ role: 'system', content: systemPrompt });
 
@@ -937,74 +1057,14 @@ Heute ist ${new Date().toLocaleDateString('de-DE')}. Der Nutzer heißt ${userNam
 
 async function generateChatTitle(firstMessage) {
     try {
-        const titleRes = await generateAiResponse([{ 'role': 'user', 'content': 'Erstelle einen super kurzen Titel (max 3 Worte) für diese Anfrage: ' + firstMessage }], 'flash');
+        const titleRes = await generateAiResponse([{ 'role': 'user', 'content': 'Titel (max 3 Worte) für: ' + firstMessage }], 'flash');
         if (titleRes && titleRes.length > 1) { 
             currentSession.title = titleRes.trim().replaceAll('"', ''); 
             Storage.saveSessions(sessions); 
             UI.renderSidebar(sessions, activeSessionId); 
         }
-    } catch (e) {
-        console.warn("Titel-Fehler", e);
-    }
+    } catch (e) {}
 }
 
-if (chatInput) {
-    chatInput.addEventListener('keydown', (e) => { 
-        if (e.key === 'Enter' && !e.shiftKey) { 
-            e.preventDefault(); 
-            handleSend(); 
-        } 
-    });
-}
-
-if (sendBtn) {
-    sendBtn.addEventListener('click', handleSend);
-}
-
-
-// ==========================================
-// 📎 10. DATEI UPLOAD (Das fehlende + Kabel)
-// ==========================================
-if (attachmentBtn && fileUploadInput) {
-    // 1. Wenn man auf das + klickt, öffne den unsichtbaren Datei-Dialog
-    attachmentBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        fileUploadInput.click();
-    });
-
-    // 2. Wenn eine Datei ausgewählt wurde
-    fileUploadInput.addEventListener('change', async (e) => {
-        const files = e.target.files;
-        if (!files || files.length === 0) return;
-
-        // Lade-Indikator zeigen
-        if(chatInput) chatInput.placeholder = "Lese Datei...";
-
-        for (let file of files) {
-            try {
-                // Wir lesen die Datei als Text ein (Perfekt für Code, .txt, .json etc.)
-                const text = await file.text();
-                
-                // Wir packen den Code sauber formatiert ins Textfeld
-                const fileFormat = `\n\nDatei: ${file.name}\n\`\`\`\n${text}\n\`\`\`\n`;
-                
-                if (chatInput) {
-                    chatInput.value = chatInput.value + fileFormat;
-                    // Textfeld automatisch vergrößern
-                    chatInput.style.height = 'auto'; 
-                    chatInput.style.height = (chatInput.scrollHeight) + 'px';
-                }
-            } catch (err) {
-                console.error("Datei konnte nicht gelesen werden:", err);
-                alert(`Konnte die Datei ${file.name} nicht lesen. Bitte nur Text/Code-Dateien verwenden.`);
-            }
-        }
-        
-        // Input leeren, damit man dieselbe Datei nochmal hochladen kann
-        fileUploadInput.value = '';
-        if(chatInput) {
-            chatInput.placeholder = "Prompt eingeben... (Tippe '/' für Befehle)";
-            chatInput.focus();
-        }
-    });
-}
+if (chatInput) { chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }); }
+if (sendBtn) { sendBtn.addEventListener('click', handleSend); }
