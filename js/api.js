@@ -22,7 +22,6 @@ const MODEL_CASCADES = {
     ]
 };
 
-// HIER IST DAS WICHTIGE EXPORT! 👇
 export async function generateAiResponse(messages, tierOrModelId) {
     const settings = Storage.getSettings();
     const googleKey = settings.apiKey;
@@ -39,14 +38,24 @@ export async function generateAiResponse(messages, tierOrModelId) {
 
     for (const modelConfig of cascade) {
         try {
+            let responseText = "";
+            
             if (modelConfig.provider === 'google' && googleKey) {
                 console.log(`⚡ Kaskade: Versuche Google AI API mit [${modelConfig.id}]...`);
-                return await callGoogleDirectly(messages, modelConfig.id, googleKey);
+                responseText = await callGoogleDirectly(messages, modelConfig.id, googleKey);
             } 
             else if (modelConfig.provider !== 'google' || !googleKey) {
                 console.log(`⚡ Kaskade: Versuche Backend (${modelConfig.provider}) mit [${modelConfig.id}]...`);
-                return await callVercelBackend(messages, modelConfig.id, modelConfig.provider);
+                responseText = await callVercelBackend(messages, modelConfig.id, modelConfig.provider);
             }
+
+            // 🧹 DER GEDANKEN-STAUBSAUGER: Filtert <think> Blöcke sauber heraus!
+            if (responseText) {
+                responseText = responseText.replace(/<think>[\s\S]*?<\/think>\n*/gi, '').trim();
+            }
+
+            return responseText;
+
         } catch (error) {
             console.warn(`[FALLBACK] Modell ${modelConfig.id} über ${modelConfig.provider} fehlgeschlagen:`, error.message);
             lastError = error;
