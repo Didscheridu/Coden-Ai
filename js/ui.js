@@ -89,7 +89,7 @@ export const UI = {
         const content = document.createElement('div');
         content.className = 'content';
         
-        // 🔥 MARKDOWN FIX: Beide (Nutzer & KI) nutzen jetzt marked, damit Bilder laden! 🔥
+        // 🌟 MARKDOWN FIX: Beide (Nutzer & KI) nutzen jetzt marked, damit Bilder laden! 🔥
         content.innerHTML = marked.parse(text);
 
         if (!isUser) {
