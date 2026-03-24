@@ -23,7 +23,16 @@
     <style>
         .sidebar.collapsed { display: none; }
         .search-container.active { display: flex !important; }
-        .legal-link:hover { color: white !important; }
+        
+        /* Cookie Banner Styling */
+        #cookie-banner {
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            background: #1e1e1e; border: 1px solid #333; padding: 16px 24px;
+            border-radius: 12px; display: flex; align-items: center; gap: 16px;
+            z-index: 10000; box-shadow: 0 10px 30px rgba(0,0,0,0.8); max-width: 90vw;
+            color: #ccc; font-size: 13px; flex-wrap: wrap; justify-content: center;
+        }
+        #cookie-banner.hidden { display: none; }
     </style>
 </head>
 <body>
@@ -65,13 +74,6 @@
             <div class="sidebar-footer">
                 <a href="#" class="nav-item" id="open-email-settings-btn"><span class="material-symbols-outlined">mail</span> Email Setup</a>
                 <a href="#" class="nav-item" id="open-settings-btn"><span class="material-symbols-outlined">settings</span> Einstellungen</a>
-                
-                <div style="border-top: 1px solid rgba(255,255,255,0.1); margin: 8px 0; padding-top: 8px;">
-                    <a href="#" class="nav-item legal-link" id="open-impressum-btn" style="font-size: 11px; color: var(--text-muted); padding: 4px 12px; min-height: 24px;">Impressum</a>
-                    <a href="#" class="nav-item legal-link" id="open-datenschutz-btn" style="font-size: 11px; color: var(--text-muted); padding: 4px 12px; min-height: 24px;">Datenschutz</a>
-                    <a href="#" class="nav-item legal-link" id="open-agb-btn" style="font-size: 11px; color: var(--text-muted); padding: 4px 12px; min-height: 24px;">Nutzungsbedingungen</a>
-                </div>
-
                 <a href="#" class="nav-item" id="logout-btn" style="color: #ff5555;"><span class="material-symbols-outlined">logout</span> Abmelden</a>
             </div>
         </aside>
@@ -130,7 +132,47 @@
     </div>
 
     <div id="email-modal" class="modal-overlay hidden"><div class="modal-content" style="max-width: 600px;"><div class="modal-header"><h3 style="display: flex; align-items: center; gap: 8px; font-weight: 500;"><span class="material-symbols-outlined" style="color: #63A4FF;">mail</span> E-Mail Entwurf</h3><button class="icon-btn" id="close-email-btn"><span class="material-symbols-outlined">close</span></button></div><div class="modal-body"><label>Empfänger E-Mail</label><input type="email" id="email-recipient" class="settings-input" placeholder="empfaenger@beispiel.com" style="margin-bottom: 12px;"><label>Betreff</label><input type="text" id="email-subject" class="settings-input" placeholder="RE: Deine Nachricht" style="margin-bottom: 16px;"><label style="color: var(--accent-green);">✉️ KI-Antwortentwurf (Bearbeitbar):</label><textarea id="email-draft-output" class="settings-input" style="height: 200px; margin-bottom: 16px; resize: vertical; line-height: 1.5;"></textarea><button class="btn-save" id="send-real-email-btn" style="width: 100%; display: flex; justify-content: center; gap: 8px; background: #28a745; color: white;"><span class="material-symbols-outlined" style="font-size: 18px;">send</span> E-Mail jetzt versenden</button><div id="email-send-feedback" style="font-size: 13px; text-align: center; margin-top: 12px; display: none;"></div></div></div></div>
-    <div id="settings-modal" class="modal-overlay hidden"><div class="modal-content" style="max-height: 80vh; overflow-y: auto;"><div class="modal-header"><h3 style="display: flex; align-items: center; gap: 8px; font-weight: 500;"><span class="material-symbols-outlined" style="color: var(--accent-blue);">settings</span> Einstellungen</h3><button class="icon-btn" id="close-settings"><span class="material-symbols-outlined">close</span></button></div><div class="modal-body"><h4 style="margin-bottom: 12px; font-weight: 500; font-size: 14px; color: var(--text-primary);">👤 Profil</h4><label>Dein Name</label><input type="text" id="user-name-input" class="settings-input" placeholder="Dein Name" style="margin-bottom: 24px;"><label style="margin-top: 24px; display: block;">🔠 Chat Schriftgröße: <span id="font-size-display">15</span>px</label><input type="range" id="font-size-slider" min="12" max="22" value="15" class="settings-slider"><div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border-color);"><h4 style="margin-bottom: 16px; font-weight: 500; font-size: 14px; color: var(--accent-blue);">⚙️ E-Mail Konto verknüpfen</h4><label>E-Mail Anbieter</label><select id="email-provider" class="settings-input" style="margin-bottom: 12px;"><option value="gmail">Gmail</option><option value="outlook">Outlook</option><option value="imap">Anderer Anbieter</option></select><label>Deine E-Mail Adresse</label><input type="email" id="email-address" class="settings-input" placeholder="deine@email.com" style="margin-bottom: 12px;"><label>App-Passwort</label><input type="password" id="email-password" class="settings-input" placeholder="Z.B. 16-stelliger Google App-Code"></div></div><div class="modal-footer" style="margin-top: 24px;"><button class="btn-cancel" id="cancel-settings">Abbrechen</button><button class="btn-save" id="save-settings">Speichern</button></div></div></div>
+    
+    <div id="settings-modal" class="modal-overlay hidden">
+        <div class="modal-content" style="max-height: 80vh; overflow-y: auto;">
+            <div class="modal-header">
+                <h3 style="display: flex; align-items: center; gap: 8px; font-weight: 500;"><span class="material-symbols-outlined" style="color: var(--accent-blue);">settings</span> Einstellungen</h3>
+                <button class="icon-btn" id="close-settings"><span class="material-symbols-outlined">close</span></button>
+            </div>
+            <div class="modal-body">
+                <h4 style="margin-bottom: 12px; font-weight: 500; font-size: 14px; color: var(--text-primary);">👤 Profil</h4>
+                <label>Dein Name</label>
+                <input type="text" id="user-name-input" class="settings-input" placeholder="Dein Name" style="margin-bottom: 24px;">
+                <label style="margin-top: 24px; display: block;">🔠 Chat Schriftgröße: <span id="font-size-display">15</span>px</label>
+                <input type="range" id="font-size-slider" min="12" max="22" value="15" class="settings-slider">
+                
+                <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border-color);">
+                    <h4 style="margin-bottom: 16px; font-weight: 500; font-size: 14px; color: var(--accent-blue);">⚙️ E-Mail Konto verknüpfen</h4>
+                    <label>E-Mail Anbieter</label>
+                    <select id="email-provider" class="settings-input" style="margin-bottom: 12px;"><option value="gmail">Gmail</option><option value="outlook">Outlook</option><option value="imap">Anderer Anbieter</option></select>
+                    <label>Deine E-Mail Adresse</label>
+                    <input type="email" id="email-address" class="settings-input" placeholder="deine@email.com" style="margin-bottom: 12px;">
+                    <label>App-Passwort</label>
+                    <input type="password" id="email-password" class="settings-input" placeholder="Z.B. 16-stelliger Google App-Code">
+                </div>
+
+                <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border-color);">
+                    <h4 style="margin-bottom: 16px; font-weight: 500; font-size: 14px; color: var(--text-muted);">⚖️ Rechtliches</h4>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        <button class="btn-cancel" id="open-impressum-btn" style="flex: 1; font-size: 12px; padding: 6px;">Impressum</button>
+                        <button class="btn-cancel" id="open-datenschutz-btn" style="flex: 1; font-size: 12px; padding: 6px;">Datenschutz</button>
+                        <button class="btn-cancel" id="open-agb-btn" style="flex: 1; font-size: 12px; padding: 6px;">Nutzungsbedingungen</button>
+                    </div>
+                </div>
+
+            </div>
+            <div class="modal-footer" style="margin-top: 24px;">
+                <button class="btn-cancel" id="cancel-settings">Abbrechen</button>
+                <button class="btn-save" id="save-settings">Speichern</button>
+            </div>
+        </div>
+    </div>
+    
     <div id="confirm-modal" class="modal-overlay hidden"><div class="modal-content confirm-box"><img src="./images/coden_logo.jpg" class="confirm-logo" onerror="this.style.display='none'"><h3>Aktion erforderlich</h3><p id="confirm-message">Willst du eine E-Mail senden?</p><div class="confirm-buttons"><button id="btn-confirm-cancel" class="btn-cancel">Abbrechen</button><button id="btn-confirm-yes" class="btn-save">JA, senden</button></div></div></div>
 
     <div id="legal-modal" class="modal-overlay hidden">
@@ -142,6 +184,11 @@
             <div class="modal-body" id="legal-content" style="line-height: 1.6; font-size: 14px; color: var(--text-secondary);">
                 </div>
         </div>
+    </div>
+
+    <div id="cookie-banner" class="hidden">
+        <p style="margin: 0;">🍪 Wir nutzen lokale Speicherung (LocalStorage) für deine Sicherheit, um Chats auf deinem Gerät zu behalten.</p>
+        <button id="accept-cookies-btn" class="btn-save" style="padding: 6px 16px; white-space: nowrap;">Verstanden</button>
     </div>
 
     <script type="module" src="js/app.js"></script>
