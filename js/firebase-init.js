@@ -16,14 +16,14 @@ const firebaseConfig = {
 
 // Firebase initialisieren
 const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app);
+const auth = getAuth(app);
+const db = getFirestore(app);
 
-// Authentifizierungs-Methoden exportieren
+// Authentifizierungs-Methoden
 const provider = new GoogleAuthProvider();
 
 export const loginWithGoogle = () => signInWithPopup(auth, provider);
 export const loginWithEmail = (email, password) => signInWithEmailAndPassword(auth, email, password);
 export const registerWithEmail = (email, password) => createUserWithEmailAndPassword(auth, email, password);
 export const logoutUser = () => signOut(auth);
-export { onAuthStateChanged };
+export { onAuthStateChanged, auth, db };
