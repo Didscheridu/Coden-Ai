@@ -66,7 +66,6 @@ export const UI = {
         UI.createLoadingAnimation();
     },
 
-    // 🛡️ FEHLER FIX: Kein static, da wir ein Objekt verwenden, keine Klasse!
     appendMessage: (text, isUser) => {
         const chatContainer = document.getElementById('chat-container');
         if (!chatContainer) return;
@@ -81,8 +80,8 @@ export const UI = {
         avatar.className = 'avatar';
         if (!isUser) {
             avatar.classList.add('ai-avatar');
-            // 🛡️ Avatar Fix: Wenn das Bild fehlt, kommt ein Stern-Icon
-            avatar.innerHTML = `<img src="${AI_PROFILE_PIC_SRC}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" onerror="this.parentNode.innerHTML='<span class=\'material-symbols-outlined\'>star</span>'">`;
+            // Original-Profilbild-Code wiederhergestellt
+            avatar.innerHTML = `<img src="${AI_PROFILE_PIC_SRC}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" onerror="this.style.display='none'">`;
         } else {
             avatar.innerHTML = '<span class="material-symbols-outlined">person</span>';
         }
@@ -90,38 +89,39 @@ export const UI = {
         const content = document.createElement('div');
         content.className = 'content';
         
-        // 🌟 FORMATIERUNG FIX: Markdown (inkl. Bilder) für JEDE Nachricht parsen!
+        // 🔥 MARKDOWN FIX: Beide (Nutzer & KI) nutzen jetzt marked, damit Bilder laden! 🔥
         content.innerHTML = marked.parse(text);
 
-        // Code-Blöcke & responsive Bilder nach dem Rendern hübsch machen
-        content.querySelectorAll('pre code').forEach((block) => {
-            hljs.highlightElement(block);
-            const pre = block.parentElement;
-            pre.style.position = 'relative';
-            
-            const copyBtn = document.createElement('button');
-            copyBtn.className = 'icon-btn';
-            copyBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px;">content_copy</span>';
-            copyBtn.style.position = 'absolute';
-            copyBtn.style.top = '8px';
-            copyBtn.style.right = '8px';
-            copyBtn.style.background = 'rgba(255,255,255,0.1)';
-            copyBtn.style.border = 'none';
-            copyBtn.style.color = '#fff';
-            copyBtn.style.padding = '4px';
-            copyBtn.style.borderRadius = '4px';
-            copyBtn.style.cursor = 'pointer';
-            
-            copyBtn.onclick = () => {
-                navigator.clipboard.writeText(block.innerText);
-                copyBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px; color:#4caf50;">check</span>';
-                setTimeout(() => copyBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px;">content_copy</span>', 2000);
-            };
-            
-            pre.appendChild(copyBtn);
-        });
+        if (!isUser) {
+            content.querySelectorAll('pre code').forEach((block) => {
+                hljs.highlightElement(block);
+                const pre = block.parentElement;
+                pre.style.position = 'relative';
+                
+                const copyBtn = document.createElement('button');
+                copyBtn.className = 'icon-btn';
+                copyBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px;">content_copy</span>';
+                copyBtn.style.position = 'absolute';
+                copyBtn.style.top = '8px';
+                copyBtn.style.right = '8px';
+                copyBtn.style.background = 'rgba(255,255,255,0.1)';
+                copyBtn.style.border = 'none';
+                copyBtn.style.color = '#fff';
+                copyBtn.style.padding = '4px';
+                copyBtn.style.borderRadius = '4px';
+                copyBtn.style.cursor = 'pointer';
+                
+                copyBtn.onclick = () => {
+                    navigator.clipboard.writeText(block.innerText);
+                    copyBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px; color:#4caf50;">check</span>';
+                    setTimeout(() => copyBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px;">content_copy</span>', 2000);
+                };
+                
+                pre.appendChild(copyBtn);
+            });
+        }
         
-        // Bilder im Chat responsiv machen
+        // Bilder responsiv machen (sowohl User als auch AI)
         content.querySelectorAll('img').forEach((img) => {
             img.style.maxWidth = '100%';
             img.style.borderRadius = '8px';
@@ -130,7 +130,13 @@ export const UI = {
 
         msgDiv.appendChild(avatar);
         msgDiv.appendChild(content);
-        chatContainer.appendChild(msgDiv);
+        
+        // 🔥 LADE-ANIMATION FIX: Nachrichten zwingend VOR den Spinner setzen 🔥
+        if (UI.loadingSpinnerBox && chatContainer.contains(UI.loadingSpinnerBox)) {
+            chatContainer.insertBefore(msgDiv, UI.loadingSpinnerBox);
+        } else {
+            chatContainer.appendChild(msgDiv);
+        }
         
         chatContainer.scrollTop = chatContainer.scrollHeight;
     },
@@ -220,6 +226,7 @@ export const UI = {
         const messages = UI.chatContainer.querySelectorAll('.message-row');
         messages.forEach(msg => msg.remove());
         if (UI.welcomeScreen) UI.welcomeScreen.classList.remove('hidden');
+        if (UI.loadingSpinnerBox) UI.loadingSpinnerBox.classList.add('hidden'); // Setzt auch den Spinner beim Chatwechsel zurück!
     }
 };
 
