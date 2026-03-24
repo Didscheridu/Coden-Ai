@@ -66,7 +66,7 @@ export const UI = {
         UI.createLoadingAnimation();
     },
 
-    static appendMessage(text, isUser) {
+    appendMessage(text, isUser) {
         const chatContainer = document.getElementById('chat-container');
         if (!chatContainer) return;
         
