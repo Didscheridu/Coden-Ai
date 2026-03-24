@@ -7,7 +7,7 @@ import { loginWithGoogle, loginWithEmail, registerWithEmail, logoutUser, onAuthS
 import { doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 
 // ==========================================
-// 🏗️ 1. ALLE DOM-ELEMENTE (Sicher geladen)
+// 🏗️ 1. ALLE DOM-ELEMENTE
 // ==========================================
 const loginScreen = document.getElementById('login-screen');
 const appContainer = document.getElementById('app');
@@ -24,7 +24,7 @@ const settingsModal = document.getElementById('settings-modal');
 const confirmModal = document.getElementById('confirm-modal');
 
 // ==========================================
-// 👑 2. GLOBALE VARIABLEN
+// 👑 2. GLOBALE VARIABLEN & STATUS
 // ==========================================
 let sessions = [];
 let currentSession = null;
@@ -37,35 +37,43 @@ let currentSelectedModel = 'flash';
 
 let lastBroadcastTime = 0;
 let lastUpdateTime = 0;
-let lastGlobalClearTime = 0;
 
 function showError(msg) { 
     if(errorMsg) { errorMsg.textContent = msg; errorMsg.style.display = 'block'; }
-    console.error("Login Fehler:", msg);
+    console.error("Fehler:", msg);
 }
 
-// 🛡️ SICHERE EVENT-LISTENERS FÜR LOGIN
+// 🛡️ AUTHENTIFIZIERUNG
 if (document.getElementById('btn-google-login')) {
-    document.getElementById('btn-google-login').addEventListener('click', async () => { 
-        try { await loginWithGoogle(); } catch(e) { showError(e.message); } 
-    });
+    document.getElementById('btn-google-login').addEventListener('click', async () => { try { await loginWithGoogle(); } catch(e) { showError(e.message); } });
 }
 if (document.getElementById('btn-email-login')) {
     document.getElementById('btn-email-login').addEventListener('click', async () => { 
-        const e = document.getElementById('auth-email').value; const p = document.getElementById('auth-password').value; 
-        if(e && p) try { await loginWithEmail(e, p); } catch(err) { showError("Login fehlgeschlagen."); } 
+        const e = document.getElementById('auth-email').value.trim(); const p = document.getElementById('auth-password').value.trim(); 
+        if (e && p) {
+            try { await loginWithEmail(e, p); } 
+            catch(err) { 
+                if (err.code === 'auth/invalid-credential') showError("❌ Falsches Passwort oder E-Mail existiert nicht.");
+                else showError("❌ Login fehlgeschlagen: " + err.message);
+            } 
+        } else showError("❌ Bitte E-Mail und Passwort eingeben!");
     });
 }
 if (document.getElementById('btn-email-register')) {
     document.getElementById('btn-email-register').addEventListener('click', async () => { 
-        const e = document.getElementById('auth-email').value; const p = document.getElementById('auth-password').value; 
-        if(e && p) try { await registerWithEmail(e, p); } catch(err) { showError("Registrierung fehlgeschlagen."); } 
+        const e = document.getElementById('auth-email').value.trim(); const p = document.getElementById('auth-password').value.trim(); 
+        if (e && p) {
+            try { await registerWithEmail(e, p); } 
+            catch(err) { 
+                if (err.code === 'auth/email-already-in-use') showError("❌ Diese E-Mail ist bereits registriert!");
+                else if (err.code === 'auth/weak-password') showError("❌ Das Passwort muss mind. 6 Zeichen lang sein!");
+                else showError("❌ Registrierung fehlgeschlagen: " + err.message);
+            } 
+        } else showError("❌ Bitte E-Mail und Passwort eingeben!");
     });
 }
 if (document.getElementById('logout-btn')) {
-    document.getElementById('logout-btn').addEventListener('click', () => {
-        try { logoutUser(); } catch(e) { console.error(e); }
-    });
+    document.getElementById('logout-btn').addEventListener('click', () => { try { logoutUser(); } catch(e) { console.error(e); } });
 }
 
 function extractNameFromEmail(email) {
@@ -78,12 +86,9 @@ function updateGreeting() {
         const settings = Storage.getSettings();
         const greetingEl = document.getElementById('welcome-greeting');
         if (greetingEl) greetingEl.textContent = `Hallo ${settings.userName || 'Entwickler'}.`;
-    } catch(e) { console.warn("Begrüßung konnte nicht geladen werden."); }
+    } catch(e) {}
 }
 
-// ==========================================
-// 🔐 AUTH STATE (Kugelsicher)
-// ==========================================
 if (auth) {
     onAuthStateChanged(auth, async (user) => {
         try {
@@ -96,18 +101,10 @@ if (auth) {
                 if(appContainer) appContainer.classList.remove('hidden');
                 if(userEmailDisplay) userEmailDisplay.textContent = user.email;
                 
-                // 🛡️ SICHERER CLOUD LOAD
-                try {
-                    if (Storage.loadFromCloud) await Storage.loadFromCloud();
-                } catch(cloudErr) {
-                    console.warn("Cloud Load übersprungen/Fehler:", cloudErr);
-                }
+                try { if (Storage.loadFromCloud) await Storage.loadFromCloud(); } catch(e) {}
                 
                 let settings = Storage.getSettings();
-                if (!settings.userName) { 
-                    settings.userName = extractNameFromEmail(user.email); 
-                    Storage.saveSettings(settings); 
-                }
+                if (!settings.userName) { settings.userName = extractNameFromEmail(user.email); Storage.saveSettings(settings); }
                 updateGreeting();
 
                 if (!appInitialized) initApp(); 
@@ -115,48 +112,32 @@ if (auth) {
             } else {
                 if(loginScreen) loginScreen.classList.remove('hidden'); 
                 if(appContainer) appContainer.classList.add('hidden');
-                appInitialized = false; 
-                isOwner = false;
+                appInitialized = false; isOwner = false;
             }
-        } catch (err) {
-            console.error("Kritischer Fehler im Auth State:", err);
-            showError("Fehler beim Laden deines Profils.");
-        }
+        } catch (err) { showError("Fehler beim Laden deines Profils."); }
     });
-} else {
-    console.error("Firebase Auth wurde nicht gefunden! Checke firebase-init.js");
 }
 
 function initGlobalSync() {
     try {
-        if(!db) return console.warn("Firebase 'db' fehlt. App läuft offline.");
-        
+        if(!db) return;
         onSnapshot(doc(db, "system", "state"), (docSnap) => {
             if (docSnap.exists()) {
                 const data = docSnap.data();
                 if (data.locks) {
                     globalLockedModels = data.locks;
-                    const pOpt = document.getElementById('pro-mode-option');
-                    const tOpt = document.getElementById('thinking-mode-option');
+                    const pOpt = document.getElementById('pro-mode-option'); const tOpt = document.getElementById('thinking-mode-option');
                     if(pOpt) pOpt.classList.toggle('disabled', data.locks.pro);
                     if(tOpt) tOpt.classList.toggle('disabled', data.locks.thinking);
                 }
-                if (data.globalModel && data.globalModel !== currentSelectedModel) {
-                    forceModelChange(data.globalModel, `🔄 Modell auf Coden ${data.globalModel} gewechselt.`);
-                }
-                if (data.broadcast && data.broadcast.time > lastBroadcastTime) {
-                    lastBroadcastTime = data.broadcast.time;
-                    if (!isOwner) showCustomConfirm("📢 SYSTEM BROADCAST:\n\n" + data.broadcast.message); 
-                }
-                if (data.forceUpdate && data.forceUpdate > lastUpdateTime) {
-                    lastUpdateTime = data.forceUpdate;
-                    if (!isOwner) location.reload();
-                }
+                if (data.globalModel && data.globalModel !== currentSelectedModel) forceModelChange(data.globalModel, `🔄 Modell gewechselt auf ${data.globalModel}.`);
+                if (data.broadcast && data.broadcast.time > lastBroadcastTime) { lastBroadcastTime = data.broadcast.time; if (!isOwner) showCustomConfirm("📢 BROADCAST:\n" + data.broadcast.message); }
+                if (data.forceUpdate && data.forceUpdate > lastUpdateTime) { lastUpdateTime = data.forceUpdate; if (!isOwner) location.reload(); }
                 if (data.theme) document.body.style.filter = data.theme === 'matrix' ? "hue-rotate(90deg) invert(80%)" : "";
                 if (data.fontSize) document.documentElement.style.setProperty('--chat-font-size', data.fontSize + 'px');
             }
         });
-    } catch (error) { console.warn("Live-Sync Fehler:", error); }
+    } catch (error) {}
 }
 
 function forceModelChange(newModel, msg) {
@@ -165,7 +146,8 @@ function forceModelChange(newModel, msg) {
     const opt = document.querySelector(`.model-option[data-model="${newModel}"]`);
     if(opt) {
         opt.classList.add('active');
-        document.getElementById('current-model-text').textContent = opt.querySelector('.name').textContent;
+        const textEl = document.getElementById('current-model-text');
+        if(textEl) textEl.textContent = opt.querySelector('.name').textContent;
     }
     if(!isOwner) UI.appendMessage(msg, false);
 }
@@ -174,35 +156,29 @@ function initApp() {
     try {
         appInitialized = true;
         sessions = Storage.getSessions();
-        if(sessions.length === 0) { 
-            currentSession = Storage.createNewSession(); 
-            sessions.push(currentSession); 
-            Storage.saveSessions(sessions); 
-        } else { currentSession = sessions[0]; }
+        if(sessions.length === 0) { currentSession = Storage.createNewSession(); sessions.push(currentSession); Storage.saveSessions(sessions); } 
+        else { currentSession = sessions[0]; }
         activeSessionId = currentSession.id;
 
         const settings = Storage.getSettings();
         document.documentElement.style.setProperty('--chat-font-size', (settings.fontSize || 15) + 'px');
 
-        UI.resetUI(); 
-        UI.renderSidebar(sessions, activeSessionId);
+        UI.resetUI(); UI.renderSidebar(sessions, activeSessionId);
         if (currentSession.messages.length > 0) currentSession.messages.forEach(msg => UI.appendMessage(msg.text, msg.isUser));
         
         const opt = document.querySelector(`.model-option[data-model="${currentSelectedModel}"]`);
-        if(opt && document.getElementById('current-model-text')) {
-            document.getElementById('current-model-text').textContent = opt.querySelector('.name').textContent;
-        }
-    } catch(e) { console.error("Fehler beim App Start:", e); }
+        const textEl = document.getElementById('current-model-text');
+        if(opt && textEl) textEl.textContent = opt.querySelector('.name').textContent;
+    } catch(e) {}
 }
 
 // ==========================================
-// 🚀 4. COMMANDS (OWNER ONLY)
+// 🚀 3. OWNER COMMANDS
 // ==========================================
 const commands = [
     { name: "/lock", opts: ["pro", "thinking"], desc: "Sperrt Modell GLOBAL", ownerOnly: true },
     { name: "/unlock", opts: ["pro", "thinking"], desc: "Entsperrt Modell GLOBAL", ownerOnly: true },
     { name: "/broadcast", opts: ["<nachricht>"], desc: "Pop-Up an ALLE User", ownerOnly: true },
-    { name: "/forceupdate", desc: "Erzwingt Reload bei Usern", ownerOnly: true },
     { name: "/model", opts: ["flash", "normal", "pro"], desc: "Ändert Modell GLOBAL", ownerOnly: true },
     { name: "/theme", opts: ["normal", "matrix"], desc: "Ändert Design GLOBAL", ownerOnly: true },
     { name: "/api", opts: ["<KEY>"], desc: "Speichert Google Key", ownerOnly: true }
@@ -246,9 +222,7 @@ function renderPopup(items, isCmdList) {
     } else commandPopup.classList.add('hidden');
 }
 
-document.addEventListener('click', (e) => { 
-    if (chatInput && commandPopup && !chatInput.contains(e.target) && !commandPopup.contains(e.target)) commandPopup.classList.add('hidden'); 
-});
+document.addEventListener('click', (e) => { if (chatInput && commandPopup && !chatInput.contains(e.target) && !commandPopup.contains(e.target)) commandPopup.classList.add('hidden'); });
 
 async function handleCommand(text) {
     const args = text.split(' '); const cmd = args[0].toLowerCase(); const param = args.slice(1).join(' ');
@@ -262,29 +236,54 @@ async function handleCommand(text) {
 
     if (!db) return UI.appendMessage("❌ Datenbank-Fehler.", false);
     try {
-        if (cmd === '/lock') {
-            await setDoc(doc(db, "system", "state"), { locks: { [args[1]]: true } }, { merge: true }); sysMsg = `🔒 ${args[1]} GLOBAL gesperrt.`;
-        }
-        else if (cmd === '/unlock') {
-            await setDoc(doc(db, "system", "state"), { locks: { [args[1]]: false } }, { merge: true }); sysMsg = `🔓 ${args[1]} GLOBAL entsperrt.`;
-        }
+        if (cmd === '/lock') { await setDoc(doc(db, "system", "state"), { locks: { [args[1]]: true } }, { merge: true }); sysMsg = `🔒 ${args[1]} GLOBAL gesperrt.`; }
+        else if (cmd === '/unlock') { await setDoc(doc(db, "system", "state"), { locks: { [args[1]]: false } }, { merge: true }); sysMsg = `🔓 ${args[1]} GLOBAL entsperrt.`; }
         else if (cmd === '/broadcast') { await setDoc(doc(db, "system", "state"), { broadcast: { message: param, time: Date.now() } }, { merge: true }); sysMsg = "📢 Broadcast LIVE gesendet."; }
-        else if (cmd === '/forceupdate') { await setDoc(doc(db, "system", "state"), { forceUpdate: Date.now() }, { merge: true }); sysMsg = "🔄 Reload befohlen."; }
         else if (cmd === '/model') { await setDoc(doc(db, "system", "state"), { globalModel: param }, { merge: true }); sysMsg = `🔄 Modell auf '${param}' gezwungen.`; }
         else if (cmd === '/theme') { await setDoc(doc(db, "system", "state"), { theme: param }, { merge: true }); sysMsg = `🎨 Theme auf '${param}' gesetzt.`; }
-        else { sysMsg = `Admin-Befehl ausgeführt: ${cmd}`; } 
-
+        else { sysMsg = `Befehl ausgeführt: ${cmd}`; } 
         UI.appendMessage(`⚙️ **GLOBAL ADMIN:**\n${sysMsg}`, false);
     } catch(e) { UI.appendMessage(`⚙️ **SYSTEM FEHLER:**\n${e.message}`, false); }
 }
 
 // ==========================================
-// 🚀 5. SIDEBAR, SUCHE & MODALS
+// 🛠️ 4. UI STEUERUNG & MODEL-MENÜ FIX
 // ==========================================
-const mainSidebar = document.getElementById('main-sidebar'); 
-const searchContainer = document.getElementById('search-container'); 
-const chatSearchInput = document.getElementById('chat-search-input');
 
+// --- FIX: DAS MODELL-MENÜ LÄSST SICH WIEDER ÖFFNEN ---
+const modelSelectorBtn = document.getElementById('model-selector-btn');
+const modelDropdownMenu = document.getElementById('model-dropdown-menu');
+
+if (modelSelectorBtn && modelDropdownMenu) {
+    modelSelectorBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        modelDropdownMenu.classList.toggle('hidden');
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!modelDropdownMenu.contains(e.target) && e.target !== modelSelectorBtn) {
+            modelDropdownMenu.classList.add('hidden');
+        }
+    });
+
+    document.querySelectorAll('.model-option').forEach(option => {
+        option.addEventListener('click', () => {
+            const selectedId = option.id;
+            if (!isOwner) {
+                if (selectedId === 'pro-mode-option' && globalLockedModels.pro) return alert("❌ Vom Admin gesperrt.");
+                if (selectedId === 'thinking-mode-option' && globalLockedModels.thinking) return alert("❌ Vom Admin gesperrt.");
+            }
+            document.querySelectorAll('.model-option').forEach(opt => opt.classList.remove('active'));
+            option.classList.add('active');
+            document.getElementById('current-model-text').textContent = option.querySelector('.name').textContent.trim();
+            currentSelectedModel = option.getAttribute('data-model');
+            modelDropdownMenu.classList.add('hidden');
+        });
+    });
+}
+// ----------------------------------------------------
+
+const mainSidebar = document.getElementById('main-sidebar'); const searchContainer = document.getElementById('search-container'); const chatSearchInput = document.getElementById('chat-search-input');
 if(document.getElementById('close-sidebar-btn')) document.getElementById('close-sidebar-btn').addEventListener('click', () => { mainSidebar.classList.add('collapsed'); document.getElementById('open-sidebar-btn').classList.remove('hidden'); }); 
 if(document.getElementById('open-sidebar-btn')) document.getElementById('open-sidebar-btn').addEventListener('click', () => { mainSidebar.classList.remove('collapsed'); document.getElementById('open-sidebar-btn').classList.add('hidden'); });
 if(document.getElementById('toggle-search-btn')) document.getElementById('toggle-search-btn').addEventListener('click', () => { searchContainer.classList.toggle('active'); if (searchContainer.classList.contains('active')) chatSearchInput.focus(); else { chatSearchInput.value = ''; UI.renderSidebar(sessions, activeSessionId); } });
@@ -292,17 +291,8 @@ if(chatSearchInput) chatSearchInput.addEventListener('input', (e) => { const st 
 
 if(document.getElementById('close-settings')) document.getElementById('close-settings').addEventListener('click', () => settingsModal.classList.add('hidden'));
 if(document.getElementById('cancel-settings')) document.getElementById('cancel-settings').addEventListener('click', () => settingsModal.classList.add('hidden'));
-
-if(document.getElementById('open-settings-btn')) document.getElementById('open-settings-btn').addEventListener('click', (e) => { 
-    e.preventDefault(); 
-    const s = Storage.getSettings(); document.getElementById('user-name-input').value = s.userName || ''; document.getElementById('font-size-slider').value = s.fontSize || 15;
-    settingsModal.classList.remove('hidden'); 
-});
-
-if(document.getElementById('save-settings')) document.getElementById('save-settings').addEventListener('click', () => {
-    const s = Storage.getSettings(); s.userName = document.getElementById('user-name-input').value.trim() || 'Entwickler'; s.fontSize = parseInt(document.getElementById('font-size-slider').value);
-    Storage.saveSettings(s); document.documentElement.style.setProperty('--chat-font-size', s.fontSize + 'px'); updateGreeting(); settingsModal.classList.add('hidden');
-});
+if(document.getElementById('open-settings-btn')) document.getElementById('open-settings-btn').addEventListener('click', (e) => { e.preventDefault(); const s = Storage.getSettings(); document.getElementById('user-name-input').value = s.userName || ''; document.getElementById('font-size-slider').value = s.fontSize || 15; settingsModal.classList.remove('hidden'); });
+if(document.getElementById('save-settings')) document.getElementById('save-settings').addEventListener('click', () => { const s = Storage.getSettings(); s.userName = document.getElementById('user-name-input').value.trim() || 'Entwickler'; s.fontSize = parseInt(document.getElementById('font-size-slider').value); Storage.saveSettings(s); document.documentElement.style.setProperty('--chat-font-size', s.fontSize + 'px'); updateGreeting(); settingsModal.classList.add('hidden'); });
 
 function showCustomConfirm(message) {
     return new Promise((resolve) => {
@@ -314,27 +304,12 @@ function showCustomConfirm(message) {
     });
 }
 
-document.querySelectorAll('.model-option').forEach(option => {
-    option.addEventListener('click', () => {
-        const selectedId = option.id;
-        if (!isOwner) {
-            if (selectedId === 'pro-mode-option' && globalLockedModels.pro) return alert("❌ Vom Admin gesperrt.");
-            if (selectedId === 'thinking-mode-option' && globalLockedModels.thinking) return alert("❌ Vom Admin gesperrt.");
-        }
-        document.querySelectorAll('.model-option').forEach(opt => opt.classList.remove('active'));
-        option.classList.add('active');
-        document.getElementById('current-model-text').textContent = option.querySelector('.name').textContent.trim();
-        currentSelectedModel = option.getAttribute('data-model');
-        document.getElementById('model-dropdown-menu').classList.add('hidden');
-    });
-});
-
 if(newChatBtn) newChatBtn.addEventListener('click', () => { currentSession = Storage.createNewSession(); sessions.unshift(currentSession); Storage.saveSessions(sessions); activeSessionId = currentSession.id; UI.resetUI(); UI.renderSidebar(sessions, activeSessionId); });
 function loadSession(id) { const s = sessions.find(s => s.id === id); if (s) { activeSessionId = id; currentSession = s; UI.resetUI(); if (currentSession.messages.length > 0) currentSession.messages.forEach(m => UI.appendMessage(m.text, m.isUser)); UI.renderSidebar(sessions, activeSessionId); } }
 function deleteSession(id) { sessions = sessions.filter(s => s.id !== id); if (sessions.length === 0) { currentSession = Storage.createNewSession(); sessions.push(currentSession); activeSessionId = currentSession.id; UI.resetUI(); } else if (id === activeSessionId) { currentSession = sessions[0]; activeSessionId = currentSession.id; loadSession(currentSession.id); return; } Storage.saveSessions(sessions); UI.renderSidebar(sessions, activeSessionId); }
 
 // ==========================================
-// 🚀 6. HAUPT SENDE FUNKTION
+// 🚀 5. HAUPT SENDE FUNKTION (MIT NEUEM SYSTEM PROMPT)
 // ==========================================
 async function handleSend() {
     if(!chatInput) return; const text = chatInput.value.trim(); if (!text) return;
@@ -355,7 +330,16 @@ async function handleSend() {
 
     const userName = Storage.getSettings().userName || 'Entwickler';
     const context = currentSession.messages.map(m => ({ role: m.isUser ? 'user' : 'assistant', content: m.text }));
-    context.unshift({ role: 'system', content: `Du bist "Coden". Heute ist ${new Date().toLocaleDateString('de-DE')}. Nutzer heißt ${userName}.` });
+    
+    // ✨ HIER IST DIE NEUE KI-PERSÖNLICHKEIT (EMOJIS & FORMATIERUNG) ✨
+    const systemPrompt = `Du bist "Coden", ein brillanter, freundlicher KI-Softwarearchitekt.
+WICHTIGE ANWEISUNGEN FÜR DEINE ANTWORTEN:
+1. Strukturiere deinen Text IMMER sehr übersichtlich (nutze Absätze, Listen, Bulletpoints und **Fettdruck** für wichtige Wörter).
+2. Nutze passend und kreativ Emojis 🚀💻✨, um den Text aufzulockern und freundlich wirken zu lassen. Sei aber nicht albern.
+3. Erkläre technische Dinge immer so, dass sie leicht verständlich und nachvollziehbar sind. Formuliere flüssig und angenehm.
+Heute ist ${new Date().toLocaleDateString('de-DE')}. Der Nutzer heißt ${userName}.`;
+
+    context.unshift({ role: 'system', content: systemPrompt });
 
     try {
         let targetTier = currentSelectedModel;
