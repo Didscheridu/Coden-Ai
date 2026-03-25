@@ -1,7 +1,7 @@
 /* css/layout.css */
 .app-container {
     display: flex;
-    height: 100vh;
+    height: 100dvh; /* 🔥 DER MAGISCHE FIX FÜR HANDYS */
     width: 100vw;
     overflow: hidden; /* Verhindert Wackeln der ganzen App */
 }
