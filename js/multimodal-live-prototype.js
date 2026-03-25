@@ -19,6 +19,8 @@ export class MultimodalLivePrototype {
         // 🗑️ SICHERHEITS-SPERRE WURDE HIER ENTFERNT! 
         // Läuft jetzt auch auf Vercel.
     }
+}
+    
 
     async initSession(liveCallBtn, liveStatusIndicator) {
 // ... Rest der Datei bleibt exakt gleich!
