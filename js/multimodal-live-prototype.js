@@ -128,10 +128,14 @@ export class MultimodalLivePrototype {
             const userName = Storage.getSettings().userName || 'Entwickler';
             
             // 🛠️ Wenn wir "models/gemini-2.5-flash" über die Bidi API nutzen, greift das unbegrenzte Live-API Limit deines Screenshots!
+            // 🛠️ DER FIX: Wir nutzen den exakten, internen Bidi-Codenamen und fordern explizit AUDIO an!
             this.websocket.send(JSON.stringify({
                 setup: { 
-                    model: "models/gemini-2.5-flash", 
-                    systemInstruction: { parts: [{ text: `Du bist Coden, eine KI. Nutzer: ${userName}. Sprich natürlich über Audio.` }] }
+                    model: "models/gemini-2.0-flash-exp", 
+                    systemInstruction: { parts: [{ text: `Du bist Coden, eine KI. Nutzer: ${userName}. Sprich natürlich über Audio.` }] },
+                    generationConfig: {
+                        responseModalities: ["AUDIO"]
+                    }
                 }
             }));
             this.systemInstructionSent = true;
