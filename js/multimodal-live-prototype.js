@@ -20,9 +20,6 @@ export class MultimodalLivePrototype {
         
         this.setupCompleteReceived = false;
         this.nextPlaybackTime = 0; 
-        
-        this.currentScreenText = '';
-        this.isNewAITurn = true; 
 
         if (!document.getElementById('call-animations')) {
             const style = document.createElement('style');
@@ -51,8 +48,6 @@ export class MultimodalLivePrototype {
         
         const oldScreen = document.getElementById('live-screen-output');
         if (oldScreen) oldScreen.remove();
-        this.currentScreenText = ''; 
-        this.isNewAITurn = true;
 
         this.updateCallUI('Verbinde mit Server...');
         
@@ -90,23 +85,37 @@ export class MultimodalLivePrototype {
         const settings = Storage.getSettings() || {};
         const userName = settings.userName || 'Gast';
 
-        // 🧠 HACK: KI nutzt ihre internen Gedanken als Code-Display!
-        const systemPrompt = `Du bist "Coden", eine smarte KI, erschaffen von "Kayden". 
+        const systemPrompt = `Du bist "Coden", eine smarte und brillante KI, erschaffen von "Kayden". 
 Sprich den Nutzer "${userName}" (oder Kayden) als deinen Owner an.
-WICHTIGE REGELN:
-1. Du kommunizierst natürlich über Audio.
-2. WENN DER NUTZER NACH CODE FRAGT: Du darfst den Code NIEMALS laut vorlesen! 
-3. Nutze deine interne Denk-Funktion (Thoughts/Text) als Display! Das System des Nutzers fängt deinen Text ab und projiziert ihn auf seinen Bildschirm.
-4. Schreibe den Code als Markdown formatiert einfach in deine Text-Ausgabe und sage über Audio nur: "Hier ist der Code auf deinem Display, Kayden."`;
+WICHTIGE REGELN FÜR DEN LIVE-MODUS: 
+1. Du kommunizierst ausschließlich über Audio. Lies Code NIEMALS laut vor!
+2. WENN der Nutzer dich bittet, Code zu schreiben oder ein Skript zu erstellen, MUSST du zwingend das Tool "render_code_on_screen" aufrufen! 
+3. Sprich währenddessen ganz normal weiter (z.B. "Klar, ich lege dir den Code direkt auf den Bildschirm.").`;
 
-        // 🌟 AUDIO-Modus erzwingt, verhindert Error 1007 & 1008
+        // 🌟 DER ABSOLUTE FIX: functionDeclarations mit exakten Kleinbuchstaben! Kein 1008 Error mehr!
         const setupMsg = {
             setup: { 
                 model: "models/gemini-2.5-flash-native-audio-latest", 
                 systemInstruction: { parts: [{ text: systemPrompt }] },
                 generationConfig: { 
                     responseModalities: ["AUDIO"] 
-                }
+                },
+                tools: [{
+                    functionDeclarations: [{
+                        name: "render_code_on_screen",
+                        description: "Projiziert Code auf den Bildschirm des Nutzers. MUSS aufgerufen werden, um Code zu zeigen.",
+                        parameters: {
+                            type: "object", // 🚀 MUSS KLEINGESCHRIEBEN SEIN!
+                            properties: {
+                                markdown_code: {
+                                    type: "string", // 🚀 MUSS KLEINGESCHRIEBEN SEIN!
+                                    description: "Der Markdown-formatierte Code"
+                                }
+                            },
+                            required: ["markdown_code"]
+                        }
+                    }]
+                }]
             }
         };
 
@@ -158,49 +167,61 @@ WICHTIGE REGELN:
             return;
         }
 
+        // 🌟 DIE MAGIE: Coden ruft unser Tool auf, um Code anzuzeigen!
+        if (data.toolCall) {
+            const functionCalls = data.toolCall.functionCalls;
+            if (functionCalls) {
+                for (const call of functionCalls) {
+                    if (call.name === "render_code_on_screen") {
+                        const code = call.args.markdown_code;
+                        
+                        let liveScreen = document.getElementById('live-screen-output');
+                        
+                        // Wenn der Bildschirm schon da ist, machen wir ihn für den neuen Code einmal leer
+                        if (liveScreen) {
+                            liveScreen.innerHTML = '';
+                        } else {
+                            liveScreen = document.createElement('div');
+                            liveScreen.id = 'live-screen-output';
+                            liveScreen.style = "margin-top: 20px; margin-bottom: 20px; width: 85%; max-width: 700px; max-height: 300px; overflow-y: auto; color: #ececec; background: rgba(0,0,0,0.7); padding: 20px; border-radius: 12px; font-size: 15px; line-height: 1.6; border: 1px solid rgba(255,255,255,0.1); text-align: left; box-shadow: 0 4px 20px rgba(0,0,0,0.6);";
+                            
+                            const callModal = document.getElementById('live-call-modal');
+                            const endBtn = document.getElementById('end-call-btn');
+                            callModal.insertBefore(liveScreen, endBtn);
+                        }
+                        
+                        // Bildschirm mit dem Markdown-Code füllen
+                        if (typeof marked !== 'undefined') {
+                            liveScreen.innerHTML = marked.parse(code);
+                            if (typeof hljs !== 'undefined') {
+                                liveScreen.querySelectorAll('pre code').forEach((block) => hljs.highlightElement(block));
+                            }
+                        } else {
+                            liveScreen.textContent = code;
+                        }
+                        liveScreen.scrollTop = liveScreen.scrollHeight;
+
+                        // Wir MÜSSEN Google mitteilen, dass das Tool erfolgreich war, sonst redet sie nicht weiter!
+                        try {
+                            this.websocket.send(JSON.stringify({
+                                toolResponse: {
+                                    functionResponses: [{
+                                        id: call.id,
+                                        name: "render_code_on_screen",
+                                        response: { result: "Code erfolgreich auf dem Bildschirm projiziert." }
+                                    }]
+                                }
+                            }));
+                        } catch (err) {}
+                    }
+                }
+            }
+        }
+
+        // 🔊 AUDIO VERARBEITUNG
         if (data.serverContent?.modelTurn?.parts) {
             const parts = data.serverContent.modelTurn.parts;
             for (const part of parts) {
-                
-                // 💻 BILDSCHIRM-TEXT VERARBEITUNG (Fängt ALLES auf, inkl. Gedanken!)
-                if (part.text) {
-                    let liveScreen = document.getElementById('live-screen-output');
-                    
-                    if (this.isNewAITurn) {
-                        this.currentScreenText = '';
-                        if (liveScreen) liveScreen.innerHTML = '';
-                        this.isNewAITurn = false;
-                    }
-
-                    if (!liveScreen) {
-                        liveScreen = document.createElement('div');
-                        liveScreen.id = 'live-screen-output';
-                        liveScreen.style = "margin-top: 20px; margin-bottom: 20px; width: 85%; max-width: 700px; max-height: 300px; overflow-y: auto; color: #ececec; background: rgba(0,0,0,0.7); padding: 20px; border-radius: 12px; font-size: 15px; line-height: 1.6; border: 1px solid rgba(255,255,255,0.1); text-align: left; box-shadow: 0 4px 20px rgba(0,0,0,0.6); z-index: 10000;";
-                        
-                        const callModal = document.getElementById('live-call-modal');
-                        const endBtn = document.getElementById('end-call-btn');
-                        callModal.insertBefore(liveScreen, endBtn);
-                    }
-                    
-                    // Wir hängen jeden Text/Gedanken gnadenlos an
-                    this.currentScreenText += part.text;
-
-                    // Markdown Rendering
-                    if (typeof marked !== 'undefined') {
-                        liveScreen.innerHTML = marked.parse(this.currentScreenText);
-                        if (typeof hljs !== 'undefined') {
-                            liveScreen.querySelectorAll('pre code').forEach((block) => hljs.highlightElement(block));
-                        }
-                    } else {
-                        // Fallback
-                        liveScreen.textContent = this.currentScreenText;
-                    }
-                    
-                    // Automatisch nach unten scrollen
-                    liveScreen.scrollTop = liveScreen.scrollHeight;
-                }
-
-                // 🔊 AUDIO VERARBEITUNG
                 if (part.inlineData && part.inlineData.data) {
                     this.currentStatus = 'Speaking';
                     this.updateCallUI('Coden spricht...', true);
@@ -247,7 +268,6 @@ WICHTIGE REGELN:
         }
 
         if (data.serverContent?.turnComplete) {
-            this.isNewAITurn = true; 
             if (this.currentStatus !== 'Speaking') {
                 this.currentStatus = 'Listening';
                 this.updateCallUI('Höre zu...', false);
@@ -366,7 +386,6 @@ WICHTIGE REGELN:
         this.setupCompleteReceived = false;
         this.currentStatus = 'Disconnected';
         this.nextPlaybackTime = 0;
-        this.currentScreenText = '';
         
         const callModal = document.getElementById('live-call-modal');
         if (callModal) {
