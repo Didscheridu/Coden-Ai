@@ -3,7 +3,6 @@ import { CONFIG } from './config.js';
 import { Storage } from './storage.js';
 import { UI } from './ui.js';
 
-// Ultra-Cleane, stateful Client-Direkt-Beta-Prototyp-Architektur (ONLY localhost)
 export class MultimodalLivePrototype {
     constructor() {
         this.websocket = null;
@@ -11,20 +10,18 @@ export class MultimodalLivePrototype {
         this.mediaStream = null;
         this.audioProcessor = null;
         this.isSessionActive = false;
-        this.currentStatus = 'Disconnected'; // Disconnected, Connecting, Handshake, Connected, Speaking, Listening, Error
+        this.currentStatus = 'Disconnected'; 
         
-        // Beta PCM Audio-Konfiguration
-        this.SAMPLE_RATE = 16000; // Empfohlene Sample-Rate für low latency voice
-        this.BUFFER_SIZE = 1024;  // PCM chunk-Größe
+        this.SAMPLE_RATE = 16000; 
+        this.BUFFER_SIZE = 1024;  
         this.systemInstructionSent = false;
         
-        // Sicherheits-Check
-        if (window.location.hostname !== 'localhost' && !window.location.hostname.startsWith('127.')) {
-            console.error("❌ **SICHERHEITS-SPERRE:** Der Multimodal Live-Modus (Client-Direkt-Prototyp) läuft **NUR** auf `localhost`. Das direkte Verbinden von deinem Browser zu Google exposes your API Key. Dies ist gefährlich für eine öffentliche Webseite (Vercel). Du brauchst einen sicheren Backend-Proxy für Vercel.");
-            this.currentStatus = 'Error';
-            return;
-        }
+        // 🗑️ SICHERHEITS-SPERRE WURDE HIER ENTFERNT! 
+        // Läuft jetzt auch auf Vercel.
     }
+
+    async initSession(liveCallBtn, liveStatusIndicator) {
+// ... Rest der Datei bleibt exakt gleich!
 
     async initSession(liveCallBtn, liveStatusIndicator) {
         if (this.isSessionActive || this.currentStatus === 'Error') return;
