@@ -20,6 +20,9 @@ export class MultimodalLivePrototype {
         
         this.setupCompleteReceived = false;
         this.nextPlaybackTime = 0; 
+        
+        // 🔥 NEU: Speicher für den Text der aktuellen Antwort, damit Markdown (Code) sauber gerendert wird!
+        this.currentScreenText = '';
 
         if (!document.getElementById('call-animations')) {
             const style = document.createElement('style');
@@ -27,6 +30,10 @@ export class MultimodalLivePrototype {
             style.innerHTML = `
                 @keyframes aiPulse { 0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(43, 108, 176, 0.7); } 50% { transform: scale(1.1); box-shadow: 0 0 0 25px rgba(43, 108, 176, 0); } 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(43, 108, 176, 0); } }
                 .ai-is-speaking { animation: aiPulse 1s infinite; border: 2px solid #2b6cb0; }
+                
+                /* Styling für den Live-Screen Code */
+                #live-screen-output pre { background: #1e1e1e; padding: 10px; border-radius: 8px; margin-top: 10px; overflow-x: auto; }
+                #live-screen-output code { font-family: monospace; font-size: 13px; }
             `;
             document.head.appendChild(style);
         }
@@ -41,13 +48,11 @@ export class MultimodalLivePrototype {
         
         if (callModal) callModal.classList.remove('hidden');
         if (endCallBtn) endCallBtn.onclick = () => this.stopSession(liveCallBtn, liveStatusIndicator);
-        
-        // 🔥 FIX: Blendet den nervigen Gemini-Text aus!
         if (subtitle) subtitle.style.display = 'none'; 
         
-        // Alten Bildschirm-Inhalt löschen, falls vorhanden
         const oldScreen = document.getElementById('live-screen-output');
         if (oldScreen) oldScreen.remove();
+        this.currentScreenText = ''; // Reset beim Start
 
         this.updateCallUI('Verbinde mit Server...');
         
@@ -85,12 +90,12 @@ export class MultimodalLivePrototype {
         const settings = Storage.getSettings() || {};
         const userName = settings.userName || 'Gast';
 
-        // 🧠 LORE & SYSTEM PROMPT: Kayden ist der Boss + Bildschirm-Freigabe!
+        // 🧠 NEUER PROMPT: Zwingt die KI, keinen inneren Monolog zu drucken!
         const systemPrompt = `Du bist "Coden", eine smarte, empathische und brillante KI. 
 Du wurdest von dem Entwickler "Kayden" erschaffen und trainiert. 
 Wenn der aktuelle Nutzer "${userName}" (oder Kayden) ist, sprich ihn respektvoll als deinen Erschaffer und Owner an. 
 Sprich freundlich, natürlich und in kurzen Sätzen über Audio.
-WICHTIG: Du hast ein Display zur Verfügung! Wenn du nach Code gefragt wirst, lange Listen aufzählst oder etwas visuell zeigen willst, binde diese Informationen als Text in deine Antwort ein. Dieser Text wird dann live auf dem Bildschirm des Nutzers projiziert!`;
+WICHTIG ZUM DISPLAY: Du hast ein Text-Display! Schreibe NIEMALS deine internen Gedankengänge oder Planungen auf das Display! Wenn der Nutzer nach Code, Listen oder Text fragt, gib AUSSCHLIESSLICH den finalen, sauber in Markdown formatierten Code/Text auf dem Display aus. Kein "Ich denke..." auf dem Display!`;
 
         const setupMsg = {
             setup: { 
@@ -102,9 +107,7 @@ WICHTIG: Du hast ein Display zur Verfügung! Wenn du nach Code gefragt wirst, la
 
         try {
             this.websocket.send(JSON.stringify(setupMsg));
-        } catch(e) {
-            console.error("❌ Fehler beim Setup:", e);
-        }
+        } catch(e) { console.error("❌ Fehler beim Setup:", e); }
 
         try {
             this.mediaStream = await navigator.mediaDevices.getUserMedia({ 
@@ -154,7 +157,7 @@ WICHTIG: Du hast ein Display zur Verfügung! Wenn du nach Code gefragt wirst, la
             const parts = data.serverContent.modelTurn.parts;
             for (const part of parts) {
                 
-                // 💻 VISUELLES FEEDBACK: KI zeigt Dinge auf dem Bildschirm an!
+                // 💻 CODE & TEXT SAUBER RENDERN
                 if (part.text) {
                     let liveScreen = document.getElementById('live-screen-output');
                     if (!liveScreen) {
@@ -166,12 +169,23 @@ WICHTIG: Du hast ein Display zur Verfügung! Wenn du nach Code gefragt wirst, la
                         const endBtn = document.getElementById('end-call-btn');
                         callModal.insertBefore(liveScreen, endBtn);
                     }
-                    // Text formatieren und flüssig anhängen
-                    liveScreen.innerHTML += part.text.replace(/\n/g, '<br>');
+                    
+                    // Text sammeln und sicher durch unseren Markdown-Renderer jagen!
+                    this.currentScreenText += part.text;
+                    if (typeof marked !== 'undefined') {
+                        liveScreen.innerHTML = marked.parse(this.currentScreenText);
+                        // Code-Blöcke nachträglich einfärben (falls hljs geladen ist)
+                        if (typeof hljs !== 'undefined') {
+                            liveScreen.querySelectorAll('pre code').forEach((block) => hljs.highlightElement(block));
+                        }
+                    } else {
+                        // Fallback, falls marked nicht da ist
+                        liveScreen.textContent = this.currentScreenText;
+                    }
+                    
                     liveScreen.scrollTop = liveScreen.scrollHeight;
                 }
 
-                // 🔊 AUDIO FEEDBACK: KI spricht!
                 if (part.inlineData && part.inlineData.data) {
                     this.currentStatus = 'Speaking';
                     this.updateCallUI('Coden spricht...', true);
@@ -264,7 +278,13 @@ WICHTIG: Du hast ein Display zur Verfügung! Wenn du nach Code gefragt wirst, la
         const statusText = document.getElementById('call-status-text');
 
         if (average > 15) { 
-            if (statusText && statusText.textContent !== 'Du sprichst...') statusText.textContent = 'Du sprichst...';
+            if (statusText && statusText.textContent !== 'Du sprichst...') {
+                statusText.textContent = 'Du sprichst...';
+                // 🔥 WICHTIG: Wenn du NEU sprichst, löschen wir den alten Bildschirm-Text!
+                this.currentScreenText = ''; 
+                const liveScreen = document.getElementById('live-screen-output');
+                if (liveScreen) liveScreen.innerHTML = '';
+            }
             if (avatarContainer) {
                 const scale = 1 + (average / 255) * 0.4;
                 avatarContainer.style.transform = `scale(${scale})`;
@@ -334,6 +354,7 @@ WICHTIG: Du hast ein Display zur Verfügung! Wenn du nach Code gefragt wirst, la
         this.setupCompleteReceived = false;
         this.currentStatus = 'Disconnected';
         this.nextPlaybackTime = 0;
+        this.currentScreenText = '';
         
         const callModal = document.getElementById('live-call-modal');
         if (callModal) {
