@@ -21,8 +21,8 @@ export class MultimodalLivePrototype {
         this.setupCompleteReceived = false;
         this.nextPlaybackTime = 0; 
         
-        // 🔥 NEU: Speicher für den Text der aktuellen Antwort, damit Markdown (Code) sauber gerendert wird!
         this.currentScreenText = '';
+        this.isNewAITurn = true; // 🔥 NEU: Überwacht, wann eine WIRKLICH neue Antwort kommt
 
         if (!document.getElementById('call-animations')) {
             const style = document.createElement('style');
@@ -31,7 +31,6 @@ export class MultimodalLivePrototype {
                 @keyframes aiPulse { 0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(43, 108, 176, 0.7); } 50% { transform: scale(1.1); box-shadow: 0 0 0 25px rgba(43, 108, 176, 0); } 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(43, 108, 176, 0); } }
                 .ai-is-speaking { animation: aiPulse 1s infinite; border: 2px solid #2b6cb0; }
                 
-                /* Styling für den Live-Screen Code */
                 #live-screen-output pre { background: #1e1e1e; padding: 10px; border-radius: 8px; margin-top: 10px; overflow-x: auto; }
                 #live-screen-output code { font-family: monospace; font-size: 13px; }
             `;
@@ -52,7 +51,8 @@ export class MultimodalLivePrototype {
         
         const oldScreen = document.getElementById('live-screen-output');
         if (oldScreen) oldScreen.remove();
-        this.currentScreenText = ''; // Reset beim Start
+        this.currentScreenText = ''; 
+        this.isNewAITurn = true;
 
         this.updateCallUI('Verbinde mit Server...');
         
@@ -90,12 +90,11 @@ export class MultimodalLivePrototype {
         const settings = Storage.getSettings() || {};
         const userName = settings.userName || 'Gast';
 
-        // 🧠 NEUER PROMPT: Zwingt die KI, keinen inneren Monolog zu drucken!
         const systemPrompt = `Du bist "Coden", eine smarte, empathische und brillante KI. 
 Du wurdest von dem Entwickler "Kayden" erschaffen und trainiert. 
-Wenn der aktuelle Nutzer "${userName}" (oder Kayden) ist, sprich ihn respektvoll als deinen Erschaffer und Owner an. 
-Sprich freundlich, natürlich und in kurzen Sätzen über Audio.
-WICHTIG ZUM DISPLAY: Du hast ein Text-Display! Schreibe NIEMALS deine internen Gedankengänge oder Planungen auf das Display! Wenn der Nutzer nach Code, Listen oder Text fragt, gib AUSSCHLIESSLICH den finalen, sauber in Markdown formatierten Code/Text auf dem Display aus. Kein "Ich denke..." auf dem Display!`;
+Wenn der aktuelle Nutzer "${userName}" (oder Kayden) ist, sprich ihn respektvoll als deinen Erschaffer an. 
+Sprich freundlich und in kurzen Sätzen über Audio.
+WICHTIG ZUM DISPLAY: Du hast ein Text-Display! Schreibe KEINE internen Gedankengänge auf das Display! Wenn der Nutzer nach Code fragt, gib AUSSCHLIESSLICH den finalen, in Markdown formatierten Code auf dem Display aus.`;
 
         const setupMsg = {
             setup: { 
@@ -107,7 +106,7 @@ WICHTIG ZUM DISPLAY: Du hast ein Text-Display! Schreibe NIEMALS deine internen G
 
         try {
             this.websocket.send(JSON.stringify(setupMsg));
-        } catch(e) { console.error("❌ Fehler beim Setup:", e); }
+        } catch(e) {}
 
         try {
             this.mediaStream = await navigator.mediaDevices.getUserMedia({ 
@@ -157,9 +156,17 @@ WICHTIG ZUM DISPLAY: Du hast ein Text-Display! Schreibe NIEMALS deine internen G
             const parts = data.serverContent.modelTurn.parts;
             for (const part of parts) {
                 
-                // 💻 CODE & TEXT SAUBER RENDERN
+                // 💻 CODE & TEXT VERARBEITUNG
                 if (part.text) {
                     let liveScreen = document.getElementById('live-screen-output');
+                    
+                    // 🌟 FIX 1: Bildschirm NUR löschen, wenn Coden eine NEUE Antwort anfängt!
+                    if (this.isNewAITurn) {
+                        this.currentScreenText = '';
+                        if (liveScreen) liveScreen.innerHTML = '';
+                        this.isNewAITurn = false;
+                    }
+
                     if (!liveScreen) {
                         liveScreen = document.createElement('div');
                         liveScreen.id = 'live-screen-output';
@@ -170,17 +177,22 @@ WICHTIG ZUM DISPLAY: Du hast ein Text-Display! Schreibe NIEMALS deine internen G
                         callModal.insertBefore(liveScreen, endBtn);
                     }
                     
-                    // Text sammeln und sicher durch unseren Markdown-Renderer jagen!
                     this.currentScreenText += part.text;
-                    if (typeof marked !== 'undefined') {
-                        liveScreen.innerHTML = marked.parse(this.currentScreenText);
-                        // Code-Blöcke nachträglich einfärben (falls hljs geladen ist)
-                        if (typeof hljs !== 'undefined') {
-                            liveScreen.querySelectorAll('pre code').forEach((block) => hljs.highlightElement(block));
+
+                    // 🌟 FIX 2: Unsichtbarer Filter für die "Gedanken" (<think>...</think>)
+                    // Dies schneidet alles heraus, was zwischen Denk-Tags steht, auch wenn sie noch nicht geschlossen sind!
+                    let cleanText = this.currentScreenText.replace(/<[tT]hink>[\s\S]*?(<\/[tT]hink>|$)/g, '').trim();
+
+                    // Nur rendern, wenn nach dem Filtern noch echter Text (oder Code) übrig ist
+                    if (cleanText.length > 0) {
+                        if (typeof marked !== 'undefined') {
+                            liveScreen.innerHTML = marked.parse(cleanText);
+                            if (typeof hljs !== 'undefined') {
+                                liveScreen.querySelectorAll('pre code').forEach((block) => hljs.highlightElement(block));
+                            }
+                        } else {
+                            liveScreen.textContent = cleanText;
                         }
-                    } else {
-                        // Fallback, falls marked nicht da ist
-                        liveScreen.textContent = this.currentScreenText;
                     }
                     
                     liveScreen.scrollTop = liveScreen.scrollHeight;
@@ -232,6 +244,8 @@ WICHTIG ZUM DISPLAY: Du hast ein Text-Display! Schreibe NIEMALS deine internen G
         }
 
         if (data.serverContent?.turnComplete) {
+            // 🌟 FIX 3: KI ist fertig. Nächster Text löscht den alten Bildschirm.
+            this.isNewAITurn = true; 
             if (this.currentStatus !== 'Speaking') {
                 this.currentStatus = 'Listening';
                 this.updateCallUI('Höre zu...', false);
@@ -280,10 +294,8 @@ WICHTIG ZUM DISPLAY: Du hast ein Text-Display! Schreibe NIEMALS deine internen G
         if (average > 15) { 
             if (statusText && statusText.textContent !== 'Du sprichst...') {
                 statusText.textContent = 'Du sprichst...';
-                // 🔥 WICHTIG: Wenn du NEU sprichst, löschen wir den alten Bildschirm-Text!
-                this.currentScreenText = ''; 
-                const liveScreen = document.getElementById('live-screen-output');
-                if (liveScreen) liveScreen.innerHTML = '';
+                // ❌ HIER WURDE DER LÖSCH-BEFEHL FÜR DEN BILDSCHIRM ENTFERNT!
+                // Das Fenster bleibt jetzt offen, auch wenn du redest!
             }
             if (avatarContainer) {
                 const scale = 1 + (average / 255) * 0.4;
