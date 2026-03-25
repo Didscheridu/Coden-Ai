@@ -9,18 +9,23 @@ export class MultimodalLivePrototype {
         this.audioContext = null;
         this.mediaStream = null;
         this.audioProcessor = null;
+        this.analyser = null; // 🔥 NEU: Analysiert deine Stimme in Echtzeit
+        this.dataArray = null;
         this.isSessionActive = false;
+        this.currentStatus = 'Disconnected'; 
+        this.lastSpeakTime = null; // Für die "Denkt nach..." Logik
         
         this.SAMPLE_RATE = 16000; 
         this.BUFFER_SIZE = 1024;  
         this.systemInstructionSent = false;
 
+        // CSS für die KI-Sprech-Animation
         if (!document.getElementById('call-animations')) {
             const style = document.createElement('style');
             style.id = 'call-animations';
             style.innerHTML = `
-                @keyframes callPulse { 0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(43, 108, 176, 0.7); } 70% { transform: scale(1.05); box-shadow: 0 0 0 20px rgba(43, 108, 176, 0); } 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(43, 108, 176, 0); } }
-                .is-speaking { animation: callPulse 1.5s infinite; }
+                @keyframes aiPulse { 0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(43, 108, 176, 0.7); } 50% { transform: scale(1.1); box-shadow: 0 0 0 25px rgba(43, 108, 176, 0); } 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(43, 108, 176, 0); } }
+                .ai-is-speaking { animation: aiPulse 1s infinite; border: 2px solid #2b6cb0; }
             `;
             document.head.appendChild(style);
         }
@@ -45,7 +50,7 @@ export class MultimodalLivePrototype {
             return;
         }
 
-        // Offizielle Websocket URL für die Bidi API (Live API)
+        // Offizielle Websocket URL für die Bidi API
         const endpoint = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${apiKey}`;
 
         try {
@@ -61,7 +66,9 @@ export class MultimodalLivePrototype {
 
     async handleOpen(event, liveCallBtn, liveStatusIndicator) {
         this.isSessionActive = true;
+        this.currentStatus = 'Listening';
         this.systemInstructionSent = false;
+        this.lastSpeakTime = null;
         
         this.updateCallUI('Greife auf Mikrofon zu...');
 
@@ -71,19 +78,70 @@ export class MultimodalLivePrototype {
             });
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: this.SAMPLE_RATE });
             
+            // 🔥 NEU: Audio Analyser für visuelles Feedback einbauen
+            this.analyser = this.audioContext.createAnalyser();
+            this.analyser.fftSize = 256;
+            this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+
             this.audioProcessor = this.audioContext.createScriptProcessor(this.BUFFER_SIZE, 1, 1); 
             this.audioProcessor.onaudioprocess = (e) => this.processAudioInput(e);
 
             const source = this.audioContext.createMediaStreamSource(this.mediaStream);
-            source.connect(this.audioProcessor);
+            source.connect(this.analyser); // Analyser dazwischenschalten
+            this.analyser.connect(this.audioProcessor);
             this.audioProcessor.connect(this.audioContext.destination);
 
-            this.updateCallUI('Verbunden. Du kannst sprechen!');
+            this.updateCallUI('Verbunden. Höre zu...');
+            
+            // Starte die visuelle Überwachung
+            this.visualizeUserAudio();
 
         } catch (error) {
             console.error(error);
             this.updateCallUI('❌ Mikrofon blockiert!');
             setTimeout(() => this.stopSession(liveCallBtn, liveStatusIndicator), 4000);
+        }
+    }
+
+    // 🔥 NEU: Macht die Wellen/das Pulsieren, wenn DU sprichst!
+    visualizeUserAudio() {
+        if (!this.isSessionActive) return;
+        requestAnimationFrame(() => this.visualizeUserAudio());
+
+        // Wenn die KI gerade spricht, überlassen wir ihr die Animation
+        if (this.currentStatus === 'Speaking') return; 
+
+        this.analyser.getByteFrequencyData(this.dataArray);
+        let sum = 0;
+        for (let i = 0; i < this.dataArray.length; i++) sum += this.dataArray[i];
+        let average = sum / this.dataArray.length; // Durchschnittliche Lautstärke (0-255)
+
+        const avatarContainer = document.getElementById('call-avatar-container');
+        const statusText = document.getElementById('call-status-text');
+
+        if (average > 15) { 
+            // DU SPRICHST
+            if (statusText && statusText.textContent !== 'Du sprichst...') statusText.textContent = 'Du sprichst...';
+            if (avatarContainer) {
+                // Avatar pulsiert exakt im Takt deiner Lautstärke!
+                const scale = 1 + (average / 255) * 0.4;
+                avatarContainer.style.transform = `scale(${scale})`;
+                avatarContainer.style.boxShadow = `0 0 ${average * 1.5}px rgba(43, 108, 176, 0.8)`;
+            }
+            this.lastSpeakTime = Date.now();
+        } else {
+            // DU BIST STILL
+            if (avatarContainer) {
+                avatarContainer.style.transform = 'scale(1)';
+                avatarContainer.style.boxShadow = '0 0 30px rgba(43, 108, 176, 0.5)';
+            }
+            
+            // Wenn du vor kurzem gesprochen hast, und jetzt still bist -> KI denkt nach
+            if (this.lastSpeakTime && (Date.now() - this.lastSpeakTime > 800) && (Date.now() - this.lastSpeakTime < 4000)) {
+               if (statusText && statusText.textContent !== 'Coden denkt nach...') statusText.textContent = 'Coden denkt nach...';
+            } else if (!this.lastSpeakTime || (Date.now() - this.lastSpeakTime >= 4000)) {
+               if (statusText && statusText.textContent !== 'Höre zu...') statusText.textContent = 'Höre zu...';
+            }
         }
     }
 
@@ -95,18 +153,27 @@ export class MultimodalLivePrototype {
             const parts = data.serverContent.modelTurn.parts;
             for (const part of parts) {
                 if (part.inlineData && part.inlineData.data) {
+                    // KI SPRICHT!
+                    this.currentStatus = 'Speaking';
                     this.updateCallUI('Coden spricht...', true);
                     const audioSrc = `data:${part.inlineData.mimeType || 'audio/pcm'};base64,${part.inlineData.data}`;
                     const audio = new Audio(audioSrc);
                     audio.play().catch(e => console.log("Autoplay blockiert."));
                     
-                    audio.onended = () => this.updateCallUI('Höre zu...', false);
+                    audio.onended = () => {
+                        this.currentStatus = 'Listening';
+                        this.lastSpeakTime = null; // Reset
+                        this.updateCallUI('Höre zu...', false);
+                    };
                 }
             }
         }
 
         if (data.serverContent?.turnComplete) {
-            this.updateCallUI('Höre zu...', false);
+            if (this.currentStatus !== 'Speaking') {
+                this.currentStatus = 'Listening';
+                this.updateCallUI('Höre zu...', false);
+            }
         }
     }
 
@@ -127,11 +194,11 @@ export class MultimodalLivePrototype {
         if (!this.systemInstructionSent) {
             const userName = Storage.getSettings().userName || 'Entwickler';
             
-            // 🛠️ DER ABSOLUTE FIX: Der offizielle, geheime Name von Google! 🚀
+            // 🚀 DER ABSOLUTE FIX: Hier ist der ECHTE und KORREKTE Name fest eingegossen!
             this.websocket.send(JSON.stringify({
                 setup: { 
                     model: "models/gemini-2.5-flash-native-audio-latest", 
-                    systemInstruction: { parts: [{ text: `Du bist Coden, eine KI. Nutzer: ${userName}. Sprich natürlich über Audio.` }] },
+                    systemInstruction: { parts: [{ text: `Du bist Coden, eine KI. Nutzer: ${userName}. Sprich natürlich, freundlich und empathisch über Audio. Antworte in kurzen, klaren Sätzen wie bei einem echten Telefonat.` }] },
                     generationConfig: {
                         responseModalities: ["AUDIO"]
                     }
@@ -157,27 +224,28 @@ export class MultimodalLivePrototype {
         return window.btoa(binary);
     }
 
-    updateCallUI(text, isSpeaking = false) {
+    updateCallUI(text, isAiSpeaking = false) {
         const statusText = document.getElementById('call-status-text');
         const avatarContainer = document.getElementById('call-avatar-container');
         if (statusText) statusText.textContent = text;
         
         if (avatarContainer) {
-            if (isSpeaking) avatarContainer.classList.add('is-speaking');
-            else avatarContainer.classList.remove('is-speaking');
+            if (isAiSpeaking) avatarContainer.classList.add('ai-is-speaking');
+            else avatarContainer.classList.remove('ai-is-speaking');
         }
     }
 
-    // 🛠️ DER FIX: Das UI bleibt bei einem Fehler offen, damit du lesen kannst, was passiert ist!
     handleClose(event, liveCallBtn, liveStatusIndicator) {
         console.log("🔊 [NATIVE AUDIO]: WebSocket getrennt.", event);
-        
-        // Wir zeigen den echten Grund von Google an!
         const reason = event.reason ? event.reason : "Google hat die Verbindung unerwartet getrennt.";
-        this.updateCallUI(`❌ Abbruch (Code ${event.code}): ${reason}`);
         
-        // Wir warten 6 Sekunden, bevor wir aufräumen, damit du den Fehler lesen kannst!
-        setTimeout(() => this.stopSession(liveCallBtn, liveStatusIndicator), 6000);
+        // Nur Fehler anzeigen, wenn es kein normaler Disconnect war
+        if (event.code !== 1000 && event.code !== 1005) {
+            this.updateCallUI(`❌ Abbruch (Code ${event.code}): ${reason}`);
+            setTimeout(() => this.stopSession(liveCallBtn, liveStatusIndicator), 6000);
+        } else {
+            this.stopSession(liveCallBtn, liveStatusIndicator);
+        }
     }
 
     handleError(event, liveCallBtn, liveStatusIndicator) {
@@ -188,21 +256,22 @@ export class MultimodalLivePrototype {
     stopSession(liveCallBtn, liveStatusIndicator) {
         if (!this.isSessionActive) return;
         
+        this.updateCallUI('Aufgelegt.');
+        
         if (this.mediaStream) this.mediaStream.getTracks().forEach(track => track.stop());
         if (this.audioProcessor) this.audioProcessor.disconnect();
+        if (this.analyser) this.analyser.disconnect();
         if (this.audioContext) this.audioContext.close();
         if (this.websocket) this.websocket.close();
 
-        this.websocket = null; this.audioContext = null; this.mediaStream = null; this.audioProcessor = null;
+        this.websocket = null; this.audioContext = null; this.mediaStream = null; this.audioProcessor = null; this.analyser = null;
         this.isSessionActive = false;
         this.systemInstructionSent = false;
+        this.currentStatus = 'Disconnected';
         
         const callModal = document.getElementById('live-call-modal');
         if (callModal) {
-            callModal.classList.add('hidden');
+            setTimeout(() => callModal.classList.add('hidden'), 500);
         }
-        
-        const statusText = document.getElementById('call-status-text');
-        if (statusText) statusText.textContent = 'Verbinde mit Coden...';
     }
 }
