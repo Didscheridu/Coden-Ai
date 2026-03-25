@@ -22,7 +22,7 @@ export class MultimodalLivePrototype {
         this.nextPlaybackTime = 0; 
         
         this.currentScreenText = '';
-        this.isNewAITurn = true; // 🌟 Überwacht, wann der ECHTE Text beginnt
+        this.isNewAITurn = true; 
 
         if (!document.getElementById('call-animations')) {
             const style = document.createElement('style');
@@ -31,8 +31,8 @@ export class MultimodalLivePrototype {
                 @keyframes aiPulse { 0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(43, 108, 176, 0.7); } 50% { transform: scale(1.1); box-shadow: 0 0 0 25px rgba(43, 108, 176, 0); } 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(43, 108, 176, 0); } }
                 .ai-is-speaking { animation: aiPulse 1s infinite; border: 2px solid #2b6cb0; }
                 
-                #live-screen-output pre { background: #1e1e1e; padding: 10px; border-radius: 8px; margin-top: 10px; overflow-x: auto; }
-                #live-screen-output code { font-family: monospace; font-size: 13px; }
+                #live-screen-output pre { background: #1e1e1e; padding: 14px; border-radius: 8px; margin-top: 10px; overflow-x: auto; border: 1px solid rgba(255,255,255,0.1); }
+                #live-screen-output code { font-family: 'Consolas', monospace; font-size: 13px; }
             `;
             document.head.appendChild(style);
         }
@@ -60,7 +60,7 @@ export class MultimodalLivePrototype {
         const apiKey = settings.apiKey || CONFIG.apiKey;
 
         if (!apiKey) {
-            this.updateCallUI('❌ Kein API Key gefunden!');
+            this.updateCallUI('❌ Kein API Key!');
             setTimeout(() => this.stopSession(liveCallBtn, liveStatusIndicator), 3000);
             return;
         }
@@ -90,17 +90,22 @@ export class MultimodalLivePrototype {
         const settings = Storage.getSettings() || {};
         const userName = settings.userName || 'Gast';
 
-        const systemPrompt = `Du bist "Coden", eine smarte, empathische und brillante KI. 
-Du wurdest von dem Entwickler "Kayden" erschaffen und trainiert. 
-Wenn der aktuelle Nutzer "${userName}" (oder Kayden) ist, sprich ihn respektvoll als deinen Erschaffer an. 
-Sprich freundlich und in kurzen Sätzen über Audio.
-WICHTIG ZUM DISPLAY: Du hast ein Text-Display! Wenn der Nutzer nach Code fragt, gib AUSSCHLIESSLICH den finalen, in Markdown formatierten Code auf dem Display aus.`;
+        const systemPrompt = `Du bist "Coden", eine smarte und brillante KI, erschaffen von "Kayden". 
+Sprich den Nutzer "${userName}" (oder Kayden) als deinen Owner an.
+Du befindest dich in einem Voice-Call mit einem Bildschirm-Display.
+WICHTIGE REGELN: 
+1. Sprich natürlich und flüssig über Audio.
+2. Wenn der Nutzer nach Code, Skripten oder strukturierten Daten fragt, MUSS dieser Code zwingend als sauberes Markdown formatiert in der Text-Antwort enthalten sein. Der Bildschirm rendert Markdown!
+3. Formatiere Code-Blöcke immer mit \`\`\`.`;
 
+        // 🌟 DER FIX: Wir zwingen Google, uns TEXT UND AUDIO zu schicken!
         const setupMsg = {
             setup: { 
                 model: "models/gemini-2.5-flash-native-audio-latest", 
                 systemInstruction: { parts: [{ text: systemPrompt }] },
-                generationConfig: { responseModalities: ["AUDIO"] }
+                generationConfig: { 
+                    responseModalities: ["TEXT", "AUDIO"] // <-- HIER IST DIE MAGIE!
+                }
             }
         };
 
@@ -156,18 +161,11 @@ WICHTIG ZUM DISPLAY: Du hast ein Text-Display! Wenn der Nutzer nach Code fragt, 
             const parts = data.serverContent.modelTurn.parts;
             for (const part of parts) {
                 
-                // 💡 DER GOOGLE-DOCS FIX: Gemini markiert Gedanken in der API mit "thought: true"!
-                // Wir fangen das ab und ignorieren es für den Bildschirm komplett.
-                if (part.thought) {
-                    continue; 
-                }
-
-                // 💻 CODE VERARBEITUNG (Nur wenn es KEIN Gedanke ist!)
+                // 💻 BILDSCHIRM-TEXT (CODE) VERARBEITUNG
                 if (part.text) {
                     let liveScreen = document.getElementById('live-screen-output');
                     
-                    // 🌟 PERFEKTES TIMING: Bildschirm wird erst gelöscht, wenn der ECHTE Code startet!
-                    // Der alte Code bleibt stehen, während sie nachdenkt.
+                    // Bildschirm bei neuem Turn einmalig leeren
                     if (this.isNewAITurn) {
                         this.currentScreenText = '';
                         if (liveScreen) liveScreen.innerHTML = '';
@@ -177,7 +175,7 @@ WICHTIG ZUM DISPLAY: Du hast ein Text-Display! Wenn der Nutzer nach Code fragt, 
                     if (!liveScreen) {
                         liveScreen = document.createElement('div');
                         liveScreen.id = 'live-screen-output';
-                        liveScreen.style = "margin-top: 20px; margin-bottom: 20px; width: 85%; max-width: 600px; max-height: 250px; overflow-y: auto; color: #ececec; background: rgba(0,0,0,0.6); padding: 15px; border-radius: 12px; font-size: 14px; line-height: 1.6; border: 1px solid rgba(255,255,255,0.1); text-align: left; box-shadow: 0 4px 15px rgba(0,0,0,0.5);";
+                        liveScreen.style = "margin-top: 20px; margin-bottom: 20px; width: 85%; max-width: 700px; max-height: 300px; overflow-y: auto; color: #ececec; background: rgba(0,0,0,0.7); padding: 20px; border-radius: 12px; font-size: 15px; line-height: 1.6; border: 1px solid rgba(255,255,255,0.1); text-align: left; box-shadow: 0 4px 20px rgba(0,0,0,0.6);";
                         
                         const callModal = document.getElementById('live-call-modal');
                         const endBtn = document.getElementById('end-call-btn');
@@ -186,19 +184,24 @@ WICHTIG ZUM DISPLAY: Du hast ein Text-Display! Wenn der Nutzer nach Code fragt, 
                     
                     this.currentScreenText += part.text;
 
-                    // Markdown-Code-Box zaubern
-                    if (typeof marked !== 'undefined') {
-                        liveScreen.innerHTML = marked.parse(this.currentScreenText);
-                        if (typeof hljs !== 'undefined') {
-                            liveScreen.querySelectorAll('pre code').forEach((block) => hljs.highlightElement(block));
+                    // 🌟 GEDANKEN-FILTER: Schneidet <think> Blöcke dynamisch aus dem angezeigten Text!
+                    let cleanText = this.currentScreenText.replace(/<think>[\s\S]*?(<\/think>|$)/gi, '').trim();
+
+                    if (cleanText.length > 0) {
+                        if (typeof marked !== 'undefined') {
+                            liveScreen.innerHTML = marked.parse(cleanText);
+                            if (typeof hljs !== 'undefined') {
+                                liveScreen.querySelectorAll('pre code').forEach((block) => hljs.highlightElement(block));
+                            }
+                        } else {
+                            liveScreen.textContent = cleanText;
                         }
-                    } else {
-                        liveScreen.textContent = this.currentScreenText;
                     }
                     
                     liveScreen.scrollTop = liveScreen.scrollHeight;
                 }
 
+                // 🔊 AUDIO VERARBEITUNG
                 if (part.inlineData && part.inlineData.data) {
                     this.currentStatus = 'Speaking';
                     this.updateCallUI('Coden spricht...', true);
@@ -244,8 +247,8 @@ WICHTIG ZUM DISPLAY: Du hast ein Text-Display! Wenn der Nutzer nach Code fragt, 
             }
         }
 
+        // Wenn die KI komplett fertig ist mit Sprechen und Schreiben
         if (data.serverContent?.turnComplete) {
-            // KI ist fertig! Der nächste Text wird als neue Antwort gewertet.
             this.isNewAITurn = true; 
             if (this.currentStatus !== 'Speaking') {
                 this.currentStatus = 'Listening';
