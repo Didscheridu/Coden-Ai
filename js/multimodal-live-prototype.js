@@ -22,7 +22,7 @@ export class MultimodalLivePrototype {
         this.nextPlaybackTime = 0; 
         
         this.currentScreenText = '';
-        this.isNewAITurn = true; // 🔥 NEU: Überwacht, wann eine WIRKLICH neue Antwort kommt
+        this.isNewAITurn = true; // 🌟 Überwacht, wann der ECHTE Text beginnt
 
         if (!document.getElementById('call-animations')) {
             const style = document.createElement('style');
@@ -94,7 +94,7 @@ export class MultimodalLivePrototype {
 Du wurdest von dem Entwickler "Kayden" erschaffen und trainiert. 
 Wenn der aktuelle Nutzer "${userName}" (oder Kayden) ist, sprich ihn respektvoll als deinen Erschaffer an. 
 Sprich freundlich und in kurzen Sätzen über Audio.
-WICHTIG ZUM DISPLAY: Du hast ein Text-Display! Schreibe KEINE internen Gedankengänge auf das Display! Wenn der Nutzer nach Code fragt, gib AUSSCHLIESSLICH den finalen, in Markdown formatierten Code auf dem Display aus.`;
+WICHTIG ZUM DISPLAY: Du hast ein Text-Display! Wenn der Nutzer nach Code fragt, gib AUSSCHLIESSLICH den finalen, in Markdown formatierten Code auf dem Display aus.`;
 
         const setupMsg = {
             setup: { 
@@ -156,11 +156,18 @@ WICHTIG ZUM DISPLAY: Du hast ein Text-Display! Schreibe KEINE internen Gedankeng
             const parts = data.serverContent.modelTurn.parts;
             for (const part of parts) {
                 
-                // 💻 CODE & TEXT VERARBEITUNG
+                // 💡 DER GOOGLE-DOCS FIX: Gemini markiert Gedanken in der API mit "thought: true"!
+                // Wir fangen das ab und ignorieren es für den Bildschirm komplett.
+                if (part.thought) {
+                    continue; 
+                }
+
+                // 💻 CODE VERARBEITUNG (Nur wenn es KEIN Gedanke ist!)
                 if (part.text) {
                     let liveScreen = document.getElementById('live-screen-output');
                     
-                    // 🌟 FIX 1: Bildschirm NUR löschen, wenn Coden eine NEUE Antwort anfängt!
+                    // 🌟 PERFEKTES TIMING: Bildschirm wird erst gelöscht, wenn der ECHTE Code startet!
+                    // Der alte Code bleibt stehen, während sie nachdenkt.
                     if (this.isNewAITurn) {
                         this.currentScreenText = '';
                         if (liveScreen) liveScreen.innerHTML = '';
@@ -179,20 +186,14 @@ WICHTIG ZUM DISPLAY: Du hast ein Text-Display! Schreibe KEINE internen Gedankeng
                     
                     this.currentScreenText += part.text;
 
-                    // 🌟 FIX 2: Unsichtbarer Filter für die "Gedanken" (<think>...</think>)
-                    // Dies schneidet alles heraus, was zwischen Denk-Tags steht, auch wenn sie noch nicht geschlossen sind!
-                    let cleanText = this.currentScreenText.replace(/<[tT]hink>[\s\S]*?(<\/[tT]hink>|$)/g, '').trim();
-
-                    // Nur rendern, wenn nach dem Filtern noch echter Text (oder Code) übrig ist
-                    if (cleanText.length > 0) {
-                        if (typeof marked !== 'undefined') {
-                            liveScreen.innerHTML = marked.parse(cleanText);
-                            if (typeof hljs !== 'undefined') {
-                                liveScreen.querySelectorAll('pre code').forEach((block) => hljs.highlightElement(block));
-                            }
-                        } else {
-                            liveScreen.textContent = cleanText;
+                    // Markdown-Code-Box zaubern
+                    if (typeof marked !== 'undefined') {
+                        liveScreen.innerHTML = marked.parse(this.currentScreenText);
+                        if (typeof hljs !== 'undefined') {
+                            liveScreen.querySelectorAll('pre code').forEach((block) => hljs.highlightElement(block));
                         }
+                    } else {
+                        liveScreen.textContent = this.currentScreenText;
                     }
                     
                     liveScreen.scrollTop = liveScreen.scrollHeight;
@@ -244,7 +245,7 @@ WICHTIG ZUM DISPLAY: Du hast ein Text-Display! Schreibe KEINE internen Gedankeng
         }
 
         if (data.serverContent?.turnComplete) {
-            // 🌟 FIX 3: KI ist fertig. Nächster Text löscht den alten Bildschirm.
+            // KI ist fertig! Der nächste Text wird als neue Antwort gewertet.
             this.isNewAITurn = true; 
             if (this.currentStatus !== 'Speaking') {
                 this.currentStatus = 'Listening';
@@ -294,8 +295,6 @@ WICHTIG ZUM DISPLAY: Du hast ein Text-Display! Schreibe KEINE internen Gedankeng
         if (average > 15) { 
             if (statusText && statusText.textContent !== 'Du sprichst...') {
                 statusText.textContent = 'Du sprichst...';
-                // ❌ HIER WURDE DER LÖSCH-BEFEHL FÜR DEN BILDSCHIRM ENTFERNT!
-                // Das Fenster bleibt jetzt offen, auch wenn du redest!
             }
             if (avatarContainer) {
                 const scale = 1 + (average / 255) * 0.4;
