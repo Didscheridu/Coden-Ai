@@ -308,10 +308,11 @@ function initApp() {
                     multimodalLive.stopSession(liveCallBtn, liveStatusIndicator);
                 } else {
                     if (!currentSelectedModel.includes('flash')) {
-                        alert("❌ Nativer Sprachmodus benötigt Gemini 2.5 Flash!");
+                        alert("❌ Nativer Sprachmodus benötigt Coden Flash!");
                         return;
                     }
-                    multimodalLive.initSession(liveCallBtn, liveStatusIndicator);
+                    // 🔥 NEU: Wir übergeben das Gedächtnis an den Anruf!
+                    multimodalLive.initSession(liveCallBtn, liveStatusIndicator, currentSession.messages);
                 }
             });
         }
@@ -1070,3 +1071,24 @@ async function generateChatTitle(firstMessage) {
 
 if (chatInput) { chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }); }
 if (sendBtn) { sendBtn.addEventListener('click', handleSend); }
+
+
+// 🎙️ MEMORY-LOOP: Speichert, was die KI im Anruf sagt, in den Chat-Verlauf!
+document.addEventListener('liveAITurnComplete', (e) => {
+    const text = e.detail;
+    if (text && text.trim().length > 0 && currentSession) {
+        // Wir machen daraus eine schöne "Sprachnotiz" im Chat
+        const displayMsg = `📞 *KI im Live-Call:* ${text.trim()}`;
+        
+        // In die UI einfügen (false = KI, false = keine Tipp-Animation für schnelles Laden)
+        UI.appendMessage(displayMsg, false, false); 
+        
+        // Im Verlauf speichern
+        currentSession.messages.push({ text: displayMsg, isUser: false });
+        
+        // Ohne große Bilder abspeichern, um Speicherplatz zu sparen
+        const sessionsToSave = JSON.parse(JSON.stringify(sessions));
+        sessionsToSave.forEach(s => s.messages.forEach(m => { if (m.images) delete m.images; }));
+        Storage.saveSessions(sessionsToSave);
+    }
+});
