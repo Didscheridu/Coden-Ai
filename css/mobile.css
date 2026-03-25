@@ -38,8 +38,10 @@
     }
 
     /* 4. CHAT INPUT BEREICH (Kompakter für den Daumen) */
+    /* 4. CHAT INPUT BEREICH (Kompakter für den Daumen) */
     .input-section {
-        padding: 10px;
+        /* Oben/Links/Rechts 10px, aber UNTEN massiv Platz für die Handy-Wischleiste! */
+        padding: 10px 10px calc(25px + env(safe-area-inset-bottom, 25px)) 10px !important;
     }
     
     .input-box {
