@@ -6,6 +6,7 @@ import { Storage } from './storage.js';
 import { loginWithGoogle, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, auth, db } from './firebase-init.js';
 import { doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { checkRateLimit } from './Limit-Spamschutz.js';
+import { MultimodalLivePrototype } from './multimodal-live-prototype.js'; // 🔥 NEU: Der Live Client 🔥
 
 // ==========================================
 // 🏗️ 1. ALLE DOM-ELEMENTE
@@ -269,36 +270,43 @@ function forceModelChange(newModel, msg) {
     if (!isOwner) UI.appendMessage(msg, false);
 }
 
+// js/app.js
+
+// ... (ganz viel Code ...) ...
+
+// 🔥 NEU: Wir erstellen eine Instanz des Live-Clients 🔥
+const multimodalLive = new MultimodalLivePrototype();
+
 function initApp() {
     try {
-        appInitialized = true;
-        sessions = Storage.getSessions();
-        if (sessions.length === 0) { 
-            currentSession = Storage.createNewSession(); 
-            sessions.push(currentSession); 
-            Storage.saveSessions(sessions); 
-        } else { 
-            currentSession = sessions[0]; 
-        }
+        appInitialized = true; sessions = Storage.getSessions();
+        if (sessions.length === 0) { currentSession = Storage.createNewSession(); sessions.push(currentSession); Storage.saveSessions(sessions); } else { currentSession = sessions[0]; }
         activeSessionId = currentSession.id;
+        // ... (ganz viel Code ...) ...
+        document.addEventListener('loadChatSession', (e) => loadSession(e.detail)); document.addEventListener('deleteChatSession', (e) => deleteSession(e.detail));
 
-        const settings = Storage.getSettings();
-        document.documentElement.style.setProperty('--chat-font-size', (settings.fontSize || 15) + 'px');
-
-        UI.resetUI(); 
-        UI.renderSidebar(sessions, activeSessionId);
-        if (currentSession.messages.length > 0) {
-            currentSession.messages.forEach(msg => UI.appendMessage(msg.text, msg.isUser));
+        // 🔥 NEU: Event-Listener für den Live Call Button 🔥
+        const liveCallBtn = document.getElementById('live-call-btn');
+        const liveStatusIndicator = document.getElementById('live-status-indicator');
+        if (liveCallBtn && liveStatusIndicator) {
+            liveCallBtn.addEventListener('click', () => {
+                if (multimodalLive.isSessionActive) {
+                    multimodalLive.stopSession(liveCallBtn, liveStatusIndicator);
+                } else {
+                    // Wir müssen Gemini 2.5 Flash NATIV verwenden!
+                    // Gemini Pro (normal) kann Native Audio nicht nativ streamen!
+                    if (!currentSelectedModel.includes('flash')) {
+                        alert("❌ Nativer Sprachmodus benötigt Gemini 2.5 Flash!");
+                        return;
+                    }
+                    multimodalLive.initSession(liveCallBtn, liveStatusIndicator);
+                }
+            });
         }
-        
-        const opt = document.querySelector(`.model-option[data-model="${currentSelectedModel}"]`);
-        const textEl = document.getElementById('current-model-text');
-        if (opt && textEl) textEl.textContent = opt.querySelector('.name').textContent;
-
-        document.addEventListener('loadChatSession', (e) => loadSession(e.detail));
-        document.addEventListener('deleteChatSession', (e) => deleteSession(e.detail));
     } catch(e) {}
 }
+
+// ... (ganz viel Code bis zum Ende ...) ...
 
 // ==========================================
 // 🚀 6. OWNER COMMANDS (Vollständig!)
