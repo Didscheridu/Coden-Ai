@@ -98,13 +98,13 @@ WICHTIGE REGELN:
 2. Wenn der Nutzer nach Code, Skripten oder strukturierten Daten fragt, MUSS dieser Code zwingend als sauberes Markdown formatiert in der Text-Antwort enthalten sein. Der Bildschirm rendert Markdown!
 3. Formatiere Code-Blöcke immer mit \`\`\`.`;
 
-        // 🌟 DER FIX: Wir zwingen Google, uns TEXT UND AUDIO zu schicken!
+        // 🌟 DER FIX: Google erlaubt hier strikt NUR "AUDIO" (Text/Code kommt trotzdem automatisch mit!)
         const setupMsg = {
             setup: { 
                 model: "models/gemini-2.5-flash-native-audio-latest", 
                 systemInstruction: { parts: [{ text: systemPrompt }] },
                 generationConfig: { 
-                    responseModalities: ["TEXT", "AUDIO"] // <-- HIER IST DIE MAGIE!
+                    responseModalities: ["AUDIO"] // ❌ "TEXT" entfernt, das hat den Error 1007 verursacht!
                 }
             }
         };
