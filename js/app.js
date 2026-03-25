@@ -729,52 +729,6 @@ function deleteSession(id) {
     UI.renderSidebar(sessions, activeSessionId); 
 }
 
-// ==========================================
-// 🎤 9. SPRACHERKENNUNG
-// ==========================================
-let recognition = null; 
-let isListening = false;
-
-if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition; 
-    recognition = new SpeechRecognition(); 
-    recognition.lang = 'de-DE'; 
-    recognition.interimResults = false; 
-    recognition.continuous = false;
-    
-    recognition.onstart = () => { 
-        isListening = true; 
-        if (micBtn) micBtn.style.color = '#ff4444'; 
-        if (chatInput) chatInput.placeholder = 'Höre zu...'; 
-    };
-    
-    recognition.onresult = (e) => { 
-        let finalTranscript = ''; 
-        for (let i = e.resultIndex; i < e.results.length; ++i) {
-            if (e.results[i].isFinal) finalTranscript += e.results[i][0].transcript; 
-        }
-        if (finalTranscript && chatInput) { 
-            chatInput.value = (chatInput.value + ' ' + finalTranscript).trim(); 
-            chatInput.dispatchEvent(new Event('input')); 
-        } 
-    };
-    
-    recognition.onerror = () => stopListening(); 
-    recognition.onend = () => stopListening();
-}
-
-function stopListening() { 
-    isListening = false; 
-    if (micBtn) micBtn.style.color = 'var(--text-secondary)'; 
-    if (chatInput) chatInput.placeholder = 'Prompt eingeben...'; 
-}
-
-if (micBtn) {
-    micBtn.addEventListener('click', () => { 
-        if (!recognition) return alert('Dein Browser unterstützt keine Spracherkennung.'); 
-        isListening ? recognition.stop() : recognition.start(); 
-    });
-}
 
 // ==========================================
 // 📧 10. E-MAIL VERSAND
