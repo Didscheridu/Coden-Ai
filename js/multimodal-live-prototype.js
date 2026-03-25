@@ -38,16 +38,24 @@ export class MultimodalLivePrototype {
         if (callModal) callModal.classList.remove('hidden');
         if (endCallBtn) endCallBtn.onclick = () => this.stopSession(liveCallBtn, liveStatusIndicator);
         
-        this.updateCallUI('Verbinde...');
+        this.updateCallUI('Hole Server-Zulassung...');
         
-        const settings = Storage.getSettings() || {};
-        const apiKey = settings.apiKey || CONFIG.apiKey;
-
-        if (!apiKey) {
-            this.updateCallUI('❌ Kein API Key!');
+        // 🔒 DER PROFI-FIX: Wir holen den API-Key sicher aus dem Vercel-Backend!
+        let apiKey;
+        try {
+            const response = await fetch('/api/get-live-key');
+            const data = await response.json();
+            
+            if (!response.ok || !data.key) throw new Error(data.error || 'Key nicht gefunden');
+            apiKey = data.key;
+        } catch (err) {
+            console.error("Backend Key Error:", err);
+            this.updateCallUI('❌ Server-Key Fehler!');
             setTimeout(() => this.stopSession(liveCallBtn, liveStatusIndicator), 3000);
             return;
         }
+
+        this.updateCallUI('Verbinde mit Google...');
 
         const endpoint = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${apiKey}`;
 
