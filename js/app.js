@@ -279,13 +279,27 @@ const multimodalLive = new MultimodalLivePrototype();
 
 function initApp() {
     try {
-        appInitialized = true; sessions = Storage.getSessions();
-        if (sessions.length === 0) { currentSession = Storage.createNewSession(); sessions.push(currentSession); Storage.saveSessions(sessions); } else { currentSession = sessions[0]; }
+        appInitialized = true; 
+        sessions = Storage.getSessions();
+        
+        // Session laden oder neu erstellen
+        if (sessions.length === 0) { 
+            currentSession = Storage.createNewSession(); 
+            sessions.push(currentSession); 
+            Storage.saveSessions(sessions); 
+        } else { 
+            currentSession = sessions[0]; 
+        }
         activeSessionId = currentSession.id;
-        // ... (ganz viel Code ...) ...
-        document.addEventListener('loadChatSession', (e) => loadSession(e.detail)); document.addEventListener('deleteChatSession', (e) => deleteSession(e.detail));
+        
+        // 🔥 DER FIX: Wir zwingen die App, den Chat jetzt auch wirklich auf den Bildschirm zu malen!
+        loadSession(activeSessionId);
 
-        // 🔥 NEU: Event-Listener für den Live Call Button 🔥
+        // Event-Listener für Chats
+        document.addEventListener('loadChatSession', (e) => loadSession(e.detail)); 
+        document.addEventListener('deleteChatSession', (e) => deleteSession(e.detail));
+
+        // Live Call Button
         const liveCallBtn = document.getElementById('live-call-btn');
         const liveStatusIndicator = document.getElementById('live-status-indicator');
         if (liveCallBtn && liveStatusIndicator) {
@@ -293,8 +307,6 @@ function initApp() {
                 if (multimodalLive.isSessionActive) {
                     multimodalLive.stopSession(liveCallBtn, liveStatusIndicator);
                 } else {
-                    // Wir müssen Gemini 2.5 Flash NATIV verwenden!
-                    // Gemini Pro (normal) kann Native Audio nicht nativ streamen!
                     if (!currentSelectedModel.includes('flash')) {
                         alert("❌ Nativer Sprachmodus benötigt Gemini 2.5 Flash!");
                         return;
@@ -303,7 +315,7 @@ function initApp() {
                 }
             });
         }
-    } catch(e) {}
+    } catch(e) { console.error("Fehler beim Init:", e); }
 }
 
 // ... (ganz viel Code bis zum Ende ...) ...
