@@ -21,6 +21,11 @@ export class MultimodalLivePrototype {
         this.setupCompleteReceived = false;
         this.nextPlaybackTime = 0; 
 
+        // 🧠 MEMORY-VARIABLEN
+        this.chatHistory = []; 
+        this.currentScreenText = ''; 
+        this.isNewAITurn = true;
+
         if (!document.getElementById('call-animations')) {
             const style = document.createElement('style');
             style.id = 'call-animations';
@@ -32,8 +37,13 @@ export class MultimodalLivePrototype {
         }
     }
 
-    async initSession(liveCallBtn, liveStatusIndicator) {
+    // 🔥 NEU: Nimmt die chatHistory aus der app.js entgegen
+    async initSession(liveCallBtn, liveStatusIndicator, chatHistory = []) {
         if (this.isSessionActive) return;
+
+        this.chatHistory = chatHistory; // Historie speichern
+        this.currentScreenText = ''; 
+        this.isNewAITurn = true;
 
         const callModal = document.getElementById('live-call-modal');
         const endCallBtn = document.getElementById('end-call-btn');
@@ -43,7 +53,6 @@ export class MultimodalLivePrototype {
         if (endCallBtn) endCallBtn.onclick = () => this.stopSession(liveCallBtn, liveStatusIndicator);
         if (subtitle) subtitle.style.display = 'none'; 
         
-        // Falls noch ein altes Fenster existiert, räumen wir es weg
         const oldScreen = document.getElementById('live-screen-output');
         if (oldScreen) oldScreen.remove();
 
@@ -83,23 +92,33 @@ export class MultimodalLivePrototype {
         const settings = Storage.getSettings() || {};
         const userName = settings.userName || 'Gast';
 
-        // 🧠 DER NEUE PROMPT: Coden weiß jetzt, dass sie keinen Bildschirm hat!
+        // 🧠 GEDÄCHTNIS AUFBEREITEN: Wir packen den bisherigen Chat-Verlauf in ihren Kopf!
+        let historyString = "";
+        if (this.chatHistory && this.chatHistory.length > 0) {
+            historyString = "\n\n--- DEIN GEDÄCHTNIS (BISHERIGER CHAT) ---\n";
+            // Lade die letzten 15 Nachrichten, damit der Prompt nicht platzt
+            const recentHistory = this.chatHistory.slice(-15);
+            recentHistory.forEach(msg => {
+                // Wir entfernen optische Emoji-Markierungen, damit sie sich aufs Wesentliche konzentriert
+                let cleanText = msg.text.replace('📞 *KI im Live-Call:* ', '');
+                historyString += `${msg.isUser ? 'Nutzer' : 'Du'}: ${cleanText}\n`;
+            });
+            historyString += "-----------------------------------\nNutze dieses Wissen zwingend, um Zusammenhänge im folgenden Gespräch zu verstehen!";
+        }
+
+        // Wir hängen das Gedächtnis an den System-Prompt an
         const systemPrompt = `Du bist "Coden", eine smarte und empathische KI, erschaffen von dem Entwickler "Kayden". 
 Sprich den Nutzer "${userName}" mit seinem Namen an!
 WICHTIGE REGELN FÜR DIESES GESPRÄCH:
-1. Du bist eine REINE Audio-KI. Du hast KEINEN Bildschirm und KEIN Text-Display zur Verfügung!
-2. Wenn der Nutzer nach Code oder Skripten fragt, erkläre das Konzept verbal. 
-3. Sag dem Nutzer freundlich, dass du als Voice-KI keinen Code aufschreiben kannst, sondern nur darüber reden kannst.
-4. Antworte in kurzen, natürlichen Sätzen, wie bei einem echten Telefonat.`;
+1. Du bist eine REINE Audio-KI. Du hast KEINEN Bildschirm!
+2. Wenn der Nutzer nach Code fragt, erkläre das Konzept verbal.
+3. Antworte in kurzen, natürlichen Sätzen.${historyString}`;
 
-        // Pures Audio-Setup (Stabil & Error-Free)
         const setupMsg = {
             setup: { 
                 model: "models/gemini-2.5-flash-native-audio-latest", 
                 systemInstruction: { parts: [{ text: systemPrompt }] },
-                generationConfig: { 
-                    responseModalities: ["AUDIO"] 
-                }
+                generationConfig: { responseModalities: ["AUDIO"] }
             }
         };
 
@@ -151,10 +170,19 @@ WICHTIGE REGELN FÜR DIESES GESPRÄCH:
             return;
         }
 
-        // 🔊 REINE AUDIO VERARBEITUNG
         if (data.serverContent?.modelTurn?.parts) {
             const parts = data.serverContent.modelTurn.parts;
             for (const part of parts) {
+                
+                // 🧠 HACK: Wir lesen heimlich das Transkript von dem, was die KI spricht!
+                if (part.text && !part.thought) {
+                    if (this.isNewAITurn) {
+                        this.currentScreenText = '';
+                        this.isNewAITurn = false;
+                    }
+                    this.currentScreenText += part.text;
+                }
+
                 if (part.inlineData && part.inlineData.data) {
                     this.currentStatus = 'Speaking';
                     this.updateCallUI('Coden spricht...', true);
@@ -200,7 +228,17 @@ WICHTIGE REGELN FÜR DIESES GESPRÄCH:
             }
         }
 
+        // 🏁 WENN DIE KI FERTIG GESPROCHEN HAT...
         if (data.serverContent?.turnComplete) {
+            
+            // 🧠 ...SCHICKEN WIR IHRE ANTWORT IN DEN CHAT!
+            if (this.currentScreenText && this.currentScreenText.trim().length > 0) {
+                // Sende Event an app.js, um es im Speicher abzulegen
+                document.dispatchEvent(new CustomEvent('liveAITurnComplete', { detail: this.currentScreenText.trim() }));
+                this.currentScreenText = ''; // Reset für den nächsten Satz
+            }
+
+            this.isNewAITurn = true; 
             if (this.currentStatus !== 'Speaking') {
                 this.currentStatus = 'Listening';
                 this.updateCallUI('Höre zu...', false);
@@ -319,6 +357,7 @@ WICHTIGE REGELN FÜR DIESES GESPRÄCH:
         this.setupCompleteReceived = false;
         this.currentStatus = 'Disconnected';
         this.nextPlaybackTime = 0;
+        this.currentScreenText = '';
         
         const callModal = document.getElementById('live-call-modal');
         if (callModal) {
