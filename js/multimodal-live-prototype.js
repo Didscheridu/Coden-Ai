@@ -127,11 +127,10 @@ export class MultimodalLivePrototype {
         if (!this.systemInstructionSent) {
             const userName = Storage.getSettings().userName || 'Entwickler';
             
-            // 🛠️ Wenn wir "models/gemini-2.5-flash" über die Bidi API nutzen, greift das unbegrenzte Live-API Limit deines Screenshots!
-            // 🛠️ DER FIX: Wir nutzen den exakten, internen Bidi-Codenamen und fordern explizit AUDIO an!
+            // 🛠️ DER ABSOLUTE FIX: Der offizielle, geheime Name von Google! 🚀
             this.websocket.send(JSON.stringify({
                 setup: { 
-                    model: "models/gemini-2.0-flash-exp", 
+                    model: "models/gemini-2.5-flash-native-audio-latest", 
                     systemInstruction: { parts: [{ text: `Du bist Coden, eine KI. Nutzer: ${userName}. Sprich natürlich über Audio.` }] },
                     generationConfig: {
                         responseModalities: ["AUDIO"]
