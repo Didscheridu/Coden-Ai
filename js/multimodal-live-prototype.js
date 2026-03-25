@@ -27,9 +27,6 @@ export class MultimodalLivePrototype {
             style.innerHTML = `
                 @keyframes aiPulse { 0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(43, 108, 176, 0.7); } 50% { transform: scale(1.1); box-shadow: 0 0 0 25px rgba(43, 108, 176, 0); } 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(43, 108, 176, 0); } }
                 .ai-is-speaking { animation: aiPulse 1s infinite; border: 2px solid #2b6cb0; }
-                
-                #live-screen-output pre { background: #1e1e1e; padding: 14px; border-radius: 8px; margin-top: 10px; overflow-x: auto; border: 1px solid rgba(255,255,255,0.1); }
-                #live-screen-output code { font-family: 'Consolas', monospace; font-size: 13px; }
             `;
             document.head.appendChild(style);
         }
@@ -46,6 +43,7 @@ export class MultimodalLivePrototype {
         if (endCallBtn) endCallBtn.onclick = () => this.stopSession(liveCallBtn, liveStatusIndicator);
         if (subtitle) subtitle.style.display = 'none'; 
         
+        // Falls noch ein altes Fenster existiert, räumen wir es weg
         const oldScreen = document.getElementById('live-screen-output');
         if (oldScreen) oldScreen.remove();
 
@@ -85,37 +83,23 @@ export class MultimodalLivePrototype {
         const settings = Storage.getSettings() || {};
         const userName = settings.userName || 'Gast';
 
-        const systemPrompt = `Du bist "Coden", eine smarte und brillante KI, erschaffen von "Kayden". 
+        // 🧠 DER NEUE PROMPT: Coden weiß jetzt, dass sie keinen Bildschirm hat!
+        const systemPrompt = `Du bist "Coden", eine smarte und empathische KI, erschaffen von dem Entwickler "Kayden". 
 Sprich den Nutzer "${userName}" (oder Kayden) als deinen Owner an.
-WICHTIGE REGELN FÜR DEN LIVE-MODUS: 
-1. Du kommunizierst ausschließlich über Audio. Lies Code NIEMALS laut vor!
-2. WENN der Nutzer dich bittet, Code zu schreiben oder ein Skript zu erstellen, MUSST du zwingend das Tool "render_code_on_screen" aufrufen! 
-3. Sprich währenddessen ganz normal weiter (z.B. "Klar, ich lege dir den Code direkt auf den Bildschirm.").`;
+WICHTIGE REGELN FÜR DIESES GESPRÄCH:
+1. Du bist eine REINE Audio-KI. Du hast KEINEN Bildschirm und KEIN Text-Display zur Verfügung!
+2. Wenn der Nutzer nach Code oder Skripten fragt, erkläre das Konzept verbal. 
+3. Sag dem Nutzer freundlich, dass du als Voice-KI keinen Code aufschreiben kannst, sondern nur darüber reden kannst.
+4. Antworte in kurzen, natürlichen Sätzen, wie bei einem echten Telefonat.`;
 
-        // 🌟 DER ABSOLUTE FIX: functionDeclarations mit exakten Kleinbuchstaben! Kein 1008 Error mehr!
+        // Pures Audio-Setup (Stabil & Error-Free)
         const setupMsg = {
             setup: { 
                 model: "models/gemini-2.5-flash-native-audio-latest", 
                 systemInstruction: { parts: [{ text: systemPrompt }] },
                 generationConfig: { 
                     responseModalities: ["AUDIO"] 
-                },
-                tools: [{
-                    functionDeclarations: [{
-                        name: "render_code_on_screen",
-                        description: "Projiziert Code auf den Bildschirm des Nutzers. MUSS aufgerufen werden, um Code zu zeigen.",
-                        parameters: {
-                            type: "object", // 🚀 MUSS KLEINGESCHRIEBEN SEIN!
-                            properties: {
-                                markdown_code: {
-                                    type: "string", // 🚀 MUSS KLEINGESCHRIEBEN SEIN!
-                                    description: "Der Markdown-formatierte Code"
-                                }
-                            },
-                            required: ["markdown_code"]
-                        }
-                    }]
-                }]
+                }
             }
         };
 
@@ -167,58 +151,7 @@ WICHTIGE REGELN FÜR DEN LIVE-MODUS:
             return;
         }
 
-        // 🌟 DIE MAGIE: Coden ruft unser Tool auf, um Code anzuzeigen!
-        if (data.toolCall) {
-            const functionCalls = data.toolCall.functionCalls;
-            if (functionCalls) {
-                for (const call of functionCalls) {
-                    if (call.name === "render_code_on_screen") {
-                        const code = call.args.markdown_code;
-                        
-                        let liveScreen = document.getElementById('live-screen-output');
-                        
-                        // Wenn der Bildschirm schon da ist, machen wir ihn für den neuen Code einmal leer
-                        if (liveScreen) {
-                            liveScreen.innerHTML = '';
-                        } else {
-                            liveScreen = document.createElement('div');
-                            liveScreen.id = 'live-screen-output';
-                            liveScreen.style = "margin-top: 20px; margin-bottom: 20px; width: 85%; max-width: 700px; max-height: 300px; overflow-y: auto; color: #ececec; background: rgba(0,0,0,0.7); padding: 20px; border-radius: 12px; font-size: 15px; line-height: 1.6; border: 1px solid rgba(255,255,255,0.1); text-align: left; box-shadow: 0 4px 20px rgba(0,0,0,0.6);";
-                            
-                            const callModal = document.getElementById('live-call-modal');
-                            const endBtn = document.getElementById('end-call-btn');
-                            callModal.insertBefore(liveScreen, endBtn);
-                        }
-                        
-                        // Bildschirm mit dem Markdown-Code füllen
-                        if (typeof marked !== 'undefined') {
-                            liveScreen.innerHTML = marked.parse(code);
-                            if (typeof hljs !== 'undefined') {
-                                liveScreen.querySelectorAll('pre code').forEach((block) => hljs.highlightElement(block));
-                            }
-                        } else {
-                            liveScreen.textContent = code;
-                        }
-                        liveScreen.scrollTop = liveScreen.scrollHeight;
-
-                        // Wir MÜSSEN Google mitteilen, dass das Tool erfolgreich war, sonst redet sie nicht weiter!
-                        try {
-                            this.websocket.send(JSON.stringify({
-                                toolResponse: {
-                                    functionResponses: [{
-                                        id: call.id,
-                                        name: "render_code_on_screen",
-                                        response: { result: "Code erfolgreich auf dem Bildschirm projiziert." }
-                                    }]
-                                }
-                            }));
-                        } catch (err) {}
-                    }
-                }
-            }
-        }
-
-        // 🔊 AUDIO VERARBEITUNG
+        // 🔊 REINE AUDIO VERARBEITUNG
         if (data.serverContent?.modelTurn?.parts) {
             const parts = data.serverContent.modelTurn.parts;
             for (const part of parts) {
