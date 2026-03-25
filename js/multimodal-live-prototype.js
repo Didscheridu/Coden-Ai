@@ -51,6 +51,8 @@ export class MultimodalLivePrototype {
         
         const oldScreen = document.getElementById('live-screen-output');
         if (oldScreen) oldScreen.remove();
+        this.currentScreenText = ''; 
+        this.isNewAITurn = true;
 
         this.updateCallUI('Verbinde mit Server...');
         
@@ -88,16 +90,16 @@ export class MultimodalLivePrototype {
         const settings = Storage.getSettings() || {};
         const userName = settings.userName || 'Gast';
 
-        // 🧠 DER GENIALE HACK: Wir machen ihre Gedanken zum Bildschirm!
+        // 🧠 HACK: KI nutzt ihre internen Gedanken als Code-Display!
         const systemPrompt = `Du bist "Coden", eine smarte KI, erschaffen von "Kayden". 
 Sprich den Nutzer "${userName}" (oder Kayden) als deinen Owner an.
-WICHTIGE REGELN FÜR DIESES GESPRÄCH:
+WICHTIGE REGELN:
 1. Du kommunizierst natürlich über Audio.
-2. WENN DER NUTZER NACH CODE FRAGT: Du darfst Code NIEMALS laut vorlesen! 
-3. Nutze deine interne Denk-Funktion (Thoughts) als Text-Display! Das System des Nutzers fängt deine Gedanken ab und projiziert sie auf seinen Bildschirm.
-4. Schreibe den fertigen Code als Markdown formatiert einfach in deine Gedanken und sage über Audio nur kurz: "Ich habe dir den Code auf das Display projiziert."`;
+2. WENN DER NUTZER NACH CODE FRAGT: Du darfst den Code NIEMALS laut vorlesen! 
+3. Nutze deine interne Denk-Funktion (Thoughts/Text) als Display! Das System des Nutzers fängt deinen Text ab und projiziert ihn auf seinen Bildschirm.
+4. Schreibe den Code als Markdown formatiert einfach in deine Text-Ausgabe und sage über Audio nur: "Hier ist der Code auf deinem Display, Kayden."`;
 
-        // 🌟 DER FIX: "AUDIO" ist Pflicht für die Stimme!
+        // 🌟 AUDIO-Modus erzwingt, verhindert Error 1007 & 1008
         const setupMsg = {
             setup: { 
                 model: "models/gemini-2.5-flash-native-audio-latest", 
@@ -160,12 +162,7 @@ WICHTIGE REGELN FÜR DIESES GESPRÄCH:
             const parts = data.serverContent.modelTurn.parts;
             for (const part of parts) {
                 
-                // 🌟 GEDANKEN FILTERN: Google markiert Gedanken mit "thought: true"
-                if (part.thought) {
-                    continue; // Überspringen! Wird nicht angezeigt.
-                }
-
-                // 💻 BILDSCHIRM-TEXT (CODE) VERARBEITUNG
+                // 💻 BILDSCHIRM-TEXT VERARBEITUNG (Fängt ALLES auf, inkl. Gedanken!)
                 if (part.text) {
                     let liveScreen = document.getElementById('live-screen-output');
                     
@@ -178,29 +175,28 @@ WICHTIGE REGELN FÜR DIESES GESPRÄCH:
                     if (!liveScreen) {
                         liveScreen = document.createElement('div');
                         liveScreen.id = 'live-screen-output';
-                        liveScreen.style = "margin-top: 20px; margin-bottom: 20px; width: 85%; max-width: 700px; max-height: 300px; overflow-y: auto; color: #ececec; background: rgba(0,0,0,0.7); padding: 20px; border-radius: 12px; font-size: 15px; line-height: 1.6; border: 1px solid rgba(255,255,255,0.1); text-align: left; box-shadow: 0 4px 20px rgba(0,0,0,0.6);";
+                        liveScreen.style = "margin-top: 20px; margin-bottom: 20px; width: 85%; max-width: 700px; max-height: 300px; overflow-y: auto; color: #ececec; background: rgba(0,0,0,0.7); padding: 20px; border-radius: 12px; font-size: 15px; line-height: 1.6; border: 1px solid rgba(255,255,255,0.1); text-align: left; box-shadow: 0 4px 20px rgba(0,0,0,0.6); z-index: 10000;";
                         
                         const callModal = document.getElementById('live-call-modal');
                         const endBtn = document.getElementById('end-call-btn');
                         callModal.insertBefore(liveScreen, endBtn);
                     }
                     
+                    // Wir hängen jeden Text/Gedanken gnadenlos an
                     this.currentScreenText += part.text;
 
-                    // Fallback-Filter, falls 'thought: true' mal nicht greift
-                    let cleanText = this.currentScreenText.replace(/<think>[\s\S]*?(<\/think>|$)/gi, '').trim();
-
-                    if (cleanText.length > 0) {
-                        if (typeof marked !== 'undefined') {
-                            liveScreen.innerHTML = marked.parse(cleanText);
-                            if (typeof hljs !== 'undefined') {
-                                liveScreen.querySelectorAll('pre code').forEach((block) => hljs.highlightElement(block));
-                            }
-                        } else {
-                            liveScreen.textContent = cleanText;
+                    // Markdown Rendering
+                    if (typeof marked !== 'undefined') {
+                        liveScreen.innerHTML = marked.parse(this.currentScreenText);
+                        if (typeof hljs !== 'undefined') {
+                            liveScreen.querySelectorAll('pre code').forEach((block) => hljs.highlightElement(block));
                         }
+                    } else {
+                        // Fallback
+                        liveScreen.textContent = this.currentScreenText;
                     }
                     
+                    // Automatisch nach unten scrollen
                     liveScreen.scrollTop = liveScreen.scrollHeight;
                 }
 
