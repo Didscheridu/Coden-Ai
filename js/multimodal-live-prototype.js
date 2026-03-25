@@ -23,26 +23,22 @@ export class MultimodalLivePrototype {
         this.chatHistory = []; 
         this.currentScreenText = ''; 
         this.isNewAITurn = true;
-
-        // Wir werfen die alten CSS-pulsationen raus, Three.js kümmert sich jetzt!
     }
 
     async initSession(liveCallBtn, liveStatusIndicator, chatHistory = []) {
         if (this.isSessionActive) return;
 
-        this.chatHistory = chatHistory; this.currentScreenText = ''; this.isNewAITurn = true;
+        this.chatHistory = chatHistory; 
+        this.currentScreenText = ''; 
+        this.isNewAITurn = true;
 
         const callModal = document.getElementById('live-call-modal');
         const endCallBtn = document.getElementById('end-call-btn');
-        const subtitle = document.getElementById('call-subtitle');
         
         if (callModal) callModal.classList.remove('hidden');
         if (endCallBtn) endCallBtn.onclick = () => this.stopSession(liveCallBtn, liveStatusIndicator);
         
-        // 🌟 NEU: Wir starten die WebGL Partikel-Engine!
-        if (window.ParticleEngine) window.ParticleEngine.start();
-
-        this.updateCallUI('Verbinde mit Server...');
+        this.updateCallUI('Verbinde...');
         
         const settings = Storage.getSettings() || {};
         const apiKey = settings.apiKey || CONFIG.apiKey;
@@ -73,9 +69,8 @@ export class MultimodalLivePrototype {
         this.lastSpeakTime = null;
         this.nextPlaybackTime = 0; 
         
-        this.updateCallUI('Konfiguriere Pro Audio...');
+        this.updateCallUI('Konfiguriere KI...');
 
-        // (unveränderter Gedächtnis-Prompt Logik) ...
         const settings = Storage.getSettings() || {};
         const userName = settings.userName || 'Gast';
 
@@ -124,7 +119,7 @@ WICHTIGE REGELN:
             this.analyser.connect(this.audioProcessor);
             this.audioProcessor.connect(this.audioContext.destination);
 
-            this.visualizeUserAudio(); // Startet die Mikrofon-Zuhör-Schleife
+            this.visualizeUserAudio(); 
 
         } catch (error) {
             this.updateCallUI('❌ Mikrofon blockiert!');
@@ -136,7 +131,7 @@ WICHTIGE REGELN:
         let data;
         try { let rawData = event.data; if (rawData instanceof Blob) rawData = await rawData.text(); data = JSON.parse(rawData); } catch (e) { return; }
 
-        if (data.setupComplete) { this.setupCompleteReceived = true; this.updateCallUI('Höre Pro Audio zu...'); return; }
+        if (data.setupComplete) { this.setupCompleteReceived = true; this.updateCallUI('Höre zu...'); return; }
 
         if (data.serverContent?.modelTurn?.parts) {
             const parts = data.serverContent.modelTurn.parts;
@@ -145,10 +140,8 @@ WICHTIGE REGELN:
 
                 if (part.inlineData && part.inlineData.data) {
                     this.currentStatus = 'Speaking';
-                    // Wir aktualisieren UI nur, wenn sich Text ändert, um GPU zu sparen
-                    this.updateCallUI('Coden spricht Pro Audio...', true); 
+                    this.updateCallUI('Coden spricht...', true); 
                     
-                    // (unveränderte Audio-Wiedergabe-Logik) ...
                     try {
                         const base64 = part.inlineData.data; const binaryString = window.atob(base64); const buffer = new ArrayBuffer(binaryString.length); const view = new DataView(buffer);
                         for (let i = 0; i < binaryString.length; i++) { view.setUint8(i, binaryString.charCodeAt(i)); }
@@ -158,9 +151,6 @@ WICHTIGE REGELN:
                         const audioBuffer = this.audioContext.createBuffer(1, float32Array.length, 24000); audioBuffer.getChannelData(0).set(float32Array);
                         const source = this.audioContext.createBufferSource(); source.buffer = audioBuffer; source.connect(this.audioContext.destination);
                         
-                        // 🌟 NEU: Wir analysieren auch das KI-Audio, um das Viereck morphen zu lassen!
-                        // Da wir kein KI-Analyser haben, emulieren wir es einfach über Shader Uniforms (siehe ParticleEngine.updateAudio).
-
                         if (this.nextPlaybackTime < this.audioContext.currentTime) { this.nextPlaybackTime = this.audioContext.currentTime; }
                         source.start(this.nextPlaybackTime); this.nextPlaybackTime += audioBuffer.duration;
                         
@@ -188,70 +178,71 @@ WICHTIGE REGELN:
         const inputBuffer = audioProcessingEvent.inputBuffer;
         const inputData = inputBuffer.getChannelData(0); 
         
-        // (unveränderte PCM-Logik) ...
         const int16PCM = new Int16Array(inputData.length);
         for (let i = 0; i < inputData.length; i++) { let s = Math.max(-1, Math.min(1, inputData[i])); int16PCM[i] = s < 0 ? s * 0x8000 : s * 0x7FFF; }
         const base64Audio = this.uint8ArrayToBase64(new Uint8Array(int16PCM.buffer));
         this.websocket.send(JSON.stringify({ realtimeInput: { mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: base64Audio }] } }));
     }
 
-    // 🌟 DIE WICHTIGSTE ÄNDERUNG: Zuhör-Schleife für WebGL 🌟
     visualizeUserAudio() {
         if (!this.isSessionActive) return;
-        requestAnimationFrame(() => this.visualizeUserAudio()); // Die Schleife läuft...
+        requestAnimationFrame(() => this.visualizeUserAudio()); 
 
         if (!this.analyser || !this.dataArray || !this.setupCompleteReceived) return;
 
-        // Wir holen uns die Frequenz-Daten vom Mikrofon
         this.analyser.getByteFrequencyData(this.dataArray);
         let sum = 0;
         for (let i = 0; i < this.dataArray.length; i++) sum += this.dataArray[i];
-        let average = sum / this.dataArray.length; // Der durchschnittliche Audio-Ausschlag (0-255)
+        let average = sum / this.dataArray.length; 
 
-        // 🌟 NEU: Wir schicken die Daten an das WebGL-Viereck!
-        if (window.ParticleEngine && this.currentStatus === 'Listening') {
-            // Wenn der User spricht, lassen wir das Viereck morphen
-            window.ParticleEngine.updateAudio(average, false);
-        } else if (window.ParticleEngine && this.currentStatus === 'Speaking') {
-            // Wenn die KI spricht, nutzen wir den Shader-Puls
-            window.ParticleEngine.updateAudio(average, true);
-        } else if (window.ParticleEngine) {
-            // Still
-            window.ParticleEngine.updateAudio(0, false);
-        }
-
-        // UI-Update (unverändert) ...
         const statusText = document.getElementById('call-status-text');
+        const avatarContainer = document.getElementById('call-avatar-container');
+
         if (average > 15 && this.currentStatus === 'Listening') { 
-            if (statusText && statusText.textContent !== 'Du sprichst Pro Audio...') statusText.textContent = 'Du sprichst Pro Audio...';
+            if (statusText && statusText.textContent !== 'Du sprichst...') statusText.textContent = 'Du sprichst...';
+            if (avatarContainer) {
+                // 🔵 Schaltet den blauen Glow ein
+                avatarContainer.classList.add('user-is-speaking');
+                avatarContainer.classList.remove('ai-is-speaking');
+            }
             this.lastSpeakTime = Date.now();
         } else if (this.currentStatus === 'Listening') {
-            if (this.lastSpeakTime && (Date.now() - this.lastSpeakTime > 800) && (Date.now() - this.lastSpeakTime < 4000)) { if (statusText && statusText.textContent !== 'Coden denkt Pro Audio nach...') statusText.textContent = 'Coden denkt Pro Audio nach...'; } 
-            else if (!this.lastSpeakTime || (Date.now() - this.lastSpeakTime >= 4000)) { if (statusText && statusText.textContent !== 'Höre Pro Audio zu...') statusText.textContent = 'Höre Pro Audio zu...'; }
+            if (avatarContainer) avatarContainer.classList.remove('user-is-speaking');
+
+            if (this.lastSpeakTime && (Date.now() - this.lastSpeakTime > 800) && (Date.now() - this.lastSpeakTime < 4000)) { if (statusText && statusText.textContent !== 'Coden denkt nach...') statusText.textContent = 'Coden denkt nach...'; } 
+            else if (!this.lastSpeakTime || (Date.now() - this.lastSpeakTime >= 4000)) { if (statusText && statusText.textContent !== 'Höre zu...') statusText.textContent = 'Höre zu...'; }
         }
     }
 
     uint8ArrayToBase64(u8Array) { let binary = ''; const len = u8Array.byteLength; for (let i = 0; i < len; i++) { binary += String.fromCharCode(u8Array[i]); } return window.btoa(binary); }
 
     updateCallUI(text, isAiSpeaking = false) {
-        // Wir aktualisieren nur noch den Text, keine CSS-Pulsationen mehr!
         const statusText = document.getElementById('call-status-text');
+        const avatarContainer = document.getElementById('call-avatar-container');
+        
         if (statusText) statusText.textContent = text;
+
+        if (avatarContainer) {
+            if (isAiSpeaking) {
+                // 🟣 Schaltet den violetten KI-Glow ein
+                avatarContainer.classList.add('ai-is-speaking');
+                avatarContainer.classList.remove('user-is-speaking');
+            } else {
+                avatarContainer.classList.remove('ai-is-speaking');
+            }
+        }
     }
 
-    // (unveränderte Close/Error Logik) ...
     handleClose(event, liveCallBtn, liveStatusIndicator) { if (event.code !== 1000 && event.code !== 1005) { const reason = event.reason ? event.reason : "Verbindung getrennt."; this.updateCallUI(`❌ Abbruch (Code ${event.code}): ${reason}`); setTimeout(() => this.stopSession(liveCallBtn, liveStatusIndicator), 5000); } else { this.stopSession(liveCallBtn, liveStatusIndicator); } }
     handleError(event, liveCallBtn, liveStatusIndicator) { this.updateCallUI('❌ WebSocket Fehler!'); setTimeout(() => this.stopSession(liveCallBtn, liveStatusIndicator), 4000); }
 
     stopSession(liveCallBtn, liveStatusIndicator) {
         if (!this.isSessionActive) return;
-        this.updateCallUI('Aufgelegt Pro Audio.');
+        this.updateCallUI('Aufgelegt.');
         
-        // 🌟 NEU: Wir stoppen die WebGL Partikel-Engine, um GPU zu sparen
-        if (window.ParticleEngine) window.ParticleEngine.stop();
-
         if (this.mediaStream) this.mediaStream.getTracks().forEach(track => track.stop()); if (this.audioProcessor) this.audioProcessor.disconnect(); if (this.analyser) this.analyser.disconnect(); if (this.audioContext) this.audioContext.close(); if (this.websocket) this.websocket.close();
         this.websocket = null; this.audioContext = null; this.mediaStream = null; this.audioProcessor = null; this.analyser = null; this.isSessionActive = false; this.setupCompleteReceived = false; this.currentStatus = 'Disconnected'; this.nextPlaybackTime = 0; this.currentScreenText = '';
+        
         const callModal = document.getElementById('live-call-modal'); if (callModal) { setTimeout(() => callModal.classList.add('hidden'), 500); }
     }
 }
