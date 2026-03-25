@@ -16,20 +16,14 @@ export class MultimodalLivePrototype {
         this.BUFFER_SIZE = 1024;  
         this.systemInstructionSent = false;
         
-        // 🗑️ SICHERHEITS-SPERRE WURDE HIER ENTFERNT! 
-        // Läuft jetzt auch auf Vercel.
+        // Die Sicherheits-Sperre wurde entfernt. Läuft jetzt auch auf Vercel!
     }
-}
-    
-
-    async initSession(liveCallBtn, liveStatusIndicator) {
-// ... Rest der Datei bleibt exakt gleich!
 
     async initSession(liveCallBtn, liveStatusIndicator) {
         if (this.isSessionActive || this.currentStatus === 'Error') return;
 
-        console.warn("🔊 [SICHERHEITS-WARNUNG]: Beta Prototyp gestartet. API Key wird über WebSockets im Browser übertragen (only localhost).");
-        this.updateUI(liveCallBtn, liveStatusIndicator, 'Connecting', 'Nativ... (Verbinde)');
+        console.warn("🔊 [SICHERHEITS-WARNUNG]: Beta Prototyp gestartet. API Key wird über WebSockets im Browser übertragen.");
+        this.updateUI(liveCallBtn, liveStatusIndicator, 'Connecting', 'Verbinde...');
         
         const settings = Storage.getSettings();
         const apiKey = settings.apiKey || CONFIG.apiKey;
@@ -40,7 +34,7 @@ export class MultimodalLivePrototype {
             return;
         }
 
-        // Websocket Endpoint von Google AI Studio Beta (Client-Direkt)
+        // Websocket Endpoint von Google AI Studio
         const endpoint = `wss://generativelanguage.googleapis.com/ws/google.ai.studio.v1beta.live?key=${apiKey}`;
 
         try {
@@ -60,7 +54,7 @@ export class MultimodalLivePrototype {
         this.currentStatus = 'Handshake';
         this.systemInstructionSent = false;
         
-        this.updateUI(liveCallBtn, liveStatusIndicator, 'Handshake', 'Nativ... (Funk)');
+        this.updateUI(liveCallBtn, liveStatusIndicator, 'Handshake', 'Initialisiere Audio...');
 
         try {
             // 🎤 Zugriff auf das echte Mikrofon anfordern
@@ -89,43 +83,41 @@ export class MultimodalLivePrototype {
         try {
             data = JSON.parse(event.data);
         } catch (e) {
-            console.error("🔊 [NATIVE AUDIO]: Ungültige JSON Antwort: ", e.data);
+            console.error("🔊 [NATIVE AUDIO]: Ungültige JSON Antwort", e);
             return;
         }
 
-        // --- BETA PCM AUDIO INTERPRETATION ---
-        
-        // 🌟 Wenn die KI Text zurückgibt
-        if (data.text) {
-            // Wir fügen den Text normal dem Chat hinzu, aber OHNE Animation (da wir ja Live sprechen)
-            UI.appendMessage(data.text, false, false);
-            this.currentStatus = 'Speaking';
-            this.updateUI(liveCallBtn, liveStatusIndicator, 'Speaking', 'Coden spricht');
+        // --- GEMINI LIVE API INTERPRETATION ---
+        if (data.serverContent?.modelTurn?.parts) {
+            const parts = data.serverContent.modelTurn.parts;
+            for (const part of parts) {
+                // Wenn die KI Text spricht (als Transkription)
+                if (part.text) {
+                    UI.appendMessage(part.text, false, false);
+                    this.currentStatus = 'Speaking';
+                    this.updateUI(liveCallBtn, liveStatusIndicator, 'Speaking', 'Coden spricht');
+                }
+                // Wenn die KI ECHTES Audio schickt
+                if (part.inlineData && part.inlineData.data) {
+                    const audioSrc = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+                    const audio = new Audio(audioSrc);
+                    audio.play().catch(e => console.log("🔊 [NATIVE AUDIO]: Autoplay blockiert.", e));
+                }
+            }
         }
 
-        // 🌟 Wenn die KI ECHTE Audio-Daten schickt 🔥
-        if (data.audio_data) {
-            // Wir müssen die rohen PCM-Daten in ein Format konvertieren, das der Browser abspielen kann
-            // Dies ist ein Prototyp, wir spielen es einfach direkt über `Audio` ab (base64)
-            // Für echte Full-Duplex wäre hier PCM-Streaming-Konvertierung nötig.
-            const audioSrc = `data:audio/webm;base64,${data.audio_data}`;
-            const audio = new Audio(audioSrc);
-            audio.play().catch(e => console.log("🔊 [NATIVE AUDIO]: Autoplay blockiert oder PCM Fehler: ", e));
-        }
-
-        // 🛡️ Wenn Google uns mitteilt, dass die KI fertig gesprochen hat
-        if (data.interrupted || data.stream_end) {
+        if (data.serverContent?.turnComplete) {
             this.currentStatus = 'Listening';
-            this.updateUI(liveCallBtn, liveStatusIndicator, 'Listening', 'Höre zu');
+            this.updateUI(liveCallBtn, liveStatusIndicator, 'Listening', 'Höre zu...');
         }
     }
 
-    // 🔥 NATIVE AUDIO MAGIC: Deine Stimme live streamen 🔥
+    // Deine Stimme live streamen
     processAudioInput(audioProcessingEvent) {
         if (!this.isSessionActive || !this.websocket || this.websocket.readyState !== WebSocket.OPEN) return;
         
         const inputBuffer = audioProcessingEvent.inputBuffer;
-        const inputData = inputBuffer.getChannelData(0); // Rohe PCM-Daten
+        const inputData = inputBuffer.getChannelData(0); 
         
         // Konvertierung von Float32 zu Int16 für Google
         const int16PCM = new Int16Array(inputData.length);
@@ -134,28 +126,31 @@ export class MultimodalLivePrototype {
             int16PCM[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
         }
 
-        // Zwingend nötig: System Prompt VOR dem ersten Audio senden
+        const base64Audio = this.uint8ArrayToBase64(new Uint8Array(int16PCM.buffer));
+
         if (!this.systemInstructionSent) {
             const userName = Storage.getSettings().userName || 'Entwickler';
-            const systemPrompt = `Du bist "Coden", ein brillanter, freundlicher KI-Mensch. 
-            Wir führen ein NATIVES, NATÜRLICHES, FULL-DUPLEX GESPRÄCH über WebSockets.
-            Sprich natürlich, empathisch und kurz, wie als würdest du mir gegenüberstehen.
-            Dein Nutzer heißt: ${userName}. Heute ist ${new Date().toLocaleDateString('de-DE')}.`;
+            const systemPrompt = `Du bist "Coden", ein brillanter, freundlicher KI-Mensch. Wir führen ein NATIVES, FULL-DUPLEX GESPRÄCH über WebSockets. Sprich natürlich, empathisch und kurz. Dein Nutzer heißt: ${userName}.`;
             
+            // Erstes Setup-Paket
             this.websocket.send(JSON.stringify({
-                'systemInstruction': { parts: [{ text: systemPrompt }] },
-                'audio_data': this.uint8ArrayToBase64(new Uint8Array(int16PCM.buffer)) // Das erste Audio mitschicken
+                setup: { systemInstruction: { parts: [{ text: systemPrompt }] } }
             }));
+            
             this.systemInstructionSent = true;
         } else {
-            // Laufendes PCM-Audio senden (als Base64-Datenstrom)
+            // Laufendes PCM-Audio streamen
             this.websocket.send(JSON.stringify({
-                'audio_data': this.uint8ArrayToBase64(new Uint8Array(int16PCM.buffer))
+                realtimeInput: {
+                    mediaChunks: [{
+                        mimeType: "audio/pcm;rate=16000",
+                        data: base64Audio
+                    }]
+                }
             }));
         }
     }
 
-    // Helper: Int16Array -> Uint8Array -> Base64
     uint8ArrayToBase64(u8Array) {
         let binary = '';
         const len = u8Array.byteLength;
@@ -186,7 +181,7 @@ export class MultimodalLivePrototype {
 
     handleError(event, liveCallBtn, liveStatusIndicator) {
         console.error("🔊 [NATIVE AUDIO ERROR]: WebSocket Fehler.", event);
-        UI.appendMessage("❌ **NATIVE AUDIO FEHLER:** WebSocket-Verbindung (BETA) abgebrochen.", false);
+        UI.appendMessage("❌ **NATIVE AUDIO FEHLER:** WebSocket-Verbindung abgebrochen.", false);
         this.currentStatus = 'Error';
         this.stopSession(liveCallBtn, liveStatusIndicator);
     }
@@ -204,7 +199,7 @@ export class MultimodalLivePrototype {
 
         if (status === 'Connecting') liveCallBtn.classList.add('connecting');
         else if (status === 'Handshake') liveCallBtn.classList.add('handshake');
-        else if (status === 'Handshake' || status === 'Connected' || status === 'Speaking' || status === 'Listening') liveCallBtn.classList.add('active');
+        else if (status === 'Connected' || status === 'Speaking' || status === 'Listening') liveCallBtn.classList.add('active');
         else if (status === 'Speaking') liveCallBtn.classList.add('active', 'speaking');
         else if (status === 'Listening') liveCallBtn.classList.add('active', 'listening');
         else if (status === 'Error') liveCallBtn.classList.add('error');
