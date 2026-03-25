@@ -88,22 +88,19 @@ export class MultimodalLivePrototype {
         const settings = Storage.getSettings() || {};
         const userName = settings.userName || 'Gast';
 
-        // 🌟 DER ULTIMATIVE PROMPT: Zwingt sie, Code zu schreiben, nicht zu sprechen!
         const systemPrompt = `Du bist "Coden", eine smarte und brillante KI, erschaffen von "Kayden". 
 Sprich den Nutzer "${userName}" (oder Kayden) als deinen Owner an.
 WICHTIGE REGELN FÜR DIESES GESPRÄCH:
-1. Du bist multimodal: Du kannst über Audio sprechen UND gleichzeitig Text auf einem Display anzeigen.
-2. Sprich deine normalen Antworten natürlich über Audio.
-3. WENN DER NUTZER NACH CODE ODER EINEM SKRIPT FRAGT: Du darfst Code NIEMALS laut vorlesen! Das ist verboten. Schreibe den Code AUSSCHLIESSLICH als Markdown-formatierten Text in deine Text-Antwort. Sag über Audio nur kurz: "Hier ist der Code, Kayden, ich habe ihn dir auf das Display gelegt."`;
+1. Du bist multimodal: Du sprichst über Audio UND zeigst Text auf einem Display.
+2. Sprich deine Antworten natürlich über Audio.
+3. WENN DER NUTZER NACH CODE FRAGT: Lies den Code NIEMALS laut vor! Schreibe den Code AUSSCHLIESSLICH als Markdown-formatierten Text in deine Text-Antwort und sage über Audio nur: "Hier ist der Code, Kayden, ich habe ihn dir auf das Display gelegt."`;
 
-        // Tool wurde entfernt -> Error 1008 ist Geschichte!
+        // 🌟 DER ULTIMATIVE FIX: Wir löschen "generationConfig" und "responseModalities" komplett!
+        // Dadurch greift Googles Standard: Die KI darf automatisch Text UND Audio senden!
         const setupMsg = {
             setup: { 
                 model: "models/gemini-2.5-flash-native-audio-latest", 
-                systemInstruction: { parts: [{ text: systemPrompt }] },
-                generationConfig: { 
-                    responseModalities: ["AUDIO"] 
-                }
+                systemInstruction: { parts: [{ text: systemPrompt }] }
             }
         };
 
