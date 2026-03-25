@@ -17,7 +17,9 @@ export class MultimodalLivePrototype {
         
         this.SAMPLE_RATE = 16000; 
         this.BUFFER_SIZE = 1024;  
-        this.systemInstructionSent = false;
+        
+        // 🚀 NEU: Strikte Handshake-Kontrolle!
+        this.setupCompleteReceived = false;
         this.nextPlaybackTime = 0; 
 
         if (!document.getElementById('call-animations')) {
@@ -65,49 +67,163 @@ export class MultimodalLivePrototype {
 
     async handleOpen(event, liveCallBtn, liveStatusIndicator) {
         this.isSessionActive = true;
-        this.currentStatus = 'Listening';
-        this.systemInstructionSent = false;
+        this.currentStatus = 'Handshake';
+        this.setupCompleteReceived = false;
         this.lastSpeakTime = null;
         this.nextPlaybackTime = 0; 
         
-        this.updateCallUI('Greife auf Mikrofon zu...');
+        this.updateCallUI('Konfiguriere KI...');
+
+        // 🚀 SCHRITT 1: Setup VOR ALLEM ANDEREN an Google senden!
+        const userName = Storage.getSettings().userName || 'Entwickler';
+        this.websocket.send(JSON.stringify({
+            setup: { 
+                model: "models/gemini-2.5-flash-native-audio-latest", 
+                systemInstruction: { parts: [{ text: `Du bist Coden, eine smarte KI. Nutzer: ${userName}. Sprich freundlich, natürlich und in kurzen Sätzen über Audio.` }] },
+                generationConfig: {
+                    responseModalities: ["AUDIO"],
+                    speechConfig: {
+                        voiceConfig: { prebuiltVoiceConfig: { voiceName: "Aoede" } }
+                    }
+                }
+            }
+        }));
 
         try {
             this.mediaStream = await navigator.mediaDevices.getUserMedia({ 
                 audio: { sampleRate: this.SAMPLE_RATE, channelCount: 1 } 
             });
             
-            // AudioContext erstellen (wird oft vom Browser pausiert gestartet!)
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: this.SAMPLE_RATE });
+            // Browser zwingen, Audio-Ausgabe zu erlauben!
+            if (this.audioContext.state === 'suspended') await this.audioContext.resume();
             
             this.analyser = this.audioContext.createAnalyser();
             this.analyser.fftSize = 256;
             this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
 
-            // Hinweis: Die Deprecation-Warnung hier im Browser ist normal und beeinträchtigt die Funktion nicht!
             this.audioProcessor = this.audioContext.createScriptProcessor(this.BUFFER_SIZE, 1, 1); 
             this.audioProcessor.onaudioprocess = (e) => this.processAudioInput(e);
 
             const source = this.audioContext.createMediaStreamSource(this.mediaStream);
             source.connect(this.analyser);
             this.analyser.connect(this.audioProcessor);
-            this.audioProcessor.connect(this.audioContext.destination); // Sendet intern 0 Volume, hält aber den Loop am Leben
+            this.audioProcessor.connect(this.audioContext.destination);
 
-            this.updateCallUI('Verbunden. Höre zu...');
             this.visualizeUserAudio();
 
         } catch (error) {
-            console.error(error);
+            console.error("Mikrofon Fehler:", error);
             this.updateCallUI('❌ Mikrofon blockiert!');
             setTimeout(() => this.stopSession(liveCallBtn, liveStatusIndicator), 4000);
         }
+    }
+
+    handleMessage(event, liveCallBtn, liveStatusIndicator) {
+        let data;
+        try { data = JSON.parse(event.data); } catch (e) { return; }
+
+        // 🚀 MEGA WICHTIG: Zeigt uns in F12 exakt an, was Google macht!
+        console.log("📥 SERVER BERICHT:", data);
+
+        // 🚀 SCHRITT 2: Warten auf das "Go!" von Google
+        if (data.setupComplete) {
+            console.log("✅ Setup erfolgreich! Google ist bereit für Audio.");
+            this.setupCompleteReceived = true;
+            this.updateCallUI('Verbunden. Höre zu...');
+            return;
+        }
+
+        if (data.serverContent?.modelTurn?.parts) {
+            const parts = data.serverContent.modelTurn.parts;
+            for (const part of parts) {
+                if (part.inlineData && part.inlineData.data) {
+                    
+                    this.currentStatus = 'Speaking';
+                    this.updateCallUI('Coden spricht...', true);
+                    
+                    try {
+                        const base64 = part.inlineData.data;
+                        const binaryString = window.atob(base64);
+                        
+                        const buffer = new ArrayBuffer(binaryString.length);
+                        const view = new DataView(buffer);
+                        for (let i = 0; i < binaryString.length; i++) {
+                            view.setUint8(i, binaryString.charCodeAt(i));
+                        }
+                        
+                        // PCM Dekodierung
+                        const float32Array = new Float32Array(binaryString.length / 2);
+                        for (let i = 0; i < float32Array.length; i++) {
+                            float32Array[i] = view.getInt16(i * 2, true) / 32768.0; 
+                        }
+                        
+                        if (this.audioContext.state === 'suspended') this.audioContext.resume();
+                        
+                        const audioBuffer = this.audioContext.createBuffer(1, float32Array.length, 24000); // Gemini sendet mit 24kHz!
+                        audioBuffer.getChannelData(0).set(float32Array);
+                        
+                        const source = this.audioContext.createBufferSource();
+                        source.buffer = audioBuffer;
+                        source.connect(this.audioContext.destination);
+                        
+                        if (this.nextPlaybackTime < this.audioContext.currentTime) {
+                            this.nextPlaybackTime = this.audioContext.currentTime;
+                        }
+                        source.start(this.nextPlaybackTime);
+                        this.nextPlaybackTime += audioBuffer.duration;
+                        
+                        source.onended = () => {
+                            if (this.audioContext.currentTime >= this.nextPlaybackTime - 0.1) {
+                                this.currentStatus = 'Listening';
+                                this.updateCallUI('Höre zu...', false);
+                            }
+                        };
+                    } catch (err) {
+                        console.error("❌ Audio Decode Fehler:", err);
+                    }
+                }
+            }
+        }
+
+        if (data.serverContent?.turnComplete) {
+            if (this.currentStatus !== 'Speaking') {
+                this.currentStatus = 'Listening';
+                this.updateCallUI('Höre zu...', false);
+            }
+        }
+    }
+
+    processAudioInput(audioProcessingEvent) {
+        // 🚀 SCHRITT 3: Nichts streamen, bevor Google nicht "setupComplete" gemeldet hat!
+        if (!this.isSessionActive || !this.websocket || this.websocket.readyState !== WebSocket.OPEN || !this.setupCompleteReceived) return;
+        
+        const inputBuffer = audioProcessingEvent.inputBuffer;
+        const inputData = inputBuffer.getChannelData(0); 
+        
+        const int16PCM = new Int16Array(inputData.length);
+        for (let i = 0; i < inputData.length; i++) {
+            let s = Math.max(-1, Math.min(1, inputData[i]));
+            int16PCM[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
+
+        const base64Audio = this.uint8ArrayToBase64(new Uint8Array(int16PCM.buffer));
+
+        this.websocket.send(JSON.stringify({
+            realtimeInput: {
+                mediaChunks: [{
+                    mimeType: "audio/pcm;rate=16000",
+                    data: base64Audio
+                }]
+            }
+        }));
     }
 
     visualizeUserAudio() {
         if (!this.isSessionActive) return;
         requestAnimationFrame(() => this.visualizeUserAudio());
 
-        if (this.currentStatus === 'Speaking') return; 
+        if (this.currentStatus === 'Speaking' || !this.setupCompleteReceived) return; 
 
         this.analyser.getByteFrequencyData(this.dataArray);
         let sum = 0;
@@ -136,120 +252,6 @@ export class MultimodalLivePrototype {
             } else if (!this.lastSpeakTime || (Date.now() - this.lastSpeakTime >= 4000)) {
                if (statusText && statusText.textContent !== 'Höre zu...') statusText.textContent = 'Höre zu...';
             }
-        }
-    }
-
-    handleMessage(event, liveCallBtn, liveStatusIndicator) {
-        let data;
-        try { data = JSON.parse(event.data); } catch (e) { return; }
-
-        if (data.serverContent?.modelTurn?.parts) {
-            const parts = data.serverContent.modelTurn.parts;
-            for (const part of parts) {
-                if (part.inlineData && part.inlineData.data) {
-                    
-                    this.currentStatus = 'Speaking';
-                    this.updateCallUI('Coden spricht...', true);
-                    
-                    // 🚀 KUGELSICHERER AUDIO DECODER
-                    try {
-                        const base64 = part.inlineData.data;
-                        const binaryString = window.atob(base64);
-                        console.log(`🔊 [AUDIO IN]: Chunk mit ${binaryString.length} Bytes erhalten.`);
-                        
-                        const buffer = new ArrayBuffer(binaryString.length);
-                        const view = new DataView(buffer);
-                        
-                        // Bytes exakt einlesen
-                        for (let i = 0; i < binaryString.length; i++) {
-                            view.setUint8(i, binaryString.charCodeAt(i));
-                        }
-                        
-                        // In Float32 umwandeln (Browser-Format)
-                        const float32Array = new Float32Array(binaryString.length / 2);
-                        for (let i = 0; i < float32Array.length; i++) {
-                            // true = Little Endian (WICHTIG für Google Audio!)
-                            float32Array[i] = view.getInt16(i * 2, true) / 32768.0; 
-                        }
-                        
-                        // 🚀 FORCE RESUME: Den Browser zwingen, den Lautsprecher anzuschalten
-                        if (this.audioContext.state === 'suspended') {
-                            console.log("🔊 [AUDIO WAKE UP]: Wecke den AudioContext auf...");
-                            this.audioContext.resume();
-                        }
-                        
-                        // Audio abspielen
-                        const audioBuffer = this.audioContext.createBuffer(1, float32Array.length, 24000);
-                        audioBuffer.getChannelData(0).set(float32Array);
-                        
-                        const source = this.audioContext.createBufferSource();
-                        source.buffer = audioBuffer;
-                        source.connect(this.audioContext.destination);
-                        
-                        if (this.nextPlaybackTime < this.audioContext.currentTime) {
-                            this.nextPlaybackTime = this.audioContext.currentTime;
-                        }
-                        source.start(this.nextPlaybackTime);
-                        this.nextPlaybackTime += audioBuffer.duration;
-                        
-                        source.onended = () => {
-                            if (this.audioContext.currentTime >= this.nextPlaybackTime - 0.1) {
-                                this.currentStatus = 'Listening';
-                                this.lastSpeakTime = null; 
-                                this.updateCallUI('Höre zu...', false);
-                            }
-                        };
-                    } catch (err) {
-                        console.error("❌ Audio Decode Fehler:", err);
-                    }
-                }
-            }
-        }
-
-        if (data.serverContent?.turnComplete) {
-            if (this.currentStatus !== 'Speaking') {
-                this.currentStatus = 'Listening';
-                this.updateCallUI('Höre zu...', false);
-            }
-        }
-    }
-
-    processAudioInput(audioProcessingEvent) {
-        if (!this.isSessionActive || !this.websocket || this.websocket.readyState !== WebSocket.OPEN) return;
-        
-        const inputBuffer = audioProcessingEvent.inputBuffer;
-        const inputData = inputBuffer.getChannelData(0); 
-        
-        const int16PCM = new Int16Array(inputData.length);
-        for (let i = 0; i < inputData.length; i++) {
-            let s = Math.max(-1, Math.min(1, inputData[i]));
-            int16PCM[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-        }
-
-        const base64Audio = this.uint8ArrayToBase64(new Uint8Array(int16PCM.buffer));
-
-        if (!this.systemInstructionSent) {
-            const userName = Storage.getSettings().userName || 'Entwickler';
-            
-            this.websocket.send(JSON.stringify({
-                setup: { 
-                    model: "models/gemini-2.5-flash-native-audio-latest", 
-                    systemInstruction: { parts: [{ text: `Du bist Coden, eine KI. Nutzer: ${userName}. Sprich natürlich, freundlich und empathisch über Audio. Antworte in kurzen, klaren Sätzen.` }] },
-                    generationConfig: {
-                        responseModalities: ["AUDIO"]
-                    }
-                }
-            }));
-            this.systemInstructionSent = true;
-        } else {
-            this.websocket.send(JSON.stringify({
-                realtimeInput: {
-                    mediaChunks: [{
-                        mimeType: "audio/pcm;rate=16000",
-                        data: base64Audio
-                    }]
-                }
-            }));
         }
     }
 
@@ -301,7 +303,7 @@ export class MultimodalLivePrototype {
 
         this.websocket = null; this.audioContext = null; this.mediaStream = null; this.audioProcessor = null; this.analyser = null;
         this.isSessionActive = false;
-        this.systemInstructionSent = false;
+        this.setupCompleteReceived = false;
         this.currentStatus = 'Disconnected';
         this.nextPlaybackTime = 0;
         
