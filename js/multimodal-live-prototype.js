@@ -35,19 +35,26 @@ export class MultimodalLivePrototype {
     async initSession(liveCallBtn, liveStatusIndicator) {
         if (this.isSessionActive) return;
 
-        console.log("🚀 [SYSTEM]: Initiiere Live-Call...");
         const callModal = document.getElementById('live-call-modal');
         const endCallBtn = document.getElementById('end-call-btn');
+        const subtitle = document.getElementById('call-subtitle');
+        
         if (callModal) callModal.classList.remove('hidden');
         if (endCallBtn) endCallBtn.onclick = () => this.stopSession(liveCallBtn, liveStatusIndicator);
         
+        // 🔥 FIX: Blendet den nervigen Gemini-Text aus!
+        if (subtitle) subtitle.style.display = 'none'; 
+        
+        // Alten Bildschirm-Inhalt löschen, falls vorhanden
+        const oldScreen = document.getElementById('live-screen-output');
+        if (oldScreen) oldScreen.remove();
+
         this.updateCallUI('Verbinde mit Server...');
         
         const settings = Storage.getSettings() || {};
         const apiKey = settings.apiKey || CONFIG.apiKey;
 
         if (!apiKey) {
-            console.error("❌ [SYSTEM]: Kein API Key gefunden!");
             this.updateCallUI('❌ Kein API Key gefunden!');
             setTimeout(() => this.stopSession(liveCallBtn, liveStatusIndicator), 3000);
             return;
@@ -67,7 +74,6 @@ export class MultimodalLivePrototype {
     }
 
     async handleOpen(event, liveCallBtn, liveStatusIndicator) {
-        console.log("🟢 [WEBSOCKET]: Verbindung offen! Sende Setup...");
         this.isSessionActive = true;
         this.currentStatus = 'Handshake';
         this.setupCompleteReceived = false;
@@ -76,38 +82,38 @@ export class MultimodalLivePrototype {
         
         this.updateCallUI('Konfiguriere KI...');
 
-        // 🚀 SICHERHEITS-CHECK: Settings laden
         const settings = Storage.getSettings() || {};
-        const userName = settings.userName || 'Entwickler';
+        const userName = settings.userName || 'Gast';
+
+        // 🧠 LORE & SYSTEM PROMPT: Kayden ist der Boss + Bildschirm-Freigabe!
+        const systemPrompt = `Du bist "Coden", eine smarte, empathische und brillante KI. 
+Du wurdest von dem Entwickler "Kayden" erschaffen und trainiert. 
+Wenn der aktuelle Nutzer "${userName}" (oder Kayden) ist, sprich ihn respektvoll als deinen Erschaffer und Owner an. 
+Sprich freundlich, natürlich und in kurzen Sätzen über Audio.
+WICHTIG: Du hast ein Display zur Verfügung! Wenn du nach Code gefragt wirst, lange Listen aufzählst oder etwas visuell zeigen willst, binde diese Informationen als Text in deine Antwort ein. Dieser Text wird dann live auf dem Bildschirm des Nutzers projiziert!`;
 
         const setupMsg = {
             setup: { 
                 model: "models/gemini-2.5-flash-native-audio-latest", 
-                systemInstruction: { parts: [{ text: `Du bist Coden, eine smarte KI. Nutzer: ${userName}. Sprich freundlich und natürlich über Audio.` }] },
-                generationConfig: {
-                    responseModalities: ["AUDIO"]
-                }
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+                generationConfig: { responseModalities: ["AUDIO"] }
             }
         };
 
         try {
             this.websocket.send(JSON.stringify(setupMsg));
-            console.log("📤 [OUT]: Setup-Paket gesendet!", setupMsg);
         } catch(e) {
-            console.error("❌ [FEHLER]: Setup konnte nicht gesendet werden!", e);
+            console.error("❌ Fehler beim Setup:", e);
         }
 
         try {
-            console.log("🎤 [SYSTEM]: Fordere Mikrofon an...");
             this.mediaStream = await navigator.mediaDevices.getUserMedia({ 
                 audio: { sampleRate: this.SAMPLE_RATE, channelCount: 1 } 
             });
-            console.log("🎤 [SYSTEM]: Mikrofon freigegeben!");
             
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: this.SAMPLE_RATE });
             if (this.audioContext.state === 'suspended') {
                 await this.audioContext.resume();
-                console.log("🔊 [AUDIO]: AudioContext aufgeweckt!");
             }
             
             this.analyser = this.audioContext.createAnalyser();
@@ -125,30 +131,20 @@ export class MultimodalLivePrototype {
             this.visualizeUserAudio();
 
         } catch (error) {
-            console.error("❌ [MIKROFON FEHLER]:", error);
             this.updateCallUI('❌ Mikrofon blockiert!');
             setTimeout(() => this.stopSession(liveCallBtn, liveStatusIndicator), 4000);
         }
     }
 
-    // 🚀 DER GROSSE FIX: async handleMessage mit Blob-Unterstützung und fetten Logs
     async handleMessage(event, liveCallBtn, liveStatusIndicator) {
         let data;
         try { 
             let rawData = event.data;
-            // Wenn Google ein Blob schickt, wandeln wir es sofort in Text um!
-            if (rawData instanceof Blob) {
-                rawData = await rawData.text();
-            }
+            if (rawData instanceof Blob) rawData = await rawData.text();
             data = JSON.parse(rawData); 
-            console.log("📥 [IN - GOOGLE]:", data); // JEDES Paket wird geloggt!
-        } catch (e) { 
-            console.error("❌ [PARSE FEHLER]: Konnte Antwort nicht lesen!", e, event.data);
-            return; 
-        }
+        } catch (e) { return; }
 
         if (data.setupComplete) {
-            console.log("✅ [HANDSHAKE]: Setup Complete erhalten! Streaming startet.");
             this.setupCompleteReceived = true;
             this.updateCallUI('Verbunden. Höre zu...');
             return;
@@ -157,11 +153,28 @@ export class MultimodalLivePrototype {
         if (data.serverContent?.modelTurn?.parts) {
             const parts = data.serverContent.modelTurn.parts;
             for (const part of parts) {
+                
+                // 💻 VISUELLES FEEDBACK: KI zeigt Dinge auf dem Bildschirm an!
+                if (part.text) {
+                    let liveScreen = document.getElementById('live-screen-output');
+                    if (!liveScreen) {
+                        liveScreen = document.createElement('div');
+                        liveScreen.id = 'live-screen-output';
+                        liveScreen.style = "margin-top: 20px; margin-bottom: 20px; width: 85%; max-width: 600px; max-height: 250px; overflow-y: auto; color: #ececec; background: rgba(0,0,0,0.6); padding: 15px; border-radius: 12px; font-size: 14px; line-height: 1.6; border: 1px solid rgba(255,255,255,0.1); text-align: left; box-shadow: 0 4px 15px rgba(0,0,0,0.5);";
+                        
+                        const callModal = document.getElementById('live-call-modal');
+                        const endBtn = document.getElementById('end-call-btn');
+                        callModal.insertBefore(liveScreen, endBtn);
+                    }
+                    // Text formatieren und flüssig anhängen
+                    liveScreen.innerHTML += part.text.replace(/\n/g, '<br>');
+                    liveScreen.scrollTop = liveScreen.scrollHeight;
+                }
+
+                // 🔊 AUDIO FEEDBACK: KI spricht!
                 if (part.inlineData && part.inlineData.data) {
-                    
                     this.currentStatus = 'Speaking';
                     this.updateCallUI('Coden spricht...', true);
-                    console.log("🔊 [AUDIO IN]: Spiele Audio-Paket ab...");
                     
                     try {
                         const base64 = part.inlineData.data;
@@ -199,15 +212,12 @@ export class MultimodalLivePrototype {
                                 this.updateCallUI('Höre zu...', false);
                             }
                         };
-                    } catch (err) {
-                        console.error("❌ [AUDIO DECODE FEHLER]:", err);
-                    }
+                    } catch (err) {}
                 }
             }
         }
 
         if (data.serverContent?.turnComplete) {
-            console.log("🏁 [TURN COMPLETE]: KI ist fertig mit Sprechen/Denken.");
             if (this.currentStatus !== 'Speaking') {
                 this.currentStatus = 'Listening';
                 this.updateCallUI('Höre zu...', false);
@@ -294,19 +304,16 @@ export class MultimodalLivePrototype {
     }
 
     handleClose(event, liveCallBtn, liveStatusIndicator) {
-        console.log("🔴 [WEBSOCKET]: Getrennt. Code:", event.code, "Grund:", event.reason);
-        const reason = event.reason ? event.reason : "Google hat die Verbindung unerwartet getrennt.";
-        
         if (event.code !== 1000 && event.code !== 1005) {
+            const reason = event.reason ? event.reason : "Verbindung getrennt.";
             this.updateCallUI(`❌ Abbruch (Code ${event.code}): ${reason}`);
-            setTimeout(() => this.stopSession(liveCallBtn, liveStatusIndicator), 6000);
+            setTimeout(() => this.stopSession(liveCallBtn, liveStatusIndicator), 5000);
         } else {
             this.stopSession(liveCallBtn, liveStatusIndicator);
         }
     }
 
     handleError(event, liveCallBtn, liveStatusIndicator) {
-        console.error("❌ [WEBSOCKET FEHLER]:", event);
         this.updateCallUI('❌ WebSocket Fehler!');
         setTimeout(() => this.stopSession(liveCallBtn, liveStatusIndicator), 4000);
     }
@@ -314,7 +321,6 @@ export class MultimodalLivePrototype {
     stopSession(liveCallBtn, liveStatusIndicator) {
         if (!this.isSessionActive) return;
         
-        console.log("🛑 [SYSTEM]: Beende Session und räume auf...");
         this.updateCallUI('Aufgelegt.');
         
         if (this.mediaStream) this.mediaStream.getTracks().forEach(track => track.stop());
