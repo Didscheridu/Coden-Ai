@@ -24,7 +24,17 @@
     <style>
         .sidebar.collapsed { display: none; }
         .search-container.active { display: flex !important; }
-        
+        /* 📱 MOBILE FIX: Schiebt das Eingabefeld über die iPhone/Android Home-Leiste */
+        @media (max-width: 768px) {
+            .input-section {
+                /* Dynamischer Abstand für die Wisch-Leiste auf Handys */
+                padding-bottom: calc(15px + env(safe-area-inset-bottom, 20px)) !important;
+            }
+            .chat-scroll-area {
+                /* Mehr Platz nach unten, damit die letzte Chatblase nicht unterm Feld festhängt */
+                padding-bottom: 140px !important;
+            }
+        }
         /* Cookie Banner Styling */
         #cookie-banner {
             position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
