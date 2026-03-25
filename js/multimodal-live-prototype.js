@@ -15,27 +15,25 @@ export class MultimodalLivePrototype {
         this.SAMPLE_RATE = 16000; 
         this.BUFFER_SIZE = 1024;  
         this.systemInstructionSent = false;
-        
-        // Die Sicherheits-Sperre wurde entfernt. Läuft jetzt auch auf Vercel!
     }
 
     async initSession(liveCallBtn, liveStatusIndicator) {
         if (this.isSessionActive || this.currentStatus === 'Error') return;
 
-        console.warn("🔊 [SICHERHEITS-WARNUNG]: Beta Prototyp gestartet. API Key wird über WebSockets im Browser übertragen.");
+        console.warn("🔊 [SICHERHEITS-WARNUNG]: Beta Prototyp gestartet. API Key wird übertragen.");
         this.updateUI(liveCallBtn, liveStatusIndicator, 'Connecting', 'Verbinde...');
         
         const settings = Storage.getSettings();
         const apiKey = settings.apiKey || CONFIG.apiKey;
 
         if (!apiKey) {
-            UI.appendMessage("❌ **SICHERHEITS FEHLER:** Kein Google API Key im System/Prototyp gefunden.", false);
+            UI.appendMessage("❌ **SICHERHEITS FEHLER:** Kein Google API Key gefunden.", false);
             this.updateUI(liveCallBtn, liveStatusIndicator, 'Error', 'Key fehlt.');
             return;
         }
 
-        // Websocket Endpoint von Google AI Studio
-        const endpoint = `wss://generativelanguage.googleapis.com/ws/google.ai.studio.v1beta.live?key=${apiKey}`;
+        // 🛠️ DER FIX: Die offizielle und korrekte Gemini Live API WebSocket URL!
+        const endpoint = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${apiKey}`;
 
         try {
             this.websocket = new WebSocket(endpoint);
@@ -57,13 +55,11 @@ export class MultimodalLivePrototype {
         this.updateUI(liveCallBtn, liveStatusIndicator, 'Handshake', 'Initialisiere Audio...');
 
         try {
-            // 🎤 Zugriff auf das echte Mikrofon anfordern
             this.mediaStream = await navigator.mediaDevices.getUserMedia({ 
                 audio: { sampleRate: this.SAMPLE_RATE, channelCount: 1 } 
             });
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: this.SAMPLE_RATE });
             
-            // PCM Audio Processor für das Live-Streaming
             this.audioProcessor = this.audioContext.createScriptProcessor(this.BUFFER_SIZE, 1, 1); 
             this.audioProcessor.onaudioprocess = (e) => this.processAudioInput(e);
 
@@ -73,7 +69,7 @@ export class MultimodalLivePrototype {
 
         } catch (error) {
             console.error("🔊 [FEHLER]: Kein Mikrofon Zugriff.", error);
-            UI.appendMessage("❌ **HARDWARE FEHLER:** Kein Mikrofon-Zugriff möglich.", false);
+            UI.appendMessage("❌ **HARDWARE FEHLER:** Kein Mikrofon-Zugriff.", false);
             this.stopSession(liveCallBtn, liveStatusIndicator);
         }
     }
@@ -91,15 +87,14 @@ export class MultimodalLivePrototype {
         if (data.serverContent?.modelTurn?.parts) {
             const parts = data.serverContent.modelTurn.parts;
             for (const part of parts) {
-                // Wenn die KI Text spricht (als Transkription)
                 if (part.text) {
                     UI.appendMessage(part.text, false, false);
                     this.currentStatus = 'Speaking';
                     this.updateUI(liveCallBtn, liveStatusIndicator, 'Speaking', 'Coden spricht');
                 }
-                // Wenn die KI ECHTES Audio schickt
                 if (part.inlineData && part.inlineData.data) {
-                    const audioSrc = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+                    // Die KI schickt uns rohes Audio (PCM)
+                    const audioSrc = `data:${part.inlineData.mimeType || 'audio/pcm'};base64,${part.inlineData.data}`;
                     const audio = new Audio(audioSrc);
                     audio.play().catch(e => console.log("🔊 [NATIVE AUDIO]: Autoplay blockiert.", e));
                 }
@@ -112,14 +107,12 @@ export class MultimodalLivePrototype {
         }
     }
 
-    // Deine Stimme live streamen
     processAudioInput(audioProcessingEvent) {
         if (!this.isSessionActive || !this.websocket || this.websocket.readyState !== WebSocket.OPEN) return;
         
         const inputBuffer = audioProcessingEvent.inputBuffer;
         const inputData = inputBuffer.getChannelData(0); 
         
-        // Konvertierung von Float32 zu Int16 für Google
         const int16PCM = new Int16Array(inputData.length);
         for (let i = 0; i < inputData.length; i++) {
             let s = Math.max(-1, Math.min(1, inputData[i]));
@@ -132,9 +125,15 @@ export class MultimodalLivePrototype {
             const userName = Storage.getSettings().userName || 'Entwickler';
             const systemPrompt = `Du bist "Coden", ein brillanter, freundlicher KI-Mensch. Wir führen ein NATIVES, FULL-DUPLEX GESPRÄCH über WebSockets. Sprich natürlich, empathisch und kurz. Dein Nutzer heißt: ${userName}.`;
             
-            // Erstes Setup-Paket
+            // 🛠️ DER FIX: Das korrekte "Setup" Paket nach Google Spezifikation!
             this.websocket.send(JSON.stringify({
-                setup: { systemInstruction: { parts: [{ text: systemPrompt }] } }
+                setup: { 
+                    model: "models/gemini-2.0-flash-exp",
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                    generationConfig: {
+                        responseModalities: ["AUDIO"]
+                    }
+                }
             }));
             
             this.systemInstructionSent = true;
