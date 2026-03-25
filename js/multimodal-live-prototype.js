@@ -88,19 +88,23 @@ export class MultimodalLivePrototype {
         const settings = Storage.getSettings() || {};
         const userName = settings.userName || 'Gast';
 
-        const systemPrompt = `Du bist "Coden", eine smarte und brillante KI, erschaffen von "Kayden". 
+        // 🧠 DER GENIALE HACK: Wir machen ihre Gedanken zum Bildschirm!
+        const systemPrompt = `Du bist "Coden", eine smarte KI, erschaffen von "Kayden". 
 Sprich den Nutzer "${userName}" (oder Kayden) als deinen Owner an.
 WICHTIGE REGELN FÜR DIESES GESPRÄCH:
-1. Du bist multimodal: Du sprichst über Audio UND zeigst Text auf einem Display.
-2. Sprich deine Antworten natürlich über Audio.
-3. WENN DER NUTZER NACH CODE FRAGT: Lies den Code NIEMALS laut vor! Schreibe den Code AUSSCHLIESSLICH als Markdown-formatierten Text in deine Text-Antwort und sage über Audio nur: "Hier ist der Code, Kayden, ich habe ihn dir auf das Display gelegt."`;
+1. Du kommunizierst natürlich über Audio.
+2. WENN DER NUTZER NACH CODE FRAGT: Du darfst Code NIEMALS laut vorlesen! 
+3. Nutze deine interne Denk-Funktion (Thoughts) als Text-Display! Das System des Nutzers fängt deine Gedanken ab und projiziert sie auf seinen Bildschirm.
+4. Schreibe den fertigen Code als Markdown formatiert einfach in deine Gedanken und sage über Audio nur kurz: "Ich habe dir den Code auf das Display projiziert."`;
 
-        // 🌟 DER ULTIMATIVE FIX: Wir löschen "generationConfig" und "responseModalities" komplett!
-        // Dadurch greift Googles Standard: Die KI darf automatisch Text UND Audio senden!
+        // 🌟 DER FIX: "AUDIO" ist Pflicht für die Stimme!
         const setupMsg = {
             setup: { 
                 model: "models/gemini-2.5-flash-native-audio-latest", 
-                systemInstruction: { parts: [{ text: systemPrompt }] }
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+                generationConfig: { 
+                    responseModalities: ["AUDIO"] 
+                }
             }
         };
 
