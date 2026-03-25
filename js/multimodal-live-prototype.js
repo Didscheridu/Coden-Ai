@@ -10,29 +10,44 @@ export class MultimodalLivePrototype {
         this.mediaStream = null;
         this.audioProcessor = null;
         this.isSessionActive = false;
-        this.currentStatus = 'Disconnected'; 
         
         this.SAMPLE_RATE = 16000; 
         this.BUFFER_SIZE = 1024;  
         this.systemInstructionSent = false;
+
+        // CSS für die Call-Animation injecten
+        if (!document.getElementById('call-animations')) {
+            const style = document.createElement('style');
+            style.id = 'call-animations';
+            style.innerHTML = `
+                @keyframes callPulse { 0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(43, 108, 176, 0.7); } 70% { transform: scale(1.05); box-shadow: 0 0 0 20px rgba(43, 108, 176, 0); } 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(43, 108, 176, 0); } }
+                .is-speaking { animation: callPulse 1.5s infinite; }
+            `;
+            document.head.appendChild(style);
+        }
     }
 
     async initSession(liveCallBtn, liveStatusIndicator) {
-        if (this.isSessionActive || this.currentStatus === 'Error') return;
+        if (this.isSessionActive) return;
 
-        console.warn("🔊 [SICHERHEITS-WARNUNG]: Beta Prototyp gestartet. API Key wird übertragen.");
-        this.updateUI(liveCallBtn, liveStatusIndicator, 'Connecting', 'Verbinde...');
+        // 1. UI: Vollbild-Call-Menü öffnen
+        const callModal = document.getElementById('live-call-modal');
+        const endCallBtn = document.getElementById('end-call-btn');
+        if (callModal) callModal.classList.remove('hidden');
+        if (endCallBtn) endCallBtn.onclick = () => this.stopSession(liveCallBtn, liveStatusIndicator);
+        
+        this.updateCallUI('Verbinde mit Server...');
         
         const settings = Storage.getSettings();
         const apiKey = settings.apiKey || CONFIG.apiKey;
 
         if (!apiKey) {
-            UI.appendMessage("❌ **SICHERHEITS FEHLER:** Kein Google API Key gefunden.", false);
-            this.updateUI(liveCallBtn, liveStatusIndicator, 'Error', 'Key fehlt.');
+            this.updateCallUI('❌ Kein API Key gefunden!');
+            setTimeout(() => this.stopSession(liveCallBtn, liveStatusIndicator), 2000);
             return;
         }
 
-        // 🛠️ DER FIX: Die offizielle und korrekte Gemini Live API WebSocket URL!
+        // Offizielle Websocket URL für die Bidi API
         const endpoint = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${apiKey}`;
 
         try {
@@ -47,12 +62,10 @@ export class MultimodalLivePrototype {
     }
 
     async handleOpen(event, liveCallBtn, liveStatusIndicator) {
-        console.log("🔊 [NATIVE AUDIO]: WebSocket Verbindung offen.");
         this.isSessionActive = true;
-        this.currentStatus = 'Handshake';
         this.systemInstructionSent = false;
         
-        this.updateUI(liveCallBtn, liveStatusIndicator, 'Handshake', 'Initialisiere Audio...');
+        this.updateCallUI('Greife auf Mikrofon zu...');
 
         try {
             this.mediaStream = await navigator.mediaDevices.getUserMedia({ 
@@ -67,43 +80,37 @@ export class MultimodalLivePrototype {
             source.connect(this.audioProcessor);
             this.audioProcessor.connect(this.audioContext.destination);
 
+            this.updateCallUI('Verbunden. Du kannst sprechen!');
+
         } catch (error) {
-            console.error("🔊 [FEHLER]: Kein Mikrofon Zugriff.", error);
-            UI.appendMessage("❌ **HARDWARE FEHLER:** Kein Mikrofon-Zugriff.", false);
-            this.stopSession(liveCallBtn, liveStatusIndicator);
+            console.error(error);
+            this.updateCallUI('❌ Mikrofon blockiert!');
+            setTimeout(() => this.stopSession(liveCallBtn, liveStatusIndicator), 2000);
         }
     }
 
     handleMessage(event, liveCallBtn, liveStatusIndicator) {
         let data;
-        try {
-            data = JSON.parse(event.data);
-        } catch (e) {
-            console.error("🔊 [NATIVE AUDIO]: Ungültige JSON Antwort", e);
-            return;
-        }
+        try { data = JSON.parse(event.data); } catch (e) { return; }
 
-        // --- GEMINI LIVE API INTERPRETATION ---
         if (data.serverContent?.modelTurn?.parts) {
             const parts = data.serverContent.modelTurn.parts;
             for (const part of parts) {
-                if (part.text) {
-                    UI.appendMessage(part.text, false, false);
-                    this.currentStatus = 'Speaking';
-                    this.updateUI(liveCallBtn, liveStatusIndicator, 'Speaking', 'Coden spricht');
-                }
+                // Wenn Audio reinkommt, wackelt der Avatar!
                 if (part.inlineData && part.inlineData.data) {
-                    // Die KI schickt uns rohes Audio (PCM)
+                    this.updateCallUI('Coden spricht...', true);
                     const audioSrc = `data:${part.inlineData.mimeType || 'audio/pcm'};base64,${part.inlineData.data}`;
                     const audio = new Audio(audioSrc);
-                    audio.play().catch(e => console.log("🔊 [NATIVE AUDIO]: Autoplay blockiert.", e));
+                    audio.play().catch(e => console.log("Autoplay blockiert."));
+                    
+                    // Avatar-Wackeln nach dem Audio wieder beenden
+                    audio.onended = () => this.updateCallUI('Höre zu...', false);
                 }
             }
         }
 
         if (data.serverContent?.turnComplete) {
-            this.currentStatus = 'Listening';
-            this.updateUI(liveCallBtn, liveStatusIndicator, 'Listening', 'Höre zu...');
+            this.updateCallUI('Höre zu...', false);
         }
     }
 
@@ -123,22 +130,20 @@ export class MultimodalLivePrototype {
 
         if (!this.systemInstructionSent) {
             const userName = Storage.getSettings().userName || 'Entwickler';
-            const systemPrompt = `Du bist "Coden", ein brillanter, freundlicher KI-Mensch. Wir führen ein NATIVES, FULL-DUPLEX GESPRÄCH über WebSockets. Sprich natürlich, empathisch und kurz. Dein Nutzer heißt: ${userName}.`;
             
-            // 🛠️ DER FIX: Das korrekte "Setup" Paket nach Google Spezifikation!
+            // 🛠️ DER FIX: Hier muss der ECHTE API-Name rein: models/gemini-2.5-flash
             this.websocket.send(JSON.stringify({
                 setup: { 
-                    model: "models/gemini-2.0-flash-exp",
-                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                    model: "models/gemini-2.5-flash", 
+                    systemInstruction: { parts: [{ text: `Du bist Coden, eine KI. Nutzer: ${userName}. Sprich natürlich über Audio.` }] },
                     generationConfig: {
                         responseModalities: ["AUDIO"]
                     }
                 }
             }));
-            
             this.systemInstructionSent = true;
         } else {
-            // Laufendes PCM-Audio streamen
+            // Sende Stimme in Echtzeit
             this.websocket.send(JSON.stringify({
                 realtimeInput: {
                     mediaChunks: [{
@@ -153,18 +158,26 @@ export class MultimodalLivePrototype {
     uint8ArrayToBase64(u8Array) {
         let binary = '';
         const len = u8Array.byteLength;
-        for (let i = 0; i < len; i++) {
-            binary += String.fromCharCode(u8Array[i]);
-        }
+        for (let i = 0; i < len; i++) { binary += String.fromCharCode(u8Array[i]); }
         return window.btoa(binary);
+    }
+
+    updateCallUI(text, isSpeaking = false) {
+        const statusText = document.getElementById('call-status-text');
+        const avatarContainer = document.getElementById('call-avatar-container');
+        if (statusText) statusText.textContent = text;
+        
+        if (avatarContainer) {
+            if (isSpeaking) avatarContainer.classList.add('is-speaking');
+            else avatarContainer.classList.remove('is-speaking');
+        }
     }
 
     stopSession(liveCallBtn, liveStatusIndicator) {
         if (!this.isSessionActive) return;
         
-        this.updateUI(liveCallBtn, liveStatusIndicator, 'Disconnecting', 'Beende...');
-        console.log("🔊 [NATIVE AUDIO]: Beende Live Session.");
-
+        this.updateCallUI('Aufgelegt.');
+        
         if (this.mediaStream) this.mediaStream.getTracks().forEach(track => track.stop());
         if (this.audioProcessor) this.audioProcessor.disconnect();
         if (this.audioContext) this.audioContext.close();
@@ -172,35 +185,21 @@ export class MultimodalLivePrototype {
 
         this.websocket = null; this.audioContext = null; this.mediaStream = null; this.audioProcessor = null;
         this.isSessionActive = false;
-        this.currentStatus = 'Disconnected';
         this.systemInstructionSent = false;
         
-        this.updateUI(liveCallBtn, liveStatusIndicator, 'Disconnected', 'Live Modus');
+        // Vollbild-Menü schließen
+        const callModal = document.getElementById('live-call-modal');
+        if (callModal) {
+            setTimeout(() => callModal.classList.add('hidden'), 500);
+        }
     }
 
     handleError(event, liveCallBtn, liveStatusIndicator) {
-        console.error("🔊 [NATIVE AUDIO ERROR]: WebSocket Fehler.", event);
-        UI.appendMessage("❌ **NATIVE AUDIO FEHLER:** WebSocket-Verbindung abgebrochen.", false);
-        this.currentStatus = 'Error';
-        this.stopSession(liveCallBtn, liveStatusIndicator);
+        this.updateCallUI('❌ Verbindungsfehler!');
+        setTimeout(() => this.stopSession(liveCallBtn, liveStatusIndicator), 2000);
     }
 
     handleClose(event, liveCallBtn, liveStatusIndicator) {
-        console.log("🔊 [NATIVE AUDIO]: WebSocket Verbindung geschlossen.");
         this.stopSession(liveCallBtn, liveStatusIndicator);
-    }
-
-    updateUI(liveCallBtn, liveStatusIndicator, status, label) {
-        if (!liveCallBtn || !liveStatusIndicator) return;
-        
-        liveStatusIndicator.textContent = label;
-        liveCallBtn.classList.remove('connecting', 'handshake', 'active', 'speaking', 'listening', 'error');
-
-        if (status === 'Connecting') liveCallBtn.classList.add('connecting');
-        else if (status === 'Handshake') liveCallBtn.classList.add('handshake');
-        else if (status === 'Connected' || status === 'Speaking' || status === 'Listening') liveCallBtn.classList.add('active');
-        else if (status === 'Speaking') liveCallBtn.classList.add('active', 'speaking');
-        else if (status === 'Listening') liveCallBtn.classList.add('active', 'listening');
-        else if (status === 'Error') liveCallBtn.classList.add('error');
     }
 }
