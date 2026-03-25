@@ -18,8 +18,6 @@ export class MultimodalLivePrototype {
         this.SAMPLE_RATE = 16000; 
         this.BUFFER_SIZE = 1024;  
         this.systemInstructionSent = false;
-        
-        // 🔥 NEU: Die Warteschlange, damit das Audio flüssig hintereinander läuft
         this.nextPlaybackTime = 0; 
 
         if (!document.getElementById('call-animations')) {
@@ -70,7 +68,7 @@ export class MultimodalLivePrototype {
         this.currentStatus = 'Listening';
         this.systemInstructionSent = false;
         this.lastSpeakTime = null;
-        this.nextPlaybackTime = 0; // Timer zurücksetzen
+        this.nextPlaybackTime = 0; 
         
         this.updateCallUI('Greife auf Mikrofon zu...');
 
@@ -78,19 +76,22 @@ export class MultimodalLivePrototype {
             this.mediaStream = await navigator.mediaDevices.getUserMedia({ 
                 audio: { sampleRate: this.SAMPLE_RATE, channelCount: 1 } 
             });
+            
+            // AudioContext erstellen (wird oft vom Browser pausiert gestartet!)
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: this.SAMPLE_RATE });
             
             this.analyser = this.audioContext.createAnalyser();
             this.analyser.fftSize = 256;
             this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
 
+            // Hinweis: Die Deprecation-Warnung hier im Browser ist normal und beeinträchtigt die Funktion nicht!
             this.audioProcessor = this.audioContext.createScriptProcessor(this.BUFFER_SIZE, 1, 1); 
             this.audioProcessor.onaudioprocess = (e) => this.processAudioInput(e);
 
             const source = this.audioContext.createMediaStreamSource(this.mediaStream);
             source.connect(this.analyser);
             this.analyser.connect(this.audioProcessor);
-            this.audioProcessor.connect(this.audioContext.destination);
+            this.audioProcessor.connect(this.audioContext.destination); // Sendet intern 0 Volume, hält aber den Loop am Leben
 
             this.updateCallUI('Verbunden. Höre zu...');
             this.visualizeUserAudio();
@@ -150,33 +151,41 @@ export class MultimodalLivePrototype {
                     this.currentStatus = 'Speaking';
                     this.updateCallUI('Coden spricht...', true);
                     
-                    // 🚀 DER GROSSE FIX: Rohes PCM-Audio per Web Audio API dekodieren!
+                    // 🚀 KUGELSICHERER AUDIO DECODER
                     try {
-                        const binaryString = window.atob(part.inlineData.data);
-                        const bytes = new Uint8Array(binaryString.length);
+                        const base64 = part.inlineData.data;
+                        const binaryString = window.atob(base64);
+                        console.log(`🔊 [AUDIO IN]: Chunk mit ${binaryString.length} Bytes erhalten.`);
+                        
+                        const buffer = new ArrayBuffer(binaryString.length);
+                        const view = new DataView(buffer);
+                        
+                        // Bytes exakt einlesen
                         for (let i = 0; i < binaryString.length; i++) {
-                            bytes[i] = binaryString.charCodeAt(i);
+                            view.setUint8(i, binaryString.charCodeAt(i));
                         }
                         
-                        // Bytes in 16-Bit PCM
-                        const int16Array = new Int16Array(bytes.buffer);
-                        
-                        // 16-Bit PCM in Float32 (was der Browser braucht)
-                        const float32Array = new Float32Array(int16Array.length);
-                        for (let i = 0; i < int16Array.length; i++) {
-                            float32Array[i] = int16Array[i] / 32768.0;
+                        // In Float32 umwandeln (Browser-Format)
+                        const float32Array = new Float32Array(binaryString.length / 2);
+                        for (let i = 0; i < float32Array.length; i++) {
+                            // true = Little Endian (WICHTIG für Google Audio!)
+                            float32Array[i] = view.getInt16(i * 2, true) / 32768.0; 
                         }
                         
-                        // Audio Buffer erstellen (Gemini nutzt 24000 Hz Ausgabe)
+                        // 🚀 FORCE RESUME: Den Browser zwingen, den Lautsprecher anzuschalten
+                        if (this.audioContext.state === 'suspended') {
+                            console.log("🔊 [AUDIO WAKE UP]: Wecke den AudioContext auf...");
+                            this.audioContext.resume();
+                        }
+                        
+                        // Audio abspielen
                         const audioBuffer = this.audioContext.createBuffer(1, float32Array.length, 24000);
                         audioBuffer.getChannelData(0).set(float32Array);
                         
-                        // Abspielen & in Warteschlange einreihen
                         const source = this.audioContext.createBufferSource();
                         source.buffer = audioBuffer;
                         source.connect(this.audioContext.destination);
                         
-                        // Puffer flüssig aneinanderhängen
                         if (this.nextPlaybackTime < this.audioContext.currentTime) {
                             this.nextPlaybackTime = this.audioContext.currentTime;
                         }
@@ -184,7 +193,6 @@ export class MultimodalLivePrototype {
                         this.nextPlaybackTime += audioBuffer.duration;
                         
                         source.onended = () => {
-                            // Erst wenn das GANZ Audio-Ende erreicht ist, wieder zuhören
                             if (this.audioContext.currentTime >= this.nextPlaybackTime - 0.1) {
                                 this.currentStatus = 'Listening';
                                 this.lastSpeakTime = null; 
@@ -192,7 +200,7 @@ export class MultimodalLivePrototype {
                             }
                         };
                     } catch (err) {
-                        console.error("Audio Decode Fehler:", err);
+                        console.error("❌ Audio Decode Fehler:", err);
                     }
                 }
             }
@@ -226,7 +234,7 @@ export class MultimodalLivePrototype {
             this.websocket.send(JSON.stringify({
                 setup: { 
                     model: "models/gemini-2.5-flash-native-audio-latest", 
-                    systemInstruction: { parts: [{ text: `Du bist Coden, eine KI. Nutzer: ${userName}. Sprich natürlich, freundlich und empathisch über Audio.` }] },
+                    systemInstruction: { parts: [{ text: `Du bist Coden, eine KI. Nutzer: ${userName}. Sprich natürlich, freundlich und empathisch über Audio. Antworte in kurzen, klaren Sätzen.` }] },
                     generationConfig: {
                         responseModalities: ["AUDIO"]
                     }
