@@ -15,8 +15,9 @@ export class ChessEngine {
             position: 'start',
             onDragStart: this.onDragStart.bind(this),
             onDrop: this.onDrop.bind(this),
-            onSnapEnd: this.onSnapEnd.bind(this)
-
+            onSnapEnd: this.onSnapEnd.bind(this),
+            
+            // 🔥 DER FIX: Wir laden die Figuren direkt aus dem Web!
             pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
         };
         
