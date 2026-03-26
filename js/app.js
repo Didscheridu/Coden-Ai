@@ -7,6 +7,7 @@ import { loginWithGoogle, loginWithEmail, registerWithEmail, logoutUser, onAuthS
 import { doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { checkRateLimit } from './Limit-Spamschutz.js';
 import { MultimodalLivePrototype } from './multimodal-live-prototype.js'; // 🔥 NEU: Der Live Client 🔥
+import { ChessEngine } from './Chess.js'; // 🔥 NEU HINZUGEFÜGT
 
 // ==========================================
 // 🏗️ 1. ALLE DOM-ELEMENTE
@@ -299,6 +300,10 @@ function initApp() {
         document.addEventListener('loadChatSession', (e) => loadSession(e.detail)); 
         document.addEventListener('deleteChatSession', (e) => deleteSession(e.detail));
 
+        // ♟️ Schach initialisieren
+        window.codenChess = new ChessEngine();
+        window.codenChess.init();
+
         // Live Call Button
         const liveCallBtn = document.getElementById('live-call-btn');
         const liveStatusIndicator = document.getElementById('live-status-indicator');
@@ -336,7 +341,8 @@ const commands = [
     { name: "/clearall", desc: "Leert Chats bei ALLEN Usern" },
     { name: "/api", opts: ["<KEY>"], desc: "Speichert Google Key" },
     { name: "/usage", opts: ["<email>"], desc: "Zeigt Modell-Aufrufe" },
-    { name: "/stats", desc: "Zeigt System-Statistiken" }
+    { name: "/stats", desc: "Zeigt System-Statistiken" },
+    { name: "/chess", desc: "Spiele eine Runde Schach gegen Coden!" } // 🔥 NEU
 ];
 
 if (chatInput) {
@@ -421,6 +427,10 @@ async function handleCommand(text) {
     let sysMsg = "";
     
     // Lokale Befehle (Brauchen keine Datenbank)
+
+
+
+    
     if (cmd === '/api') {
         const s = Storage.getSettings(); 
         s.apiKey = param; 
@@ -443,6 +453,8 @@ async function handleCommand(text) {
             await setDoc(doc(db, "system", "state"), { broadcast: { message: param, time: Date.now() } }, { merge: true }); 
             sysMsg = "📢 Broadcast LIVE gesendet."; 
         }
+
+        
         else if (cmd === '/forceupdate') { 
             await setDoc(doc(db, "system", "state"), { forceUpdate: Date.now() }, { merge: true }); 
             sysMsg = "🔄 Reload befohlen."; 
@@ -473,6 +485,13 @@ async function handleCommand(text) {
         else { 
             sysMsg = `Admin-Befehl ausgeführt: ${cmd}`; 
         } 
+        // Lokale Befehle (Brauchen keine Datenbank)
+    if (cmd === '/chess') {
+        document.getElementById('chess-modal').classList.remove('hidden');
+        return UI.appendMessage(`♟️ **SCHACH-MODUS:**\nDas Spielbrett wurde geöffnet! Tritt gegen Coden an.`, false);
+    }
+
+    if (cmd === '/api') {
         
         UI.appendMessage(`⚙️ **GLOBAL ADMIN:**\n${sysMsg}`, false);
     } catch(e) { 
