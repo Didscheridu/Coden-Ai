@@ -16,6 +16,8 @@ export class ChessEngine {
             onDragStart: this.onDragStart.bind(this),
             onDrop: this.onDrop.bind(this),
             onSnapEnd: this.onSnapEnd.bind(this)
+
+            pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
         };
         
         // Initialisiert das Board aus der chessboard.js Library
