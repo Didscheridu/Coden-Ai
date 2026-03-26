@@ -10,7 +10,7 @@ const MODEL_CASCADES = {
         { provider: 'google', id: 'gemma-3-1b-it' }, 
         { provider: 'groq', id: 'llama-3.1-8b-instant' }, 
         // FIX: Wir nutzen hier jetzt ein stabileres OpenRouter-Fallback!
-        { provider: 'openrouter', id: 'mistralai/mistral-7b-instruct:free'} 
+        { provider: 'openrouter', id: 'nvidia/nemotron-3-super-120b-a12b:free'} 
     ],
     'normal': [ 
         { provider: 'google', id: 'gemma-3-12b-it' }, 
