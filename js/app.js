@@ -990,21 +990,31 @@ async function handleSend() {
     }));
 
     // --- NEU: BILDERSTELLUNG ABFANGEN ---
+    // --- NEU: BILDERSTELLUNG ABFANGEN (VERBESSERT) ---
+    const lowerText = text.toLowerCase();
     let isImageCommand = false;
     let imagePrompt = "";
-    const lowerText = text.toLowerCase();
-    
-    // Prüfen, ob der Nutzer ein Bild will
-    if (lowerText.startsWith('erstelle ein bild von') || lowerText.startsWith('generiere ein bild von')) {
+
+    // Flexibler Check: Reagiert auf verschiedene Variationen!
+    if (lowerText.includes('bild von') || lowerText.includes('generiere ein bild') || lowerText.includes('erstelle ein bild') || lowerText.includes('mal ein bild')) {
         isImageCommand = true;
-        // Den eigentlichen Wunsch (z.B. "einem blauen Vogel") herausfiltern
-        imagePrompt = text.substring(lowerText.indexOf('von') + 4).trim();
+        
+        // Wir schneiden alles ab, was vor dem "von" steht, um das eigentliche Motiv zu bekommen
+        const splitText = lowerText.split('von');
+        if (splitText.length > 1) {
+            imagePrompt = splitText[1].trim(); // z.B. "einem vogel"
+        } else {
+            // Falls kein "von" drin war, nehmen wir einfach die ganze Nachricht als Prompt
+            imagePrompt = lowerText.replace(/erstelle|generiere|mach|zeichne|mal|ein|bild|bitte/gi, '').trim();
+        }
+        
+        // Sicherheits-Fallback
+        if (!imagePrompt) imagePrompt = "Ein cooles Kunstwerk"; 
     }
 
-    if (isImageCommand && imagePrompt) {
+    if (isImageCommand) {
         UI.showLoading(true, "Coden malt ein Bild...");
         try {
-            // Unser neues Vercel Backend anfunken
             const res = await fetch('/api/generate-image', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1012,17 +1022,17 @@ async function handleSend() {
             });
             const data = await res.json();
             
-            if (!res.ok) throw new Error(data.error);
+            if (!res.ok) throw new Error(data.error || "Fehler von Freepik");
 
             UI.showLoading(false);
             
-            // Markdown generieren (Zeigt das Bild wunderschön im Chat an)
+            // Markdown generieren, das das Bild im Chat anzeigt
             const imageMarkdown = `🎨 **Hier ist dein Bild:**\n\n![${imagePrompt}](${data.imageUrl})`;
             
             UI.appendMessage(imageMarkdown, false, false); 
             currentSession.messages.push({ text: imageMarkdown, isUser: false });
             
-            // Ohne große base64 Bilder der User abspeichern (wie bei dir schon gelöst)
+            // Speichern (ohne große Base64 Bilder der User, aber unsere URL bleibt im Text)
             const sessionsToSave = JSON.parse(JSON.stringify(sessions));
             sessionsToSave.forEach(s => s.messages.forEach(m => { if (m.images) delete m.images; }));
             Storage.saveSessions(sessionsToSave); 
@@ -1032,7 +1042,7 @@ async function handleSend() {
             UI.showLoading(false);
             UI.appendMessage("❌ **Fehler bei der Bilderstellung:** " + err.message, false);
         }
-        return; // handleSend() hier beenden, damit die normale KI nicht nochmal antwortet
+        return; // WICHTIG: Das return beendet die Funktion hier! So antwortet die Text-KI nicht mehr dazwischen!
     }
     // --- ENDE BILDERSTELLUNG ---
     let isEmailCommand = false;
