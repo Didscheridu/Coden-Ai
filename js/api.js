@@ -1,10 +1,29 @@
 // js/api.js
 import { Storage } from './storage.js';
 
+// js/api.js
+
 const MODEL_CASCADES = {
-    'flash': [ { provider: 'google', id: 'gemma-3-4b-it' }, { provider: 'groq', id: 'llama-3.1-8b-instant' }, { provider: 'openrouter', id: 'meta-llama/llama-3.1-8b-instruct:free'} ],
-    'normal': [ { provider: 'google', id: 'gemma-3-12b-it' }, { provider: 'github', id: 'gpt-4o' }, { provider: 'groq', id: 'qwen/qwen3-32b' }, { provider: 'openrouter', id: 'arcee-ai/trinity-large-preview:free' } ],
-    'pro': [ { provider: 'google', id: 'gemma-3-27b-it' }, { provider: 'github', id: 'gpt-4.1' }, { provider: 'groq', id: 'openai/gpt-oss-120b' }, { provider: 'openrouter', id: 'nvidia/nemotron-3-super-120b-a12b:free'} ]
+    'flash': [ 
+        { provider: 'google', id: 'gemma-3-4b-it' }, 
+        { provider: 'google', id: 'gemma-3-2b-it' }, 
+        { provider: 'google', id: 'gemma-3-1b-it' }, 
+        { provider: 'groq', id: 'llama-3.1-8b-instant' }, 
+        // FIX: Wir nutzen hier jetzt ein stabileres OpenRouter-Fallback!
+        { provider: 'openrouter', id: 'mistralai/mistral-7b-instruct:free'} 
+    ],
+    'normal': [ 
+        { provider: 'google', id: 'gemma-3-12b-it' }, 
+        { provider: 'github', id: 'gpt-4o' }, 
+        { provider: 'groq', id: 'qwen/qwen3-32b' }, 
+        { provider: 'openrouter', id: 'arcee-ai/trinity-large-preview:free' } 
+    ],
+    'pro': [ 
+        { provider: 'google', id: 'gemma-3-27b-it' }, 
+        { provider: 'github', id: 'gpt-4.1' }, 
+        { provider: 'groq', id: 'openai/gpt-oss-120b' }, 
+        { provider: 'openrouter', id: 'nvidia/nemotron-3-super-120b-a12b:free'} 
+    ]
 };
 
 export async function generateAiResponse(messages, tierOrModelId) {
