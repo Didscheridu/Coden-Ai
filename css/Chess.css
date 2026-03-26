@@ -1,0 +1,44 @@
+/* css/Chess.css */
+.chess-box {
+    max-width: 500px !important;
+    background: var(--bg-surface);
+}
+
+.chess-analysis {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 16px;
+    text-align: left;
+}
+
+#chess-status {
+    font-weight: 600;
+    color: var(--accent-blue);
+    margin-bottom: 8px;
+    font-size: 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    padding-bottom: 8px;
+}
+
+#chess-feedback {
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.chess-loading {
+    animation: pulse-text 1.5s infinite alternate;
+    color: #ffaa00 !important;
+}
+
+@keyframes pulse-text {
+    0% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+/* Schachbrett Anpassungen für Dark Mode */
+.board-b72b1 { border: 2px solid var(--border-color); border-radius: 4px; }
+.white-1e1d7 { background-color: #e3e3e3; color: #1e1e1e; }
+.black-3c85d { background-color: #63A4FF; color: white; }
