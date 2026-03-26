@@ -299,6 +299,23 @@
         <button id="accept-cookies-btn" class="btn-save" style="padding: 6px 16px; white-space: nowrap;">Verstanden</button>
     </div>
 
+    <div id="chess-modal" class="modal-overlay hidden">
+        <div class="modal-content chess-box">
+            <div class="modal-header">
+                <h3 style="display: flex; align-items: center; gap: 8px;"><span class="material-symbols-outlined">psychology</span> Schach vs. Coden</h3>
+                <button class="icon-btn" id="close-chess-btn"><span class="material-symbols-outlined">close</span></button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; align-items: center;">
+                <div id="myBoard" style="width: 100%; max-width: 400px; margin-bottom: 20px;"></div>
+                <div id="chess-analysis-box" class="chess-analysis">
+                    <div id="chess-status">Du bist dran! (Weiß)</div>
+                    <div id="chess-feedback">Mache deinen ersten Zug.</div>
+                </div>
+                <button id="reset-chess-btn" class="btn-cancel" style="margin-top: 15px; width: 100%;">Neues Spiel starten</button>
+            </div>
+        </div>
+    </div>
+
     <div id="live-call-modal" class="hidden gemini-live-overlay">
         
         <div class="live-top-bar">
