@@ -1028,17 +1028,13 @@ async function handleSend() {
             
             // Markdown generieren, das das Bild im Chat anzeigt
             // Dateiname für den Download generieren (Leerzeichen durch Unterstriche ersetzen)
+            // Dateiname für den Download generieren
             const safeFileName = imagePrompt.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'coden_image';
 
-// Wunderschönes HTML-Element mit Begrenzung (max-width: 350px) und Download-Button!
-           const imageMarkdown = `🎨 **Hier ist dein Bild:**
+// WICHTIG: Keine Leerzeichen vor dem HTML, sonst wird es als Code-Block erkannt!
+            const imageMarkdown = `🎨 **Hier ist dein Bild:**\n\n<div style="position: relative; display: inline-block; max-width: 350px; margin-top: 12px; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.3);"><img src="${data.imageUrl}" alt="${imagePrompt}" style="width: 100%; display: block; margin: 0 !important; border-radius: 0 !important;"><a href="${data.imageUrl}" download="${safeFileName}.jpg" style="position: absolute; bottom: 10px; right: 10px; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); color: white; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; text-decoration: none; transition: all 0.2s; box-shadow: 0 4px 12px rgba(0,0,0,0.5);" title="Bild herunterladen" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'"><span class="material-symbols-outlined" style="font-size: 20px;">download</span></a></div>`;
 
-     <div style="position: relative; display: inline-block; max-width: 350px; margin-top: 12px; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.3);">
-        <img src="${data.imageUrl}" alt="${imagePrompt}" style="width: 100%; display: block; margin: 0 !important; border-radius: 0 !important;">
-        <a href="${data.imageUrl}" download="${safeFileName}.jpg" style="position: absolute; bottom: 10px; right: 10px; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); color: white; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; text-decoration: none; transition: all 0.2s; box-shadow: 0 4px 12px rgba(0,0,0,0.5);" title="Bild herunterladen" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
-             <span class="material-symbols-outlined" style="font-size: 20px;">download</span>
-     </a>
-     </div>`;
+     
             
             UI.appendMessage(imageMarkdown, false, false); 
             currentSession.messages.push({ text: imageMarkdown, isUser: false });
