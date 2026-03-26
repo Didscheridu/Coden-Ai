@@ -497,7 +497,7 @@ async function handleCommand(text) {
     } catch(e) { 
         UI.appendMessage(`⚙️ **SYSTEM FEHLER:**\n${e.message}`, false); 
     }
-}
+
 
 // ==========================================
 // ⚖️ 7. RECHTLICHES (Impressum, Datenschutz, AGB)
