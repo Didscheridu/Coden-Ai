@@ -420,17 +420,20 @@ async function handleCommand(text) {
     const cmd = args[0].toLowerCase(); 
     const param = args.slice(1).join(' ');
     
+    // ♟️ JEDER darf Schach spielen (Deshalb prüfen wir das VOR dem Admin-Check!)
+    if (cmd === '/chess') {
+        document.getElementById('chess-modal').classList.remove('hidden');
+        return UI.appendMessage(`♟️ **SCHACH-MODUS:**\nDas Spielbrett wurde geöffnet! Tritt gegen Coden an.`, false);
+    }
+
+    // 🛑 Ab hier nur noch für den Owner (Dich)
     if (!isOwner) {
         return UI.appendMessage("❌ Zugriff verweigert.", false);
     }
     
     let sysMsg = "";
     
-    // Lokale Befehle (Brauchen keine Datenbank)
-
-
-
-    
+    // 🔑 Lokale Befehle
     if (cmd === '/api') {
         const s = Storage.getSettings(); 
         s.apiKey = param; 
@@ -440,65 +443,27 @@ async function handleCommand(text) {
 
     if (!db) return UI.appendMessage("❌ Datenbank-Fehler.", false);
     
+    // 🛡️ HIER IST DAS FEHLENDE TRY!
     try {
-        if (cmd === '/lock') { 
-            await setDoc(doc(db, "system", "state"), { locks: { [args[1]]: true } }, { merge: true }); 
-            sysMsg = `🔒 ${args[1]} GLOBAL gesperrt.`; 
-        }
-        else if (cmd === '/unlock') { 
-            await setDoc(doc(db, "system", "state"), { locks: { [args[1]]: false } }, { merge: true }); 
-            sysMsg = `🔓 ${args[1]} GLOBAL entsperrt.`; 
-        }
-        else if (cmd === '/broadcast') { 
-            await setDoc(doc(db, "system", "state"), { broadcast: { message: param, time: Date.now() } }, { merge: true }); 
-            sysMsg = "📢 Broadcast LIVE gesendet."; 
-        }
-
-        
-        else if (cmd === '/forceupdate') { 
-            await setDoc(doc(db, "system", "state"), { forceUpdate: Date.now() }, { merge: true }); 
-            sysMsg = "🔄 Reload befohlen."; 
-        }
-        else if (cmd === '/maintenance') { 
-            await setDoc(doc(db, "system", "state"), { maintenance: param === 'on' }, { merge: true }); 
-            sysMsg = `🛠️ Wartungsmodus: ${param.toUpperCase()}`; 
-        }
-        else if (cmd === '/model') { 
-            await setDoc(doc(db, "system", "state"), { globalModel: param }, { merge: true }); 
-            sysMsg = `🔄 Modell auf '${param}' gezwungen.`; 
-        }
-        else if (cmd === '/theme') { 
-            await setDoc(doc(db, "system", "state"), { theme: param }, { merge: true }); 
-            sysMsg = `🎨 Theme auf '${param}' gesetzt.`; 
-        }
-        else if (cmd === '/font') { 
-            await setDoc(doc(db, "system", "state"), { fontSize: parseInt(param) }, { merge: true }); 
-            sysMsg = `🔠 Schriftgröße für ALLE auf ${param}px.`; 
-        }
-        else if (cmd === '/clearall') { 
-            await setDoc(doc(db, "system", "state"), { globalClear: Date.now() }, { merge: true }); 
-            sysMsg = `🗑️ ALLE Chats bei ALLEN gelöscht!`; 
-        }
-        else if (cmd === '/usage' || cmd === '/stats') {
-            sysMsg = `📈 **System-Statistiken:**\nAlles läuft im grünen Bereich.`;
-        }
-        else { 
-            sysMsg = `Admin-Befehl ausgeführt: ${cmd}`; 
-        } 
-        // Lokale Befehle (Brauchen keine Datenbank)
-    if (cmd === '/chess') {
-        document.getElementById('chess-modal').classList.remove('hidden');
-        return UI.appendMessage(`♟️ **SCHACH-MODUS:**\nDas Spielbrett wurde geöffnet! Tritt gegen Coden an.`, false);
-    }
-
-    if (cmd === '/api') {
+        if (cmd === '/lock') { await setDoc(doc(db, "system", "state"), { locks: { [args[1]]: true } }, { merge: true }); sysMsg = `🔒 ${args[1]} GLOBAL gesperrt.`; }
+        else if (cmd === '/unlock') { await setDoc(doc(db, "system", "state"), { locks: { [args[1]]: false } }, { merge: true }); sysMsg = `🔓 ${args[1]} GLOBAL entsperrt.`; }
+        else if (cmd === '/broadcast') { await setDoc(doc(db, "system", "state"), { broadcast: { message: param, time: Date.now() } }, { merge: true }); sysMsg = "📢 Broadcast LIVE gesendet."; }
+        else if (cmd === '/forceupdate') { await setDoc(doc(db, "system", "state"), { forceUpdate: Date.now() }, { merge: true }); sysMsg = "🔄 Reload befohlen."; }
+        else if (cmd === '/maintenance') { await setDoc(doc(db, "system", "state"), { maintenance: param === 'on' }, { merge: true }); sysMsg = `🛠️ Wartungsmodus: ${param.toUpperCase()}`; }
+        else if (cmd === '/model') { await setDoc(doc(db, "system", "state"), { globalModel: param }, { merge: true }); sysMsg = `🔄 Modell auf '${param}' gezwungen.`; }
+        else if (cmd === '/theme') { await setDoc(doc(db, "system", "state"), { theme: param }, { merge: true }); sysMsg = `🎨 Theme auf '${param}' gesetzt.`; }
+        else if (cmd === '/font') { await setDoc(doc(db, "system", "state"), { fontSize: parseInt(param) }, { merge: true }); sysMsg = `🔠 Schriftgröße für ALLE auf ${param}px.`; }
+        else if (cmd === '/clearall') { await setDoc(doc(db, "system", "state"), { globalClear: Date.now() }, { merge: true }); sysMsg = `🗑️ ALLE Chats bei ALLEN gelöscht!`; }
+        else if (cmd === '/usage' || cmd === '/stats') { sysMsg = `📈 **System-Statistiken:**\nAlles läuft im grünen Bereich.`; }
+        else { sysMsg = `Admin-Befehl ausgeführt: ${cmd}`; } 
         
         UI.appendMessage(`⚙️ **GLOBAL ADMIN:**\n${sysMsg}`, false);
+        
     } catch(e) { 
+        // 🐛 HIER IST DAS DAZUGEHÖRIGE CATCH!
         UI.appendMessage(`⚙️ **SYSTEM FEHLER:**\n${e.message}`, false); 
-    });
+    }
 }
-
 // ==========================================
 // ⚖️ 7. RECHTLICHES (Impressum, Datenschutz, AGB)
 // ==========================================
