@@ -496,8 +496,8 @@ async function handleCommand(text) {
         UI.appendMessage(`⚙️ **GLOBAL ADMIN:**\n${sysMsg}`, false);
     } catch(e) { 
         UI.appendMessage(`⚙️ **SYSTEM FEHLER:**\n${e.message}`, false); 
-    }
-
+    });
+}
 
 // ==========================================
 // ⚖️ 7. RECHTLICHES (Impressum, Datenschutz, AGB)
