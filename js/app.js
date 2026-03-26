@@ -988,7 +988,53 @@ async function handleSend() {
         content: m.text,
         images: m.images || [] 
     }));
+
+    // --- NEU: BILDERSTELLUNG ABFANGEN ---
+    let isImageCommand = false;
+    let imagePrompt = "";
+    const lowerText = text.toLowerCase();
     
+    // Prüfen, ob der Nutzer ein Bild will
+    if (lowerText.startsWith('erstelle ein bild von') || lowerText.startsWith('generiere ein bild von')) {
+        isImageCommand = true;
+        // Den eigentlichen Wunsch (z.B. "einem blauen Vogel") herausfiltern
+        imagePrompt = text.substring(lowerText.indexOf('von') + 4).trim();
+    }
+
+    if (isImageCommand && imagePrompt) {
+        UI.showLoading(true, "Coden malt ein Bild...");
+        try {
+            // Unser neues Vercel Backend anfunken
+            const res = await fetch('/api/generate-image', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt: imagePrompt })
+            });
+            const data = await res.json();
+            
+            if (!res.ok) throw new Error(data.error);
+
+            UI.showLoading(false);
+            
+            // Markdown generieren (Zeigt das Bild wunderschön im Chat an)
+            const imageMarkdown = `🎨 **Hier ist dein Bild:**\n\n![${imagePrompt}](${data.imageUrl})`;
+            
+            UI.appendMessage(imageMarkdown, false, false); 
+            currentSession.messages.push({ text: imageMarkdown, isUser: false });
+            
+            // Ohne große base64 Bilder der User abspeichern (wie bei dir schon gelöst)
+            const sessionsToSave = JSON.parse(JSON.stringify(sessions));
+            sessionsToSave.forEach(s => s.messages.forEach(m => { if (m.images) delete m.images; }));
+            Storage.saveSessions(sessionsToSave); 
+            UI.renderSidebar(sessions, activeSessionId);
+            
+        } catch (err) {
+            UI.showLoading(false);
+            UI.appendMessage("❌ **Fehler bei der Bilderstellung:** " + err.message, false);
+        }
+        return; // handleSend() hier beenden, damit die normale KI nicht nochmal antwortet
+    }
+    // --- ENDE BILDERSTELLUNG ---
     let isEmailCommand = false;
     if (['mail', 'gmail', 'sende', 'schick', 'weiterleiten'].some(w => text.toLowerCase().includes(w))) {
         if (await showCustomConfirm("Möchtest du eine E-Mail senden?")) isEmailCommand = true;
