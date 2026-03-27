@@ -115,7 +115,7 @@ WICHTIGE REGELN:
                     speechConfig: {
                         voiceConfig: {
                             prebuiltVoiceConfig: {
-                                voiceName: "Aoede" // Du kannst auch "Puck", "Charon", "Kore" oder "Fenrir" nutzen!
+                                voiceName: "Fenrir" // Du kannst auch "Puck", "Charon", "Kore" oder "Fenrir" nutzen!
                             }
                         }
                     }
