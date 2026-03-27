@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
     <title>Coden AI</title>
+    <link rel="icon" href="./images/coden_logo.jpg" type="image/jpeg">
     
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -357,14 +358,18 @@
             <div id="live-subtitle-text" class="subtitle-bubble">Warte auf Sprache...</div>
         </div>
 
-        <div class="live-status-bar"> ... </div>
-        
         <div class="live-top-bar">
             <div class="live-badge">
                 <div class="live-dot"></div>
                 <span>LIVE</span>
             </div>
-            <div style="color: #888; font-size: 14px;">Coden Audio</div>
+            <select id="live-voice-selector" style="background: rgba(0,0,0,0.5); color: white; border: 1px solid rgba(255,255,255,0.2); padding: 4px 8px; border-radius: 8px; outline: none; font-size: 12px; cursor: pointer;">
+                <option value="Aoede">Stimme: Aoede (Weiblich)</option>
+                <option value="Kore">Stimme: Kore (Weiblich)</option>
+                <option value="Puck">Stimme: Puck (Männlich)</option>
+                <option value="Charon">Stimme: Charon (Männlich)</option>
+                <option value="Fenrir">Stimme: Fenrir (Männlich)</option>
+            </select>
         </div>
         
         <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1;">
