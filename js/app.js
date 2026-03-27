@@ -321,6 +321,22 @@ function initApp() {
                 }
             });
         }
+
+        // 🔥 NEU: Wenn die Stimme im Call geändert wird, Anruf kurz neu starten
+        const voiceSelector = document.getElementById('live-voice-selector');
+        if (voiceSelector) {
+            voiceSelector.addEventListener('change', () => {
+                if (multimodalLive.isSessionActive) {
+                    // Legt unsichtbar auf und ruft sofort mit der neuen Stimme wieder an
+                    multimodalLive.stopSession(liveCallBtn, liveStatusIndicator);
+                    setTimeout(() => {
+                        multimodalLive.initSession(liveCallBtn, liveStatusIndicator, currentSession.messages);
+                    }, 500);
+                }
+            });
+        }
+
+        
     } catch(e) { console.error("Fehler beim Init:", e); }
 }
 
