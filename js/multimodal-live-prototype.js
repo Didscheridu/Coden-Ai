@@ -88,6 +88,12 @@ export class MultimodalLivePrototype {
             const recentHistory = this.chatHistory.slice(-15);
             recentHistory.forEach(msg => {
                 let cleanText = msg.text.replace('📞 *KI im Live-Call:* ', '');
+                
+                // FIX: Riesige Bild-Codes und HTML aus dem Gedächtnis der Audio-KI löschen!
+                cleanText = cleanText.replace(/BILD_WURDE_AUSGEBLENDET/g, "");
+                cleanText = cleanText.replace(/data:image\/[^"'\)\]]+/g, "");
+                cleanText = cleanText.replace(/<div style="position: relative;[\s\S]*?<\/div>/g, "[Ein Bild wurde generiert]");
+
                 historyString += `${msg.isUser ? 'Nutzer' : 'Du'}: ${cleanText}\n`;
             });
             historyString += "-----------------------------------\nNutze dieses Wissen zwingend!";
