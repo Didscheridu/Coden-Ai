@@ -104,7 +104,16 @@ WICHTIGE REGELN:
             setup: { 
                 model: "models/gemini-2.5-flash-native-audio-latest", 
                 systemInstruction: { parts: [{ text: systemPrompt }] },
-                generationConfig: { responseModalities: ["AUDIO"] }
+                generationConfig: { 
+                    responseModalities: ["AUDIO"], // Zwingend erforderlich für Native Audio
+                    speechConfig: {
+                        voiceConfig: {
+                            prebuiltVoiceConfig: {
+                                voiceName: "Aoede" // Du kannst auch "Puck", "Charon", "Kore" oder "Fenrir" nutzen!
+                            }
+                        }
+                    }
+                }
             }
         };
 
