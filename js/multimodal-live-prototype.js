@@ -16,7 +16,6 @@ export class MultimodalLivePrototype {
         this.lastSpeakTime = null; 
         
         this.SAMPLE_RATE = 16000; 
-        this.BUFFER_SIZE = 1024;  
         
         this.setupCompleteReceived = false;
         this.nextPlaybackTime = 0; 
@@ -40,7 +39,6 @@ export class MultimodalLivePrototype {
         
         this.updateCallUI('Hole Server-Zulassung...');
         
-        // 🔒 DER PROFI-FIX: Wir holen den API-Key sicher aus dem Vercel-Backend!
         let apiKey;
         try {
             const response = await fetch('/api/get-live-key');
@@ -82,6 +80,10 @@ export class MultimodalLivePrototype {
         const settings = Storage.getSettings() || {};
         const userName = settings.userName || 'Gast';
 
+        // Die gewählte Stimme aus dem neuen Dropdown lesen
+        const voiceSelect = document.getElementById('live-voice-selector');
+        const selectedVoice = voiceSelect ? voiceSelect.value : "Aoede";
+
         let historyString = "";
         if (this.chatHistory && this.chatHistory.length > 0) {
             historyString = "\n\n--- DEIN GEDÄCHTNIS (BISHERIGER CHAT) ---\n";
@@ -89,11 +91,11 @@ export class MultimodalLivePrototype {
             recentHistory.forEach(msg => {
                 let cleanText = msg.text.replace('📞 *KI im Live-Call:* ', '');
                 
-                // FIX: Riesige Bild-Codes und HTML aus dem Gedächtnis der Audio-KI löschen!
+                // FILTER: Bilder restlos aus dem Gedächtnis der Audio-KI entfernen!
                 cleanText = cleanText.replace(/BILD_WURDE_AUSGEBLENDET/g, "");
                 cleanText = cleanText.replace(/data:image\/[^"'\)\]]+/g, "");
                 cleanText = cleanText.replace(/<div style="position: relative;[\s\S]*?<\/div>/g, "[Ein Bild wurde generiert]");
-
+                
                 historyString += `${msg.isUser ? 'Nutzer' : 'Du'}: ${cleanText}\n`;
             });
             historyString += "-----------------------------------\nNutze dieses Wissen zwingend!";
@@ -108,17 +110,12 @@ WICHTIGE REGELN:
 
         const setupMsg = {
             setup: { 
+                // DEIN Native-Audio Modell:
                 model: "models/gemini-2.5-flash-native-audio-latest", 
                 systemInstruction: { parts: [{ text: systemPrompt }] },
                 generationConfig: { 
-                    responseModalities: ["AUDIO"], // Zwingend erforderlich für Native Audio
-                    speechConfig: {
-                        voiceConfig: {
-                            prebuiltVoiceConfig: {
-                                voiceName: "Fenrir" // Du kannst auch "Puck", "Charon", "Kore" oder "Fenrir" nutzen!
-                            }
-                        }
-                    }
+                    responseModalities: ["AUDIO"],
+                    speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: selectedVoice } } }
                 }
             }
         };
@@ -134,8 +131,31 @@ WICHTIGE REGELN:
             this.analyser.fftSize = 256;
             this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
 
-            this.audioProcessor = this.audioContext.createScriptProcessor(this.BUFFER_SIZE, 1, 1); 
-            this.audioProcessor.onaudioprocess = (e) => this.processAudioInput(e);
+            // 🔥 NEU: Moderner AudioWorklet (Ersetzt den veralteten ScriptProcessor!)
+            const workletCode = `
+            class PCMProcessor extends AudioWorkletProcessor {
+                process(inputs, outputs, parameters) {
+                    const input = inputs[0];
+                    if (input && input.length > 0) {
+                        const inputData = input[0];
+                        const int16PCM = new Int16Array(inputData.length);
+                        for (let i = 0; i < inputData.length; i++) {
+                            let s = Math.max(-1, Math.min(1, inputData[i]));
+                            int16PCM[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                        }
+                        this.port.postMessage(int16PCM.buffer);
+                    }
+                    return true;
+                }
+            }
+            registerProcessor('pcm-processor', PCMProcessor);
+            `;
+            const blob = new Blob([workletCode], { type: 'application/javascript' });
+            const workletUrl = URL.createObjectURL(blob);
+            await this.audioContext.audioWorklet.addModule(workletUrl);
+            
+            this.audioProcessor = new AudioWorkletNode(this.audioContext, 'pcm-processor');
+            this.audioProcessor.port.onmessage = (e) => this.processAudioInput(e.data);
 
             const source = this.audioContext.createMediaStreamSource(this.mediaStream);
             source.connect(this.analyser);
@@ -152,30 +172,57 @@ WICHTIGE REGELN:
 
     async handleMessage(event, liveCallBtn, liveStatusIndicator) {
         let data;
-        try { let rawData = event.data; if (rawData instanceof Blob) rawData = await rawData.text(); data = JSON.parse(rawData); } catch (e) { return; }
+        try { 
+            let rawData = event.data; 
+            if (rawData instanceof Blob) rawData = await rawData.text(); 
+            data = JSON.parse(rawData); 
+        } catch (e) { return; }
 
-        if (data.setupComplete) { this.setupCompleteReceived = true; this.updateCallUI('Höre zu...'); return; }
+        if (data.setupComplete) { 
+            this.setupCompleteReceived = true; 
+            this.updateCallUI('Höre zu...'); 
+            
+            // 🔥 NEU: Coden zwingen, sofort das Gespräch zu starten!
+            const initialGreeting = {
+                clientContent: {
+                    turns: [{ role: "user", parts: [{ text: "Hallo Coden! Ich bin jetzt im Live-Call. Bitte begrüße mich kurz und freundlich auf Deutsch, ohne dass ich etwas sagen muss. Mache es kurz!" }] }],
+                    turnComplete: true
+                }
+            };
+            this.websocket.send(JSON.stringify(initialGreeting));
+            return; 
+        }
 
         if (data.serverContent?.modelTurn?.parts) {
             const parts = data.serverContent.modelTurn.parts;
             for (const part of parts) {
-                if (part.text && !part.thought) { if (this.isNewAITurn) { this.currentScreenText = ''; this.isNewAITurn = false; } this.currentScreenText += part.text; }
+                if (part.text && !part.thought) { 
+                    if (this.isNewAITurn) { this.currentScreenText = ''; this.isNewAITurn = false; } 
+                    this.currentScreenText += part.text; 
+                }
 
                 if (part.inlineData && part.inlineData.data) {
                     this.currentStatus = 'Speaking';
                     this.updateCallUI('Coden spricht...', true); 
                     
                     try {
-                        const base64 = part.inlineData.data; const binaryString = window.atob(base64); const buffer = new ArrayBuffer(binaryString.length); const view = new DataView(buffer);
+                        const base64 = part.inlineData.data; 
+                        const binaryString = window.atob(base64); 
+                        const buffer = new ArrayBuffer(binaryString.length); 
+                        const view = new DataView(buffer);
                         for (let i = 0; i < binaryString.length; i++) { view.setUint8(i, binaryString.charCodeAt(i)); }
                         const float32Array = new Float32Array(binaryString.length / 2);
                         for (let i = 0; i < float32Array.length; i++) { float32Array[i] = view.getInt16(i * 2, true) / 32768.0; }
                         if (this.audioContext.state === 'suspended') this.audioContext.resume();
-                        const audioBuffer = this.audioContext.createBuffer(1, float32Array.length, 24000); audioBuffer.getChannelData(0).set(float32Array);
-                        const source = this.audioContext.createBufferSource(); source.buffer = audioBuffer; source.connect(this.audioContext.destination);
+                        const audioBuffer = this.audioContext.createBuffer(1, float32Array.length, 24000); 
+                        audioBuffer.getChannelData(0).set(float32Array);
+                        const source = this.audioContext.createBufferSource(); 
+                        source.buffer = audioBuffer; 
+                        source.connect(this.audioContext.destination);
                         
                         if (this.nextPlaybackTime < this.audioContext.currentTime) { this.nextPlaybackTime = this.audioContext.currentTime; }
-                        source.start(this.nextPlaybackTime); this.nextPlaybackTime += audioBuffer.duration;
+                        source.start(this.nextPlaybackTime); 
+                        this.nextPlaybackTime += audioBuffer.duration;
                         
                         source.onended = () => {
                             if (this.audioContext.currentTime >= this.nextPlaybackTime - 0.1) {
@@ -189,21 +236,19 @@ WICHTIGE REGELN:
         }
 
         if (data.serverContent?.turnComplete) {
-            if (this.currentScreenText && this.currentScreenText.trim().length > 0) { document.dispatchEvent(new CustomEvent('liveAITurnComplete', { detail: this.currentScreenText.trim() })); this.currentScreenText = ''; }
+            if (this.currentScreenText && this.currentScreenText.trim().length > 0) { 
+                document.dispatchEvent(new CustomEvent('liveAITurnComplete', { detail: this.currentScreenText.trim() })); 
+                this.currentScreenText = ''; 
+            }
             this.isNewAITurn = true; 
             if (this.currentStatus !== 'Speaking') { this.currentStatus = 'Listening'; this.updateCallUI('Höre zu...', false); }
         }
     }
 
-    processAudioInput(audioProcessingEvent) {
+    processAudioInput(pcmBuffer) {
         if (!this.isSessionActive || !this.websocket || this.websocket.readyState !== WebSocket.OPEN || !this.setupCompleteReceived) return;
         
-        const inputBuffer = audioProcessingEvent.inputBuffer;
-        const inputData = inputBuffer.getChannelData(0); 
-        
-        const int16PCM = new Int16Array(inputData.length);
-        for (let i = 0; i < inputData.length; i++) { let s = Math.max(-1, Math.min(1, inputData[i])); int16PCM[i] = s < 0 ? s * 0x8000 : s * 0x7FFF; }
-        const base64Audio = this.uint8ArrayToBase64(new Uint8Array(int16PCM.buffer));
+        const base64Audio = this.uint8ArrayToBase64(new Uint8Array(pcmBuffer));
         this.websocket.send(JSON.stringify({ realtimeInput: { mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: base64Audio }] } }));
     }
 
@@ -224,7 +269,6 @@ WICHTIGE REGELN:
         if (average > 15 && this.currentStatus === 'Listening') { 
             if (statusText && statusText.textContent !== 'Du sprichst...') statusText.textContent = 'Du sprichst...';
             if (avatarContainer) {
-                // 🔵 Schaltet den blauen Glow ein
                 avatarContainer.classList.add('user-is-speaking');
                 avatarContainer.classList.remove('ai-is-speaking');
             }
@@ -232,12 +276,20 @@ WICHTIGE REGELN:
         } else if (this.currentStatus === 'Listening') {
             if (avatarContainer) avatarContainer.classList.remove('user-is-speaking');
 
-            if (this.lastSpeakTime && (Date.now() - this.lastSpeakTime > 800) && (Date.now() - this.lastSpeakTime < 4000)) { if (statusText && statusText.textContent !== 'Coden denkt nach...') statusText.textContent = 'Coden denkt nach...'; } 
-            else if (!this.lastSpeakTime || (Date.now() - this.lastSpeakTime >= 4000)) { if (statusText && statusText.textContent !== 'Höre zu...') statusText.textContent = 'Höre zu...'; }
+            if (this.lastSpeakTime && (Date.now() - this.lastSpeakTime > 800) && (Date.now() - this.lastSpeakTime < 4000)) { 
+                if (statusText && statusText.textContent !== 'Coden denkt nach...') statusText.textContent = 'Coden denkt nach...'; 
+            } else if (!this.lastSpeakTime || (Date.now() - this.lastSpeakTime >= 4000)) { 
+                if (statusText && statusText.textContent !== 'Höre zu...') statusText.textContent = 'Höre zu...'; 
+            }
         }
     }
 
-    uint8ArrayToBase64(u8Array) { let binary = ''; const len = u8Array.byteLength; for (let i = 0; i < len; i++) { binary += String.fromCharCode(u8Array[i]); } return window.btoa(binary); }
+    uint8ArrayToBase64(u8Array) { 
+        let binary = ''; 
+        const len = u8Array.byteLength; 
+        for (let i = 0; i < len; i++) { binary += String.fromCharCode(u8Array[i]); } 
+        return window.btoa(binary); 
+    }
 
     updateCallUI(text, isAiSpeaking = false) {
         const statusText = document.getElementById('call-status-text');
@@ -247,7 +299,6 @@ WICHTIGE REGELN:
 
         if (avatarContainer) {
             if (isAiSpeaking) {
-                // 🟣 Schaltet den violetten KI-Glow ein
                 avatarContainer.classList.add('ai-is-speaking');
                 avatarContainer.classList.remove('user-is-speaking');
             } else {
@@ -256,16 +307,37 @@ WICHTIGE REGELN:
         }
     }
 
-    handleClose(event, liveCallBtn, liveStatusIndicator) { if (event.code !== 1000 && event.code !== 1005) { const reason = event.reason ? event.reason : "Verbindung getrennt."; this.updateCallUI(`❌ Abbruch (Code ${event.code}): ${reason}`); setTimeout(() => this.stopSession(liveCallBtn, liveStatusIndicator), 5000); } else { this.stopSession(liveCallBtn, liveStatusIndicator); } }
-    handleError(event, liveCallBtn, liveStatusIndicator) { this.updateCallUI('❌ WebSocket Fehler!'); setTimeout(() => this.stopSession(liveCallBtn, liveStatusIndicator), 4000); }
+    handleClose(event, liveCallBtn, liveStatusIndicator) { 
+        if (event.code !== 1000 && event.code !== 1005) { 
+            const reason = event.reason ? event.reason : "Verbindung getrennt."; 
+            this.updateCallUI(`❌ Abbruch (Code ${event.code}): ${reason}`); 
+            setTimeout(() => this.stopSession(liveCallBtn, liveStatusIndicator), 5000); 
+        } else { 
+            this.stopSession(liveCallBtn, liveStatusIndicator); 
+        } 
+    }
+    
+    handleError(event, liveCallBtn, liveStatusIndicator) { 
+        this.updateCallUI('❌ WebSocket Fehler!'); 
+        setTimeout(() => this.stopSession(liveCallBtn, liveStatusIndicator), 4000); 
+    }
 
     stopSession(liveCallBtn, liveStatusIndicator) {
         if (!this.isSessionActive) return;
         this.updateCallUI('Aufgelegt.');
         
-        if (this.mediaStream) this.mediaStream.getTracks().forEach(track => track.stop()); if (this.audioProcessor) this.audioProcessor.disconnect(); if (this.analyser) this.analyser.disconnect(); if (this.audioContext) this.audioContext.close(); if (this.websocket) this.websocket.close();
-        this.websocket = null; this.audioContext = null; this.mediaStream = null; this.audioProcessor = null; this.analyser = null; this.isSessionActive = false; this.setupCompleteReceived = false; this.currentStatus = 'Disconnected'; this.nextPlaybackTime = 0; this.currentScreenText = '';
+        if (this.mediaStream) this.mediaStream.getTracks().forEach(track => track.stop()); 
+        if (this.audioProcessor) this.audioProcessor.disconnect(); 
+        if (this.analyser) this.analyser.disconnect(); 
+        if (this.audioContext) this.audioContext.close(); 
+        if (this.websocket) this.websocket.close();
         
-        const callModal = document.getElementById('live-call-modal'); if (callModal) { setTimeout(() => callModal.classList.add('hidden'), 500); }
+        this.websocket = null; this.audioContext = null; this.mediaStream = null; 
+        this.audioProcessor = null; this.analyser = null; this.isSessionActive = false; 
+        this.setupCompleteReceived = false; this.currentStatus = 'Disconnected'; 
+        this.nextPlaybackTime = 0; this.currentScreenText = '';
+        
+        const callModal = document.getElementById('live-call-modal'); 
+        if (callModal) { setTimeout(() => callModal.classList.add('hidden'), 500); }
     }
 }
