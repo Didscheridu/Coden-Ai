@@ -983,11 +983,29 @@ async function handleSend() {
 
     const userName = Storage.getSettings().userName || 'Entwickler';
     
-    const context = currentSession.messages.map(m => ({ 
-        role: m.isUser ? 'user' : 'assistant', 
-        content: m.text,
-        images: m.images || [] 
-    }));
+    const context = currentSession.messages.map((m, index, array) => {
+        // 1. RIESIGE BILD-CODES HERAUSFILTERN: 
+        // Ersetzt alle Base64-Bild-Daten durch einen kleinen Platzhalter, 
+        // damit sie die Token-Grenze der KI nicht sprengen!
+        let cleanText = m.text;
+        if (cleanText.includes('data:image')) {
+            cleanText = cleanText.replace(/data:image\/[^"')\]]+/g, "BILD_WURDE_AUSGEBLENDET");
+        }
+
+        // 2. ALTE BILDER IGNORIEREN:
+        // Wir senden nur noch hochgeladene Bilder an die KI, wenn sie aus der 
+        // ALLERLETZTEN (aktuellen) Nachricht stammen.
+        let activeImages = [];
+        if (index === array.length - 1 && m.images) {
+            activeImages = m.images;
+        }
+
+        return { 
+            role: m.isUser ? 'user' : 'assistant', 
+            content: cleanText,
+            images: activeImages
+        };
+    });
 
     // --- NEU: BILDERSTELLUNG ABFANGEN ---
     // --- NEU: BILDERSTELLUNG ABFANGEN (VERBESSERT) ---
