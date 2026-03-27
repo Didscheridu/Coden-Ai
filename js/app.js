@@ -1136,9 +1136,20 @@ Heute ist ${new Date().toLocaleDateString('de-DE')}. Nutzer: ${userName}.`;
 }
 async function generateChatTitle(firstMessage) {
     try {
-        const titleRes = await generateAiResponse([{ 'role': 'user', 'content': 'Titel (max 3 Worte) für: ' + firstMessage }], 'flash');
+        // FIX: Ein extrem strikter Prompt, der der KI verbietet, höflich zu sein!
+        const titlePrompt = `Erstelle einen sehr kurzen Titel (maximal 3 Worte) für die folgende Nachricht. 
+WICHTIG: Antworte AUSSCHLIESSLICH mit dem Titel! Keine Einleitung, keine Anführungszeichen, keine Erklärungen und keine Höflichkeitsfloskeln.
+Nachricht: "${firstMessage}"`;
+
+        const titleRes = await generateAiResponse([{ 'role': 'user', 'content': titlePrompt }], 'flash');
+        
         if (titleRes && titleRes.length > 1) { 
-            currentSession.title = titleRes.trim().replaceAll('"', ''); 
+            // Bereinigt den String noch zusätzlich von eventuellen Sternchen (Markdown) oder Anführungszeichen
+            let cleanTitle = titleRes.trim().replace(/["'*`]/g, '');
+            // Falls die KI doch Zeilenumbrüche macht, nehmen wir nur die erste Zeile
+            cleanTitle = cleanTitle.split('\n')[0];
+            
+            currentSession.title = cleanTitle; 
             
             // 💾 AUCH HIER: Bilder nicht im LocalStorage speichern!
             const sessionsToSave = JSON.parse(JSON.stringify(sessions));
@@ -1147,7 +1158,9 @@ async function generateChatTitle(firstMessage) {
             Storage.saveSessions(sessionsToSave); 
             UI.renderSidebar(sessions, activeSessionId); 
         }
-    } catch (e) {}
+    } catch (e) {
+        console.error("Fehler bei der Titelgenerierung:", e);
+    }
 }
 
 if (chatInput) { chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }); }
