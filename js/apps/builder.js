@@ -17,7 +17,7 @@ const FILE_ICON = (n) => /\.html?$/.test(n) ? 'html' : /\.css$/.test(n) ? 'css' 
 const MAX_AUTOFIX = 2;
 
 export function mountBuilder(host, appId) {
-    const st = { id: appId, app: null, files: {}, members: [], messages: [], seen: new Set(), lastId: 0, version: 0, running: false, abort: null, autoFix: 0,
+    const st = { id: appId, app: null, files: {}, members: [], messages: [], seen: new Set(), lastId: 0, version: 0, running: false, abort: null, autoFix: 0, imgRounds: 0,
         tier: localStorage.getItem('coden_app_tier') || 'pro', device: null, page: 'index.html', view: 'preview', pane: 'chat', logs: [], renderErrors: [], codeFile: null, dirty: false, alive: true, timers: [], live: null };
     const ns = `codenprev:${appId}:`;
 
@@ -292,7 +292,8 @@ export function mountBuilder(host, appId) {
                 h('pre', {}, h('code', { class: 'language-sql', text: s.sql.code }))));
             else if (s.kind === 'tool') {
                 const key = msgId ? `${msgId}:${ti++}` : null; const ans = key ? done[key] : null;
-                if (!final) { frag.push(sig('tool:' + s.tool.name, h('div', { class: 'bl-op busy' }, icon('build'), h('span', { text: 'Werkzeug: ' + s.tool.name })))); continue; }
+                if (!final) { frag.push(sig('tool:' + s.tool.name + ':' + (s.tool.id || ''), h('div', { class: 'bl-op busy' }, icon(s.tool.name === 'image' ? 'image' : 'build'), h('span', { text: s.tool.name === 'image' ? 'Bild wird geplant: ' + (s.tool.id || '') : 'Werkzeug: ' + s.tool.name })))); continue; }
+                if (s.tool.name === 'image') { frag.push(h('div', { class: 'bl-op done' }, icon('image'), h('span', { text: 'Bild: ' + (s.tool.id || 'ohne Namen') }), h('small', { text: (s.tool.prompt || '').slice(0, 40) }))); continue; }
                 const onAnswer = (a) => answerTool(key, a);
                 if (s.tool.name === 'database') frag.push(databaseCard(s.tool, { answered: ans, onAnswer, current: st.app?.integrations?.database }));
                 else if (s.tool.name === 'ask') frag.push(askCard(s.tool, { answered: ans, onAnswer }));
@@ -402,6 +403,17 @@ export function mountBuilder(host, appId) {
         if (saveErr) { toast('Speichern fehlgeschlagen: ' + saveErr, { type: 'error' }); return; }
         if (res.changed.length) { if (st.view === 'code') drawCode(); await render(true); }
         if (aborted) { log.append(h('div', { class: 'bl-event' }, icon('stop_circle'), h('span', { text: 'Gestoppt. Fertige Dateien wurden übernommen.' }))); return; }
+        const imgTools = p.tools.filter(t => t.name === 'image' && t.prompt).slice(0, 3);
+        if (imgTools.length && st.imgRounds < 2 && st.alive) {
+            st.imgRounds++;
+            const note = h('div', { class: 'bl-event' }, h('span', { class: 'cd-spin' }), h('span', { text: `Coden erstellt ${imgTools.length} Bild${imgTools.length > 1 ? 'er' : ''} …` })); log.append(note); scrollLog(true);
+            const out = await Promise.all(imgTools.map(async (t) => { try { const r = await apiJson(`/apps/${appId}/images`, { method: 'POST', body: JSON.stringify({ prompt: t.prompt }) }); return { id: t.id || 'bild', url: r.url }; } catch (e) { return { id: t.id || 'bild', error: e.message }; } }));
+            note.remove();
+            const ok = out.filter(o => o.url);
+            const msg = `[Bilder] ${out.map(o => o.url ? `- ${o.id}: ${o.url}` : `- ${o.id}: FEHLGESCHLAGEN (${o.error})`).join('\n')}\n${ok.length ? 'Baue die Bilder jetzt mit diesen URLs ein (<img src="…" alt="…">).' : 'Bilder gehen gerade nicht – nimm Unsplash-Bilder, SVGs oder Emojis und erwähne es kurz.'}`;
+            try { addMessage(await postMessage('tool', msg, { display: ok.length ? `${ok.length} Bild${ok.length > 1 ? 'er' : ''} erstellt` : 'Bilder konnten nicht erstellt werden', auto: true })); } catch (_) { return; }
+            return runAgent();
+        }
         const waitsForUser = p.tools.some(t => ['database', 'ask', 'secret'].includes(t.name));
         if (waitsForUser) { st.autoFix = 0; return; }
         // Selbstprüfung: Probleme beim Anwenden oder Fehler in der Vorschau -> Coden korrigiert sich selbst (begrenzt)
@@ -419,7 +431,7 @@ export function mountBuilder(host, appId) {
 
     async function runUser(text) {
         if (st.running) { toast('Coden arbeitet noch – kurz warten oder stoppen.', { type: 'warn' }); return; }
-        st.autoFix = 0;
+        st.autoFix = 0; st.imgRounds = 0;
         try { addMessage(await postMessage('user', text)); } catch (e) { toast(e.message, { type: 'error' }); return; }
         if (window.innerWidth <= 900 && st.pane !== 'chat') { st.pane = 'chat'; drawMobileTabs(); }
         runAgent();

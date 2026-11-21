@@ -63,6 +63,7 @@ WERKZEUGE – schreibe das Werkzeug ans ENDE deiner Antwort und höre dann auf. 
 - <tool name="database" reason="wofür"/> → der Nutzer wählt eine Datenbank (Supabase, Firebase, Appwrite, PocketBase …) und gibt die Zugangsdaten ein. Nimm das, sobald Daten zwischen Geräten oder Nutzern geteilt werden (Login, Online-Speicher, Chat, gemeinsame Highscores …). Nicht nochmal fragen, wenn unten schon eine Datenbank verbunden ist.
 - <tool name="ask" options="Option A|Option B|Option C">Kurze Frage?</tool> → nur bei wirklich wichtigen offenen Entscheidungen.
 - <tool name="secret" key="WETTER_KEY" label="OpenWeather API-Key" url="https://openweathermap.org/api"/> → öffentlicher API-Schlüssel eines Dienstes.
+- <tool name="image" id="hero" prompt="englische Bildbeschreibung, ohne Text im Bild"/> → erzeugt ein KI-Bild (Fotostil oder Illustration, passend zum Stil der App). Die URL kommt als nächste Nachricht; baue sie dann per <img src="URL" alt="…"> oder background-image ein. Nur für wichtige Bilder (Titelbild, Produkt, Stimmung), höchstens 3 pro Antwort, jeweils mit eigener id. Schreibe die Bild-Werkzeuge ans ENDE der Antwort. Antwortet das System, dass Bilder nicht eingerichtet sind, nimm stattdessen Unsplash-Bilder, SVGs oder Emojis.
 - <tool name="publish"/> → wenn eine erste gute Version fertig ist: der Nutzer kann veröffentlichen.
 - SQL für Supabase/Postgres als <sql>CREATE TABLE …;</sql> ausgeben (der Nutzer führt es im SQL-Editor aus), inklusive Row Level Security und passender Policies.
 
@@ -106,7 +107,7 @@ export function parse(text) {
             if (op.path) { ops.push(op); segs.push({ kind: 'op', op }); }
         } else if (m[8] !== undefined || m[9] !== undefined) {
             const a = m[8] !== undefined ? m[8] : m[9];
-            const t = { name: attrOf(a, 'name').toLowerCase(), reason: attrOf(a, 'reason'), options: attrOf(a, 'options').split('|').map(s => s.trim()).filter(Boolean), key: attrOf(a, 'key'), label: attrOf(a, 'label'), url: attrOf(a, 'url'), body: (m[10] || '').trim(), closed: m[8] !== undefined || !!m[11] };
+            const t = { name: attrOf(a, 'name').toLowerCase(), reason: attrOf(a, 'reason'), options: attrOf(a, 'options').split('|').map(s => s.trim()).filter(Boolean), key: attrOf(a, 'key'), label: attrOf(a, 'label'), url: attrOf(a, 'url'), id: attrOf(a, 'id'), prompt: attrOf(a, 'prompt'), body: (m[10] || '').trim(), closed: m[8] !== undefined || !!m[11] };
             if (t.name) { tools.push(t); segs.push({ kind: 'tool', tool: t }); }
         } else if (m[12] !== undefined) {
             plan = { items: m[12].split('\n').map(l => l.match(/^\s*[-*]\s*\[( |x|X)\]\s*(.+)$/)).filter(Boolean).map(x => ({ done: x[1].toLowerCase() === 'x', text: x[2].trim() })), closed: !!m[13] };
