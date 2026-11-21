@@ -1,20 +1,40 @@
 // KI-Anbieter. Alle Keys kommen ausschließlich aus Umgebungsvariablen.
+// Alle Gratis-Modelle von OpenRouter (Stand 21.11.2026, per OpenRouter-MCP abgefragt, Preis 0 $ rein/raus).
+// Reihenfolge = Stärke (Artificial-Analysis-Index, soweit vorhanden), stärkstes zuerst.
+const OPENROUTER_FREE = [
+  'nvidia/nemotron-3.5-super-vl:free',               // 1M Kontext, versteht Bilder/Video
+  'nvidia/nemotron-3-ultra-550b-a55b:free',          // 1M Kontext, groß (550B MoE)
+  'baidu/ernie-5.5-flash-preview:free',              // 1M Kontext
+  'particle-ai/particle-1:free',                     // 1M Kontext, Coding, Bilder
+  'inclusionai/ling-3.2-flash:free',                 // 1M Kontext, Bilder
+  'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free', // multimodal
+  'google/gemma-4-31b-it:free',                      // 256K, Bilder
+  'google/gemma-4-26b-a4b-it:free',                  // 256K, Bilder
+  'recursive/flint-v1.0:free',                       // 256K, Coding
+  'nvidia/nemotron-3.5-lightning:free',              // klein und schnell
+  'liquid/lfm-3-1.7b:free'                           // sehr klein
+];
+const openrouter = (ids) => ids.map(id => ({ provider: 'openrouter', id }));
+
+// Die drei Stufen der App. Google und Groq stehen vorn, dahinter alle OpenRouter-Gratismodelle als Ersatz.
 const CASCADES = {
+  // Schnell: kleine Modelle zuerst
   flash: [
     { provider: 'google', id: 'gemma-3-4b-it' },
     { provider: 'google', id: 'gemma-3-1b-it' },
     { provider: 'groq', id: 'llama-3.1-8b-instant' },
-    { provider: 'openrouter', id: 'nvidia/nemotron-3-super-120b-a12b:free' }
+    ...openrouter([...OPENROUTER_FREE].reverse())
   ],
   normal: [
     { provider: 'google', id: 'gemma-3-12b-it' },
     { provider: 'groq', id: 'qwen/qwen3-32b' },
-    { provider: 'openrouter', id: 'arcee-ai/trinity-large-preview:free' }
+    ...openrouter(OPENROUTER_FREE)
   ],
+  // Pro: stärkste zuerst
   pro: [
     { provider: 'google', id: 'gemma-3-27b-it' },
     { provider: 'groq', id: 'openai/gpt-oss-120b' },
-    { provider: 'openrouter', id: 'nvidia/nemotron-3-super-120b-a12b:free' }
+    ...openrouter(OPENROUTER_FREE)
   ]
 };
 
@@ -48,7 +68,9 @@ async function callOpenAICompat(provider, modelId, messages) {
   });
   const data = await r.json();
   if (!r.ok || data.error) throw new Error(data.error?.message || data.message || `HTTP ${r.status}`);
-  return data.choices[0].message.content;
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error('Leere Antwort (Modell hat nur nachgedacht).');
+  return content;
 }
 
 async function callGoogle(modelId, messages) {
