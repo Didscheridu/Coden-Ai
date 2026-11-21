@@ -1,10 +1,12 @@
 // js/app.js
+import './dom-safe.js';
 import { CONFIG } from './config.js';
 import { generateAiResponse, streamAiResponse } from './api.js';
 import { ARTIFACT_PROMPT, Artifacts } from './artifacts.js';
 import { Buddy } from './buddy.js';
 import { Layout, greetingText } from './layout.js';
 import { UI } from './ui.js';
+import { toast } from './toast.js';
 import { Storage } from './storage.js';
 import { initGoogleLogin, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, auth } from './auth.js';
 import { apiFetch, apiJson } from './backend.js';
@@ -311,7 +313,7 @@ function initApp() {
                     multimodalLive.stopSession(liveCallBtn, liveStatusIndicator);
                 } else {
                     if (!currentSelectedModel.includes('flash')) {
-                        alert("❌ Nativer Sprachmodus benötigt Coden Flash!");
+                        toast('Der Live-Sprachmodus braucht Coden Flash. Wechsle unten rechts das Modell.', { type: 'warn' });
                         return;
                     }
                     // 🔥 NEU: Wir übergeben das Gedächtnis an den Anruf!
@@ -578,8 +580,8 @@ if (modelSelectorBtn && modelDropdownMenu) {
             const selectedId = option.id;
             
             if (!isOwner) {
-                if (selectedId === 'pro-mode-option' && globalLockedModels.pro) return alert("❌ Vom Admin gesperrt.");
-                if (selectedId === 'thinking-mode-option' && globalLockedModels.thinking) return alert("❌ Vom Admin gesperrt.");
+                if (selectedId === 'pro-mode-option' && globalLockedModels.pro) return toast('Coden Pro ist gerade vom Admin gesperrt.', { type: 'warn' });
+                if (selectedId === 'thinking-mode-option' && globalLockedModels.thinking) return toast('Coden Thinking ist gerade vom Admin gesperrt.', { type: 'warn' });
             }
             
             document.querySelectorAll('.model-option').forEach(opt => opt.classList.remove('active'));
@@ -756,14 +758,14 @@ if (sendRealEmailBtn) {
     sendRealEmailBtn.addEventListener('click', async () => {
         const s = Storage.getSettings(); 
         if (!s.emailConfig || !s.emailConfig.address || !s.emailConfig.password) {
-            return alert("Bitte speichere zuerst deine E-Mail-Daten in den Einstellungen!");
+            return toast('Speichere zuerst deine E-Mail-Daten in den Einstellungen.', { type: 'warn' });
         }
         
         const to = document.getElementById('email-recipient').value.trim(); 
         const sub = document.getElementById('email-subject').value.trim(); 
         const txt = document.getElementById('email-draft-output').value.trim();
         
-        if (!to || !txt) return alert("Empfänger und Text ausfüllen!");
+        if (!to || !txt) return toast('Bitte Empfänger und Text ausfüllen.', { type: 'warn' });
         
         sendRealEmailBtn.innerHTML = 'Sende...'; 
         sendRealEmailBtn.disabled = true;
@@ -796,7 +798,7 @@ if (sendRealEmailBtn) {
                 throw new Error(data.error);
             }
         } catch (error) { 
-            alert("Fehler beim Senden: " + error.message); 
+            toast('Senden fehlgeschlagen: ' + error.message, { type: 'error' }); 
         }
         
         sendRealEmailBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">send</span> E-Mail jetzt versenden'; 
@@ -836,7 +838,7 @@ if (attachmentBtn && fileUploadInput) {
 
         for (let file of files) {
             if (file.size > 2 * 1024 * 1024) { // Max 2MB Schutz
-                alert(`Die Datei ${file.name} ist zu groß! (Maximal 2MB)`);
+                toast(`${file.name} ist zu groß (höchstens 2 MB).`, { type: 'warn' });
                 continue;
             }
 
@@ -855,7 +857,7 @@ if (attachmentBtn && fileUploadInput) {
                     pendingAttachments.push({ type: 'text', name: file.name, content: text });
                     renderAttachmentPreviews();
                 } catch (err) {
-                    alert(`Konnte ${file.name} nicht lesen.`);
+                    toast(`${file.name} konnte nicht gelesen werden.`, { type: 'error' });
                 }
             }
         }
@@ -1128,8 +1130,16 @@ document.addEventListener('liveAITurnComplete', (e) => {
     }
 });
 
+// Tastenkürzel: Strg/⌘+K = Chats durchsuchen, Strg/⌘+Umschalt+O = neuer Chat
+document.addEventListener('keydown', (e) => {
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); location.hash = '#/chat'; document.getElementById('main-sidebar')?.classList.remove('collapsed'); const sc = document.getElementById('search-container'); if (sc && !sc.classList.contains('active')) document.getElementById('toggle-search-btn')?.click(); else document.getElementById('chat-search-input')?.focus(); }
+    if (mod && e.shiftKey && e.key.toLowerCase() === 'o') { e.preventDefault(); location.hash = '#/chat'; document.querySelector('.new-chat-btn')?.click(); }
+});
+
 // Vorschlags-Chips auf dem Startbildschirm
 document.getElementById('welcome-chips')?.addEventListener('click', (e) => {
     const c = e.target.closest('.chip'); if (!c || !chatInput) return;
+    if (c.dataset.go) { location.hash = '#/' + c.dataset.go; return; }
     chatInput.value = c.dataset.prompt; chatInput.focus(); handleSend();
 });

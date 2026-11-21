@@ -53,6 +53,7 @@ function build() {
         <span class="material-symbols-outlined ap-icon"></span><div class="ap-title"></div>
         <select class="ap-versions" title="Version" hidden></select>
         <div class="ap-tabs"><button data-tab="preview" class="active">Vorschau</button><button data-tab="code">Code</button></div>
+        <button class="ap-btn ap-toapp" data-act="app" title="Als App mit eigener Coden-Adresse weiterbauen"><span class="material-symbols-outlined">rocket_launch</span><span class="ap-toapp-t">Als App</span></button>
         <button class="ap-btn" data-act="copy" title="Kopieren"><span class="material-symbols-outlined">content_copy</span></button>
         <button class="ap-btn" data-act="download" title="Herunterladen"><span class="material-symbols-outlined">download</span></button>
         <button class="ap-btn" data-act="full" title="Vollbild"><span class="material-symbols-outlined">fullscreen</span></button>
@@ -67,6 +68,7 @@ function build() {
             const a = act.dataset.act;
             if (a === 'close') Artifacts.close();
             if (a === 'full') { panel.classList.toggle('full'); }
+            if (a === 'app' && current) { const it = current; Artifacts.close(); document.dispatchEvent(new CustomEvent('artifactToApp', { detail: it })); }
             if (a === 'copy' && current) { try { await navigator.clipboard.writeText(current.body); act.querySelector('span').textContent = 'check'; setTimeout(() => act.querySelector('span').textContent = 'content_copy', 1500); } catch (_) {} }
             if (a === 'download' && current) { const url = URL.createObjectURL(new Blob([current.body], { type: 'text/plain;charset=utf-8' })); const l = document.createElement('a'); l.href = url; l.download = fileNameFor(current); l.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
         }
@@ -83,6 +85,7 @@ function show(item, keepTab) {
     if (!panel) build();
     current = item;
     panel.querySelector('.ap-icon').textContent = ICON[item.type]; panel.querySelector('.ap-title').textContent = item.title;
+    panel.querySelector('.ap-toapp').hidden = item.type !== 'html' || !item.closed;
     const list = versions.get(item.title) || [item]; const sel = panel.querySelector('.ap-versions');
     sel.hidden = list.length < 2; sel.replaceChildren(...list.map((v, i) => { const o = document.createElement('option'); o.value = i; o.textContent = 'Version ' + (i + 1); return o; })); sel.value = Math.max(0, list.indexOf(item));
     const codeEl = panel.querySelector('.ap-code'); const stick = codeEl.scrollHeight - codeEl.scrollTop - codeEl.clientHeight < 80 || !panel.classList.contains('open');

@@ -3,3 +3,6 @@ node_modules/
 .env.*
 .vercel/
 .neon
+android-shell/.gradle/
+android-shell/**/build/
+android-shell/app/src/main/res/mipmap-*/

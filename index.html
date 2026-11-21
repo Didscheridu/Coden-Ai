@@ -32,6 +32,7 @@
     <link rel="stylesheet" href="css/artifacts.css">
     <link rel="stylesheet" href="css/claude-layout.css">
     <link rel="stylesheet" href="css/buddy.css">
+    <link rel="stylesheet" href="css/apps.css">
     <link rel="stylesheet" href="css/mobile.css">
 
     <style>
@@ -202,6 +203,7 @@
     </div>
 
     <div id="app" class="app-container hidden">
+        <button class="icon-btn hidden sb-open" id="open-sidebar-btn" title="Menü öffnen" aria-label="Menü öffnen"><span class="material-symbols-outlined">menu</span></button>
         
         <aside class="sidebar" id="main-sidebar">
             <div class="sidebar-header">
@@ -209,12 +211,13 @@
                 <div class="sb-brand"><img src="./images/coden_logo.jpg" alt="" onerror="this.style.display='none'"><span>Coden</span></div>
             </div>
             <nav class="sb-nav">
-                <a href="#" class="sb-item new-chat-btn" id="sb-new"><span class="material-symbols-outlined">add</span><span class="sb-label">Neu</span></a>
+                <a href="#/chat" class="sb-item new-chat-btn" id="sb-new" title="Neuer Chat"><span class="material-symbols-outlined">add</span><span class="sb-label">Neu</span></a>
                 <a href="#" class="sb-item" id="toggle-search-btn"><span class="material-symbols-outlined">search</span><span class="sb-label">Suchen</span></a>
                 <div id="search-container" class="sb-search"><input type="text" id="chat-search-input" placeholder="Chats durchsuchen…" autocomplete="off"></div>
-                <a href="#" class="sb-item" id="open-projects-btn"><span class="material-symbols-outlined">folder_open</span><span class="sb-label">Projekte</span></a>
-                <a href="#" class="sb-item" id="open-artifacts-btn"><span class="material-symbols-outlined">deployed_code</span><span class="sb-label">Artefakte</span></a>
-                <a href="#" class="sb-item" id="open-buddy-btn"><span class="material-symbols-outlined">diversity_3</span><span class="sb-label">Code Buddy</span><span class="bd-nav-badge" style="display:none"></span></a>
+                <a href="#/apps" class="sb-item" id="open-apps-btn" data-route="apps"><span class="material-symbols-outlined">apps</span><span class="sb-label">Apps</span><span class="sb-pill">Neu</span></a>
+                <a href="#/artefakte" class="sb-item" id="open-artifacts-btn" data-route="artefakte"><span class="material-symbols-outlined">deployed_code</span><span class="sb-label">Artefakte</span></a>
+                <a href="#/buddy" class="sb-item" id="open-buddy-btn" data-route="buddy"><span class="material-symbols-outlined">diversity_3</span><span class="sb-label">Code Buddy</span><span class="bd-nav-badge" style="display:none"></span></a>
+                <a href="#/buddy/projekte" class="sb-item" id="open-projects-btn"><span class="material-symbols-outlined">folder_open</span><span class="sb-label">Projekte</span></a>
             </nav>
             <div class="sidebar-scroll-area"></div>
             <div class="sidebar-footer">
@@ -230,7 +233,6 @@
         <main class="main-content">
             <header class="top-bar">
                 <div style="display: flex; align-items: center;">
-                    <button class="icon-btn hidden" id="open-sidebar-btn" style="margin-right: 12px; color: var(--text-primary);"><span class="material-symbols-outlined">menu</span></button>
                     <div class="brand">Coden AI <span id="owner-badge" style="display:none; background:#ff4444; color:white; font-size:10px; padding:2px 6px; border-radius:4px; margin-left:8px; vertical-align:middle;">OWNER</span></div>
                 </div>
                 <div id="user-email-display" style="font-size: 13px; color: var(--text-muted);"></div>
@@ -282,6 +284,7 @@
             </div>
             <section class="welcome-extra hidden" id="welcome-extra">
                 <div class="chips" id="welcome-chips">
+                        <button class="chip chip-accent" data-go="apps/neu">📱 App bauen</button>
                         <button class="chip" data-prompt="Baue mir ein Snake-Spiel als Webseite, das ich direkt spielen kann.">🐍 Snake-Spiel bauen</button>
                         <button class="chip" data-prompt="Erkläre mir den Unterschied zwischen let, const und var in JavaScript mit Beispielen.">💡 JavaScript erklären</button>
                         <button class="chip" data-prompt="Erstelle mir einen schicken Taschenrechner als Webseite mit dunklem Design.">🧮 Taschenrechner</button>
@@ -293,6 +296,7 @@
                 </div>
             </section>
         </main>
+        <section id="view-host" class="view-host hidden" aria-live="polite"></section>
     </div>
 
     <div id="email-modal" class="modal-overlay hidden"><div class="modal-content" style="max-width: 600px;"><div class="modal-header"><h3 style="display: flex; align-items: center; gap: 8px; font-weight: 500;"><span class="material-symbols-outlined" style="color: #63A4FF;">mail</span> E-Mail Entwurf</h3><button class="icon-btn" id="close-email-btn"><span class="material-symbols-outlined">close</span></button></div><div class="modal-body"><label>Empfänger E-Mail</label><input type="email" id="email-recipient" class="settings-input" placeholder="empfaenger@beispiel.com" style="margin-bottom: 12px;"><label>Betreff</label><input type="text" id="email-subject" class="settings-input" placeholder="RE: Deine Nachricht" style="margin-bottom: 16px;"><label style="color: var(--accent-green);">✉️ KI-Antwortentwurf (Bearbeitbar):</label><textarea id="email-draft-output" class="settings-input" style="height: 200px; margin-bottom: 16px; resize: vertical; line-height: 1.5;"></textarea><button class="btn-save" id="send-real-email-btn" style="width: 100%; display: flex; justify-content: center; gap: 8px; background: #28a745; color: white;"><span class="material-symbols-outlined" style="font-size: 18px;">send</span> E-Mail jetzt versenden</button><div id="email-send-feedback" style="font-size: 13px; text-align: center; margin-top: 12px; display: none;"></div></div></div></div>
@@ -416,6 +420,9 @@
         </div>
     </div>
 
+    <script src="shared/app-styles.js"></script>
+    <script src="shared/app-bundle.js"></script>
+    <script src="js/vendor/qrcode.js"></script>
     <script type="module" src="js/app.js"></script>
 </body>
 </html>

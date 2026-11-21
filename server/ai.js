@@ -159,7 +159,7 @@ async function failFrom(r) {
 }
 
 // ---------- Ein Modell aufrufen (stream=true: Stücke an onDelta) ----------
-async function callModel(m, messages, { stream, onDelta, signal }) {
+async function callModel(m, messages, { stream, onDelta, signal, maxTokens }) {
   if (m.provider === 'google') {
     const key = process.env.GOOGLE_API_KEY;
     if (!key) throw new Error('GOOGLE_API_KEY fehlt');
@@ -178,7 +178,7 @@ async function callModel(m, messages, { stream, onDelta, signal }) {
   const r = await fetch(cfg.url, {
     method: 'POST', signal,
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'HTTP-Referer': 'https://coden-ai.vercel.app', 'X-Title': 'Coden AI' },
-    body: JSON.stringify({ model: m.id, messages: toOpenAI(messages), max_tokens: 8192, temperature: 0.7, ...(stream ? { stream: true } : {}) })
+    body: JSON.stringify({ model: m.id, messages: toOpenAI(messages), max_tokens: maxTokens || 8192, temperature: 0.7, ...(stream ? { stream: true } : {}) })
   });
   if (!r.ok) await failFrom(r);
   if (!stream) { const d = await r.json(); if (d.error) throw new Error(d.error.message); return d.choices?.[0]?.message?.content || ''; }
@@ -196,7 +196,7 @@ async function callModel(m, messages, { stream, onDelta, signal }) {
 // ---------- Kaskade ----------
 // Probiert die Modelle der Stufe der Reihe nach. Fällt eines aus (oder liefert nichts), kommt das nächste.
 // Beim Streamen ist Wechsel nur möglich, solange noch nichts an den Nutzer geschickt wurde.
-async function run(tier, messages, { isOwner = false, stream = false, onDelta = () => {}, onModel = () => {}, signal } = {}) {
+async function run(tier, messages, { isOwner = false, stream = false, onDelta = () => {}, onModel = () => {}, signal, maxTokens } = {}) {
   const cascade = CASCADES[tier];
   if (!cascade) throw Object.assign(new Error('Unbekannter Modus.'), { status: 400 });
   let last;
@@ -206,7 +206,7 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
       if (QUOTAS[m.id] && !(await reserveQuota(m.id, isOwner))) { last = new Error(`${m.id}: Tageslimit erreicht`); continue; }
       let sent = false; const filter = new ThinkFilter();
       const emit = (t) => { const v = filter.push(t); if (v) { if (!sent) { sent = true; onModel(m); } onDelta(v); } };
-      const full = await callModel(m, messages, { stream, onDelta: emit, signal }).catch((e) => { if (sent) e.partial = true; throw e; });
+      const full = await callModel(m, messages, { stream, onDelta: emit, signal, maxTokens }).catch((e) => { if (sent) e.partial = true; throw e; });
       if (stream) {
         const rest = filter.flush(); if (rest) { if (!sent) { sent = true; onModel(m); } onDelta(rest); }
         if (!sent) throw new Error('Leere Antwort');
