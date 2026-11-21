@@ -1,4 +1,5 @@
 // js/layout.js – Layout: Begrüßung, Artefakt-Galerie, Tabs (Apps, Artefakte, Code Buddy), Konto-Menü
+import { McpView } from './mcp.js';
 import { collectArtifacts, thumbFor, Artifacts } from './artifacts.js';
 import { Buddy } from './buddy.js';
 import { Router } from './router.js';
@@ -77,9 +78,10 @@ export const Layout = {
         document.addEventListener('sessionsRendered', refreshGallery);
         Router.register('apps', AppsView);
         Router.register('artefakte', ArtifactsView);
+        Router.register('verbindungen', McpView);
         Router.register('buddy', { mount: (host, params) => Buddy.mount(host, params), unmount: () => Buddy.unmount() });
         const nav = (id, path) => $(id)?.addEventListener('click', (e) => { e.preventDefault(); Router.go(path); });
-        nav('open-apps-btn', 'apps'); nav('open-artifacts-btn', 'artefakte'); nav('open-buddy-btn', 'buddy'); nav('open-projects-btn', 'buddy/projekte');
+        nav('open-apps-btn', 'apps'); nav('open-artifacts-btn', 'artefakte'); nav('open-mcp-btn', 'verbindungen'); nav('open-buddy-btn', 'buddy'); nav('open-projects-btn', 'buddy/projekte');
         $('we-all')?.addEventListener('click', () => Router.go('artefakte'));
         // "Neu" und Chats in der Seitenleiste führen immer zurück in den Chat
         $('sb-new')?.addEventListener('click', () => Router.go('chat'));
