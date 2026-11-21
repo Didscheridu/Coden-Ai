@@ -1,11 +1,10 @@
 // js/config.js
 export const CONFIG = {
-    // KEINE API KEYS MEHR HIER! Die liegen jetzt sicher auf dem Server.
-    
+    // KEINE API KEYS HIER! Die liegen sicher auf dem Server.
+    // Die echte Modell-Auswahl pro Stufe steht in server/ai.js.
     models: {
-        flash: 'llama-3.1-8b-instant',          // Groq
-        normal: 'qwen/qwen3-32b',               // Groq
-        pro: 'openai/gpt-oss-120b',             // Groq
-        openRouterCoder: 'nvidia/nemotron-3-super-120b-a12b:free' // OpenRouter
+        flash: 'gemini-3.5-flash-lite',  // Google
+        normal: 'gemini-3.8-flash',      // Google
+        pro: 'gemini-4-hydrogen'         // Google
     }
 };

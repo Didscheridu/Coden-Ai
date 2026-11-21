@@ -16,24 +16,27 @@ const OPENROUTER_FREE = [
 ];
 const openrouter = (ids) => ids.map(id => ({ provider: 'openrouter', id }));
 
-// Die drei Stufen der App. Google und Groq stehen vorn, dahinter alle OpenRouter-Gratismodelle als Ersatz.
+// Die drei Stufen der App: erst Google und Groq, dahinter alle OpenRouter-Gratismodelle als Ersatz.
+// (Modell-IDs laut Google-AI-Studio- und Groq-Doku, Stand 21.11.2026)
 const CASCADES = {
   // Schnell: kleine Modelle zuerst
   flash: [
-    { provider: 'google', id: 'gemma-3-4b-it' },
-    { provider: 'google', id: 'gemma-3-1b-it' },
-    { provider: 'groq', id: 'llama-3.1-8b-instant' },
+    { provider: 'google', id: 'gemini-3.5-flash-lite' },
+    { provider: 'groq', id: 'openai/gpt-oss-20b' },
     ...openrouter([...OPENROUTER_FREE].reverse())
   ],
   normal: [
-    { provider: 'google', id: 'gemma-3-12b-it' },
-    { provider: 'groq', id: 'qwen/qwen3-32b' },
+    { provider: 'google', id: 'gemini-3.8-flash' },
+    { provider: 'groq', id: 'qwen/qwen3.8-27b' },
+    { provider: 'groq', id: 'openai/gpt-oss-20b' },
+    { provider: 'groq', id: 'llama-3.3-70b-versatile' }, // bei Groq "Enterprise": kann ohne Vertrag fehlschlagen, dann springt die Kaskade weiter
     ...openrouter(OPENROUTER_FREE)
   ],
   // Pro: stärkste zuerst
   pro: [
-    { provider: 'google', id: 'gemma-3-27b-it' },
+    { provider: 'google', id: 'gemini-4-hydrogen' },
     { provider: 'groq', id: 'openai/gpt-oss-120b' },
+    { provider: 'groq', id: 'llama-3.3-70b-versatile' },
     ...openrouter(OPENROUTER_FREE)
   ]
 };
@@ -99,7 +102,8 @@ async function callGoogle(modelId, messages) {
   });
   const data = await r.json();
   if (!r.ok) throw new Error(data.error?.message || r.statusText);
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  // Denk-Teile (thought) ausblenden, nur die eigentliche Antwort nehmen
+  const text = (data.candidates?.[0]?.content?.parts || []).filter(p => p.text && !p.thought).map(p => p.text).join('');
   if (!text) throw new Error('Leere Antwort.');
   return text;
 }
