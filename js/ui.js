@@ -62,6 +62,30 @@ export const UI = {
     },
 
     // Baut den Inhalt einer KI-Nachricht: Markdown-Abschnitte und Artefakt-Karten
+    // Bilder im Chat: passen immer komplett auf den Bildschirm, mit Herunterladen / Öffnen
+    _imageTools: (img) => {
+        if (img.closest('.img-card')) return;
+        const card = document.createElement('figure'); card.className = 'img-card';
+        const bar = document.createElement('div'); bar.className = 'img-bar';
+        const mk = (icon, label, fn) => { const b = document.createElement('button'); b.type = 'button'; b.title = label; b.className = 'img-btn'; b.innerHTML = '<span class="material-symbols-outlined"></span><span></span>'; b.children[0].textContent = icon; b.children[1].textContent = label; b.addEventListener('click', fn); return b; };
+        const src = () => img.currentSrc || img.src;
+        bar.append(
+            mk('download', 'Herunterladen', async (e) => {
+                const btn = e.currentTarget; btn.disabled = true;
+                try {
+                    const blob = await (await fetch(src())).blob();
+                    const ext = ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' })[blob.type] || 'png';
+                    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'coden-bild-' + Date.now().toString(36) + '.' + ext; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+                } catch (_) { window.open(src(), '_blank', 'noopener'); }
+                btn.disabled = false;
+            }),
+            mk('open_in_new', 'Öffnen', () => window.open(src(), '_blank', 'noopener')),
+            mk('content_copy', 'Link kopieren', async (e) => { try { await navigator.clipboard.writeText(src()); const l = e.currentTarget.children[1]; const o = l.textContent; l.textContent = 'Kopiert ✓'; setTimeout(() => { l.textContent = o; }, 1500); } catch (_) {} })
+        );
+        img.replaceWith(card); card.append(img, bar);
+        img.loading = 'lazy'; img.addEventListener('click', () => window.open(src(), '_blank', 'noopener'));
+    },
+
     renderRich: (content, text, msgKey) => {
         const frag = document.createDocumentFragment(); let n = 0;
         for (const seg of splitArtifacts(text)) {
@@ -81,6 +105,7 @@ export const UI = {
             }
         }
         content.replaceChildren(frag);
+        content.querySelectorAll('.md img').forEach(UI._imageTools);
         content.querySelectorAll('pre code:not(.hljs)').forEach(b => { try { hljs.highlightElement(b); } catch (_) {} });
     },
 
