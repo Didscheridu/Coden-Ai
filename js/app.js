@@ -3,7 +3,7 @@ import { CONFIG } from './config.js';
 import { generateAiResponse } from './api.js';
 import { UI } from './ui.js';
 import { Storage } from './storage.js';
-import { loginWithGoogle, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, auth } from './firebase-init.js';
+import { initGoogleLogin, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, auth } from './auth.js';
 import { apiFetch, apiJson } from './backend.js';
 import { checkRateLimit } from './Limit-Spamschutz.js';
 import { MultimodalLivePrototype } from './multimodal-live-prototype.js'; // 🔥 NEU: Der Live Client 🔥
@@ -70,17 +70,9 @@ if (acceptCookiesBtn) {
 }
 
 // ==========================================
-// 🛡️ 4. AUTHENTIFIZIERUNG & FIREBASE
+// 🛡️ 4. AUTHENTIFIZIERUNG
 // ==========================================
-if (document.getElementById('btn-google-login')) {
-    document.getElementById('btn-google-login').addEventListener('click', async () => { 
-        try { 
-            await loginWithGoogle(); 
-        } catch(e) { 
-            showError(e.message); 
-        } 
-    });
-}
+initGoogleLogin((msg) => showError(msg));
 
 if (document.getElementById('btn-email-login')) {
     document.getElementById('btn-email-login').addEventListener('click', async () => { 
@@ -91,15 +83,7 @@ if (document.getElementById('btn-email-login')) {
             try { 
                 await loginWithEmail(e, p); 
             } catch(err) { 
-                if (err.code === 'auth/invalid-credential') {
-                    showError("❌ Falsches Passwort oder E-Mail existiert nicht.");
-                } else if (err.code === 'auth/user-not-found') {
-                    showError("❌ Kein Account mit dieser E-Mail gefunden.");
-                } else if (err.code === 'auth/too-many-requests') {
-                    showError("❌ Zu viele Versuche. Bitte kurz warten.");
-                } else {
-                    showError("❌ Login fehlgeschlagen: " + err.message);
-                }
+                showError("❌ " + err.message);
             } 
         } else {
             showError("❌ Bitte E-Mail und Passwort eingeben!");
@@ -114,15 +98,9 @@ if (document.getElementById('btn-email-register')) {
         
         if (e && p) {
             try { 
-                await registerWithEmail(e, p); 
+                await registerWithEmail(e, p);
             } catch(err) { 
-                if (err.code === 'auth/email-already-in-use') {
-                    showError("❌ Diese E-Mail ist bereits registriert!");
-                } else if (err.code === 'auth/weak-password') {
-                    showError("❌ Das Passwort muss mind. 6 Zeichen lang sein!");
-                } else {
-                    showError("❌ Registrierung fehlgeschlagen: " + err.message);
-                }
+                showError("❌ " + err.message);
             } 
         } else {
             showError("❌ Bitte E-Mail und Passwort eingeben!");
@@ -159,7 +137,7 @@ if (auth) {
     onAuthStateChanged(auth, async (user) => {
         try {
             if (user) {
-                try { isOwner = (await apiJson('/me')).isOwner === true; } catch (e) { isOwner = false; } // serverseitig entschieden
+                isOwner = user.isOwner === true; // vom Server entschieden
                 const badge = document.getElementById('owner-badge');
                 if (badge) badge.style.display = isOwner ? 'inline-block' : 'none';
 
@@ -516,7 +494,7 @@ const legalTexts = {
         <h4 style="color: white; margin-bottom: 10px;">Datenschutzerklärung</h4>
         <p>Der Schutz deiner Daten ist uns wichtig. Hier ist zusammengefasst, wie wir Daten verarbeiten:</p>
         <ul style="margin-left: 20px; margin-top: 10px; margin-bottom: 20px;">
-            <li style="margin-bottom: 8px;"><strong>Accounts & Login:</strong> Wir nutzen Firebase (Google) zur Authentifizierung. Deine E-Mail wird sicher verschlüsselt gespeichert.</li>
+            <li style="margin-bottom: 8px;"><strong>Accounts & Login:</strong> Für die Anmeldung nutzen wir Firebase Authentication (Google). Deine Chats und Einstellungen speichern wir in unserer Datenbank (Neon, Frankfurt).</li>
             <li style="margin-bottom: 8px;"><strong>Chats:</strong> Deine Nachrichten werden lokal in deinem Browser gespeichert (LocalStorage) und in unserer Datenbank gesichert.</li>
             <li style="margin-bottom: 8px;"><strong>KI-Verarbeitung:</strong> Nachrichten werden verschlüsselt an unsere Backend-Server (Vercel) und KI-Partner gesendet. Sende niemals sensible Daten (z.B. Passwörter) im Chat.</li>
             <li style="margin-bottom: 8px;"><strong>Hosting:</strong> Diese Webseite wird bei Vercel gehostet. Vercel verarbeitet zur Bereitstellung der Webseite kurzfristig IP-Adressen.</li>
@@ -1029,68 +1007,6 @@ async function handleSend() {
         };
     });
 
-    // --- NEU: BILDERSTELLUNG ABFANGEN ---
-    // --- NEU: BILDERSTELLUNG ABFANGEN (VERBESSERT) ---
-    const lowerText = text.toLowerCase();
-    let isImageCommand = false;
-    let imagePrompt = "";
-
-    // Flexibler Check: Reagiert auf verschiedene Variationen!
-    if (lowerText.includes('bild von') || lowerText.includes('generiere ein bild') || lowerText.includes('erstelle ein bild') || lowerText.includes('mal ein bild')) {
-        isImageCommand = true;
-        
-        // Wir schneiden alles ab, was vor dem "von" steht, um das eigentliche Motiv zu bekommen
-        const splitText = lowerText.split('von');
-        if (splitText.length > 1) {
-            imagePrompt = splitText[1].trim(); // z.B. "einem vogel"
-        } else {
-            // Falls kein "von" drin war, nehmen wir einfach die ganze Nachricht als Prompt
-            imagePrompt = lowerText.replace(/erstelle|generiere|mach|zeichne|mal|ein|bild|bitte/gi, '').trim();
-        }
-        
-        // Sicherheits-Fallback
-        if (!imagePrompt) imagePrompt = "Ein cooles Kunstwerk"; 
-    }
-
-    if (isImageCommand) {
-        UI.showLoading(true, "Coden malt ein Bild...");
-        try {
-            const res = await apiFetch('/generate-image', {
-                method: 'POST',
-                body: JSON.stringify({ prompt: imagePrompt })
-            });
-            const data = await res.json();
-            
-            if (!res.ok) throw new Error(data.error || "Fehler von Freepik");
-
-            UI.showLoading(false);
-            
-            // Markdown generieren, das das Bild im Chat anzeigt
-            // Dateiname für den Download generieren (Leerzeichen durch Unterstriche ersetzen)
-            // Dateiname für den Download generieren
-            const safeFileName = imagePrompt.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'coden_image';
-
-// WICHTIG: Keine Leerzeichen vor dem HTML, sonst wird es als Code-Block erkannt!
-            const imageMarkdown = `🎨 **Hier ist dein Bild:**\n\n<div style="position: relative; display: inline-block; max-width: 350px; margin-top: 12px; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.3);"><img src="${data.imageUrl}" alt="${imagePrompt}" style="width: 100%; display: block; margin: 0 !important; border-radius: 0 !important;"><a href="${data.imageUrl}" download="${safeFileName}.jpg" style="position: absolute; bottom: 10px; right: 10px; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); color: white; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; text-decoration: none; transition: all 0.2s; box-shadow: 0 4px 12px rgba(0,0,0,0.5);" title="Bild herunterladen" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'"><span class="material-symbols-outlined" style="font-size: 20px;">download</span></a></div>`;
-
-     
-            
-            UI.appendMessage(imageMarkdown, false, false); 
-            currentSession.messages.push({ text: imageMarkdown, isUser: false });
-            
-            // Speichern (ohne große Base64 Bilder der User, aber unsere URL bleibt im Text)
-            const sessionsToSave = JSON.parse(JSON.stringify(sessions));
-            sessionsToSave.forEach(s => s.messages.forEach(m => { if (m.images) delete m.images; }));
-            Storage.saveSessions(sessionsToSave); 
-            UI.renderSidebar(sessions, activeSessionId);
-            
-        } catch (err) {
-            UI.showLoading(false);
-            UI.appendMessage("❌ **Fehler bei der Bilderstellung:** " + err.message, false);
-        }
-        return; // WICHTIG: Das return beendet die Funktion hier! So antwortet die Text-KI nicht mehr dazwischen!
-    }
-    // --- ENDE BILDERSTELLUNG ---
     let isEmailCommand = false;
     if (['mail', 'gmail', 'sende', 'schick', 'weiterleiten'].some(w => text.toLowerCase().includes(w))) {
         if (await showCustomConfirm("Möchtest du eine E-Mail senden?")) isEmailCommand = true;

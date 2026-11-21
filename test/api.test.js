@@ -1,0 +1,80 @@
+// End-to-End-Test gegen ein echtes Postgres (PGlite) mit der echten schema.sql und den echten Abfragen.
+const Module = require('module'); const path = require('path'); const fs = require('fs');
+const root = path.join(__dirname, '..');
+(async () => {
+  const { PGlite } = await import('@electric-sql/pglite');
+  const db = new PGlite();
+  await db.exec(fs.readFileSync(path.join(root, 'db/schema.sql'), 'utf8'));
+  // Echte Firebase-Token-Prüfung testen: eigener Schlüssel + lokaler JWKS-Server
+  const jose = await import('jose');
+  const { publicKey, privateKey } = await jose.generateKeyPair('RS256');
+  const other = await jose.generateKeyPair('RS256');
+  const jwk = { ...(await jose.exportJWK(publicKey)), kid: 'k1', alg: 'RS256', use: 'sig' };
+  const jwksServer = require('http').createServer((q, r) => { r.setHeader('Content-Type', 'application/json'); r.end(JSON.stringify({ keys: [jwk] })); });
+  await new Promise(r => jwksServer.listen(0, r));
+  const PROJECT = 'coden-4561f';
+  const token = (claims = {}, { key = privateKey, aud = PROJECT, iss = `https://securetoken.google.com/${PROJECT}`, exp = '1h' } = {}) =>
+    new jose.SignJWT(claims).setProtectedHeader({ alg: 'RS256', kid: 'k1' }).setSubject(claims.sub).setAudience(aud).setIssuer(iss).setIssuedAt().setExpirationTime(exp).sign(key);
+  const orig = Module._load;
+  Module._load = function (req, ...a) {
+    if (req === 'pg') return { Pool: class { on() {} query(text, values) { return db.query(text, values); } } };
+    return orig.call(this, req, ...a);
+  };
+  Object.assign(process.env, { DATABASE_URL: 'pglite', ADMIN_EMAIL: 'admin@test.de', FIREBASE_PROJECT_ID: PROJECT, FIREBASE_JWKS_URL: `http://127.0.0.1:${jwksServer.address().port}/jwks` });
+  const app = require(path.join(root, 'api/index.js'));
+  const srv = app.listen(0, async () => {
+    const base = `http://127.0.0.1:${srv.address().port}/api`;
+    const call = async (p, body, tok, ip, method) => { const r = await fetch(base + p, { method: method || (body ? 'POST' : 'GET'), headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: 'Bearer ' + tok } : {}) }, body: body ? JSON.stringify(body) : undefined });
+      return { s: r.status, j: await r.json().catch(() => ({})) }; };
+    const t = []; const chk = (n, got, want) => t.push([n, got, want]);
+    const user = await token({ sub: 'uid-user', email: 'User@x.de', email_verified: false });
+    const userV = await token({ sub: 'uid-user2', email: 'v@x.de', email_verified: true });
+    const admin = await token({ sub: 'uid-admin', email: 'Admin@Test.de', email_verified: true });
+    const adminUnverified = await token({ sub: 'uid-admin-fake', email: 'admin@test.de', email_verified: false });
+
+    chk('ohne Token', (await call('/me')).s, 401);
+    chk('Müll als Token', (await call('/me', null, 'abc.def.ghi')).s, 401);
+    chk('falsche Signatur', (await call('/me', null, await token({ sub: 'x', email: 'a@b.de' }, { key: other.privateKey }))).s, 401);
+    chk('falsches Firebase-Projekt (aud)', (await call('/me', null, await token({ sub: 'x' }, { aud: 'fremdes-projekt', iss: 'https://securetoken.google.com/fremdes-projekt' }))).s, 401);
+    chk('falscher Aussteller', (await call('/me', null, await token({ sub: 'x' }, { iss: 'https://evil.example' }))).s, 401);
+    chk('abgelaufenes Token', (await call('/me', null, await token({ sub: 'x' }, { exp: Math.floor(Date.now() / 1000) - 120 }))).s, 401);
+    chk('chat ohne Login', (await call('/chat', { messages: [], tier: 'flash' })).s, 401);
+    chk('live-token ohne Login', (await call('/live-token', {})).s, 401);
+    chk('me: Nutzer', (await call('/me', null, user)).j.email, 'User@x.de');
+    chk('Nutzer ist kein Owner', (await call('/me', null, user)).j.isOwner, false);
+    chk('Admin-Adresse OHNE bestätigte E-Mail ist kein Owner', (await call('/me', null, adminUnverified)).j.isOwner, false);
+    chk('Admin mit bestätigter E-Mail = Owner', (await call('/me', null, admin)).j.isOwner, true);
+    chk('Daten: leer', (await call('/data', null, user)).j.exists, false);
+    const settings = { fontSize: 15, apiKey: 'GEHEIM', emailConfig: { provider: 'gmail', address: 'a@b.de', password: 'GEHEIM' } };
+    chk('Daten speichern (Neon)', (await call('/data', { sessions: [{ id: '1', title: 'Hallo', messages: [] }], settings }, user, null, 'PUT')).s, 200);
+    const got = (await call('/data', null, user)).j;
+    chk('Daten lesen: Chat', got.sessions[0].title, 'Hallo');
+    chk('Secrets nicht in DB: apiKey', got.settings.apiKey, undefined);
+    chk('Secrets nicht in DB: Mailpasswort', got.settings.emailConfig.password, '');
+    chk('Nutzer sehen nur eigene Daten', (await call('/data', null, userV)).j.exists, false);
+    chk('Daten überschreiben (upsert)', (await call('/data', { sessions: [], settings: {} }, user, null, 'PUT')).s, 200);
+    chk('system state leer', Object.keys((await call('/system/state', null, user)).j).length, 0);
+    chk('admin-Befehl als Nutzer', (await call('/admin/command', { cmd: 'forceupdate' }, user)).s, 403);
+    chk('admin-Befehl mit unbestätigter Admin-Mail', (await call('/admin/command', { cmd: 'forceupdate' }, adminUnverified)).s, 403);
+    chk('admin: lock pro', (await call('/admin/command', { cmd: 'lock', param: 'pro' }, admin)).s, 200);
+    chk('admin: lock thinking (merge)', (await call('/admin/command', { cmd: 'lock', param: 'thinking' }, admin)).s, 200);
+    chk('admin: unlock pro', (await call('/admin/command', { cmd: 'unlock', param: 'pro' }, admin)).s, 200);
+    chk('admin: broadcast', (await call('/admin/command', { cmd: 'broadcast', param: 'Hallo alle' }, admin)).s, 200);
+    chk('admin: font', (await call('/admin/command', { cmd: 'font', param: '18' }, admin)).s, 200);
+    const st = (await call('/system/state', null, user)).j;
+    chk('state: pro entsperrt', st.locks.pro, false);
+    chk('state: thinking gesperrt (Merge klappt)', st.locks.thinking, true);
+    chk('state: Broadcast', st.broadcast.message, 'Hallo alle');
+    chk('state: Font', st.fontSize, 18);
+    chk('Wartungsmodus an', (await call('/admin/command', { cmd: 'maintenance', param: 'on' }, admin)).s, 200);
+    chk('Wartung blockt User-Chat', (await call('/chat', { messages: [{ role: 'user', content: 'hi' }], tier: 'flash' }, user)).s, 503);
+    chk('Wartung: Owner nicht blockiert (kein 503)', (await call('/chat', { messages: [{ role: 'user', content: 'hi' }], tier: 'gibtsnicht' }, admin)).s, 400);
+    await call('/admin/command', { cmd: 'maintenance', param: 'off' }, admin);
+    chk('email: fremder SMTP-Host abgelehnt', (await call('/send-email', { provider: 'evil.com', email: 'a@b.de', password: 'p', to: 'c@d.de', text: 't' }, user)).s, 400);
+    let last; for (let i = 0; i < 25; i++) last = await call('/chat', { messages: [{ role: 'user', content: 'hi' }], tier: 'gibtsnicht' }, user);
+    chk('Rate-Limit (Neon-Zähler)', last.s, 429);
+    let bad = 0; for (const [n, g, w] of t) { const ok = g === w; if (!ok) bad++; console.log(ok ? 'OK  ' : 'FAIL', n, ok ? '' : `(bekam ${g}, erwartet ${w})`); }
+    console.log(`\n${t.length - bad}/${t.length} bestanden`);
+    srv.close(); jwksServer.close(); process.exit(bad ? 1 : 0);
+  });
+})();
