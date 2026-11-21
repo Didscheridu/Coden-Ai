@@ -3,6 +3,7 @@ import { CONFIG } from './config.js';
 import { Storage } from './storage.js';
 import { UI } from './ui.js';
 import { apiJson } from './backend.js';
+import { LiveWaves } from './live-waves.js';
 
 export class MultimodalLivePrototype {
     constructor() {
@@ -23,6 +24,30 @@ export class MultimodalLivePrototype {
         this.chatHistory = []; 
         this.currentScreenText = ''; 
         this.isNewAITurn = true;
+        this.ideas = []; this.waves = null; this.outAnalyser = null; this.outData = null; this.userLevel = 0;
+    }
+
+    // ---------- Brainstorm-Board ----------
+    addIdea(text, by = 'me') {
+        text = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 300); if (!text || this.ideas.length >= 60) return false;
+        if (this.ideas.some(i => i.text.toLowerCase() === text.toLowerCase())) return false;
+        this.ideas.push({ text, by }); this.renderIdeas(); return true;
+    }
+    renderIdeas() {
+        const box = document.getElementById('live-ideas'); if (!box) return;
+        box.replaceChildren();
+        if (!this.ideas.length) { const e = document.createElement('div'); e.className = 'live-empty'; e.textContent = 'Noch keine Ideen. Sprich einfach drauflos.'; box.append(e); return; }
+        this.ideas.forEach((it, i) => {
+            const row = document.createElement('div'); row.className = 'live-idea ' + it.by;
+            const t = document.createElement('span'); t.className = 't';
+            const w = document.createElement('span'); w.className = 'who'; w.textContent = it.by === 'ai' ? 'Coden' : 'Du';
+            t.append(w, document.createTextNode(it.text));
+            const x = document.createElement('button'); x.type = 'button'; x.setAttribute('aria-label', 'Entfernen');
+            const ic = document.createElement('span'); ic.className = 'material-symbols-outlined'; ic.style.fontSize = '18px'; ic.textContent = 'close'; x.append(ic);
+            x.onclick = () => { this.ideas.splice(i, 1); this.renderIdeas(); };
+            row.append(t, x); box.append(row);
+        });
+        box.scrollTop = box.scrollHeight;
     }
 
     async initSession(liveCallBtn, liveStatusIndicator, chatHistory = []) {
@@ -31,11 +56,16 @@ export class MultimodalLivePrototype {
         this.chatHistory = chatHistory; 
         this.currentScreenText = ''; 
         this.isNewAITurn = true;
+        this.ideas = []; this.userLevel = 0; this.renderIdeas();
+        const form = document.getElementById('live-add');
+        if (form) form.onsubmit = (e) => { e.preventDefault(); const inp = document.getElementById('live-add-input'); if (this.addIdea(inp.value, 'me')) inp.value = ''; };
 
         const callModal = document.getElementById('live-call-modal');
         const endCallBtn = document.getElementById('end-call-btn');
         
         if (callModal) callModal.classList.remove('hidden');
+        const cv = document.getElementById('live-waves');
+        if (cv) { this.waves?.stop(); this.waves = new LiveWaves(cv); this.waves.start(); }
         if (endCallBtn) endCallBtn.onclick = () => this.stopSession(liveCallBtn, liveStatusIndicator);
         
         this.updateCallUI('Hole Server-Zulassung...');
@@ -104,15 +134,17 @@ export class MultimodalLivePrototype {
         const systemPrompt = `Du bist "Coden", eine smarte und empathische KI, erschaffen von dem Entwickler "Kayden". 
 Sprich den Nutzer "${userName}" mit seinem Namen an!
 WICHTIGE REGELN:
-1. Du bist eine REINE Audio-KI. Du hast KEINEN Bildschirm! Aber du kannst im Internet Suchen!
+1. Du sprichst mit dem Nutzer per Stimme. Der Nutzer sieht neben dir ein Brainstorm-Board mit Ideen.
 2. Wenn der Nutzer nach Code fragt, erkläre das Konzept verbal.
-3. Antworte in kurzen, natürlichen Sätzen.${historyString}`;
+3. Antworte in kurzen, natürlichen Sätzen.
+4. BRAINSTORM: Hilf dem Nutzer beim Ideensammeln. Stelle Rückfragen, bringe eigene Vorschläge und fasse zusammen. Wenn eine Idee gut ist, der Nutzer etwas festhalten will oder du einen Vorschlag machst, rufe idee_festhalten mit einem kurzen Satz auf (höchstens 15 Wörter). Erwähne den Aufruf nicht.${historyString}`;
 
         const setupMsg = {
             setup: { 
                 // DEIN Native-Audio Modell:
                 model: "models/gemini-2.5-flash-native-audio-latest", 
                 systemInstruction: { parts: [{ text: systemPrompt }] },
+                tools: [{ functionDeclarations: [{ name: 'idee_festhalten', description: 'Schreibt eine kurze Idee oder Notiz auf das Brainstorm-Board des Nutzers.', parameters: { type: 'OBJECT', properties: { text: { type: 'STRING', description: 'Die Idee in einem kurzen Satz.' } }, required: ['text'] } }] }],
                 generationConfig: { 
                     responseModalities: ["AUDIO"],
                     speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: selectedVoice } } }
@@ -130,6 +162,8 @@ WICHTIGE REGELN:
             this.analyser = this.audioContext.createAnalyser();
             this.analyser.fftSize = 256;
             this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+            this.outAnalyser = this.audioContext.createAnalyser(); this.outAnalyser.fftSize = 256; this.outAnalyser.connect(this.audioContext.destination);
+            this.outData = new Uint8Array(this.outAnalyser.frequencyBinCount);
 
             // 🔥 NEU: Moderner AudioWorklet (Ersetzt den veralteten ScriptProcessor!)
             const workletCode = `
@@ -193,6 +227,15 @@ WICHTIGE REGELN:
             return; 
         }
 
+        if (data.toolCall?.functionCalls) {
+            const responses = data.toolCall.functionCalls.map(fc => {
+                const ok = fc.name === 'idee_festhalten' && this.addIdea(fc.args?.text, 'ai');
+                return { id: fc.id, name: fc.name, response: { ok: !!ok } };
+            });
+            try { this.websocket.send(JSON.stringify({ toolResponse: { functionResponses: responses } })); } catch (e) {}
+            return;
+        }
+
         if (data.serverContent?.modelTurn?.parts) {
             const parts = data.serverContent.modelTurn.parts;
             for (const part of parts) {
@@ -218,7 +261,7 @@ WICHTIGE REGELN:
                         audioBuffer.getChannelData(0).set(float32Array);
                         const source = this.audioContext.createBufferSource(); 
                         source.buffer = audioBuffer; 
-                        source.connect(this.audioContext.destination);
+                        source.connect(this.outAnalyser || this.audioContext.destination);
                         
                         if (this.nextPlaybackTime < this.audioContext.currentTime) { this.nextPlaybackTime = this.audioContext.currentTime; }
                         source.start(this.nextPlaybackTime); 
@@ -264,24 +307,24 @@ WICHTIGE REGELN:
         let average = sum / this.dataArray.length; 
 
         const statusText = document.getElementById('call-status-text');
-        const avatarContainer = document.getElementById('call-avatar-container');
+        const lvl = Math.min(1, average / 60);
+        this.userLevel = lvl;
+        let out = 0;
+        if (this.outAnalyser && this.outData) { this.outAnalyser.getByteFrequencyData(this.outData); let o = 0; for (let i = 0; i < this.outData.length; i++) o += this.outData[i]; out = Math.min(1, (o / this.outData.length) / 70); }
 
-        if (average > 15 && this.currentStatus === 'Listening') { 
+        if (this.currentStatus === 'Speaking') this.waves?.set(out, 'ai');
+        else if (average > 15 && this.currentStatus === 'Listening') {
+            this.waves?.set(lvl, 'user');
             if (statusText && statusText.textContent !== 'Du sprichst...') statusText.textContent = 'Du sprichst...';
-            if (avatarContainer) {
-                avatarContainer.classList.add('user-is-speaking');
-                avatarContainer.classList.remove('ai-is-speaking');
-            }
             this.lastSpeakTime = Date.now();
         } else if (this.currentStatus === 'Listening') {
-            if (avatarContainer) avatarContainer.classList.remove('user-is-speaking');
-
-            if (this.lastSpeakTime && (Date.now() - this.lastSpeakTime > 800) && (Date.now() - this.lastSpeakTime < 4000)) { 
-                if (statusText && statusText.textContent !== 'Coden denkt nach...') statusText.textContent = 'Coden denkt nach...'; 
-            } else if (!this.lastSpeakTime || (Date.now() - this.lastSpeakTime >= 4000)) { 
-                if (statusText && statusText.textContent !== 'Höre zu...') statusText.textContent = 'Höre zu...'; 
+            this.waves?.set(0.05, 'idle');
+            if (this.lastSpeakTime && (Date.now() - this.lastSpeakTime > 800) && (Date.now() - this.lastSpeakTime < 4000)) {
+                if (statusText && statusText.textContent !== 'Coden denkt nach...') statusText.textContent = 'Coden denkt nach...';
+            } else if (!this.lastSpeakTime || (Date.now() - this.lastSpeakTime >= 4000)) {
+                if (statusText && statusText.textContent !== 'Höre zu...') statusText.textContent = 'Höre zu...';
             }
-        }
+        } else this.waves?.set(0.05, 'idle');
     }
 
     uint8ArrayToBase64(u8Array) { 
@@ -293,18 +336,8 @@ WICHTIGE REGELN:
 
     updateCallUI(text, isAiSpeaking = false) {
         const statusText = document.getElementById('call-status-text');
-        const avatarContainer = document.getElementById('call-avatar-container');
-        
         if (statusText) statusText.textContent = text;
-
-        if (avatarContainer) {
-            if (isAiSpeaking) {
-                avatarContainer.classList.add('ai-is-speaking');
-                avatarContainer.classList.remove('user-is-speaking');
-            } else {
-                avatarContainer.classList.remove('ai-is-speaking');
-            }
-        }
+        if (isAiSpeaking) this.waves?.set(0.4, 'ai');
     }
 
     handleClose(event, liveCallBtn, liveStatusIndicator) { 
@@ -325,6 +358,8 @@ WICHTIGE REGELN:
     stopSession(liveCallBtn, liveStatusIndicator) {
         if (!this.isSessionActive) return;
         this.updateCallUI('Aufgelegt.');
+        const ideas = this.ideas.slice(); this.waves?.stop(); this.waves = null; this.outAnalyser = null; this.outData = null;
+        if (ideas.length) document.dispatchEvent(new CustomEvent('liveBrainstormDone', { detail: ideas }));
         
         if (this.mediaStream) this.mediaStream.getTracks().forEach(track => track.stop()); 
         if (this.audioProcessor) this.audioProcessor.disconnect(); 

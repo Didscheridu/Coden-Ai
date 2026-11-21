@@ -1169,6 +1169,16 @@ document.addEventListener('liveAITurnComplete', (e) => {
     }
 });
 
+// 💡 Ideen aus dem Live-Brainstorm landen nach dem Auflegen als Liste im Chat
+document.addEventListener('liveBrainstormDone', (e) => {
+    const ideas = Array.isArray(e.detail) ? e.detail : [];
+    if (!ideas.length || !currentSession) return;
+    const msg = '💡 **Ideen aus dem Live-Brainstorm**\n\n' + ideas.map(i => `- ${String(i.text).replace(/[\r\n]+/g, ' ')}${i.by === 'ai' ? ' *(Coden)*' : ''}`).join('\n');
+    UI.appendMessage(msg, false, false);
+    currentSession.messages.push({ text: msg, isUser: false });
+    const toSave = JSON.parse(JSON.stringify(sessions)); toSave.forEach(s => s.messages.forEach(m => { if (m.images) delete m.images; })); Storage.saveSessions(toSave);
+});
+
 // Tastenkürzel: Strg/⌘+K = Chats durchsuchen, Strg/⌘+Umschalt+O = neuer Chat
 document.addEventListener('keydown', (e) => {
     const mod = e.ctrlKey || e.metaKey;
