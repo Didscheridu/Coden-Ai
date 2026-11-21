@@ -3,5 +3,5 @@
     { "source": "/api/:path*", "destination": "/api" },
     { "source": "/a/:path*", "destination": "/api" }
   ],
-  "functions": { "api/index.js": { "maxDuration": 300, "includeFiles": "kit/**" } }
+  "functions": { "api/index.js": { "maxDuration": 300, "includeFiles": "{kit/**,db/schema.sql}" } }
 }
