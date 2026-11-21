@@ -9,9 +9,8 @@
     "@neon/config": "^1.14.6",
     "@neon/env": "^2.1.9",
     "@vercel/functions": "^3.11.3",
-    "bcryptjs": "^3.0.3",
     "express": "^4.21.2",
-    "jsonwebtoken": "^9.0.3",
+    "jose": "^5.10.0",
     "nodemailer": "^10.6.1",
     "pg": "^8.23.1"
   },

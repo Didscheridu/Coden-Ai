@@ -18,11 +18,3 @@ CREATE TABLE IF NOT EXISTS rate_limits (
   count  INT    NOT NULL DEFAULT 0,
   PRIMARY KEY (key, bucket)
 );
-
-CREATE TABLE IF NOT EXISTS users (
-  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  email          TEXT NOT NULL UNIQUE,
-  password_hash  TEXT,
-  email_verified BOOLEAN NOT NULL DEFAULT false,
-  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
-);

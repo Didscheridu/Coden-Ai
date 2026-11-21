@@ -98,14 +98,7 @@ if (document.getElementById('btn-email-register')) {
         
         if (e && p) {
             try { 
-                try {
-                    await registerWithEmail(e, p);
-                } catch (err) {
-                    if (err.code !== 'SETUP_CODE') throw err;
-                    const code = prompt("Diese Adresse ist reserviert. Bitte Setup-Code eingeben:");
-                    if (!code) return;
-                    await registerWithEmail(e, p, code);
-                }
+                await registerWithEmail(e, p);
             } catch(err) { 
                 showError("❌ " + err.message);
             } 
@@ -144,7 +137,7 @@ if (auth) {
     onAuthStateChanged(auth, async (user) => {
         try {
             if (user) {
-                isOwner = user.isOwner === true; // serverseitig entschieden
+                isOwner = user.isOwner === true; // vom Server entschieden
                 const badge = document.getElementById('owner-badge');
                 if (badge) badge.style.display = isOwner ? 'inline-block' : 'none';
 
@@ -501,7 +494,7 @@ const legalTexts = {
         <h4 style="color: white; margin-bottom: 10px;">Datenschutzerklärung</h4>
         <p>Der Schutz deiner Daten ist uns wichtig. Hier ist zusammengefasst, wie wir Daten verarbeiten:</p>
         <ul style="margin-left: 20px; margin-top: 10px; margin-bottom: 20px;">
-            <li style="margin-bottom: 8px;"><strong>Accounts & Login:</strong> Die Anmeldung läuft über unser eigenes Backend. Deine E-Mail wird in unserer Datenbank (Neon, Frankfurt) gespeichert, dein Passwort nur als sicherer Hash. Optional ist die Anmeldung mit Google möglich.</li>
+            <li style="margin-bottom: 8px;"><strong>Accounts & Login:</strong> Für die Anmeldung nutzen wir Firebase Authentication (Google). Deine Chats und Einstellungen speichern wir in unserer Datenbank (Neon, Frankfurt).</li>
             <li style="margin-bottom: 8px;"><strong>Chats:</strong> Deine Nachrichten werden lokal in deinem Browser gespeichert (LocalStorage) und in unserer Datenbank gesichert.</li>
             <li style="margin-bottom: 8px;"><strong>KI-Verarbeitung:</strong> Nachrichten werden verschlüsselt an unsere Backend-Server (Vercel) und KI-Partner gesendet. Sende niemals sensible Daten (z.B. Passwörter) im Chat.</li>
             <li style="margin-bottom: 8px;"><strong>Hosting:</strong> Diese Webseite wird bei Vercel gehostet. Vercel verarbeitet zur Bereitstellung der Webseite kurzfristig IP-Adressen.</li>

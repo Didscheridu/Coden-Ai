@@ -1,46 +1,83 @@
-// js/auth.js – Anmeldung über das eigene Backend (Cookie-Sitzung)
-const listeners = new Set();
+// js/auth.js – Firebase wird NUR für das Login benutzt. Alle Daten liegen in Neon (über das eigene Backend).
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, signOut, onAuthStateChanged as fbOnAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
+
+// Die Web-Config ist öffentlich und kein Geheimnis.
+const firebaseConfig = {
+  apiKey: "AIzaSyAXszFYN8ablxO9ywdMk3LjzGBZXVorVQI",
+  authDomain: "coden-4561f.firebaseapp.com",
+  projectId: "coden-4561f",
+  storageBucket: "coden-4561f.firebasestorage.app",
+  messagingSenderId: "291880469153",
+  appId: "1:291880469153:web:d60f58eb21a21aa15e26e0"
+};
+
+const fbAuth = getAuth(initializeApp(firebaseConfig));
+const googleProvider = new GoogleAuthProvider();
+
+// Eigener Zustand: Firebase-Nutzer + serverseitig entschiedenes isOwner
 export const auth = { currentUser: null };
+const listeners = new Set();
 
-async function post(path, body) {
-    const res = await fetch(`/api${path}`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) { const err = new Error(data.error || `HTTP ${res.status}`); err.code = data.code; throw err; }
-    return data;
+const MESSAGES = {
+  'auth/invalid-credential': 'Falsches Passwort oder E-Mail existiert nicht.',
+  'auth/user-not-found': 'Kein Account mit dieser E-Mail gefunden.',
+  'auth/wrong-password': 'Falsches Passwort.',
+  'auth/too-many-requests': 'Zu viele Versuche. Bitte kurz warten.',
+  'auth/email-already-in-use': 'Diese E-Mail ist bereits registriert!',
+  'auth/weak-password': 'Das Passwort muss mind. 6 Zeichen lang sein!',
+  'auth/invalid-email': 'Ungültige E-Mail-Adresse.',
+  'auth/popup-closed-by-user': 'Anmeldung abgebrochen.',
+  'auth/popup-blocked': 'Das Popup wurde blockiert. Bitte erlaube Popups für diese Seite.',
+  'auth/network-request-failed': 'Keine Verbindung. Bitte Internet prüfen.'
+};
+function friendly(err) {
+  const e = new Error(MESSAGES[err.code] || err.message);
+  e.code = err.code;
+  return e;
 }
 
-export async function refreshAuth() {
+async function applyUser(fbUser) {
+  if (!fbUser) { auth.currentUser = null; }
+  else {
+    // Server prüft das Token und sagt, ob dieser Nutzer Owner ist
+    let isOwner = false;
     try {
-        const res = await fetch('/api/me', { credentials: 'same-origin' });
-        auth.currentUser = res.ok ? await res.json() : null;
-    } catch (e) { auth.currentUser = null; }
-    listeners.forEach(cb => cb(auth.currentUser));
+      const res = await fetch('/api/me', { headers: { Authorization: `Bearer ${await fbUser.getIdToken()}` } });
+      if (res.ok) isOwner = (await res.json()).isOwner === true;
+    } catch (e) { /* offline: kein Owner */ }
+    auth.currentUser = { uid: fbUser.uid, email: fbUser.email, isOwner, getIdToken: (force) => fbUser.getIdToken(force) };
+  }
+  listeners.forEach(cb => cb(auth.currentUser));
 }
 
-export function onAuthStateChanged(_auth, cb) { listeners.add(cb); refreshAuth(); }
+export function onAuthStateChanged(_auth, cb) {
+  listeners.add(cb);
+  fbOnAuthStateChanged(fbAuth, applyUser);
+}
 
-export const loginWithEmail = async (email, password) => { await post('/auth/login', { email, password }); await refreshAuth(); };
-export const registerWithEmail = async (email, password, setupCode) => { await post('/auth/register', { email, password, setupCode }); await refreshAuth(); };
-export const logoutUser = async () => { await post('/auth/logout'); await refreshAuth(); };
+// Nach abgelaufener Sitzung o. Ä. neu bewerten
+export async function refreshAuth() { await applyUser(fbAuth.currentUser); }
 
-// Google-Login (optional): nur aktiv, wenn GOOGLE_CLIENT_ID im Backend gesetzt ist
+export const loginWithEmail = async (email, password) => {
+  try { await signInWithEmailAndPassword(fbAuth, email, password); } catch (e) { throw friendly(e); }
+};
+
+export const registerWithEmail = async (email, password) => {
+  try {
+    const cred = await createUserWithEmailAndPassword(fbAuth, email, password);
+    // Bestätigungsmail (nötig, damit die Admin-Adresse als Owner gilt)
+    sendEmailVerification(cred.user).catch(() => {});
+  } catch (e) { throw friendly(e); }
+};
+
+export const logoutUser = async () => { await signOut(fbAuth); };
+
 export async function initGoogleLogin(onError) {
-    try {
-        const { googleClientId } = await (await fetch('/api/config')).json();
-        if (!googleClientId) return;
-        await new Promise((resolve, reject) => {
-            const s = document.createElement('script');
-            s.src = 'https://accounts.google.com/gsi/client'; s.async = true; s.onload = resolve; s.onerror = reject;
-            document.head.appendChild(s);
-        });
-        google.accounts.id.initialize({
-            client_id: googleClientId,
-            callback: async ({ credential }) => {
-                try { await post('/auth/google', { credential }); await refreshAuth(); } catch (e) { onError(e.message); }
-            }
-        });
-        const box = document.getElementById('google-btn-container');
-        google.accounts.id.renderButton(box, { theme: 'filled_black', size: 'large', text: 'signin_with', width: 280 });
-        box.style.display = 'flex';
-    } catch (e) { console.warn('Google-Login nicht verfügbar', e); }
+  const btn = document.getElementById('btn-google-login');
+  if (!btn) return;
+  btn.style.display = '';
+  btn.onclick = async () => {
+    try { await signInWithPopup(fbAuth, googleProvider); } catch (e) { onError(friendly(e).message); }
+  };
 }
