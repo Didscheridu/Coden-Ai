@@ -6,6 +6,7 @@ const { requireAuth, requireOwner } = require('../server/auth');
 const { rateLimit } = require('../server/rateLimit');
 const { generate, generateStream } = require('../server/ai');
 const { buddyRouter } = require('../server/buddy');
+const { appsRouter, publicApiRouter, hostedRouter } = require('../server/apps');
 const { wrapRouter } = require('../server/util');
 
 const app = express();
@@ -104,10 +105,13 @@ function validChat(body) {
     && (!m.images || (Array.isArray(m.images) && m.images.length <= 4 && m.images.every(i => typeof i === 'string' && i.startsWith('data:image/')))));
 }
 
+// Der App-Agent darf längere Antworten schreiben (ganze Dateien), normale Chats bleiben bei 8192
+const maxTokensOf = (b) => { const n = parseInt(b?.maxTokens, 10); return Number.isFinite(n) ? Math.max(1024, Math.min(n, 16384)) : undefined; };
+
 api.post('/chat', requireAuth, rateLimit('chat', 20, 60), enforceSystemState, async (req, res) => {
   if (!validChat(req.body)) return res.status(400).json({ error: 'Ungültige Anfrage.' });
   try {
-    res.json({ content: await generate(req.body.tier, req.body.messages, { isOwner: req.user.isOwner }) });
+    res.json({ content: await generate(req.body.tier, req.body.messages, { isOwner: req.user.isOwner, maxTokens: maxTokensOf(req.body) }) });
   } catch (e) {
     res.status(e.status || 502).json({ error: e.message });
   }
@@ -122,7 +126,7 @@ api.post('/chat/stream', requireAuth, rateLimit('chat', 20, 60), enforceSystemSt
   const send = (o) => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(o)}\n\n`); };
   try {
     await generateStream(req.body.tier, req.body.messages, {
-      isOwner: req.user.isOwner, signal: ac.signal,
+      isOwner: req.user.isOwner, signal: ac.signal, maxTokens: maxTokensOf(req.body),
       onModel: (m) => send({ t: 'm', model: m.id }),
       onDelta: (v) => send({ t: 'd', v })
     });
@@ -180,7 +184,10 @@ api.post('/live-token', requireAuth, rateLimit('live', 5, 300), async (req, res)
 });
 
 api.use('/buddy', buddyRouter(requireAuth));
+api.use('/apps', appsRouter(requireAuth));
+api.use('/public', publicApiRouter());
 app.use('/api', api);
+app.use('/a', hostedRouter()); // veröffentlichte Apps: /a/<adresse>/
 app.use((err, req, res, next) => {
   console.error(err);
   res.status(500).json({ error: 'Serverfehler.' });

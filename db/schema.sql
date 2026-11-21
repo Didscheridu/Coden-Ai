@@ -96,3 +96,44 @@ CREATE TABLE IF NOT EXISTS project_messages (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS project_messages_proj ON project_messages (project_id, id);
+
+-- ===== Apps (App-Builder) =====
+CREATE TABLE IF NOT EXISTS apps (
+  id            BIGSERIAL PRIMARY KEY,
+  owner         TEXT NOT NULL,
+  name          TEXT NOT NULL,
+  kind          TEXT NOT NULL CHECK (kind IN ('web','ios','android','both')),
+  style         TEXT NOT NULL DEFAULT '',
+  slug          TEXT NOT NULL UNIQUE CHECK (slug ~ '^[a-z0-9]([a-z0-9-]{1,38}[a-z0-9])$'),
+  preview_token TEXT NOT NULL,
+  published     BOOLEAN NOT NULL DEFAULT false,
+  files         JSONB NOT NULL DEFAULT '{}',
+  integrations  JSONB NOT NULL DEFAULT '{}',
+  version       INT NOT NULL DEFAULT 1,
+  theme_color   TEXT NOT NULL DEFAULT '#8ab4f8',
+  apk           JSONB NOT NULL DEFAULT '{}',
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  published_at  TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS apps_owner ON apps (owner);
+
+CREATE TABLE IF NOT EXISTS app_members (
+  app_id    BIGINT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+  uid       TEXT NOT NULL,
+  role      TEXT NOT NULL CHECK (role IN ('owner','editor')),
+  last_seen TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (app_id, uid)
+);
+CREATE INDEX IF NOT EXISTS app_members_uid ON app_members (uid);
+
+CREATE TABLE IF NOT EXISTS app_messages (
+  id         BIGSERIAL PRIMARY KEY,
+  app_id     BIGINT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+  sender     TEXT NOT NULL,
+  role       TEXT NOT NULL CHECK (role IN ('user','assistant','tool','event')),
+  body       TEXT NOT NULL,
+  meta       JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS app_messages_app ON app_messages (app_id, id);

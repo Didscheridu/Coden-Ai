@@ -1,0 +1,36 @@
+// Coden-Hülle: eine schlanke Android-App, die die Coden-Adresse einer App im WebView öffnet.
+// Werte kommen vom Build (-PappId=… -PappName=… -PappUrl=… -PappColor=…), siehe .github/workflows/build-apk.yml
+plugins { id 'com.android.application' }
+
+def appId = (project.findProperty('appId') ?: 'app.coden.demo') as String
+def appName = (project.findProperty('appName') ?: 'Coden App') as String
+def appUrl = (project.findProperty('appUrl') ?: 'https://coden-ai.vercel.app/') as String
+def appColor = (project.findProperty('appColor') ?: '#8ab4f8') as String
+def vCode = ((project.findProperty('versionCode') ?: '1') as String).toInteger()
+def ksFile = System.getenv('KS_FILE')
+
+android {
+    namespace 'app.coden.shell'
+    compileSdk 34
+    defaultConfig {
+        applicationId appId
+        minSdk 24
+        targetSdk 34
+        versionCode vCode
+        versionName '1.' + vCode
+        resValue 'string', 'app_name', appName
+        resValue 'color', 'brand', appColor
+        buildConfigField 'String', 'APP_URL', '"' + appUrl + '"'
+        buildConfigField 'String', 'APP_COLOR', '"' + appColor + '"'
+    }
+    buildFeatures { buildConfig true }
+    signingConfigs {
+        release {
+            if (ksFile) { storeFile file(ksFile); storePassword System.getenv('KS_PASS'); keyAlias System.getenv('KS_ALIAS') ?: 'coden'; keyPassword System.getenv('KS_PASS') }
+        }
+    }
+    buildTypes {
+        release { minifyEnabled false; signingConfig ksFile ? signingConfigs.release : signingConfigs.debug }
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}
