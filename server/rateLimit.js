@@ -1,13 +1,16 @@
 const { getSql } = require('./db');
 
 // Festes Zeitfenster, in der Datenbank gezählt (funktioniert über alle Serverless-Instanzen hinweg)
-function rateLimit(name, max, windowSec) {
+const clientIp = req => String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown').split(',')[0].trim();
+const byIp = clientIp;
+
+function rateLimit(name, max, windowSec, keyFn = req => req.user.uid) {
   return async (req, res, next) => {
     if (req.user?.isOwner) return next();
     try {
       const sql = getSql();
       const bucket = Math.floor(Date.now() / 1000 / windowSec);
-      const key = `${name}:${req.user.uid}`;
+      const key = `${name}:${keyFn(req)}`;
       const rows = await sql`
         INSERT INTO rate_limits (key, bucket, count) VALUES (${key}, ${bucket}, 1)
         ON CONFLICT (key, bucket) DO UPDATE SET count = rate_limits.count + 1
@@ -24,4 +27,4 @@ function rateLimit(name, max, windowSec) {
     }
   };
 }
-module.exports = { rateLimit };
+module.exports = { rateLimit, byIp };

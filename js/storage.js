@@ -1,5 +1,5 @@
 // js/storage.js
-import { auth } from './firebase-init.js';
+import { auth } from './auth.js';
 import { apiJson } from './backend.js';
 
 // Diese Felder bleiben nur lokal im Browser und werden nie zum Server synchronisiert.

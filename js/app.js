@@ -3,7 +3,7 @@ import { CONFIG } from './config.js';
 import { generateAiResponse } from './api.js';
 import { UI } from './ui.js';
 import { Storage } from './storage.js';
-import { loginWithGoogle, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, auth } from './firebase-init.js';
+import { initGoogleLogin, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, auth } from './auth.js';
 import { apiFetch, apiJson } from './backend.js';
 import { checkRateLimit } from './Limit-Spamschutz.js';
 import { MultimodalLivePrototype } from './multimodal-live-prototype.js'; // 🔥 NEU: Der Live Client 🔥
@@ -70,17 +70,9 @@ if (acceptCookiesBtn) {
 }
 
 // ==========================================
-// 🛡️ 4. AUTHENTIFIZIERUNG & FIREBASE
+// 🛡️ 4. AUTHENTIFIZIERUNG
 // ==========================================
-if (document.getElementById('btn-google-login')) {
-    document.getElementById('btn-google-login').addEventListener('click', async () => { 
-        try { 
-            await loginWithGoogle(); 
-        } catch(e) { 
-            showError(e.message); 
-        } 
-    });
-}
+initGoogleLogin((msg) => showError(msg));
 
 if (document.getElementById('btn-email-login')) {
     document.getElementById('btn-email-login').addEventListener('click', async () => { 
@@ -91,15 +83,7 @@ if (document.getElementById('btn-email-login')) {
             try { 
                 await loginWithEmail(e, p); 
             } catch(err) { 
-                if (err.code === 'auth/invalid-credential') {
-                    showError("❌ Falsches Passwort oder E-Mail existiert nicht.");
-                } else if (err.code === 'auth/user-not-found') {
-                    showError("❌ Kein Account mit dieser E-Mail gefunden.");
-                } else if (err.code === 'auth/too-many-requests') {
-                    showError("❌ Zu viele Versuche. Bitte kurz warten.");
-                } else {
-                    showError("❌ Login fehlgeschlagen: " + err.message);
-                }
+                showError("❌ " + err.message);
             } 
         } else {
             showError("❌ Bitte E-Mail und Passwort eingeben!");
@@ -114,15 +98,16 @@ if (document.getElementById('btn-email-register')) {
         
         if (e && p) {
             try { 
-                await registerWithEmail(e, p); 
-            } catch(err) { 
-                if (err.code === 'auth/email-already-in-use') {
-                    showError("❌ Diese E-Mail ist bereits registriert!");
-                } else if (err.code === 'auth/weak-password') {
-                    showError("❌ Das Passwort muss mind. 6 Zeichen lang sein!");
-                } else {
-                    showError("❌ Registrierung fehlgeschlagen: " + err.message);
+                try {
+                    await registerWithEmail(e, p);
+                } catch (err) {
+                    if (err.code !== 'SETUP_CODE') throw err;
+                    const code = prompt("Diese Adresse ist reserviert. Bitte Setup-Code eingeben:");
+                    if (!code) return;
+                    await registerWithEmail(e, p, code);
                 }
+            } catch(err) { 
+                showError("❌ " + err.message);
             } 
         } else {
             showError("❌ Bitte E-Mail und Passwort eingeben!");
@@ -159,7 +144,7 @@ if (auth) {
     onAuthStateChanged(auth, async (user) => {
         try {
             if (user) {
-                try { isOwner = (await apiJson('/me')).isOwner === true; } catch (e) { isOwner = false; } // serverseitig entschieden
+                isOwner = user.isOwner === true; // serverseitig entschieden
                 const badge = document.getElementById('owner-badge');
                 if (badge) badge.style.display = isOwner ? 'inline-block' : 'none';
 

@@ -2,11 +2,14 @@
   "name": "coden-ai",
   "version": "2.0.0",
   "private": true,
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4",
+    "bcryptjs": "^3.0.3",
     "express": "^4.21.2",
-    "firebase-admin": "^12.7.0",
+    "jsonwebtoken": "^9.0.3",
     "nodemailer": "^6.9.16"
   }
 }

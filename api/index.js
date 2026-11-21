@@ -2,8 +2,8 @@
 const express = require('express');
 const nodemailer = require('nodemailer');
 const { getSql } = require('../server/db');
-const { requireAuth, requireOwner } = require('../server/auth');
-const { rateLimit } = require('../server/rateLimit');
+const { requireAuth, requireOwner, register, login, googleLogin, logout } = require('../server/auth');
+const { rateLimit, byIp } = require('../server/rateLimit');
 const { generate } = require('../server/ai');
 
 const app = express();
@@ -17,6 +17,13 @@ for (const m of ['get', 'put', 'post']) {
   const orig = api[m].bind(api);
   api[m] = (path, ...hs) => orig(path, ...hs.map(h => (req, res, next) => Promise.resolve(h(req, res, next)).catch(next)));
 }
+
+// ---------- Anmeldung ----------
+api.get('/config', (req, res) => res.json({ googleClientId: process.env.GOOGLE_CLIENT_ID || null }));
+api.post('/auth/register', rateLimit('reg', 5, 600, byIp), register);
+api.post('/auth/login', rateLimit('login', 10, 300, byIp), login);
+api.post('/auth/google', rateLimit('glogin', 20, 300, byIp), googleLogin);
+api.post('/auth/logout', logout);
 
 // ---------- Wer bin ich? ----------
 api.get('/me', requireAuth, (req, res) => {
