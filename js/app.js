@@ -837,29 +837,21 @@ if (attachmentBtn && fileUploadInput) {
         if (!files || files.length === 0) return;
 
         for (let file of files) {
-            if (file.size > 2 * 1024 * 1024) { // Max 2MB Schutz
-                toast(`${file.name} ist zu groß (höchstens 2 MB).`, { type: 'warn' });
-                continue;
-            }
-
-            if (file.type.startsWith('image/')) {
-                // Bild einlesen
-                const reader = new FileReader();
-                reader.onload = (event) => {
-                    pendingAttachments.push({ type: 'image', name: file.name, data: event.target.result });
-                    renderAttachmentPreviews();
-                };
-                reader.readAsDataURL(file);
+            if (pendingAttachments.length >= 6) { toast('Höchstens 6 Anhänge pro Nachricht.', { type: 'warn' }); break; }
+            if (file.size > 2 * 1024 * 1024) { toast(`${file.name} ist zu groß (höchstens 2 MB).`, { type: 'warn' }); continue; }
+            // Sicherheitsprüfung: echter Dateityp (nicht nur die Endung), keine Programme/Archive/Binärdateien
+            let bytes;
+            try { bytes = new Uint8Array(await file.arrayBuffer()); } catch (err) { toast(`${file.name} konnte nicht gelesen werden.`, { type: 'error' }); continue; }
+            const v = window.CodenUpload.inspect({ name: file.name, size: file.size, bytes, type: file.type });
+            if (!v.ok) { toast(`🛡️ ${v.name || file.name}: ${v.reason}`, { type: 'error' }); continue; }
+            if (v.kind === 'image') {
+                const data = await new Promise((res, rej) => { const reader = new FileReader(); reader.onload = () => res(reader.result); reader.onerror = rej; reader.readAsDataURL(new Blob([bytes], { type: v.mime })); }).catch(() => null);
+                if (!data) { toast(`${file.name} konnte nicht gelesen werden.`, { type: 'error' }); continue; }
+                pendingAttachments.push({ type: 'image', name: v.name, data });
             } else {
-                // Text/Code Datei einlesen
-                try {
-                    const text = await file.text();
-                    pendingAttachments.push({ type: 'text', name: file.name, content: text });
-                    renderAttachmentPreviews();
-                } catch (err) {
-                    toast(`${file.name} konnte nicht gelesen werden.`, { type: 'error' });
-                }
+                pendingAttachments.push({ type: 'text', name: v.name, content: new TextDecoder('utf-8').decode(bytes) });
             }
+            renderAttachmentPreviews();
         }
         fileUploadInput.value = ''; // Input leeren für nächste Datei
     });

@@ -1,6 +1,6 @@
 // js/auth.js – Firebase wird NUR für das Login benutzt. Alle Daten liegen in Neon (über das eigene Backend).
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, signOut, onAuthStateChanged as fbOnAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
+import { getAuth, GoogleAuthProvider, GithubAuthProvider, linkWithPopup, reauthenticateWithPopup, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, signOut, onAuthStateChanged as fbOnAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
 
 // Die Web-Config ist öffentlich und kein Geheimnis.
 const firebaseConfig = {
@@ -29,6 +29,7 @@ const MESSAGES = {
   'auth/invalid-email': 'Ungültige E-Mail-Adresse.',
   'auth/popup-closed-by-user': 'Anmeldung abgebrochen.',
   'auth/popup-blocked': 'Das Popup wurde blockiert. Bitte erlaube Popups für diese Seite.',
+  'auth/operation-not-allowed': 'GitHub-Anmeldung ist in Firebase noch nicht aktiviert. Nutze stattdessen einen Token.',
   'auth/network-request-failed': 'Keine Verbindung. Bitte Internet prüfen.'
 };
 function friendly(err) {
@@ -80,4 +81,25 @@ export async function initGoogleLogin(onError) {
   btn.onclick = async () => {
     try { await signInWithPopup(fbAuth, googleProvider); } catch (e) { onError(friendly(e).message); }
   };
+}
+
+// GitHub verbinden (Firebase-Login bleibt bestehen). Liefert den GitHub-Zugriffstoken für die Coden-Funktionen "Speichern/Importieren".
+// Dafür muss in der Firebase-Konsole der GitHub-Anbieter aktiviert sein.
+export async function connectGithub() {
+  const user = fbAuth.currentUser;
+  if (!user) throw new Error('Bitte zuerst anmelden.');
+  const provider = new GithubAuthProvider(); provider.addScope('repo');
+  let result;
+  try { result = await linkWithPopup(user, provider); }
+  catch (e) {
+    if (e.code === 'auth/provider-already-linked') { try { result = await reauthenticateWithPopup(user, provider); } catch (e2) { throw friendly(e2); } }
+    else if (e.code === 'auth/credential-already-in-use' || e.code === 'auth/email-already-in-use') {
+      const cred = GithubAuthProvider.credentialFromError(e);
+      if (cred?.accessToken) return { token: cred.accessToken };
+      throw friendly(e);
+    } else throw friendly(e);
+  }
+  const cred = GithubAuthProvider.credentialFromResult(result);
+  if (!cred?.accessToken) throw new Error('GitHub hat keinen Zugriff geliefert.');
+  return { token: cred.accessToken };
 }

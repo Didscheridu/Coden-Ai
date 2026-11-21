@@ -5,6 +5,7 @@ import { Router } from '../router.js';
 import { toast } from '../toast.js';
 import { h, icon, md, sleep, copy } from './dom.js';
 import { systemPrompt, parse, apply, condense } from './agent.js';
+import { ghExport } from './github.js';
 import { KINDS } from './templates.js';
 import { databaseCard, askCard, secretCard, publishCard } from './tools.js';
 import { modal, confirmBox, promptBox, phoneTest, publish, invite } from './dialogs.js';
@@ -485,6 +486,7 @@ export function mountBuilder(host, appId) {
             item('palette', 'Stil ändern', changeStyle),
             item('swap_horiz', 'App-Typ ändern', changeKind),
             item('download', 'Als ZIP herunterladen', downloadZip),
+            item('code', 'Auf GitHub speichern', () => ghExport({ app: st.app, files: st.files })),
             item('html', 'Als eine HTML-Datei herunterladen', downloadHtml),
             item('link', 'Testlink kopieren', async () => { if (await copy(st.app.testUrl)) toast('Testlink kopiert', { type: 'ok' }); }),
             owner ? item('lock_reset', 'Testlink erneuern', async () => { if (!(await confirmBox('Der alte Testlink funktioniert danach nicht mehr.', { ok: 'Erneuern' }))) return; try { setApp((await apiJson(`/apps/${appId}/token`, { method: 'POST', body: '{}' })).app); toast('Neuer Testlink erstellt', { type: 'ok' }); } catch (e) { toast(e.message, { type: 'error' }); } }) : null,
