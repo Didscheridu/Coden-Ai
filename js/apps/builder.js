@@ -88,6 +88,7 @@ export function mountBuilder(host, appId) {
 
     function setApp(app) {
         st.app = app; if (document.activeElement !== nameIn) nameIn.value = app.name;
+        const ro = app.role === 'viewer'; input.disabled = ro; sendBtn.disabled = ro; nameIn.disabled = ro; if (ro) input.placeholder = 'Du darfst diese App nur ansehen (Rolle: Zuschauer).';
         if (!st.device) st.device = KINDS[app.kind].devices[0];
         const style = S().byId(app.style);
         badges.replaceChildren(h('span', { class: 'bl-badge' }, icon(KINDS[app.kind].icon), KINDS[app.kind].label), h('button', { class: 'bl-badge btn', title: 'Stil ändern', onclick: () => changeStyle() }, icon('palette'), style ? style.name : 'Eigener Stil'),
