@@ -9,6 +9,7 @@ const { buddyRouter } = require('../server/buddy');
 const { appsRouter, publicApiRouter, hostedRouter, baseUrl } = require('../server/apps');
 const { generateImage } = require('../server/images');
 const crypto = require('crypto');
+const { mcpRouter } = require('../server/mcp');
 const CodenUpload = require('../shared/upload-check');
 const { wrapRouter } = require('../server/util');
 
@@ -205,6 +206,7 @@ api.post('/image', requireAuth, rateLimit('image', 10, 300), async (req, res) =>
 });
 
 api.use('/buddy', buddyRouter(requireAuth));
+api.use('/mcp', mcpRouter(requireAuth));
 api.use('/apps', appsRouter(requireAuth));
 api.use('/public', publicApiRouter());
 app.use('/api', api);
