@@ -9,6 +9,7 @@ const { buddyRouter } = require('../server/buddy');
 const { appsRouter, publicApiRouter, hostedRouter, baseUrl } = require('../server/apps');
 const { generateImage } = require('../server/images');
 const crypto = require('crypto');
+const CodenUpload = require('../shared/upload-check');
 const { wrapRouter } = require('../server/util');
 
 const app = express();
@@ -104,7 +105,7 @@ function validChat(body) {
   const { messages, tier } = body || {};
   if (!Array.isArray(messages) || !messages.length || messages.length > 60 || typeof tier !== 'string') return false;
   return messages.every(m => ['system', 'user', 'assistant'].includes(m.role) && typeof m.content === 'string' && m.content.length <= 100_000
-    && (!m.images || (Array.isArray(m.images) && m.images.length <= 4 && m.images.every(i => typeof i === 'string' && i.startsWith('data:image/')))));
+    && (!m.images || (Array.isArray(m.images) && m.images.length <= 4 && m.images.every(i => typeof i === 'string' && CodenUpload.inspectImageDataUrl(i).ok))));
 }
 
 // Der App-Agent darf längere Antworten schreiben (ganze Dateien), normale Chats bleiben bei 8192

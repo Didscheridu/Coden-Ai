@@ -1,4 +1,5 @@
 // js/apps/apps.js – der Tab "Apps": Übersicht aller Apps, Assistent für neue Apps (Typ → Stil → Idee) und der Builder.
+import { ghImport } from './github.js';
 import { apiJson } from '../backend.js';
 import { Router } from '../router.js';
 import { toast } from '../toast.js';
@@ -39,7 +40,9 @@ async function gallery(host) {
     const page = h('div', { class: 'ap-page' },
         h('div', { class: 'ap-hero' },
             h('div', {}, h('h1', { text: 'Apps' }), h('p', { text: 'Baue Webseiten und Handy-Apps mit Coden – mit Live-Vorschau, eigener Adresse und zum Installieren aufs Handy.' })),
-            h('button', { class: 'ap-new', onclick: () => Router.go('apps/neu') }, icon('add'), 'Neue App')),
+            h('div', { class: 'ap-actions' },
+                h('button', { class: 'ap-gh', title: 'Ein GitHub-Repository als App öffnen', onclick: () => ghImport((name, files) => createApp({ name, kind: 'web', files })) }, icon('code'), 'Von GitHub'),
+                h('button', { class: 'ap-new', onclick: () => Router.go('apps/neu') }, icon('add'), 'Neue App'))),
         filters, grid);
     host.append(page);
     grid.append(...Array.from({ length: 3 }, () => h('div', { class: 'ap-card skeleton' })));

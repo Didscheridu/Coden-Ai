@@ -288,3 +288,13 @@
     .bl-head { padding-left: 56px } .ag-search { margin-left: 0; width: 100% }
 }
 @media (max-width: 480px) { .ap-grid { grid-template-columns: 1fr } .ap-styles { grid-template-columns: 1fr 1fr } .ap-kinds { grid-template-columns: 1fr } .ap-kind { min-height: 120px } .ka { display: none } }
+
+/* GitHub */
+.ap-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center }
+.ap-gh { display: inline-flex; align-items: center; gap: 8px; padding: 11px 18px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .14); background: rgba(255, 255, 255, .04); color: var(--text-primary); font: 600 14px var(--font-main); cursor: pointer } .ap-gh:hover { background: rgba(255, 255, 255, .09) }
+.cd-sep { display: flex; align-items: center; gap: 10px; margin: 16px 0 10px; color: var(--text-muted); font-size: 12px } .cd-sep::before, .cd-sep::after { content: ''; flex: 1; height: 1px; background: rgba(255, 255, 255, .1) }
+.cd-link { all: unset; cursor: pointer; color: var(--accent-blue); font-size: 13px; text-decoration: underline }
+.cd-check { display: flex; align-items: center; gap: 8px; margin: 12px 0 6px; font-size: 14px }
+.gh-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; max-height: 50vh; overflow: auto }
+.gh-repo { display: flex; align-items: center; gap: 12px; text-align: left; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, .08); background: rgba(255, 255, 255, .03); color: var(--text-primary); font: 14px var(--font-main); cursor: pointer } .gh-repo:hover { background: rgba(255, 255, 255, .08) }
+.gh-repo small { display: block; color: var(--text-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46ch }
