@@ -280,10 +280,11 @@ export function mountBuilder(host, appId) {
     // Zeichnet eine Coden-Antwort (auch während sie geschrieben wird)
     function fillAssistant(body, text, { meta = {}, msgId = null, final = false } = {}) {
         const p = parse(text); const done = answers(); const frag = [];
+        if (body.firstElementChild && !body.firstElementChild._sig) body.replaceChildren();
         let ti = 0;
         for (const s of p.segs) {
             if (s.kind === 'text') { if (s.text.trim()) frag.push(md(s.text.replace(/\[Datei (geschrieben|geändert|gelöscht): ([^\]]+)\]\n?/g, ''))); }
-            else if (s.kind === 'op' && !final) frag.push(h('div', { class: 'bl-op' + (s.op.closed ? ' done' : ' busy') }, icon(s.op.type === 'delete' ? 'delete' : s.op.closed ? 'check_circle' : 'edit'), h('span', { text: (s.op.type === 'delete' ? 'Löscht ' : s.op.type === 'edit' ? (s.op.closed ? 'Geändert: ' : 'Ändert ') : (s.op.closed ? 'Geschrieben: ' : 'Schreibt ')) + s.op.path }), s.op.type === 'file' ? h('small', { text: s.op.content.split('\n').length + ' Zeilen' }) : null));
+            else if (s.kind === 'op' && !final) frag.push(sig('op:' + s.op.type + ':' + s.op.path + ':' + (s.op.closed ? 1 : 0), h('div', { class: 'bl-op' + (s.op.closed ? ' done' : ' busy') }, icon(s.op.type === 'delete' ? 'delete' : s.op.closed ? 'check_circle' : 'edit'), h('span', { text: (s.op.type === 'delete' ? 'Löscht ' : s.op.type === 'edit' ? (s.op.closed ? 'Geändert: ' : 'Ändert ') : (s.op.closed ? 'Geschrieben: ' : 'Schreibt ')) + s.op.path }), s.op.type === 'file' ? h('small', { text: s.op.content.split('\n').length + ' Zeilen' }) : null)));
             else if (s.kind === 'plan') frag.push(h('div', { class: 'bl-plan' }, h('b', {}, icon('checklist'), ' Plan'), ...s.plan.items.map(it => h('div', { class: 'bl-pi' + (it.done ? ' done' : '') }, icon(it.done ? 'check_circle' : 'radio_button_unchecked'), h('span', { text: it.text })))));
             else if (s.kind === 'sql') frag.push(h('div', { class: 'bl-sql' }, h('div', { class: 'bl-sqlh' }, icon('database'), h('b', { text: 'SQL' }), h('span', { class: 'grow' }),
                 h('button', { class: 'bl-btn sm', onclick: async () => { if (await copy(s.sql.code)) toast('SQL kopiert – füge es im SQL-Editor ein', { type: 'ok' }); } }, icon('content_copy'), ' Kopieren'),
@@ -291,7 +292,7 @@ export function mountBuilder(host, appId) {
                 h('pre', {}, h('code', { class: 'language-sql', text: s.sql.code }))));
             else if (s.kind === 'tool') {
                 const key = msgId ? `${msgId}:${ti++}` : null; const ans = key ? done[key] : null;
-                if (!final) { frag.push(h('div', { class: 'bl-op busy' }, icon('build'), h('span', { text: 'Werkzeug: ' + s.tool.name }))); continue; }
+                if (!final) { frag.push(sig('tool:' + s.tool.name, h('div', { class: 'bl-op busy' }, icon('build'), h('span', { text: 'Werkzeug: ' + s.tool.name })))); continue; }
                 const onAnswer = (a) => answerTool(key, a);
                 if (s.tool.name === 'database') frag.push(databaseCard(s.tool, { answered: ans, onAnswer, current: st.app?.integrations?.database }));
                 else if (s.tool.name === 'ask') frag.push(askCard(s.tool, { answered: ans, onAnswer }));
@@ -303,7 +304,23 @@ export function mountBuilder(host, appId) {
             icon({ new: 'add_circle', write: 'edit_document', edit: 'edit', delete: 'delete' }[c.type] || 'description'), h('span', { text: c.path })))));
         if (final && meta.auto) frag.push(h('small', { class: 'bl-meta', text: 'automatische Korrektur' }));
         if (!frag.length && !final) frag.push(h('span', { class: 'typing-dots' }, h('i'), h('i'), h('i')));
-        body.replaceChildren(...frag);
+        reconcile(body, frag);
+    }
+
+    // Stabile Signatur für Karten, die sich beim Streamen nur im Detail ändern (z. B. Zeilenzahl)
+    function sig(key, node) { node._sig = key; return node; }
+    // Aktualisiert nur, was sich wirklich geändert hat – so flackern fertige Karten nicht mehr
+    function reconcile(body, frag) {
+        const nodes = [];
+        frag.forEach((n, i) => {
+            const o = body.children[i]; const k = n._sig || n.outerHTML;
+            if (o && o._sig === k) {
+                if (n._sig) { const so = o.querySelector('small'), sn = n.querySelector('small'); if (so && sn && so.textContent !== sn.textContent) so.textContent = sn.textContent; }
+                nodes.push(o);
+            } else { n._sig = k; nodes.push(n); }
+        });
+        nodes.forEach((n, i) => { if (body.children[i] !== n) body.insertBefore(n, body.children[i] || null); });
+        while (body.children.length > nodes.length) body.lastElementChild.remove();
     }
 
     async function answerTool(key, a) {
@@ -337,6 +354,17 @@ export function mountBuilder(host, appId) {
     function setBusy(on) { st.running = on; stopBtn.classList.toggle('hidden', !on); sendBtn.classList.toggle('hidden', on); root.classList.toggle('busy', on); }
     stopBtn.addEventListener('click', () => st.abort?.abort());
 
+
+    function withReply(text, p, aborted) {
+        const segs = p.segs; let lastOp = -1; segs.forEach((x, i) => { if (x.kind === 'op') lastOp = i; });
+        const hasText = (a) => segs.slice(a).some(x => x.kind === 'text' && x.text.replace(/\[Datei [^\]]*\]/g, '').trim().length > 2);
+        if (p.tools.length || aborted) return text;
+        if (lastOp < 0) return hasText(0) ? text : text + (text.trim() ? '\n\n' : '') + 'Ich habe gerade nichts geändert. Sag mir gern genauer, was ich bauen oder anpassen soll.';
+        if (hasText(lastOp + 1)) return text;
+        const names = [...new Set(p.ops.map(o => o.path))]; const list = names.slice(0, 4).join(', ') + (names.length > 4 ? ` und ${names.length - 4} weitere` : '');
+        return text.replace(/\s+$/, '') + `\n\nFertig – ich habe ${list} ${p.ops.some(o => o.type === 'file') ? 'geschrieben bzw. angepasst' : 'angepasst'}. Schau dir die Vorschau an und sag mir, was ich noch ändern soll.`;
+    }
+
     async function runAgent() {
         if (st.running || !st.alive) return;
         setBusy(true);
@@ -345,17 +373,21 @@ export function mountBuilder(host, appId) {
         body.replaceChildren(h('div', { class: 'bl-thinking' }, h('span', { class: 'typing-dots' }, h('i'), h('i'), h('i')), h('span', { text: 'Coden denkt nach …' })));
         const ac = new AbortController(); st.abort = ac;
         let text = '', model = '', raf = 0;
-        const paint = () => { raf = 0; fillAssistant(body, text); scrollLog(); };
+        let lastPaint = 0;
+        const paint = () => { raf = 0; lastPaint = Date.now(); fillAssistant(body, text); scrollLog(); };
         try {
-            text = await streamAiResponse(buildContext(), st.tier, { signal: ac.signal, maxTokens: 16000, onModel: (m) => { model = m; }, onDelta: (t) => { text = t; if (!raf) raf = requestAnimationFrame(paint); } });
+            text = await streamAiResponse(buildContext(), st.tier, { signal: ac.signal, maxTokens: 16000, onModel: (m) => { model = m; }, onDelta: (t) => { text = t; if (!raf) raf = setTimeout(paint, Math.max(0, 120 - (Date.now() - lastPaint))); } });
         } catch (e) {
             text = e.text || text;
-            if (!text.trim()) { cancelAnimationFrame(raf); el.remove(); setBusy(false); st.abort = null; log.append(h('div', { class: 'bl-event err' }, icon('error'), h('span', { text: 'Coden konnte nicht antworten: ' + e.message }), h('button', { class: 'bl-btn sm', onclick: (ev) => { ev.currentTarget.parentNode.remove(); runAgent(); } }, icon('refresh'), ' Nochmal'))); scrollLog(true); return; }
+            if (!text.trim()) { clearTimeout(raf); el.remove(); setBusy(false); st.abort = null; log.append(h('div', { class: 'bl-event err' }, icon('error'), h('span', { text: 'Coden konnte nicht antworten: ' + e.message }), h('button', { class: 'bl-btn sm', onclick: (ev) => { ev.currentTarget.parentNode.remove(); runAgent(); } }, icon('refresh'), ' Nochmal'))); scrollLog(true); return; }
         }
-        cancelAnimationFrame(raf);
+        clearTimeout(raf);
         const aborted = ac.signal.aborted; st.abort = null;
         if (!text.trim()) { el.remove(); setBusy(false); return; }
-        const p = parse(text); const res = apply(st.files, p.ops);
+        let p = parse(text);
+        // Coden antwortet immer auch mit Text: fehlt eine Erklärung, schreiben wir eine kurze Zusammenfassung dazu
+        text = withReply(text, p, aborted); p = parse(text);
+        const res = apply(st.files, p.ops);
         let saveErr = null;
         if (Object.keys(res.set).length || res.remove.length) {
             try { await saveFiles(res.set, res.remove); st.files = res.files; }

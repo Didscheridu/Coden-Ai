@@ -1,7 +1,26 @@
 {
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api" },
-    { "source": "/a/:path*", "destination": "/api" }
+    {
+      "source": "/api/:path*",
+      "destination": "/api"
+    },
+    {
+      "source": "/a/:slug",
+      "destination": "/api"
+    },
+    {
+      "source": "/a/:slug/",
+      "destination": "/api"
+    },
+    {
+      "source": "/a/:slug/:rest*",
+      "destination": "/api"
+    }
   ],
-  "functions": { "api/index.js": { "maxDuration": 300, "includeFiles": "kit/**" } }
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 300,
+      "includeFiles": "kit/**"
+    }
+  }
 }

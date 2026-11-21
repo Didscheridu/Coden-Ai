@@ -354,8 +354,6 @@ function notFoundHtml() {
 function hostedRouter() {
   const r = wrapRouter(express.Router({ strict: true }));
   const limiter = rateLimit('pub-host', 240, 60, byIp);
-  // /a/<slug> -> /a/<slug>/ (für den Geltungsbereich der installierten App)
-  r.get('/:slug', (req, res) => { const q = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''; res.redirect(301, `/a/${encodeURIComponent(req.params.slug)}/${q}`); });
   r.get('/:slug/manifest.webmanifest', limiter, async (req, res) => {
     const x = await loadPublic(req.params.slug, req.query.t); if (!x) return res.status(404).json({});
     const { a, preview } = x; const base = `/a/${a.slug}/`; const style = Styles.byId(a.style);
@@ -383,7 +381,7 @@ if(!(u.pathname.startsWith('/a/${slug}/')||u.pathname.startsWith('/api/public/ap
 e.respondWith(fetch(e.request).then(r=>{if(r.ok){const c=r.clone();caches.open(C).then(x=>x.put(e.request,c))}return r}).catch(()=>caches.match(e.request,{ignoreSearch:u.pathname.startsWith('/a/')}).then(r=>r||Response.error())))});`);
   });
   // Die Hülle: /a/<slug>/ und /a/<slug>/<seite>.html
-  r.get(/^\/([a-z0-9-]+)\/([A-Za-z0-9_\-\/.]*)$/, limiter, async (req, res) => {
+  r.get(/^\/([a-z0-9-]+)(?:\/([A-Za-z0-9_\-\/.]*))?$/, limiter, async (req, res) => {
     const slug = req.params[0]; const page = req.params[1] || '';
     const x = await loadPublic(slug, req.query.t);
     res.set('X-Frame-Options', 'SAMEORIGIN').set('Referrer-Policy', 'no-referrer');

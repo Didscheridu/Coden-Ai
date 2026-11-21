@@ -71,7 +71,7 @@ const { setup } = require('./helpers');
   chk('Hülle: Testlink lädt', [w.s, w.t.includes('sandbox="allow-scripts'), w.t.includes('allow-same-origin')], [200, true, false]);
   chk('Hülle: Name escaped', [w.t.includes('<title>Snake Pro</title>'), w.t.includes('<Spiel>')], [true, false]);
   chk('Hülle ohne Token: 404', (await raw(`/a/${slug}/`)).s, 404);
-  chk('Weiterleitung auf Schrägstrich', [(await raw(`/a/${slug}?t=${tok}`)).s, (await raw(`/a/${slug}?t=${tok}`)).h.get('location')], [301, `/a/${slug}/?t=${tok}`]);
+  { const a = await raw(`/a/${slug}?t=${tok}`); chk('Adresse ohne Schrägstrich funktioniert direkt (keine Weiterleitung)', [a.s, a.t.includes('__CODEN_APP__')], [200, true]); }
   const ic = await fetch(`${root}/a/${slug}/icon-192.png`); const buf = Buffer.from(await ic.arrayBuffer());
   chk('Symbol ist ein PNG', [ic.status, ic.headers.get('content-type'), buf.slice(1, 4).toString()], [200, 'image/png', 'PNG']);
   const mf = await raw(`/a/${slug}/manifest.webmanifest?t=${tok}`); const mj = JSON.parse(mf.t);
