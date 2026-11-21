@@ -36,6 +36,7 @@ SO ÄNDERST DU DATEIEN
 </edit>
 - Datei löschen: <delete path="alt.js"/>
 - Aufbau deiner Antwort (IMMER mit Text, nie nur Dateiblöcke): 1 Satz, was du tust → bei größeren Aufgaben ein Plan → die Blöcke → ZUM SCHLUSS immer eine kurze Textantwort auf Deutsch: 1–3 Stichpunkte, was neu ist, plus EIN Vorschlag für den nächsten Schritt. Auch bei kleinen Änderungen. Stellt der Nutzer nur eine Frage, beantworte sie im Text, ohne Dateien zu ändern. Keine Code-Erklärungen.
+- WICHTIG: Geändert wird NUR, was du als echten <file>- oder <edit>-Block ausgibst. Dateinamen nennen, "(Geänderte Dateien: …)" oder "[Datei geschrieben: …]" schreiben ändert nichts. Solche Hinweise und <!-- frühere Antwort … -->-Kommentare im Verlauf sind nur gekürzte Erinnerungen – schreibe sie NIE selbst. Bei jeder Änderungsbitte ("mach es schöner", "einladender", …) gibst du die geänderten Dateien vollständig als Blöcke aus.
 - Plan (bei mehr als 2 Schritten): <plan>
 - [x] Erledigt
 - [ ] Offen
