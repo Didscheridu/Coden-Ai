@@ -52,6 +52,15 @@ export function resultText(r) {
     return (parts.join('\n\n') || '(leere Antwort)').slice(0, 12000);
 }
 
+// Vorschläge: öffentliche MCP-Server, die ohne OAuth-Fenster laufen (Adressen aus den Anbieter-Dokus)
+export const SUGGESTIONS = [
+    { name: 'DeepWiki', icon: 'menu_book', url: 'https://mcp.deepwiki.com/mcp', auth: 'none', desc: 'Fragen zu öffentlichen GitHub-Projekten beantworten und deren Doku lesen.', info: 'Kein Zugang nötig.' },
+    { name: 'Context7', icon: 'library_books', url: 'https://mcp.context7.com/mcp', auth: 'key', desc: 'Aktuelle Dokumentation und Code-Beispiele zu Programmiersprachen und Bibliotheken.', info: 'Kostenloser API-Schlüssel (context7.com), ohne Schlüssel gelten niedrigere Limits.', link: 'https://context7.com/dashboard' },
+    { name: 'Cloudflare Docs', icon: 'cloud', url: 'https://docs.mcp.cloudflare.com/mcp', auth: 'none', desc: 'Die Cloudflare-Dokumentation durchsuchen, zum Beispiel für Workers AI.', info: 'Ob ein Zugang nötig ist, nennt die Doku nicht. Probier es einfach aus.' },
+    { name: 'GitHub', icon: 'code', url: 'https://api.githubcopilot.com/mcp/', auth: 'key', desc: 'Repos, Issues und Pull Requests lesen und bearbeiten.', info: 'Persönliches Zugriffstoken (GitHub → Settings → Developer settings → Personal access tokens). Gib nur die Rechte, die nötig sind.', link: 'https://github.com/settings/personal-access-tokens' },
+    { name: 'Hugging Face', icon: 'psychology', url: 'https://huggingface.co/mcp', auth: 'key', desc: 'Modelle, Datasets und Spaces auf dem Hugging Face Hub suchen.', info: 'Token von huggingface.co/settings/tokens. Ob der Server ihn als Bearer-Token annimmt, ist in der Doku nicht bestätigt.', link: 'https://huggingface.co/settings/tokens' }
+];
+
 // ---------- Tab "Verbindungen" ----------
 export const McpView = {
     mount(host) {
@@ -71,7 +80,19 @@ export const McpView = {
             catch (e) { err.textContent = e.message; }
             add.disabled = false; add.textContent = 'Verbinden';
         } }, 'Verbinden');
+        const sugg = h('div', { class: 'mc-sugg' });
+        const drawSugg = () => {
+            const have = new Set(servers.map(x => x.url));
+            sugg.replaceChildren(...SUGGESTIONS.filter(x => !have.has(x.url)).map(x => h('div', { class: 'mc-sg' },
+                h('div', { class: 'mc-head' }, icon(x.icon), h('div', { class: 'grow' }, h('b', { text: x.name }), h('small', { text: x.auth === 'none' ? 'Ohne Anmeldung' : 'Mit Schlüssel' }))),
+                h('p', { text: x.desc }), h('small', { text: x.info }),
+                h('div', { class: 'mc-actions' },
+                    h('button', { class: 'cd-btn', onclick: () => { name.value = x.name; url.value = x.url; token.value = ''; hdr.value = ''; err.textContent = ''; (x.auth === 'key' ? token : add).focus(); add.scrollIntoView({ block: 'center', behavior: 'smooth' }); } }, icon('add'), x.auth === 'key' ? ' Vorbelegen' : ' Auswählen'),
+                    x.link ? h('a', { class: 'cd-btn', href: x.link, target: '_blank', rel: 'noopener noreferrer' }, icon('open_in_new'), ' Schlüssel holen') : null))));
+            sugg.parentElement?.classList.toggle('hidden', !sugg.children.length);
+        };
         const draw = () => {
+            drawSugg();
             body.replaceChildren(...(servers.length ? servers.map(card) : [h('div', { class: 'ap-empty wide' }, icon('hub'), h('h2', { text: 'Noch keine Verbindung' }), h('p', { text: 'Trage unten die Adresse eines MCP-Servers ein. Danach kann Coden im Chat deren Werkzeuge nutzen, zum Beispiel Notizen lesen oder Aufgaben anlegen.' }))]));
         };
         const card = (s) => {
@@ -89,6 +110,7 @@ export const McpView = {
             h('div', { class: 'ap-hero' }, h('div', {}, h('h1', { text: 'Verbindungen' }), h('p', { text: 'Verbinde Coden per MCP mit anderen Apps und Diensten. Coden ruft deren Werkzeuge direkt aus dem Chat auf.' }))),
             h('label', { class: 'cd-check' }, askBox, ' Vor jedem Aufruf nachfragen (empfohlen)'),
             body,
+            h('div', { class: 'mc-sec' }, h('h3', { text: 'Vorschläge' }), h('small', { class: 'cd-hint', text: 'Diese Server funktionieren ohne Anmeldefenster. Auswählen füllt das Formular unten aus.' }), sugg),
             h('div', { class: 'mc-add' }, h('h3', { text: 'Server hinzufügen' }),
                 name, url, token, hdr,
                 h('small', { class: 'cd-hint', text: 'Unterstützt werden MCP-Server über HTTPS, die einen Token oder API-Schlüssel annehmen. Server, die nur eine Anmeldung per OAuth-Fenster anbieten, gehen noch nicht. Token bleiben in diesem Browser.' }),
