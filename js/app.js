@@ -501,7 +501,7 @@ const legalTexts = {
         <h4 style="color: white; margin-bottom: 10px;">Datenschutzerklärung</h4>
         <p>Der Schutz deiner Daten ist uns wichtig. Hier ist zusammengefasst, wie wir Daten verarbeiten:</p>
         <ul style="margin-left: 20px; margin-top: 10px; margin-bottom: 20px;">
-            <li style="margin-bottom: 8px;"><strong>Accounts & Login:</strong> Wir nutzen Firebase (Google) zur Authentifizierung. Deine E-Mail wird sicher verschlüsselt gespeichert.</li>
+            <li style="margin-bottom: 8px;"><strong>Accounts & Login:</strong> Die Anmeldung läuft über unser eigenes Backend. Deine E-Mail wird in unserer Datenbank (Neon, Frankfurt) gespeichert, dein Passwort nur als sicherer Hash. Optional ist die Anmeldung mit Google möglich.</li>
             <li style="margin-bottom: 8px;"><strong>Chats:</strong> Deine Nachrichten werden lokal in deinem Browser gespeichert (LocalStorage) und in unserer Datenbank gesichert.</li>
             <li style="margin-bottom: 8px;"><strong>KI-Verarbeitung:</strong> Nachrichten werden verschlüsselt an unsere Backend-Server (Vercel) und KI-Partner gesendet. Sende niemals sensible Daten (z.B. Passwörter) im Chat.</li>
             <li style="margin-bottom: 8px;"><strong>Hosting:</strong> Diese Webseite wird bei Vercel gehostet. Vercel verarbeitet zur Bereitstellung der Webseite kurzfristig IP-Adressen.</li>
