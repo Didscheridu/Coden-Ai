@@ -319,7 +319,7 @@ function publicApiRouter() {
   return r;
 }
 
-const HOST_SCRIPT = fs.readFileSync(path.join(__dirname, 'app-host.js'), 'utf8');
+const HOST_SCRIPT = require('./app-host');
 function wrapperHtml({ a, preview, slug, page, t }) {
   const style = Styles.byId(a.style); const bg = style ? style.v.bg : '#ffffff';
   const q = preview ? `?t=${encodeURIComponent(t)}` : '';
@@ -333,7 +333,7 @@ ${preview ? '<meta name="robots" content="noindex">' : ''}
 <style>html,body{margin:0;height:100%;background:${escHtml(bg)};overflow:hidden}#f{position:fixed;inset:0;width:100%;height:100%;border:0;background:${escHtml(bg)}}
 #ld{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}#ld i{width:34px;height:34px;border-radius:50%;border:3px solid rgba(128,128,128,.25);border-top-color:${escHtml(a.theme_color)};animation:s 1s linear infinite}@keyframes s{to{transform:rotate(360deg)}}
 #cb{position:fixed;right:10px;bottom:calc(10px + env(safe-area-inset-bottom));z-index:5;display:flex;align-items:center;gap:6px;padding:5px 10px 5px 6px;border-radius:999px;background:rgba(20,20,24,.72);color:#fff;font:600 11px system-ui,sans-serif;text-decoration:none;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);opacity:.85}
-#cb b{width:16px;height:16px;border-radius:5px;background:linear-gradient(135deg,#8ab4f8,#c58af9,#f28b82);display:inline-block}#cb button{all:unset;cursor:pointer;margin-left:2px;opacity:.7}
+#cb.fade{opacity:0;pointer-events:none;transition:opacity .6s}#cb b{width:16px;height:16px;border-radius:5px;background:linear-gradient(135deg,#8ab4f8,#c58af9,#f28b82);display:inline-block}#cb button{all:unset;cursor:pointer;margin-left:2px;opacity:.7}
 #lv{position:fixed;left:50%;top:calc(8px + env(safe-area-inset-top));transform:translateX(-50%);z-index:6;padding:6px 12px;border-radius:999px;background:rgba(20,20,24,.8);color:#fff;font:600 12px system-ui,sans-serif;display:none}
 #er{position:fixed;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;gap:8px;font:15px system-ui,sans-serif;color:#555;text-align:center;padding:24px}
 @media (display-mode: standalone){#cb{display:none}}</style>

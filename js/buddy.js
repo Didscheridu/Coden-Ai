@@ -24,23 +24,24 @@ const guard = (fn) => async (...a) => { try { await fn(...a); } catch (e) { toas
 
 // ---------------- Rahmen ----------------
 function build() {
-    root = h('div', { id: 'buddy-view', class: 'buddy-view', role: 'dialog', 'aria-label': 'Code Buddy' });
-    document.body.appendChild(root);
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && root.classList.contains('open')) Buddy.close(); });
+    root = h('div', { id: 'buddy-view', class: 'buddy-view', 'aria-label': 'Code Buddy' });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && root.isConnected && !e.target.closest('input, textarea, .cd-overlay')) Buddy.close(); });
 }
 
+const TABS = [['friends', 'group', 'Freunde'], ['projects', 'folder_open', 'Projekte'], ['apps', 'apps', 'Gemeinsame Apps']];
 function shell() {
     clearTimers();
     const side = h('div', { class: 'bd-side' });
     const main = h('div', { class: 'bd-main' });
-    const tabs = h('div', { class: 'bd-tabs' },
-        h('button', { class: state.tab === 'friends' ? 'active' : '', onclick: () => { state.tab = 'friends'; state.view = null; render(); } }, icon('group'), ' Freunde'),
-        h('button', { class: state.tab === 'projects' ? 'active' : '', onclick: () => { state.tab = 'projects'; state.view = null; render(); } }, icon('folder_open'), ' Projekte'));
-    const me = h('div', { class: 'bd-me' }, h('div', { class: 'bd-avatar', text: (state.profile?.displayName || '?')[0].toUpperCase() }),
-        h('div', {}, h('b', { text: state.profile?.displayName || '' }), h('small', { text: '@' + (state.profile?.handle || '') })),
-        h('button', { class: 'bd-icon', title: 'Profil bearbeiten', onclick: () => profileForm() }, icon('edit')));
-    side.append(h('div', { class: 'bd-brand' }, icon('diversity_3'), h('span', { text: 'Code Buddy' }), h('button', { class: 'bd-icon', title: 'Schließen', onclick: () => Buddy.close() }, icon('close'))), me, tabs, h('div', { class: 'bd-list', id: 'bd-list' }));
-    root.replaceChildren(h('div', { class: 'bd-card' }, side, main));
+    const tabs = h('nav', { class: 'bd-tabs', role: 'tablist' }, ...TABS.map(([id, ic, label]) =>
+        h('button', { class: state.tab === id ? 'active' : '', role: 'tab', 'aria-selected': String(state.tab === id), onclick: () => { if (state.tab === id) return; state.tab = id; state.view = null; history.replaceState(null, '', '#/buddy' + (id === 'friends' ? '' : '/' + ({ projects: 'projekte', apps: 'apps' }[id]))); render(); } }, icon(ic), h('span', { text: label }))));
+    const me = h('button', { class: 'bd-me', title: 'Profil bearbeiten', onclick: () => profileForm() }, h('div', { class: 'bd-avatar', text: (state.profile?.displayName || '?')[0].toUpperCase() }),
+        h('div', {}, h('b', { text: state.profile?.displayName || '' }), h('small', { text: '@' + (state.profile?.handle || '') })), icon('edit'));
+    const top = h('header', { class: 'bd-top' },
+        h('button', { class: 'bd-back', title: 'Zurück zum Chat (Esc)', onclick: () => Buddy.close() }, icon('arrow_back'), h('span', { text: 'Zurück' })),
+        h('div', { class: 'bd-brand' }, icon('diversity_3'), h('span', { text: 'Code Buddy' })), tabs, h('span', { class: 'grow' }), me);
+    side.append(h('div', { class: 'bd-list', id: 'bd-list' }));
+    root.replaceChildren(h('div', { class: 'bd-card' }, top, h('div', { class: 'bd-cols' }, side, main)));
     return { side, main, list: side.querySelector('#bd-list') };
 }
 
@@ -58,14 +59,14 @@ function profileForm(first) {
     wrap.append(h('div', { class: 'bd-hero' }, icon('diversity_3'), h('h2', { text: first ? 'Willkommen bei Code Buddy' : 'Dein Profil' }), h('p', { text: 'Verbinde dich mit anderen Codern, schreibt euch und baut gemeinsam Projekte.' })),
         h('label', { text: 'Benutzername' }), handle, h('label', { text: 'Anzeigename' }), name, h('label', { text: 'Über dich' }), bio, err,
         h('div', { class: 'bd-row' }, first ? null : h('button', { onclick: () => render(), text: 'Abbrechen' }), save));
-    root.replaceChildren(h('div', { class: 'bd-card bd-solo' }, h('button', { class: 'bd-icon bd-x', title: 'Schließen', onclick: () => Buddy.close() }, icon('close')), wrap));
+    root.replaceChildren(h('div', { class: 'bd-card bd-solo' }, h('button', { class: 'bd-back bd-x', title: first ? 'Zurück zum Chat' : 'Abbrechen', onclick: () => first ? Buddy.close() : render() }, icon('arrow_back'), h('span', { text: 'Zurück' })), wrap));
 }
 
 // ---------------- Rendern ----------------
 async function render() {
     if (!state.profile) return profileForm(true);
     const { main, list } = shell();
-    if (state.tab === 'friends') await renderFriends(main, list); else await renderProjects(main, list);
+    if (state.tab === 'friends') await renderFriends(main, list); else if (state.tab === 'apps') await renderApps(main, list); else await renderProjects(main, list);
 }
 
 async function renderFriends(main, list) {
@@ -184,6 +185,22 @@ async function openProject(id, main, list) {
     pollMsgs().catch(() => {}); clearTimers(); every(3000, pollMsgs); every(5000, refresh);
 }
 
+// ---------------- Gemeinsame Apps ----------------
+async function renderApps(main, list) {
+    let apps = [];
+    try { apps = (await apiJson('/apps')).apps; } catch (e) { toast(e.message); }
+    const shared = apps.filter(a => a.members > 1 || a.role !== 'owner'); const mine = apps.filter(a => a.role === 'owner' && a.members < 2);
+    list.replaceChildren(h('div', { class: 'bd-sec', text: 'Gemeinsam' }), ...(shared.length ? shared.map(a => appRow(a)) : [h('small', { class: 'bd-empty', text: 'Noch keine gemeinsamen Apps.' })]),
+        mine.length ? h('div', { class: 'bd-sec', text: 'Nur du – Freunde einladen' }) : null, ...mine.map(a => appRow(a)));
+    main.replaceChildren(h('div', { class: 'bd-placeholder' }, icon('apps'), h('h3', { text: 'Apps zusammen bauen' }),
+        h('p', { text: 'Öffne eine App und klicke oben auf „Einladen“. Deine Freunde sehen dann den Chat mit Coden, die Vorschau und den Code – und können mitbauen.' }),
+        h('button', { class: 'bd-primary', onclick: () => { location.hash = '#/apps'; } }, icon('apps'), ' Zu deinen Apps')));
+    function appRow(a) {
+        return h('div', { class: 'bd-item clickable', onclick: () => { location.hash = '#/apps/' + a.id; } }, h('div', { class: 'bd-avatar', style: `background:${/^#[0-9a-f]{6}$/i.test(a.themeColor) ? a.themeColor : '#8ab4f8'}`, text: a.name[0].toUpperCase() }),
+            h('div', { class: 'grow' }, h('b', { text: a.name }), h('small', { text: `${a.members} Person${a.members === 1 ? '' : 'en'}${a.role === 'owner' ? ' · Besitzer' : ' · eingeladen'}${a.published ? ' · Live' : ''}` })), icon('chevron_right'));
+    }
+}
+
 // ---------------- Öffentliche API ----------------
 async function updateBadge() {
     if (!auth.currentUser || !badge) return;
@@ -194,14 +211,18 @@ export const Buddy = {
     init() {
         build();
         const btn = document.getElementById('open-buddy-btn'); if (!btn) return;
-        badge = btn.querySelector('.bd-nav-badge'); btn.addEventListener('click', (e) => { e.preventDefault(); Buddy.open(); });
-        setTimeout(updateBadge, 1500); setInterval(() => { if (!document.hidden && !root.classList.contains('open')) updateBadge(); }, 30000);
+        badge = btn.querySelector('.bd-nav-badge');
+        setTimeout(updateBadge, 1500); setInterval(() => { if (!document.hidden && !root.isConnected) updateBadge(); }, 30000);
     },
-    async open(opts = {}) {
-        if (opts.tab) { state.tab = opts.tab; state.view = null; }
-        root.classList.add('open'); document.body.classList.add('buddy-open');
+    // Als Tab: #/buddy, #/buddy/projekte, #/buddy/apps
+    open(opts = {}) { location.hash = '#/buddy' + (opts.tab === 'projects' ? '/projekte' : opts.tab === 'apps' ? '/apps' : ''); },
+    async mount(host, params = []) {
+        const tab = { projekte: 'projects', projects: 'projects', apps: 'apps' }[params[0]] || 'friends';
+        if (tab !== state.tab) { state.tab = tab; state.view = null; }
+        host.appendChild(root); root.classList.add('open'); document.body.classList.add('buddy-open');
         root.replaceChildren(h('div', { class: 'bd-loading' }, h('span', { class: 'dots' }, h('i'), h('i'), h('i'))));
-        try { state.profile = (await api('/me')).profile; await render(); } catch (e) { root.replaceChildren(h('div', { class: 'bd-card bd-solo' }, h('button', { class: 'bd-icon bd-x', onclick: () => Buddy.close() }, icon('close')), h('div', { class: 'bd-center' }, h('p', { class: 'bd-err', text: e.message })))); }
+        try { state.profile = (await api('/me')).profile; await render(); } catch (e) { root.replaceChildren(h('div', { class: 'bd-card bd-solo' }, h('button', { class: 'bd-back bd-x', onclick: () => Buddy.close() }, icon('arrow_back'), h('span', { text: 'Zurück' })), h('div', { class: 'bd-center' }, h('p', { class: 'bd-err', text: e.message })))); }
     },
-    close() { clearTimers(); root.classList.remove('open'); document.body.classList.remove('buddy-open'); updateBadge(); }
+    unmount() { clearTimers(); root.classList.remove('open'); root.remove(); document.body.classList.remove('buddy-open'); updateBadge(); },
+    close() { location.hash = '#/chat'; }
 };

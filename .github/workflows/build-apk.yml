@@ -12,9 +12,8 @@ on:
       color: { description: 'Farbe #RRGGBB', required: false, type: string, default: '#8ab4f8' }
       package_id: { description: 'Android-Paketname', required: true, type: string }
       request_id: { description: 'Kennung der Anfrage', required: true, type: string }
-  push:
-    branches: [apps-builder]
-    paths: ['android-shell/**', '.github/workflows/build-apk.yml']
+  pull_request:
+    paths: ['android-shell/**', 'server/icon.js', '.github/workflows/build-apk.yml']
 
 permissions:
   contents: write
@@ -39,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with: { distribution: temurin, java-version: '17' }
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: '8.9' }
@@ -69,8 +68,13 @@ jobs:
         working-directory: android-shell
         run: gradle assembleRelease --no-daemon --stacktrace -PappId="$APP_ID" -PappName="$APP_NAME" -PappUrl="$APP_URL" -PappColor="$APP_COLOR" -PversionCode="$GITHUB_RUN_NUMBER"
 
-      - name: APK bereitlegen
-        run: cp android-shell/app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/$IN_SLUG.apk" && ls -l "$RUNNER_TEMP/$IN_SLUG.apk"
+      - name: APK prüfen und bereitlegen
+        run: |
+          APK=android-shell/app/build/outputs/apk/release/app-release.apk
+          BT="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          "$BT/apksigner" verify --print-certs "$APK" | head -3
+          "$BT/aapt" dump badging "$APK" | grep -E "^(package|application-label|sdkVersion|targetSdkVersion)"
+          cp "$APK" "$RUNNER_TEMP/$IN_SLUG.apk" && ls -l "$RUNNER_TEMP/$IN_SLUG.apk"
 
       - name: Als Release veröffentlichen
         if: github.event_name == 'workflow_dispatch'
