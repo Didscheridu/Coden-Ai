@@ -8,6 +8,7 @@ import { Layout, greetingText } from './layout.js';
 import { UI } from './ui.js';
 import { toast } from './toast.js';
 import { MCP, parseCall, hideCalls, resultText } from './mcp.js';
+import { ChatApps, mountAppPicker } from './chat-apps.js';
 import { Storage } from './storage.js';
 import { initGoogleLogin, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, auth } from './auth.js';
 import { apiFetch, apiJson } from './backend.js';
@@ -285,7 +286,8 @@ function initApp() {
         
         // Session laden oder neu erstellen
         if (sessions.length === 0) { 
-            currentSession = Storage.createNewSession(); 
+            ChatApps.clear(); appPicker?.redraw();
+        currentSession = Storage.createNewSession(); 
             sessions.push(currentSession); 
             Storage.saveSessions(sessions); 
         } else { 
@@ -714,7 +716,8 @@ if (newChatBtn) {
     });
 }
 
-function loadSession(id) { 
+function loadSession(id) {
+    ChatApps.clear(); appPicker?.redraw(); 
     const s = sessions.find(s => s.id === id); 
     if (s) { 
         activeSessionId = id; 
@@ -827,6 +830,12 @@ if (!previewContainer) {
     if(inputBox) inputBox.insertBefore(previewContainer, inputBox.firstChild);
 }
 
+let appPicker = null;
+if (attachmentBtn && chatInput) {
+    const chipsHost = document.createElement('div'); chipsHost.className = 'ca-chips hidden'; chipsHost.id = 'chat-app-chips';
+    chatInput.before(chipsHost);
+    appPicker = mountAppPicker({ anchor: attachmentBtn, chipsHost });
+}
 if (attachmentBtn && fileUploadInput) {
     attachmentBtn.addEventListener('click', (e) => {
         e.preventDefault();
@@ -932,7 +941,7 @@ function renderAttachmentPreviews() {
 // ==========================================
 // Bild-Befehl der KI: <generate_image prompt="…"/>
 const IMAGE_TAG = /<generate_image\s+([^>]*?)\/?>/gi;
-const hideImageTags = (t) => hideCalls(String(t || '').replace(/<generate_image\s+[^>]*?\/?>/gi, '').replace(/<generate_image[^>]*$/i, ''));
+const hideImageTags = (t) => ChatApps.hide(hideCalls(String(t || '').replace(/<generate_image\s+[^>]*?\/?>/gi, '').replace(/<generate_image[^>]*$/i, '')));
 async function handleSend() {
     if (streamAbort) { // Coden schreibt noch: Nachricht vormerken, sie geht automatisch raus, sobald er fertig ist
         if (chatInput?.value.trim()) { sendWhenDone = true; if (sendBtn) sendBtn.classList.add('queued'); }
@@ -1042,12 +1051,14 @@ async function handleSend() {
         } catch (err) { UI.showLoading(false); return UI.appendMessage("❌ Fehler: " + err.message, false); }
     }
 
+    let appNames = [];
+    try { appNames = await ChatApps.prepare(text); } catch (_) {}
     const systemPrompt = `Du bist "Coden", ein brillanter, freundlicher KI-Softwarearchitekt.
 WICHTIG: Du wurdest von Kayden entwickelt. Erwähne Kayden aber NUR DANN, wenn der Nutzer dich explizit danach fragt. Erwähne ihn NIEMALS ungefragt!
 1. Strukturiere deinen Text übersichtlich (Absätze, Listen, **Fettdruck**).
 2. Nutze passend Emojis 🚀💻✨.
 Heute ist ${new Date().toLocaleDateString('de-DE')}. Nutzer: ${userName}.
-${ARTIFACT_PROMPT}${MCP.prompt()}
+${ARTIFACT_PROMPT}${MCP.prompt()}${ChatApps.prompt()}
 BILDER: Wünscht der Nutzer ein Bild (Foto, Bild, Illustration, Wallpaper, Gemälde, Charakter, Poster-Motiv, "male/zeichne/erstelle ein Bild von …"), baue KEIN SVG und KEIN Artefakt. Schreibe 1–2 freundliche Sätze und setze ans ENDE genau diesen Befehl (höchstens 2): <generate_image prompt="detaillierte englische Bildbeschreibung"/>. Das Bild erscheint dann automatisch unter deiner Antwort. SVG nur, wenn der Nutzer ausdrücklich SVG, Vektor-Code, ein Icon oder Logo als Code verlangt.`;
 
     context.unshift({ role: 'system', content: systemPrompt });
@@ -1064,6 +1075,7 @@ BILDER: Wünscht der Nutzer ein Bild (Foto, Bild, Illustration, Wallpaper, Gemä
             // KI-Bilder: Befehle aus dem Text nehmen, Bilder erzeugen und als echte Bilder anhängen
             const wanted = [...aiResponse.matchAll(IMAGE_TAG)].map(m => (m[1].match(/prompt\s*=\s*"([^"]*)"/i) || [])[1]).filter(Boolean).slice(0, 2);
             const call = parseCall(aiResponse);
+            const writes = ChatApps.parseWrites(aiResponse);
             aiResponse = hideImageTags(aiResponse).trim();
             if (wanted.length) {
                 live.update(aiResponse + '\n\n*🎨 Bild wird erstellt …*');
@@ -1074,6 +1086,7 @@ BILDER: Wünscht der Nutzer ein Bild (Foto, Bild, Illustration, Wallpaper, Gemä
                 }
                 aiResponse = (aiResponse + '\n\n' + parts.join('\n\n')).trim();
             }
+            if (writes.length) { const res = await ChatApps.apply(writes, showCustomConfirm); if (res) aiResponse = (aiResponse + '\n\n' + res).trim(); }
             live.finish(aiResponse);
             if (!call) break;
             // MCP-Werkzeug aufrufen (mit Nachfrage, wenn eingestellt)
