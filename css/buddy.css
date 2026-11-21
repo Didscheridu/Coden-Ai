@@ -1,0 +1,50 @@
+/* Code Buddy */
+.bd-nav-badge { margin-left: auto; min-width: 18px; height: 18px; padding: 0 5px; align-items: center; justify-content: center; border-radius: 9px; background: #f28b82; color: #1a0b0a; font-size: 11px; font-weight: 700; animation: pop .25s var(--ease) both }
+.buddy-view { position: fixed; inset: 0; z-index: 950; display: none; align-items: center; justify-content: center; background: rgba(8, 9, 12, .72); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px) }
+.buddy-view.open { display: flex; animation: fade .2s ease both }
+.bd-card { position: relative; display: flex; width: min(1280px, 96vw); height: min(840px, 94vh); background: var(--bg-main); border: 1px solid var(--border-color); border-radius: 20px; overflow: hidden; box-shadow: var(--shadow-lg); animation: pop .3s var(--ease) both }
+.bd-card.bd-solo { width: min(460px, 94vw); height: auto; max-height: 94vh; overflow: auto }
+.bd-center { padding: 32px; display: flex; flex-direction: column; gap: 8px; width: 100% }
+.bd-x { position: absolute; top: 10px; right: 10px }
+.bd-hero { text-align: center; margin-bottom: 12px } .bd-hero .material-symbols-outlined { font-size: 44px; color: var(--accent-blue) } .bd-hero h2 { margin: 6px 0 } .bd-hero p { color: var(--text-muted); font-size: 13px }
+.bd-center label { font-size: 12px; color: var(--text-muted); margin-top: 6px }
+.buddy-view input, .buddy-view textarea { background: var(--bg-surface); color: var(--text-primary); border: 1px solid transparent; border-radius: 10px; padding: 10px 12px; font: 14px var(--font-main); outline: none; transition: border-color .2s }
+.buddy-view input:focus, .buddy-view textarea:focus { border-color: var(--accent-blue) }
+.bd-row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px }
+.bd-err { color: #f28b82; font-size: 13px; min-height: 18px }
+.bd-side { width: 300px; flex: 0 0 300px; display: flex; flex-direction: column; background: var(--bg-sidebar); border-right: 1px solid var(--border-color) }
+.bd-brand { display: flex; align-items: center; gap: 10px; padding: 16px; font-weight: 700; font-size: 16px } .bd-brand .material-symbols-outlined { color: var(--accent-blue) } .bd-brand span:nth-child(2) { flex: 1; background: var(--grad-brand); -webkit-background-clip: text; background-clip: text; color: transparent }
+.bd-me { display: flex; align-items: center; gap: 10px; padding: 0 16px 12px } .bd-me div:nth-child(2) { flex: 1; display: flex; flex-direction: column } small { color: var(--text-muted) }
+.bd-avatar { position: relative; flex: 0 0 36px; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--grad-brand); color: #14161a; font-weight: 700 }
+.bd-avatar.online::after { content: ''; position: absolute; right: -1px; bottom: -1px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent-green); border: 2px solid var(--bg-sidebar) }
+.bd-tabs { display: flex; gap: 6px; padding: 0 12px 10px } .bd-tabs button { flex: 1; display: inline-flex; gap: 6px; align-items: center; justify-content: center; padding: 8px; border: 0; border-radius: 10px; background: transparent; color: var(--text-secondary); cursor: pointer; font: 500 13px var(--font-main); transition: background .2s }
+.bd-tabs button.active { background: var(--bg-surface); color: var(--text-primary) } .bd-tabs .material-symbols-outlined { font-size: 18px }
+.bd-list { flex: 1; overflow: auto; padding: 0 10px 12px; display: flex; flex-direction: column; gap: 4px }
+.bd-search { width: 100%; margin-bottom: 6px } .bd-sec { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--text-muted); padding: 10px 6px 4px } .bd-sec.row { display: flex; justify-content: space-between; align-items: center }
+.bd-empty { padding: 8px 6px }
+.bd-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px; transition: background .2s } .bd-item.clickable { cursor: pointer } .bd-item.clickable:hover, .bd-item.active { background: var(--bg-surface) }
+.bd-item .grow, .grow { flex: 1; min-width: 0; display: flex; flex-direction: column } .bd-item b, .bd-fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px }
+.bd-badge { background: #f28b82; color: #1a0b0a; border-radius: 9px; padding: 1px 7px; font-size: 11px; font-weight: 700 }
+.bd-main { flex: 1; min-width: 0; display: flex; flex-direction: column }
+.bd-placeholder { margin: auto; text-align: center; color: var(--text-muted) } .bd-placeholder .material-symbols-outlined { font-size: 54px; opacity: .5 }
+.bd-chat-head, .bd-proj-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border-color); flex-wrap: wrap }
+.bd-log { flex: 1; overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px } .bd-log.small { padding: 8px }
+.bd-msg { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; max-width: 78%; animation: msgIn .25s var(--ease) both } .bd-msg.mine { align-self: flex-end; align-items: flex-end }
+.bd-bubble { background: var(--bg-surface); padding: 8px 12px; border-radius: 14px 14px 14px 4px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.5 } .bd-msg.mine .bd-bubble { background: #2b6cb0; color: #fff; border-radius: 14px 14px 4px 14px }
+.bd-compose { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--border-color); align-items: flex-end } .bd-compose textarea { flex: 1; resize: none; max-height: 120px }
+.bd-primary, .bd-btn { display: inline-flex; align-items: center; gap: 6px; border: 0; cursor: pointer; font: 600 13px var(--font-main); border-radius: 10px; padding: 9px 14px; transition: transform .15s var(--ease), filter .2s }
+.bd-primary { background: var(--accent-blue); color: #0b1d3a } .bd-btn { background: var(--bg-surface); color: var(--text-primary) } .bd-primary:hover, .bd-btn:hover { filter: brightness(1.1) } .bd-primary:active, .bd-btn:active { transform: scale(.96) }
+.bd-primary.sm { padding: 6px 10px } .bd-primary.round { width: 40px; height: 40px; padding: 0; justify-content: center; border-radius: 50% }
+.bd-primary .material-symbols-outlined, .bd-btn .material-symbols-outlined { font-size: 18px }
+.bd-icon { border: 0; background: transparent; color: var(--text-secondary); width: 32px; height: 32px; border-radius: 50%; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: background .2s } .bd-icon:hover { background: rgba(255, 255, 255, .08) } .bd-icon.ok { color: var(--accent-green) } .bd-icon.sm { width: 26px; height: 26px } .bd-icon .material-symbols-outlined { font-size: 20px } .bd-icon.sm .material-symbols-outlined { font-size: 16px }
+.bd-members { display: flex; gap: 6px; flex-wrap: wrap } .bd-chip { background: var(--bg-surface); border-radius: 999px; padding: 3px 10px; font-size: 12px; display: inline-flex; gap: 4px; align-items: center } .bd-chip.online { box-shadow: inset 0 0 0 1px var(--accent-green) } .bd-x2 { border: 0; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 14px }
+.bd-proj-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 200px 1fr 260px }
+.bd-files-col, .bd-pchat { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border-color) } .bd-pchat { border-right: 0; border-left: 1px solid var(--border-color) }
+.bd-files { overflow: auto; padding: 0 8px } .bd-file { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 8px; cursor: pointer; font-size: 13px; transition: background .2s } .bd-file:hover, .bd-file.active { background: var(--bg-surface) } .bd-file .material-symbols-outlined { font-size: 16px; color: var(--text-muted) } .bd-file span.grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.bd-editor-col { display: flex; flex-direction: column; min-width: 0 } .bd-editor-bar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border-color); flex-wrap: wrap }
+.bd-editor { flex: 1; resize: none; border-radius: 0 !important; background: #1b1c1d !important; font: 13px/1.55 ui-monospace, Menlo, Consolas, monospace !important; tab-size: 2; white-space: pre; overflow: auto }
+.bd-toast { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); background: #303236; padding: 10px 16px; border-radius: 12px; box-shadow: var(--shadow-lg); animation: pop .25s var(--ease) both; z-index: 5; font-size: 13px }
+.bd-loading { color: #fff }
+@media (max-width: 900px) {
+  .bd-card { flex-direction: column; width: 100vw; height: 100dvh; border-radius: 0 } .bd-side { width: auto; flex: 0 0 auto; max-height: 42vh } .bd-proj-body { grid-template-columns: 1fr; grid-auto-rows: minmax(160px, auto); overflow: auto } .bd-files-col, .bd-pchat { border: 0; border-top: 1px solid var(--border-color) } .bd-editor { min-height: 260px }
+}

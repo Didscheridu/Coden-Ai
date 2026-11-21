@@ -28,6 +28,9 @@
     <link rel="stylesheet" href="css/animations.css">
     <link rel="stylesheet" href="css/settings.css">
     <link rel="stylesheet" href="css/auth.css">
+    <link rel="stylesheet" href="css/polish.css">
+    <link rel="stylesheet" href="css/artifacts.css">
+    <link rel="stylesheet" href="css/buddy.css">
     <link rel="stylesheet" href="css/mobile.css">
 
     <style>
@@ -211,6 +214,7 @@
             <div class="sidebar-scroll-area"></div>
             
             <div class="sidebar-footer">
+                <a href="#" class="nav-item" id="open-buddy-btn"><span class="material-symbols-outlined">diversity_3</span> Code Buddy <span class="bd-nav-badge" style="display:none"></span></a>
                 <a href="#" class="nav-item" id="open-email-settings-btn"><span class="material-symbols-outlined">mail</span> Email Setup</a>
                 <a href="#" class="nav-item" id="open-settings-btn"><span class="material-symbols-outlined">settings</span> Einstellungen</a>
                 <a href="#" class="nav-item" id="logout-btn" style="color: #ff5555;"><span class="material-symbols-outlined">logout</span> Abmelden</a>
@@ -231,6 +235,12 @@
                     <img src="./images/coden_logo.jpg" class="welcome-logo" onerror="this.style.display='none'">
                     <h1 class="greeting" id="welcome-greeting">Hallo Entwickler.</h1>
                     <h2 class="sub-greeting">Was machen wir heute?</h2>
+                    <div class="chips" id="welcome-chips">
+                        <button class="chip" data-prompt="Baue mir ein Snake-Spiel als Webseite, das ich direkt spielen kann.">🐍 Snake-Spiel bauen</button>
+                        <button class="chip" data-prompt="Erkläre mir den Unterschied zwischen let, const und var in JavaScript mit Beispielen.">💡 JavaScript erklären</button>
+                        <button class="chip" data-prompt="Erstelle mir einen schicken Taschenrechner als Webseite mit dunklem Design.">🧮 Taschenrechner</button>
+                        <button class="chip" data-prompt="Finde den Fehler in meinem Code und erkläre ihn mir Schritt für Schritt:">🐞 Fehler finden</button>
+                    </div>
                 </div>
             </div>
 
