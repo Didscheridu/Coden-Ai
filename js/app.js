@@ -20,13 +20,13 @@ const errorMsg = document.getElementById('auth-error-msg');
 const userEmailDisplay = document.getElementById('user-email-display');
 const chatInput = document.getElementById('main-input');
 const sendBtn = document.getElementById('send-btn');
-let streamAbort = null;
+let streamAbort = null, sendWhenDone = false;
+const stopBtn = document.getElementById('stop-btn');
 function setStreaming(on) {
-    if (!sendBtn) return;
-    sendBtn.classList.toggle('is-stop', on);
-    sendBtn.title = on ? 'Antwort stoppen' : 'Senden';
-    const ic = sendBtn.querySelector('.material-symbols-outlined'); if (ic) ic.textContent = on ? 'stop' : 'send';
+    if (stopBtn) stopBtn.classList.toggle('hidden', !on);
+    if (sendBtn) { sendBtn.classList.toggle('queued', on); sendBtn.title = on ? 'Wird gesendet, sobald Coden fertig ist' : 'Senden'; }
 }
+if (stopBtn) stopBtn.addEventListener('click', () => { sendWhenDone = false; if (streamAbort) streamAbort.abort(); });
 const commandPopup = document.getElementById('command-popup');
 const newChatBtn = document.querySelector('.new-chat-btn');
 const liveCallBtn = document.getElementById('live-call-btn'); // Stelle sicher, dass du im HTML einen Button mit der ID 'live-call-btn' hast!
@@ -932,7 +932,10 @@ function renderAttachmentPreviews() {
 // 🚀 12. HAUPT SENDE FUNKTION (KI LOGIK)
 // ==========================================
 async function handleSend() {
-    if (streamAbort) { streamAbort.abort(); return; } // Während der Antwort ist der Button "Stopp"
+    if (streamAbort) { // Coden schreibt noch: Nachricht vormerken, sie geht automatisch raus, sobald er fertig ist
+        if (chatInput?.value.trim()) { sendWhenDone = true; if (sendBtn) sendBtn.classList.add('queued'); }
+        return;
+    }
     if (!chatInput) return; 
     const text = chatInput.value.trim(); 
     if (!text && pendingAttachments.length === 0) return;
@@ -1045,6 +1048,7 @@ ${ARTIFACT_PROMPT}`;
 
     context.unshift({ role: 'system', content: systemPrompt });
 
+    const sessionAtSend = currentSession; // falls der Nutzer währenddessen den Chat wechselt
     const live = UI.createStreamingMessage();
     const ac = new AbortController(); streamAbort = ac; setStreaming(true);
     let aiResponse = '';
@@ -1056,14 +1060,16 @@ ${ARTIFACT_PROMPT}`;
         if (aiResponse.trim()) { live.finish(aiResponse); live.fail('⚠️ Die Antwort wurde unterbrochen: ' + err.message); }
         else live.fail('❌ ' + err.message);
     } finally { streamAbort = null; setStreaming(false); }
+    const queued = sendWhenDone; sendWhenDone = false;
 
     if (aiResponse.trim()) {
-        currentSession.messages.push({ text: aiResponse, isUser: false });
+        sessionAtSend.messages.push({ text: aiResponse, isUser: false });
         const finalSessionsToSave = JSON.parse(JSON.stringify(sessions));
         finalSessionsToSave.forEach(s => s.messages.forEach(m => { if (m.images) delete m.images; }));
         Storage.saveSessions(finalSessionsToSave);
         UI.renderSidebar(sessions, activeSessionId);
     }
+    if (queued && chatInput?.value.trim()) setTimeout(handleSend, 50);
 }
 async function generateChatTitle(firstMessage) {
     try {
@@ -1094,7 +1100,7 @@ Nachricht: "${firstMessage}"`;
     }
 }
 
-if (chatInput) { chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!streamAbort) handleSend(); } }); }
+if (chatInput) { chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }); }
 if (sendBtn) { sendBtn.addEventListener('click', handleSend); }
 
 
