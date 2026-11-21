@@ -183,6 +183,11 @@ api.post('/live-token', requireAuth, rateLimit('live', 5, 300), async (req, res)
   }
 });
 
+// Tabellen sicherstellen (einmal pro Serverstart), bevor Funktionen mit Datenbank laufen
+const { ensureSchema } = require('../server/schema');
+const needsDb = (req, res, next) => { ensureSchema().then(() => next(), next); };
+api.use('/buddy', needsDb); api.use('/apps', needsDb); api.use('/data', needsDb);
+app.use('/a', needsDb);
 api.use('/buddy', buddyRouter(requireAuth));
 api.use('/apps', appsRouter(requireAuth));
 api.use('/public', publicApiRouter());

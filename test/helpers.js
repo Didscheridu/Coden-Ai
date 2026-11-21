@@ -2,13 +2,13 @@
 const Module = require('module'); const path = require('path'); const fs = require('fs'); const http = require('http');
 const root = path.join(__dirname, '..');
 
-async function setup({ withApp = true } = {}) {
+async function setup({ withApp = true, schema = true } = {}) {
   const { PGlite } = await import('@electric-sql/pglite');
   const db = new PGlite();
-  await db.exec(fs.readFileSync(path.join(root, 'db/schema.sql'), 'utf8'));
+  if (schema) await db.exec(fs.readFileSync(path.join(root, 'db/schema.sql'), 'utf8'));
   const orig = Module._load;
   Module._load = function (req, ...a) {
-    if (req === 'pg') return { Pool: class { on() {} query(text, values) { return db.query(text, values); } } };
+    if (req === 'pg') return { Pool: class { on() {} query(text, values) { return values && values.length ? db.query(text, values) : (text.includes(';\n') || /;\s*\S/.test(text) ? db.exec(text).then(r => ({ rows: [] })) : db.query(text, values)); } } };
     return orig.call(this, req, ...a);
   };
   const jose = await import('jose');

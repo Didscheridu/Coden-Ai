@@ -19,8 +19,8 @@
   ],
   "functions": {
     "api/index.js": {
-      "maxDuration": 300,
-      "includeFiles": "kit/**"
+      "maxDuration": 800,
+      "includeFiles": "{kit/**,db/schema.sql}"
     }
   }
 }
