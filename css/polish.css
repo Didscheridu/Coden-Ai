@@ -105,3 +105,14 @@ html { scroll-behavior: smooth; }
 .ca-pop { position: fixed; z-index: 9000; width: 270px; max-height: 50vh; overflow: auto; padding: 6px; border-radius: 14px; background: #1e1f22; border: 1px solid rgba(255, 255, 255, .12); box-shadow: 0 10px 40px rgba(0, 0, 0, .5); display: flex; flex-direction: column; gap: 2px }
 .ca-note { font-size: 12px; color: var(--text-muted, #9aa0a6); padding: 6px 8px }
 .ca-row { text-align: left; background: none; border: 0; color: inherit; padding: 9px 10px; border-radius: 10px; cursor: pointer; font-size: 14px } .ca-row:hover { background: rgba(255, 255, 255, .08) } .ca-row.on { color: #8ab4f8 }
+
+/* Aktionsleiste unter Nachrichten */
+.ma-bar { display: flex; gap: 2px; margin-top: 6px; opacity: 0; transition: opacity .15s }
+.message-row:hover .ma-bar, .message-row:focus-within .ma-bar, .ma-bar:has(.on) { opacity: 1 }
+@media (hover: none) { .ma-bar { opacity: .8 } }
+.user-message .ma-bar { justify-content: flex-end }
+.ma-btn { background: none; border: 0; color: var(--text-muted, #9aa0a6); width: 30px; height: 30px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer }
+.ma-btn .material-symbols-outlined { font-size: 18px }
+.ma-btn:hover { background: rgba(255, 255, 255, .08); color: #fff } .ma-btn.on { color: #8ab4f8 }
+#mic-btn.recording { color: #ff4d4d; animation: mic-pulse 1s infinite alternate } @keyframes mic-pulse { to { opacity: .45 } }
+.top-bar .tb-right { display: flex; align-items: center; gap: 10px }

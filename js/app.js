@@ -9,6 +9,7 @@ import { UI } from './ui.js';
 import { toast } from './toast.js';
 import { MCP, parseCall, hideCalls, resultText } from './mcp.js';
 import { ChatApps, mountAppPicker } from './chat-apps.js';
+import { Personal, exportChat, mountDictation, mountMessageActions } from './chat-tools.js';
 import { Storage } from './storage.js';
 import { initGoogleLogin, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, auth } from './auth.js';
 import { apiFetch, apiJson } from './backend.js';
@@ -653,6 +654,9 @@ if (document.getElementById('open-settings-btn')) {
         const s = Storage.getSettings(); 
         document.getElementById('user-name-input').value = s.userName || ''; 
         document.getElementById('font-size-slider').value = s.fontSize || 15; 
+        document.getElementById('custom-instructions').value = s.instructions || ''; 
+        document.getElementById('memory-notes').value = (s.memory || []).join('\n'); 
+        document.getElementById('memory-on').checked = s.memoryOn !== false; 
         
         if (s.emailConfig) { 
             if (document.getElementById('email-provider')) document.getElementById('email-provider').value = s.emailConfig.provider || 'gmail'; 
@@ -668,6 +672,7 @@ if (document.getElementById('save-settings')) {
         const s = Storage.getSettings(); 
         s.userName = document.getElementById('user-name-input').value.trim() || 'Entwickler'; 
         s.fontSize = parseInt(document.getElementById('font-size-slider').value); 
+        Personal.save({ instructions: document.getElementById('custom-instructions').value, memoryText: document.getElementById('memory-notes').value, memoryOn: document.getElementById('memory-on').checked }, s); 
         s.emailConfig = { 
             provider: document.getElementById('email-provider') ? document.getElementById('email-provider').value : 'gmail', 
             address: document.getElementById('email-address') ? document.getElementById('email-address').value.trim() : '', 
@@ -830,6 +835,15 @@ if (!previewContainer) {
     if(inputBox) inputBox.insertBefore(previewContainer, inputBox.firstChild);
 }
 
+function truncateChat(i) {
+    if (!currentSession || i < 0) return;
+    currentSession.messages.splice(i);
+    [...document.querySelectorAll('#chat-container > .message-row')].slice(i).forEach(r => r.remove());
+    const toSave = JSON.parse(JSON.stringify(sessions)); toSave.forEach(x => x.messages.forEach(m => { if (m.images) delete m.images; })); Storage.saveSessions(toSave);
+}
+mountMessageActions({ session: () => currentSession, truncate: truncateChat, setInput: (t) => { if (chatInput) { chatInput.value = t; chatInput.dispatchEvent(new Event('input', { bubbles: true })); chatInput.focus(); } }, send: () => handleSend() }, toast);
+mountDictation(document.getElementById('mic-btn'), chatInput, toast);
+document.getElementById('export-chat-btn')?.addEventListener('click', () => { if (!exportChat(currentSession)) toast('Dieser Chat ist noch leer.', { type: 'warn' }); });
 let appPicker = null;
 if (attachmentBtn && chatInput) {
     const chipsHost = document.createElement('div'); chipsHost.className = 'ca-chips hidden'; chipsHost.id = 'chat-app-chips';
@@ -941,7 +955,7 @@ function renderAttachmentPreviews() {
 // ==========================================
 // Bild-Befehl der KI: <generate_image prompt="…"/>
 const IMAGE_TAG = /<generate_image\s+([^>]*?)\/?>/gi;
-const hideImageTags = (t) => ChatApps.hide(hideCalls(String(t || '').replace(/<generate_image\s+[^>]*?\/?>/gi, '').replace(/<generate_image[^>]*$/i, '')));
+const hideImageTags = (t) => Personal.hide(ChatApps.hide(hideCalls(String(t || '').replace(/<generate_image\s+[^>]*?\/?>/gi, '').replace(/<generate_image[^>]*$/i, ''))));
 async function handleSend() {
     if (streamAbort) { // Coden schreibt noch: Nachricht vormerken, sie geht automatisch raus, sobald er fertig ist
         if (chatInput?.value.trim()) { sendWhenDone = true; if (sendBtn) sendBtn.classList.add('queued'); }
@@ -1058,7 +1072,7 @@ WICHTIG: Du wurdest von Kayden entwickelt. Erwähne Kayden aber NUR DANN, wenn d
 1. Strukturiere deinen Text übersichtlich (Absätze, Listen, **Fettdruck**).
 2. Nutze passend Emojis 🚀💻✨.
 Heute ist ${new Date().toLocaleDateString('de-DE')}. Nutzer: ${userName}.
-${ARTIFACT_PROMPT}${MCP.prompt()}${ChatApps.prompt()}
+${ARTIFACT_PROMPT}${MCP.prompt()}${ChatApps.prompt()}${Personal.prompt()}
 BILDER: Wünscht der Nutzer ein Bild (Foto, Bild, Illustration, Wallpaper, Gemälde, Charakter, Poster-Motiv, "male/zeichne/erstelle ein Bild von …"), baue KEIN SVG und KEIN Artefakt. Schreibe 1–2 freundliche Sätze und setze ans ENDE genau diesen Befehl (höchstens 2): <generate_image prompt="detaillierte englische Bildbeschreibung"/>. Das Bild erscheint dann automatisch unter deiner Antwort. SVG nur, wenn der Nutzer ausdrücklich SVG, Vektor-Code, ein Icon oder Logo als Code verlangt.`;
 
     context.unshift({ role: 'system', content: systemPrompt });
@@ -1076,7 +1090,9 @@ BILDER: Wünscht der Nutzer ein Bild (Foto, Bild, Illustration, Wallpaper, Gemä
             const wanted = [...aiResponse.matchAll(IMAGE_TAG)].map(m => (m[1].match(/prompt\s*=\s*"([^"]*)"/i) || [])[1]).filter(Boolean).slice(0, 2);
             const call = parseCall(aiResponse);
             const writes = ChatApps.parseWrites(aiResponse);
+            const remembered = Personal.take(aiResponse);
             aiResponse = hideImageTags(aiResponse).trim();
+            if (remembered.length) aiResponse = (aiResponse + '\n\n🧠 *Gemerkt: ' + remembered.join('; ') + '*').trim();
             if (wanted.length) {
                 live.update(aiResponse + '\n\n*🎨 Bild wird erstellt …*');
                 const parts = [];

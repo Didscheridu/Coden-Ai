@@ -172,7 +172,7 @@
                 <div style="display: flex; align-items: center;">
                     <div class="brand">Coden AI <span id="owner-badge" style="display:none; background:#ff4444; color:white; font-size:10px; padding:2px 6px; border-radius:4px; margin-left:8px; vertical-align:middle;">OWNER</span></div>
                 </div>
-                <div id="user-email-display" style="font-size: 13px; color: var(--text-muted);"></div>
+                <div class="tb-right"><button class="icon-btn" id="export-chat-btn" title="Chat als Datei speichern" aria-label="Chat exportieren"><span class="material-symbols-outlined">download</span></button><div id="user-email-display" style="font-size: 13px; color: var(--text-muted);"></div></div>
             </header>
 
             <div class="chat-scroll-area" id="chat-container">
@@ -251,6 +251,16 @@
                 <label style="margin-top: 24px; display: block;">🔠 Chat Schriftgröße: <span id="font-size-display">15</span>px</label>
                 <input type="range" id="font-size-slider" min="12" max="22" value="15" class="settings-slider">
                 
+                <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border-color);">
+                    <h4 style="margin-bottom: 8px; font-weight: 500; font-size: 14px; color: var(--text-primary);">🎯 Persönliche Anweisungen</h4>
+                    <p style="margin: 0 0 8px; font-size: 12px; color: var(--text-muted);">Gelten in jedem Chat, zum Beispiel „Antworte kurz und auf Deutsch“.</p>
+                    <textarea id="custom-instructions" class="settings-input" rows="3" maxlength="1500" placeholder="Wie soll Coden mit dir arbeiten?" style="resize: vertical;"></textarea>
+                    <h4 style="margin: 20px 0 8px; font-weight: 500; font-size: 14px; color: var(--text-primary);">🧠 Gedächtnis</h4>
+                    <label style="display:flex; gap:8px; align-items:center; margin-bottom: 8px; font-size: 13px;"><input type="checkbox" id="memory-on"> Coden darf sich Dinge über mich merken</label>
+                    <textarea id="memory-notes" class="settings-input" rows="4" placeholder="Eine Sache pro Zeile, zum Beispiel: Ich lerne Python." style="resize: vertical;"></textarea>
+                    <p style="margin: 6px 0 0; font-size: 12px; color: var(--text-muted);">Hier kannst du alles lesen, ändern und löschen. Coden fügt neue Dinge nur hinzu, wenn du es sagst („merk dir …“).</p>
+                </div>
+
                 <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border-color);">
                     <h4 style="margin-bottom: 16px; font-weight: 500; font-size: 14px; color: var(--accent-blue);">⚙️ E-Mail Konto verknüpfen</h4>
                     <label>E-Mail Anbieter</label>
