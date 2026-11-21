@@ -10,6 +10,8 @@ import { toast } from './toast.js';
 import { MCP, parseCall, hideCalls, resultText } from './mcp.js';
 import { ChatApps, mountAppPicker } from './chat-apps.js';
 import { Personal, exportChat, mountDictation, mountMessageActions } from './chat-tools.js';
+import { Projects } from './projects.js';
+import { Router } from './router.js';
 import { Storage } from './storage.js';
 import { initGoogleLogin, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, auth } from './auth.js';
 import { apiFetch, apiJson } from './backend.js';
@@ -712,7 +714,7 @@ function showCustomConfirm(message) {
 
 if (newChatBtn) {
     newChatBtn.addEventListener('click', () => { 
-        currentSession = Storage.createNewSession(); 
+        currentSession = Storage.createNewSession(); setTimeout(() => updateProjectChip(), 0); 
         sessions.unshift(currentSession); 
         Storage.saveSessions(sessions); 
         activeSessionId = currentSession.id; 
@@ -722,7 +724,7 @@ if (newChatBtn) {
 }
 
 function loadSession(id) {
-    ChatApps.clear(); appPicker?.redraw(); 
+    ChatApps.clear(); appPicker?.redraw(); setTimeout(() => updateProjectChip(), 0); 
     const s = sessions.find(s => s.id === id); 
     if (s) { 
         activeSessionId = id; 
@@ -834,6 +836,29 @@ if (!previewContainer) {
     const inputBox = document.querySelector('.input-box');
     if(inputBox) inputBox.insertBefore(previewContainer, inputBox.firstChild);
 }
+
+const projChip = document.getElementById('chat-project-chip');
+let projNames = null;
+async function updateProjectChip() {
+    if (!projChip) return;
+    const id = currentSession?.projectId;
+    if (!id) { projChip.classList.add('hidden'); return; }
+    try { if (!projNames) projNames = new Map((await Projects.list()).map(p => [p.id, p.name])); } catch (_) { projChip.classList.add('hidden'); return; }
+    const name = projNames.get(id);
+    if (!name) { projChip.classList.add('hidden'); return; }
+    projChip.replaceChildren(); const ic = document.createElement('span'); ic.className = 'material-symbols-outlined'; ic.textContent = 'folder'; projChip.append(ic, document.createTextNode(' ' + name));
+    projChip.title = 'Projekt öffnen'; projChip.classList.remove('hidden');
+}
+projChip?.addEventListener('click', () => { if (currentSession?.projectId) Router.go('projekte/' + currentSession.projectId); });
+document.addEventListener('projectsChanged', () => { projNames = null; updateProjectChip(); });
+document.addEventListener('startProjectChat', (e) => {
+    const { projectId, text } = e.detail || {};
+    ChatApps.clear(); appPicker?.redraw();
+    currentSession = Storage.createNewSession(); currentSession.projectId = projectId;
+    sessions.unshift(currentSession); Storage.saveSessions(sessions); activeSessionId = currentSession.id;
+    UI.resetUI(); UI.renderSidebar(sessions, activeSessionId); Router.go('chat'); projNames = null; updateProjectChip();
+    if (text && chatInput) { chatInput.value = text; setTimeout(() => handleSend(), 60); } else chatInput?.focus();
+});
 
 function truncateChat(i) {
     if (!currentSession || i < 0) return;
@@ -1065,6 +1090,7 @@ async function handleSend() {
         } catch (err) { UI.showLoading(false); return UI.appendMessage("❌ Fehler: " + err.message, false); }
     }
 
+    const proj = await Projects.promptFor(currentSession.projectId);
     let appNames = [];
     try { appNames = await ChatApps.prepare(text); } catch (_) {}
     const systemPrompt = `Du bist "Coden", ein brillanter, freundlicher KI-Softwarearchitekt.
@@ -1072,7 +1098,7 @@ WICHTIG: Du wurdest von Kayden entwickelt. Erwähne Kayden aber NUR DANN, wenn d
 1. Strukturiere deinen Text übersichtlich (Absätze, Listen, **Fettdruck**).
 2. Nutze passend Emojis 🚀💻✨.
 Heute ist ${new Date().toLocaleDateString('de-DE')}. Nutzer: ${userName}.
-${ARTIFACT_PROMPT}${MCP.prompt()}${ChatApps.prompt()}${Personal.prompt()}
+${ARTIFACT_PROMPT}${MCP.prompt()}${ChatApps.prompt()}${Personal.prompt()}${proj.text}
 BILDER: Wünscht der Nutzer ein Bild (Foto, Bild, Illustration, Wallpaper, Gemälde, Charakter, Poster-Motiv, "male/zeichne/erstelle ein Bild von …"), baue KEIN SVG und KEIN Artefakt. Schreibe 1–2 freundliche Sätze und setze ans ENDE genau diesen Befehl (höchstens 2): <generate_image prompt="detaillierte englische Bildbeschreibung"/>. Das Bild erscheint dann automatisch unter deiner Antwort. SVG nur, wenn der Nutzer ausdrücklich SVG, Vektor-Code, ein Icon oder Logo als Code verlangt.`;
 
     context.unshift({ role: 'system', content: systemPrompt });

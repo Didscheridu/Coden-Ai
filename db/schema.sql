@@ -152,3 +152,18 @@ CREATE INDEX IF NOT EXISTS app_images_app ON app_images (app_id);
 ALTER TABLE app_images ADD COLUMN IF NOT EXISTS uid TEXT;
 ALTER TABLE app_images ALTER COLUMN app_id DROP NOT NULL;
 CREATE INDEX IF NOT EXISTS app_images_uid ON app_images (uid);
+
+
+-- Projekte (wie bei Claude/ChatGPT): Anweisungen + Wissensdateien, Chats verweisen per projectId darauf
+CREATE TABLE IF NOT EXISTS user_projects (
+  id BIGSERIAL PRIMARY KEY,
+  uid TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  instructions TEXT NOT NULL DEFAULT '',
+  files JSONB NOT NULL DEFAULT '{}'::jsonb,
+  color TEXT NOT NULL DEFAULT '#8ab4f8',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS user_projects_uid_idx ON user_projects (uid, updated_at DESC);
