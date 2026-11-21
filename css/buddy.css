@@ -48,3 +48,17 @@
 @media (max-width: 900px) {
   .bd-card { flex-direction: column; width: 100vw; height: 100dvh; border-radius: 0 } .bd-side { width: auto; flex: 0 0 auto; max-height: 42vh } .bd-proj-body { grid-template-columns: 1fr; grid-auto-rows: minmax(160px, auto); overflow: auto } .bd-files-col, .bd-pchat { border: 0; border-top: 1px solid var(--border-color) } .bd-editor { min-height: 260px }
 }
+
+/* Server-Leiste (wie Discord) */
+.bd-rail { flex: 0 0 64px; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px 0; background: var(--bg-main); border-right: 1px solid var(--border-color); overflow-y: auto }
+.bd-srv { width: 44px; height: 44px; border: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; background: var(--c, var(--bg-surface)); color: #14161a; font: 700 17px var(--font-main); transition: border-radius .2s var(--ease), transform .15s var(--ease); position: relative }
+.bd-srv.home, .bd-srv.add { background: var(--bg-surface); color: var(--text-primary) }
+.bd-srv:hover, .bd-srv.active { border-radius: 14px } .bd-srv.active::before { content: ''; position: absolute; left: -10px; width: 4px; height: 24px; border-radius: 0 4px 4px 0; background: var(--text-primary) }
+.bd-srv.add { color: var(--accent-green) }
+.bd-rail-sep { width: 28px; height: 2px; background: var(--border-color); border-radius: 1px } .bd-rail-sep.wide { width: 100%; margin: 12px 0 }
+.bd-srv-head { display: flex; flex-direction: column; padding: 4px 6px 8px; border-bottom: 1px solid var(--border-color); margin-bottom: 4px } .bd-srv-head b { font-size: 16px }
+.bd-invite { display: flex; align-items: center; gap: 6px; padding: 6px; font-size: 12px } .bd-invite code { background: var(--bg-surface); padding: 2px 8px; border-radius: 6px; letter-spacing: 1px; user-select: all }
+.bd-role { background: var(--bg-surface); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 8px; padding: 3px 4px; font-size: 12px } .bd-rolechip { white-space: nowrap }
+.bd-ov { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; background: rgba(8, 9, 12, .6) }
+.bd-dlg { display: flex; flex-direction: column; gap: 8px; width: min(380px, 90%); padding: 22px; border-radius: 16px; background: var(--bg-main); border: 1px solid var(--border-color); box-shadow: var(--shadow-lg) } .bd-dlg h3 { margin: 0 0 4px } .bd-dlg label { font-size: 12px; color: var(--text-muted) }
+@media (max-width: 760px) { .bd-rail { flex-basis: 52px } .bd-srv { width: 38px; height: 38px } }
