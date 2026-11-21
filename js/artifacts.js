@@ -118,3 +118,20 @@ export const Artifacts = {
     close() { if (!panel) return; panel.classList.remove('open', 'full'); document.body.classList.remove('artifact-open'); current = null; const f = panel.querySelector('iframe'); if (f) f.srcdoc = ''; },
     reset() { versions.clear(); this.close(); }
 };
+
+// Alle Artefakte aus allen Chats (neueste Fassung je Titel), neueste zuerst
+export function collectArtifacts(sessions) {
+    const map = new Map();
+    [...sessions].reverse().forEach(sess => (sess.messages || []).forEach((m, mi) => {
+        if (m.isUser || typeof m.text !== 'string' || !m.text.includes('<artifact')) return;
+        splitArtifacts(m.text).filter(x => x.kind === 'artifact').forEach((a, i) => map.set(sess.id + '|' + a.title, { ...a, closed: true, key: `${sess.id}:${mi}:${i}`, sessionId: sess.id, chatTitle: sess.title }));
+    }));
+    return [...map.values()].reverse();
+}
+export function thumbFor(item) {
+    const box = document.createElement('div'); box.className = 'thumb';
+    if (item.type === 'html' || item.type === 'svg') {
+        const f = document.createElement('iframe'); f.setAttribute('sandbox', ''); f.setAttribute('tabindex', '-1'); f.setAttribute('loading', 'lazy'); f.srcdoc = previewDoc(item).replace(/<script[\s\S]*?<\/script>/gi, ''); box.appendChild(f);
+    } else { const pre = document.createElement('pre'); pre.textContent = item.body.slice(0, 500); box.appendChild(pre); }
+    return box;
+}

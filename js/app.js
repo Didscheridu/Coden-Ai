@@ -3,6 +3,7 @@ import { CONFIG } from './config.js';
 import { generateAiResponse, streamAiResponse } from './api.js';
 import { ARTIFACT_PROMPT, Artifacts } from './artifacts.js';
 import { Buddy } from './buddy.js';
+import { Layout, greetingText } from './layout.js';
 import { UI } from './ui.js';
 import { Storage } from './storage.js';
 import { initGoogleLogin, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, auth } from './auth.js';
@@ -137,7 +138,8 @@ function updateGreeting() {
         const settings = Storage.getSettings();
         const greetingEl = document.getElementById('welcome-greeting');
         if (greetingEl) {
-            greetingEl.textContent = `Hallo ${settings.userName || 'Entwickler'}.`;
+            greetingEl.textContent = greetingText(settings.userName || 'Entwickler');
+            Layout.setUser(settings.userName, auth?.currentUser?.email);
         }
     } catch(e) {}
 }
@@ -273,6 +275,7 @@ const multimodalLive = new MultimodalLivePrototype();
 
 function initApp() {
     Buddy.init();
+    Layout.init({ sessionsGetter: () => sessions });
     try {
         appInitialized = true; 
         sessions = Storage.getSessions();
@@ -293,6 +296,7 @@ function initApp() {
         // Event-Listener für Chats
         document.addEventListener('loadChatSession', (e) => loadSession(e.detail)); 
         document.addEventListener('deleteChatSession', (e) => deleteSession(e.detail));
+        document.addEventListener('togglePinSession', (e) => { const t = sessions.find(x => x.id === e.detail); if (!t) return; t.pinned = !t.pinned; Storage.saveSessions(sessions); UI.renderSidebar(sessions, activeSessionId); });
 
         // ♟️ Schach initialisieren
         window.codenChess = new ChessEngine();

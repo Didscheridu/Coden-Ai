@@ -147,43 +147,31 @@ export const UI = {
     renderSidebar: (sessions, activeSessionId) => {
         const list = document.querySelector('.sidebar-scroll-area');
         if (!list) return;
-
-        let historySection = document.getElementById('dynamic-history');
-        if (!historySection) {
-            historySection = document.createElement('div'); historySection.id = 'dynamic-history'; historySection.className = 'nav-section';
-            list.insertBefore(historySection, list.firstChild);
-        }
-
-        historySection.innerHTML = '<span class="nav-label">Letzte Chats</span>';
-        
-        sessions.forEach(session => {
-            const item = document.createElement('div');
-            const isActive = session.id === activeSessionId;
-            item.className = `nav-item ${isActive ? 'active-sub' : ''}`;
-            item.style.display = 'flex'; item.style.justifyContent = 'space-between'; item.style.alignItems = 'center'; item.style.cursor = 'pointer';
-
-            item.innerHTML = `
-                <div class="nav-item-left" style="display: flex; align-items: center; gap: 12px; overflow: hidden; width: 100%;">
-                    <span class="material-symbols-outlined">chat_bubble</span> 
-                    <span class="session-title" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></span>
-                </div>
-                <button class="icon-btn delete-chat-btn" title="Chat löschen" style="padding: 4px; color: var(--text-muted); display: flex;">
-                    <span class="material-symbols-outlined" style="font-size: 18px;">delete</span>
-                </button>
-            `;
-
-            item.querySelector('.session-title').textContent = session.title; // kein innerHTML: Titel stammen von der KI
-
-            item.querySelector('.nav-item-left').addEventListener('click', (e) => {
-                e.stopPropagation(); document.dispatchEvent(new CustomEvent('loadChatSession', { detail: session.id }));
+        const collapsed = (() => { try { return JSON.parse(localStorage.getItem('coden_sb_collapsed') || '{}'); } catch (_) { return {}; } })();
+        const section = (key, label, items) => {
+            const wrap = document.createElement('div'); wrap.className = 'sb-section' + (collapsed[key] ? ' closed' : '');
+            const head = document.createElement('button'); head.className = 'sb-head'; head.type = 'button';
+            head.append(document.createTextNode(label), Object.assign(document.createElement('span'), { className: 'material-symbols-outlined', textContent: 'expand_more' }));
+            head.addEventListener('click', () => { wrap.classList.toggle('closed'); collapsed[key] = wrap.classList.contains('closed'); try { localStorage.setItem('coden_sb_collapsed', JSON.stringify(collapsed)); } catch (_) {} });
+            const body = document.createElement('div'); body.className = 'sb-body';
+            items.forEach(sess => {
+                const row = document.createElement('div'); row.className = 'sb-chat' + (sess.id === activeSessionId ? ' active' : '');
+                const ic = Object.assign(document.createElement('span'), { className: 'material-symbols-outlined', textContent: sess.pinned ? 'keep' : 'chat_bubble' });
+                const title = document.createElement('span'); title.className = 'session-title'; title.textContent = sess.title; // Titel stammen von der KI: nur textContent
+                const act = document.createElement('span'); act.className = 'sb-actions';
+                const pin = Object.assign(document.createElement('button'), { className: 'sb-act', title: sess.pinned ? 'Lösen' : 'Anheften', type: 'button' }); pin.innerHTML = '<span class="material-symbols-outlined">' + (sess.pinned ? 'keep_off' : 'keep') + '</span>';
+                const del = Object.assign(document.createElement('button'), { className: 'sb-act delete-chat-btn', title: 'Chat löschen', type: 'button' }); del.innerHTML = '<span class="material-symbols-outlined">delete</span>';
+                pin.addEventListener('click', (e) => { e.stopPropagation(); document.dispatchEvent(new CustomEvent('togglePinSession', { detail: sess.id })); });
+                del.addEventListener('click', (e) => { e.stopPropagation(); document.dispatchEvent(new CustomEvent('deleteChatSession', { detail: sess.id })); });
+                act.append(pin, del); row.append(ic, title, act);
+                row.addEventListener('click', () => document.dispatchEvent(new CustomEvent('loadChatSession', { detail: sess.id })));
+                body.appendChild(row);
             });
-
-            item.querySelector('.delete-chat-btn').addEventListener('click', (e) => {
-                e.stopPropagation(); document.dispatchEvent(new CustomEvent('deleteChatSession', { detail: session.id }));
-            });
-            
-            historySection.appendChild(item);
-        });
+            wrap.append(head, body); return wrap;
+        };
+        const pinned = sessions.filter(s => s.pinned), recent = sessions.filter(s => !s.pinned);
+        list.replaceChildren(...[pinned.length ? section('pinned', 'Angepinnt', pinned) : null, section('recent', 'Letzte Elemente', recent)].filter(Boolean));
+        document.dispatchEvent(new CustomEvent('sessionsRendered', { detail: sessions }));
     },
 
     resetUI: () => {
