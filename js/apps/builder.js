@@ -283,7 +283,7 @@ export function mountBuilder(host, appId) {
         if (body.firstElementChild && !body.firstElementChild._sig) body.replaceChildren();
         let ti = 0;
         for (const s of p.segs) {
-            if (s.kind === 'text') { if (s.text.trim()) frag.push(md(s.text.replace(/\[Datei (geschrieben|geändert|gelöscht): ([^\]]+)\]\n?/g, ''))); }
+            if (s.kind === 'text') { if (s.text.trim()) frag.push(md(s.text.replace(/\[Datei (geschrieben|geändert|gelöscht): ([^\]]+)\]\n?/g, '').replace(/\(Geänderte Dateien:[^)]*\)/g, ''))); }
             else if (s.kind === 'op' && !final) frag.push(sig('op:' + s.op.type + ':' + s.op.path + ':' + (s.op.closed ? 1 : 0), h('div', { class: 'bl-op' + (s.op.closed ? ' done' : ' busy') }, icon(s.op.type === 'delete' ? 'delete' : s.op.closed ? 'check_circle' : 'edit'), h('span', { text: (s.op.type === 'delete' ? 'Löscht ' : s.op.type === 'edit' ? (s.op.closed ? 'Geändert: ' : 'Ändert ') : (s.op.closed ? 'Geschrieben: ' : 'Schreibt ')) + s.op.path }), s.op.type === 'file' ? h('small', { text: s.op.content.split('\n').length + ' Zeilen' }) : null)));
             else if (s.kind === 'plan') frag.push(h('div', { class: 'bl-plan' }, h('b', {}, icon('checklist'), ' Plan'), ...s.plan.items.map(it => h('div', { class: 'bl-pi' + (it.done ? ' done' : '') }, icon(it.done ? 'check_circle' : 'radio_button_unchecked'), h('span', { text: it.text })))));
             else if (s.kind === 'sql') frag.push(h('div', { class: 'bl-sql' }, h('div', { class: 'bl-sqlh' }, icon('database'), h('b', { text: 'SQL' }), h('span', { class: 'grow' }),
@@ -343,7 +343,8 @@ export function mountBuilder(host, appId) {
         for (const m of hist) {
             const role = m.role === 'assistant' ? 'assistant' : 'user';
             let content = m.role === 'user' && !m.mine && m.handle ? `@${m.handle} schreibt: ${m.body}` : m.body;
-            if (role === 'assistant' && m.meta?.changed?.length) content += `\n(Geänderte Dateien: ${m.meta.changed.map(c => c.path).join(', ')})`;
+            // Frühere Datei-Blöcke sind gekürzt – als Kommentar markieren, damit das Modell sie nicht nachahmt statt echte Blöcke zu schreiben
+            if (role === 'assistant') content = content.replace(/\[Datei (geschrieben|geändert|gelöscht): ([^\]]+)\]/g, '<!-- (frühere Antwort: Datei $2 $1, Inhalt hier gekürzt) -->').replace(/\(Geänderte Dateien:[^)]*\)/g, '');
             if (out.length && out[out.length - 1].role === role) out[out.length - 1].content += '\n\n' + content; else out.push({ role, content });
         }
         while (out.length && out[0].role !== 'user') out.shift();
@@ -405,6 +406,7 @@ export function mountBuilder(host, appId) {
         if (waitsForUser) { st.autoFix = 0; return; }
         // Selbstprüfung: Probleme beim Anwenden oder Fehler in der Vorschau -> Coden korrigiert sich selbst (begrenzt)
         let issues = res.problems.slice();
+        if (!p.ops.length && !p.tools.length && /\[Datei (geschrieben|geändert|gelöscht)|\(Geänderte Dateien|<!-- \(frühere Antwort/.test(text)) issues.push('Du hast nur Dateinamen genannt, aber keinen einzigen <file>- oder <edit>-Block geschrieben – dadurch wurde NICHTS geändert. Gib die Änderungen jetzt als echte Blöcke aus.');
         if (res.changed.length && st.view === 'preview') { const seq = renderSeq; await sleep(2200); if (seq === renderSeq) issues = issues.concat([...new Set(st.renderErrors)].slice(0, 8).map(e => 'Fehler in der Vorschau: ' + e)); }
         if (issues.length && st.autoFix < MAX_AUTOFIX && st.alive) {
             st.autoFix++;
