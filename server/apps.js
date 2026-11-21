@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
+const { generateImage } = require('./images');
 const { getSql } = require('./db');
 const { rateLimit, byIp } = require('./rateLimit');
 const { wrapRouter } = require('./util');
@@ -17,7 +18,7 @@ const SLUG_RE = /^[a-z0-9]([a-z0-9-]{1,38}[a-z0-9])$/;
 const RESERVED = new Set(['api', 'admin', 'coden', 'www', 'app', 'apps', 'kit', 'shared', 'static', 'login', 'help', 'support', 'status', 'a', 'assets']);
 const FILE_RE = /^(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9_][A-Za-z0-9_.\-\/]{0,99}$/;
 const HANDLE_RE = /^[a-z0-9_]{3,20}$/;
-const LIMITS = { files: 60, file: 400_000, total: 1_500_000, apps: 40, members: 8, msg: 60_000, meta: 8_000 };
+const LIMITS = { images: 40, files: 60, file: 400_000, total: 1_500_000, apps: 40, members: 8, msg: 60_000, meta: 8_000 };
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
 const bad = (res, status, error, extra) => res.status(status).json({ error, ...extra });
@@ -61,10 +62,8 @@ function bundleFor(app) {
   return b;
 }
 
-function publicUrl(req, slug) {
-  const base = process.env.PUBLIC_APP_BASE || `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.headers.host}`;
-  return `${base.replace(/\/$/, '')}/a/${slug}/`;
-}
+const baseUrl = (req) => (process.env.PUBLIC_APP_BASE || `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.headers.host}`).replace(/\/$/, '');
+function publicUrl(req, slug) { return `${baseUrl(req)}/a/${slug}/`; }
 
 // =====================================================================
 // Geschützte API (/api/apps …)
@@ -194,6 +193,19 @@ function appsRouter(requireAuth) {
     const a = await memberOf(req, res, req.params.id); if (!a) return;
     res.json({ messages: await loadMessages(a.id, req.user.uid, toInt(req.query.after)) });
   });
+  // KI-Bild erzeugen und als URL zurückgeben (Coden baut sie dann in die App ein)
+  r.post('/:id/images', rateLimit('apps-img', 12, 300), async (req, res) => {
+    const a = await memberOf(req, res, req.params.id); if (!a) return;
+    const prompt = String(req.body?.prompt || '').trim().slice(0, 1500);
+    if (prompt.length < 3) return bad(res, 400, 'Beschreibe das Bild kurz.');
+    const [{ n }] = await getSql()`SELECT count(*)::int AS n FROM app_images WHERE app_id = ${a.id}`;
+    if (n >= LIMITS.images) return bad(res, 400, `Höchstens ${LIMITS.images} Bilder pro App.`);
+    let img;
+    try { img = await generateImage(prompt); } catch (e) { return bad(res, e.status || 502, e.message); }
+    const key = crypto.randomBytes(9).toString('hex');
+    await getSql()`INSERT INTO app_images (key, app_id, prompt, mime, data) VALUES (${key}, ${a.id}, ${prompt}, ${img.mime}, ${img.data})`;
+    res.json({ key, url: `${baseUrl(req)}/api/public/img/${key}` });
+  });
   r.post('/:id/messages', rateLimit('apps-msg', 90, 60), async (req, res) => {
     const a = await memberOf(req, res, req.params.id); if (!a) return;
     const role = String(req.body?.role || 'user'); const body = String(req.body?.body ?? '');
@@ -311,6 +323,12 @@ function publicApiRouter() {
     const x = await loadPublic(req.params.slug, req.query.t); if (!x) return bad(res, 404, 'Diese App gibt es nicht oder sie ist nicht öffentlich.');
     const b = bundleFor(x.a);
     res.json({ name: x.a.name, kind: x.a.kind, version: x.a.version, themeColor: x.a.theme_color, entry: b.entry, pages: b.pages, preview: x.preview });
+  });
+  r.get('/img/:key', rateLimit('pub-img', 600, 60, byIp), async (req, res) => {
+    if (!/^[a-f0-9]{18}$/.test(req.params.key)) return res.status(404).end();
+    const [im] = await getSql()`SELECT mime, data FROM app_images WHERE key = ${req.params.key}`;
+    if (!im) return res.status(404).end();
+    res.setHeader('Content-Type', im.mime); res.set('Cache-Control', 'public, max-age=31536000, immutable').set('Access-Control-Allow-Origin', '*').end(Buffer.from(im.data));
   });
   r.get('/apps/:slug/version', rateLimit('pub-ver', 120, 60, byIp), async (req, res) => {
     const x = await loadPublic(req.params.slug, req.query.t); if (!x) return bad(res, 404, 'Nicht gefunden.');

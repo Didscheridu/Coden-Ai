@@ -93,6 +93,23 @@ const { setup } = require('./helpers');
   await D(`/apps/${id}/publish`, T.anna);
   chk('zurückgezogen', (await G('/public/apps/snake')).s, 404);
 
+  // --- KI-Bilder (Cloudflare wird nachgestellt) ---
+  {
+    chk('Bild ohne Schlüssel: sauber abgelehnt', [(await P(`/apps/${id}/images`, { prompt: 'ein Café' }, T.anna)).s], [503]);
+    process.env.CLOUDFLARE_ACCOUNT_ID = 'acc'; process.env.CLOUDFLARE_API_TOKEN = 'tok';
+    const realFetch = global.fetch; const jpg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+    global.fetch = async (u, o) => String(u).startsWith('https://api.cloudflare.com/') ? new Response(JSON.stringify({ success: true, result: { image: jpg.toString('base64') } }), { status: 200 }) : realFetch(u, o);
+    try {
+      chk('Bild ohne Beschreibung', (await P(`/apps/${id}/images`, { prompt: '' }, T.anna)).s, 400);
+      chk('Fremder darf keine Bilder erzeugen', (await P(`/apps/${id}/images`, { prompt: 'ein Café' }, T.cem)).s, 404);
+      const im = await P(`/apps/${id}/images`, { prompt: 'a cozy cafe, illustration' }, T.anna);
+      chk('Bild erzeugt', [im.s, /\/api\/public\/img\/[a-f0-9]{18}$/.test(im.j.url)], [200, true]);
+      const got = await fetch(im.j.url.replace(/^https?:\/\/[^/]+/, root));
+      chk('Bild öffentlich abrufbar', [got.status, got.headers.get('content-type'), Buffer.from(await got.arrayBuffer()).equals(jpg)], [200, 'image/jpeg', true]);
+      chk('unbekanntes Bild', (await raw('/api/public/img/000000000000000000')).s, 404);
+    } finally { global.fetch = realFetch; delete process.env.CLOUDFLARE_ACCOUNT_ID; delete process.env.CLOUDFLARE_API_TOKEN; }
+  }
+
   // --- APK ---
   chk('APK: Web-App abgelehnt', (await P(`/apps/${other.id}/apk`, {}, T.cem)).s, 400);
   chk('APK: erst veröffentlichen', (await P(`/apps/${id}/apk`, {}, T.anna)).j.code, 'NOT_PUBLISHED');

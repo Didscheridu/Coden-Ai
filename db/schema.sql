@@ -137,3 +137,14 @@ CREATE TABLE IF NOT EXISTS app_messages (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS app_messages_app ON app_messages (app_id, id);
+
+-- KI-Bilder für Apps (werden unter /api/public/img/<key> ausgeliefert)
+CREATE TABLE IF NOT EXISTS app_images (
+  key        TEXT PRIMARY KEY,
+  app_id     BIGINT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+  prompt     TEXT NOT NULL DEFAULT '',
+  mime       TEXT NOT NULL,
+  data       BYTEA NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS app_images_app ON app_images (app_id);
