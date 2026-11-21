@@ -937,6 +937,9 @@ function renderAttachmentPreviews() {
 // ==========================================
 // 🚀 12. HAUPT SENDE FUNKTION (KI LOGIK)
 // ==========================================
+// Bild-Befehl der KI: <generate_image prompt="…"/>
+const IMAGE_TAG = /<generate_image\s+([^>]*?)\/?>/gi;
+const hideImageTags = (t) => String(t || '').replace(/<generate_image\s+[^>]*?\/?>/gi, '').replace(/<generate_image[^>]*$/i, '');
 async function handleSend() {
     if (streamAbort) { // Coden schreibt noch: Nachricht vormerken, sie geht automatisch raus, sobald er fertig ist
         if (chatInput?.value.trim()) { sendWhenDone = true; if (sendBtn) sendBtn.classList.add('queued'); }
@@ -1050,7 +1053,8 @@ WICHTIG: Du wurdest von Kayden entwickelt. Erwähne Kayden aber NUR DANN, wenn d
 1. Strukturiere deinen Text übersichtlich (Absätze, Listen, **Fettdruck**).
 2. Nutze passend Emojis 🚀💻✨.
 Heute ist ${new Date().toLocaleDateString('de-DE')}. Nutzer: ${userName}.
-${ARTIFACT_PROMPT}`;
+${ARTIFACT_PROMPT}
+BILDER: Wünscht der Nutzer ein Bild (Foto, Bild, Illustration, Wallpaper, Gemälde, Charakter, Poster-Motiv, "male/zeichne/erstelle ein Bild von …"), baue KEIN SVG und KEIN Artefakt. Schreibe 1–2 freundliche Sätze und setze ans ENDE genau diesen Befehl (höchstens 2): <generate_image prompt="detaillierte englische Bildbeschreibung"/>. Das Bild erscheint dann automatisch unter deiner Antwort. SVG nur, wenn der Nutzer ausdrücklich SVG, Vektor-Code, ein Icon oder Logo als Code verlangt.`;
 
     context.unshift({ role: 'system', content: systemPrompt });
 
@@ -1059,7 +1063,19 @@ ${ARTIFACT_PROMPT}`;
     const ac = new AbortController(); streamAbort = ac; setStreaming(true);
     let aiResponse = '';
     try {
-        aiResponse = await streamAiResponse(context, currentSelectedModel, { signal: ac.signal, onDelta: (t) => { aiResponse = t; live.update(t); } });
+        aiResponse = await streamAiResponse(context, currentSelectedModel, { signal: ac.signal, onDelta: (t) => { aiResponse = t; live.update(hideImageTags(t)); } });
+        // KI-Bilder: Befehle aus dem Text nehmen, Bilder erzeugen und als echte Bilder anhängen
+        const wanted = [...aiResponse.matchAll(IMAGE_TAG)].map(m => (m[1].match(/prompt\s*=\s*"([^"]*)"/i) || [])[1]).filter(Boolean).slice(0, 2);
+        aiResponse = hideImageTags(aiResponse).trim();
+        if (wanted.length) {
+            live.update(aiResponse + '\n\n*🎨 Bild wird erstellt …*');
+            const parts = [];
+            for (const prompt of wanted) {
+                try { const r = await apiJson('/image', { method: 'POST', body: JSON.stringify({ prompt }) }); parts.push(`![${prompt.replace(/[\[\]\n]/g, ' ').slice(0, 120)}](${r.url})`); }
+                catch (e) { parts.push(`⚠️ Das Bild konnte nicht erstellt werden: ${e.message}`); }
+            }
+            aiResponse = (aiResponse + '\n\n' + parts.join('\n\n')).trim();
+        }
         live.finish(aiResponse);
     } catch (err) {
         aiResponse = err.text || aiResponse;

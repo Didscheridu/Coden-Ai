@@ -6,7 +6,9 @@ const { requireAuth, requireOwner } = require('../server/auth');
 const { rateLimit } = require('../server/rateLimit');
 const { generate, generateStream } = require('../server/ai');
 const { buddyRouter } = require('../server/buddy');
-const { appsRouter, publicApiRouter, hostedRouter } = require('../server/apps');
+const { appsRouter, publicApiRouter, hostedRouter, baseUrl } = require('../server/apps');
+const { generateImage } = require('../server/images');
+const crypto = require('crypto');
 const { wrapRouter } = require('../server/util');
 
 const app = express();
@@ -188,6 +190,19 @@ const { ensureSchema } = require('../server/schema');
 const needsDb = (req, res, next) => { ensureSchema().then(() => next(), next); };
 api.use('/buddy', needsDb); api.use('/apps', needsDb); api.use('/data', needsDb);
 app.use('/a', needsDb);
+// ---------- KI-Bilder für den normalen Chat (Cloudflare Flux) ----------
+api.post('/image', requireAuth, rateLimit('image', 10, 300), async (req, res) => {
+  const prompt = String(req.body?.prompt || '').trim().slice(0, 1500);
+  if (prompt.length < 3) return res.status(400).json({ error: 'Beschreibe das Bild kurz.' });
+  const [{ n }] = await getSql()`SELECT count(*)::int AS n FROM app_images WHERE uid = ${req.user.uid}`;
+  if (n >= 300 && !req.user.isOwner) return res.status(400).json({ error: 'Du hast das Bild-Limit erreicht (300).' });
+  let img;
+  try { img = await generateImage(prompt); } catch (e) { return res.status(e.status || 502).json({ error: e.message }); }
+  const key = crypto.randomBytes(9).toString('hex');
+  await getSql()`INSERT INTO app_images (key, uid, prompt, mime, data) VALUES (${key}, ${req.user.uid}, ${prompt}, ${img.mime}, ${img.data})`;
+  res.json({ key, url: `${baseUrl(req)}/api/public/img/${key}` });
+});
+
 api.use('/buddy', buddyRouter(requireAuth));
 api.use('/apps', appsRouter(requireAuth));
 api.use('/public', publicApiRouter());

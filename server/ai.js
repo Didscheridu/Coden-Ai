@@ -50,7 +50,6 @@ const CASCADES = {
     { provider: 'groq', id: 'qwen/qwen3.8-27b' },
     { provider: 'groq', id: 'openai/gpt-oss-20b' },
     { provider: 'groq', id: 'llama-3.3-70b-versatile' }, // bei Groq "Enterprise": kann ohne Vertrag fehlschlagen, dann springt die Kaskade weiter
-    { provider: 'cloudflare', id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast' },
     { provider: 'google', id: 'gemini-3.8-flash' }      // letzte Rettung, begrenzt
   ],
   // Pro: stärkste zuerst
@@ -58,7 +57,6 @@ const CASCADES = {
     { provider: 'groq', id: 'openai/gpt-oss-120b' },
     { provider: 'groq', id: 'llama-3.3-70b-versatile' },
     ...openrouter(OPENROUTER_FREE),
-    { provider: 'cloudflare', id: '@cf/openai/gpt-oss-120b' },
     { provider: 'google', id: 'gemini-4-hydrogen' }     // letzte Rettung, begrenzt
   ]
 };
@@ -66,8 +64,6 @@ const CASCADES = {
 const OPENAI_COMPAT = {
   openrouter: { url: 'https://openrouter.ai/api/v1/chat/completions', env: 'OPENROUTER_API_KEY' },
   groq: { url: 'https://api.groq.com/openai/v1/chat/completions', env: 'GROQ_API_KEY' },
-  // Cloudflare Workers AI (OpenAI-kompatibel). Gratis-Kontingent klein (10.000 Neurons/Tag) – nur als Reserve.
-  cloudflare: { get url() { return `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/ai/v1/chat/completions`; }, env: 'CLOUDFLARE_API_TOKEN', needs: ['CLOUDFLARE_ACCOUNT_ID'] }
 };
 
 // ---------- Tageskontingent ----------
@@ -179,7 +175,6 @@ async function callModel(m, messages, { stream, onDelta, signal, maxTokens }) {
   const cfg = OPENAI_COMPAT[m.provider];
   const key = process.env[cfg.env];
   if (!key) throw new Error(`${cfg.env} fehlt`);
-  for (const n of cfg.needs || []) if (!process.env[n]) throw new Error(`${n} fehlt`);
   const r = await fetch(cfg.url, {
     method: 'POST', signal,
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'HTTP-Referer': 'https://coden-ai.vercel.app', 'X-Title': 'Coden AI' },

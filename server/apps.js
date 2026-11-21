@@ -203,7 +203,7 @@ function appsRouter(requireAuth) {
     let img;
     try { img = await generateImage(prompt); } catch (e) { return bad(res, e.status || 502, e.message); }
     const key = crypto.randomBytes(9).toString('hex');
-    await getSql()`INSERT INTO app_images (key, app_id, prompt, mime, data) VALUES (${key}, ${a.id}, ${prompt}, ${img.mime}, ${img.data})`;
+    await getSql()`INSERT INTO app_images (key, app_id, uid, prompt, mime, data) VALUES (${key}, ${a.id}, ${req.user.uid}, ${prompt}, ${img.mime}, ${img.data})`;
     res.json({ key, url: `${baseUrl(req)}/api/public/img/${key}` });
   });
   r.post('/:id/messages', rateLimit('apps-msg', 90, 60), async (req, res) => {
@@ -409,4 +409,4 @@ e.respondWith(fetch(e.request).then(r=>{if(r.ok){const c=r.clone();caches.open(C
   return r;
 }
 
-module.exports = { appsRouter, publicApiRouter, hostedRouter, slugify, randomSlug, checkFiles, bundleFor, wrapperHtml, LIMITS };
+module.exports = { baseUrl, appsRouter, publicApiRouter, hostedRouter, slugify, randomSlug, checkFiles, bundleFor, wrapperHtml, LIMITS };

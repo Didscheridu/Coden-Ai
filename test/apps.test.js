@@ -106,6 +106,10 @@ const { setup } = require('./helpers');
       chk('Bild erzeugt', [im.s, /\/api\/public\/img\/[a-f0-9]{18}$/.test(im.j.url)], [200, true]);
       const got = await fetch(im.j.url.replace(/^https?:\/\/[^/]+/, root));
       chk('Bild öffentlich abrufbar', [got.status, got.headers.get('content-type'), Buffer.from(await got.arrayBuffer()).equals(jpg)], [200, 'image/jpeg', true]);
+      chk('Chat-Bild ohne Login', (await P('/image', { prompt: 'a cat' })).s, 401);
+      chk('Chat-Bild ohne Beschreibung', (await P('/image', { prompt: '' }, T.anna)).s, 400);
+      const cb = await P('/image', { prompt: 'a cat on a sofa' }, T.anna);
+      chk('Chat-Bild erzeugt und abrufbar', [cb.s, (await fetch(cb.j.url.replace(/^https?:\/\/[^/]+/, root))).status], [200, 200]);
       chk('unbekanntes Bild', (await raw('/api/public/img/000000000000000000')).s, 404);
     } finally { global.fetch = realFetch; delete process.env.CLOUDFLARE_ACCOUNT_ID; delete process.env.CLOUDFLARE_API_TOKEN; }
   }
