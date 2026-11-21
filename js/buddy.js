@@ -197,7 +197,8 @@ export const Buddy = {
         badge = btn.querySelector('.bd-nav-badge'); btn.addEventListener('click', (e) => { e.preventDefault(); Buddy.open(); });
         setTimeout(updateBadge, 1500); setInterval(() => { if (!document.hidden && !root.classList.contains('open')) updateBadge(); }, 30000);
     },
-    async open() {
+    async open(opts = {}) {
+        if (opts.tab) { state.tab = opts.tab; state.view = null; }
         root.classList.add('open'); document.body.classList.add('buddy-open');
         root.replaceChildren(h('div', { class: 'bd-loading' }, h('span', { class: 'dots' }, h('i'), h('i'), h('i'))));
         try { state.profile = (await api('/me')).profile; await render(); } catch (e) { root.replaceChildren(h('div', { class: 'bd-card bd-solo' }, h('button', { class: 'bd-icon bd-x', onclick: () => Buddy.close() }, icon('close')), h('div', { class: 'bd-center' }, h('p', { class: 'bd-err', text: e.message })))); }

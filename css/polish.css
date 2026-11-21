@@ -87,3 +87,5 @@ html { scroll-behavior: smooth; }
 @keyframes shimmer { 0%, 100% { background-position: 0 50% } 50% { background-position: 100% 50% } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important } }
 @media (max-width: 768px) { .message-row .content { max-width: 88% } .ai-message .content { max-width: 100% } .chips { padding: 0 12px } }
+#stop-btn { color: #f28b82; background: rgba(242, 139, 130, .16); border-radius: 50%; animation: pulse 1.6s ease-in-out infinite }
+#send-btn.queued { opacity: .55 }

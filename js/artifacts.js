@@ -44,7 +44,7 @@ export function previewDoc(item) {
 export const fileNameFor = (item) => (item.title.replace(/[^\w\-äöüÄÖÜß ]+/g, '').trim().replace(/\s+/g, '_') || 'artefakt') + '.' + (item.type === 'code' ? (LANG_EXT[item.language.toLowerCase()] || 'txt') : EXT[item.type]);
 
 window.addEventListener('message', (e) => { if (e.data && e.data.codenArtifactError && panel?.classList.contains('open')) { const w = panel.querySelector('.ap-writing'); w.hidden = false; w.textContent = '⚠ Fehler im Artefakt: ' + String(e.data.codenArtifactError).slice(0, 120); } });
-let panel, current = null; const versions = new Map(); // Titel -> Liste der Fassungen (nur in dieser Sitzung)
+let panel, current = null, autoCode = false; const versions = new Map(); // Titel -> Liste der Fassungen (nur in dieser Sitzung)
 
 function build() {
     panel = document.createElement('aside'); panel.id = 'artifact-panel'; panel.className = 'artifact-panel'; panel.setAttribute('aria-label', 'Artefakt');
@@ -85,8 +85,10 @@ function show(item, keepTab) {
     panel.querySelector('.ap-icon').textContent = ICON[item.type]; panel.querySelector('.ap-title').textContent = item.title;
     const list = versions.get(item.title) || [item]; const sel = panel.querySelector('.ap-versions');
     sel.hidden = list.length < 2; sel.replaceChildren(...list.map((v, i) => { const o = document.createElement('option'); o.value = i; o.textContent = 'Version ' + (i + 1); return o; })); sel.value = Math.max(0, list.indexOf(item));
-    panel.querySelector('.ap-code code').textContent = item.body;
-    panel.querySelector('.ap-writing').hidden = item.closed;
+    const codeEl = panel.querySelector('.ap-code'); const stick = codeEl.scrollHeight - codeEl.scrollTop - codeEl.clientHeight < 80 || !panel.classList.contains('open');
+    codeEl.querySelector('code').textContent = item.body;
+    if (stick) codeEl.scrollTop = codeEl.scrollHeight;
+    const w = panel.querySelector('.ap-writing'); w.hidden = item.closed; w.innerHTML = '<span class="dots"><i></i><i></i><i></i></span> Coden schreibt …';
     const pv = panel.querySelector('.ap-preview');
     clearTimeout(renderTimer);
     const draw = () => {
@@ -101,17 +103,35 @@ function show(item, keepTab) {
     // Während des Schreibens nur selten neu zeichnen (Skripte würden sonst dauernd neu starten); am Ende sofort
     if (item.closed || item.type === 'markdown' || item.type === 'code') draw(); else renderTimer = setTimeout(draw, 700);
     panel.classList.add('open'); document.body.classList.add('artifact-open');
-    if (!keepTab) setTab(item.type === 'code' ? 'code' : 'preview');
+    if (!keepTab) { autoCode = !item.closed && item.type !== 'code'; setTab(item.type === 'code' || autoCode ? 'code' : 'preview'); }
+    else if (item.closed && autoCode) { autoCode = false; setTab('preview'); } // fertig geschrieben: automatisch zur Vorschau
 }
 
 export const Artifacts = {
     register(item) { // von ui.js beim Rendern aufgerufen; gibt die Fassungsnummer zurück
         const list = versions.get(item.title) || []; const i = list.findIndex(v => v.key === item.key);
         if (i === -1) list.push(item); else list[i] = item; versions.set(item.title, list);
-        if (current && current.key === item.key) { current = item; if (panel?.classList.contains('open')) { panel.querySelector('.ap-code code').textContent = item.body; panel.querySelector('.ap-writing').hidden = item.closed; show(item, true); } }
+        if (current && current.key === item.key) { current = item; if (panel?.classList.contains('open')) show(item, true); }
         return list.indexOf(item) + 1;
     },
     open(item) { show(item); },
     close() { if (!panel) return; panel.classList.remove('open', 'full'); document.body.classList.remove('artifact-open'); current = null; const f = panel.querySelector('iframe'); if (f) f.srcdoc = ''; },
     reset() { versions.clear(); this.close(); }
 };
+
+// Alle Artefakte aus allen Chats (neueste Fassung je Titel), neueste zuerst
+export function collectArtifacts(sessions) {
+    const map = new Map();
+    [...sessions].reverse().forEach(sess => (sess.messages || []).forEach((m, mi) => {
+        if (m.isUser || typeof m.text !== 'string' || !m.text.includes('<artifact')) return;
+        splitArtifacts(m.text).filter(x => x.kind === 'artifact').forEach((a, i) => map.set(sess.id + '|' + a.title, { ...a, closed: true, key: `${sess.id}:${mi}:${i}`, sessionId: sess.id, chatTitle: sess.title }));
+    }));
+    return [...map.values()].reverse();
+}
+export function thumbFor(item) {
+    const box = document.createElement('div'); box.className = 'thumb';
+    if (item.type === 'html' || item.type === 'svg') {
+        const f = document.createElement('iframe'); f.setAttribute('sandbox', ''); f.setAttribute('tabindex', '-1'); f.setAttribute('loading', 'lazy'); f.srcdoc = previewDoc(item).replace(/<script[\s\S]*?<\/script>/gi, ''); box.appendChild(f);
+    } else { const pre = document.createElement('pre'); pre.textContent = item.body.slice(0, 500); box.appendChild(pre); }
+    return box;
+}

@@ -1,0 +1,53 @@
+/* Layout im Stil moderner Chat-Apps: schmale Seitenleiste, zentrierte Begrüßung, große Eingabe, Artefakt-Galerie */
+.sidebar { width: 292px; padding: 10px 8px 8px; background: #181a1b; border-right: 1px solid rgba(255, 255, 255, .05); transition: margin .3s var(--ease), transform .3s var(--ease) }
+.sidebar-header { display: flex; align-items: center; gap: 8px; margin: 0 4px 10px }
+.sb-brand { display: flex; align-items: center; gap: 8px; font-weight: 700; letter-spacing: .2px } .sb-brand img { width: 22px; height: 22px; border-radius: 6px; object-fit: cover }
+.sb-nav { display: flex; flex-direction: column; gap: 2px; padding-bottom: 6px }
+.sb-item { display: flex; align-items: center; gap: 12px; padding: 9px 12px; border-radius: 10px; color: var(--text-primary); text-decoration: none; font-size: 14px; cursor: pointer; transition: background .15s }
+.sb-item:hover { background: rgba(255, 255, 255, .07) } .sb-item.new-chat-btn { background: rgba(255, 255, 255, .08) } .sb-item .material-symbols-outlined { font-size: 21px; color: var(--text-secondary) }
+.sb-item.danger, .sb-item.danger .material-symbols-outlined { color: #f28b82 } .sb-item .bd-nav-badge { margin-left: auto }
+.sb-search { display: none; padding: 2px 4px 6px } .sb-search.active { display: block; animation: pop .18s var(--ease) both } .sb-search input { width: 100%; background: var(--bg-surface); color: var(--text-primary); border: 1px solid transparent; border-radius: 10px; padding: 8px 12px; font: 13px var(--font-main); outline: none } .sb-search input:focus { border-color: var(--accent-blue) }
+.sidebar-scroll-area { flex: 1; overflow-y: auto; margin-top: 6px; padding: 0 2px; scrollbar-width: thin; scrollbar-color: #3c4043 transparent }
+.sb-section { margin-bottom: 10px }
+.sb-head { display: flex; align-items: center; gap: 4px; width: 100%; background: none; border: 0; color: var(--text-muted); font: 600 12.5px var(--font-main); padding: 8px 12px; cursor: pointer; border-radius: 8px } .sb-head:hover { color: var(--text-primary) }
+.sb-head .material-symbols-outlined { font-size: 17px; transition: transform .2s var(--ease) } .sb-section.closed .sb-head .material-symbols-outlined { transform: rotate(-90deg) } .sb-section.closed .sb-body { display: none }
+.sb-chat { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 10px; font-size: 14px; color: var(--text-secondary); cursor: pointer; transition: background .15s, color .15s }
+.sb-chat:hover { background: rgba(255, 255, 255, .06); color: var(--text-primary) } .sb-chat.active { background: rgba(255, 255, 255, .1); color: var(--text-primary) }
+.sb-chat .material-symbols-outlined { font-size: 18px; opacity: .7 } .sb-chat .session-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.sb-actions { display: none; gap: 2px } .sb-chat:hover .sb-actions { display: inline-flex } .sb-act { border: 0; background: transparent; color: var(--text-muted); width: 26px; height: 26px; border-radius: 7px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center } .sb-act:hover { background: rgba(255, 255, 255, .1); color: #fff } .sb-act .material-symbols-outlined { font-size: 16px; opacity: 1 }
+.sidebar-footer { position: relative; border-top: 1px solid rgba(255, 255, 255, .06); padding-top: 8px; margin-top: 4px }
+.user-chip { display: flex; align-items: center; gap: 10px; width: 100%; background: none; border: 0; color: var(--text-primary); padding: 8px 10px; border-radius: 12px; cursor: pointer; font: 500 14px var(--font-main); text-align: left; transition: background .15s } .user-chip:hover, .user-chip.open { background: rgba(255, 255, 255, .07) }
+.uc-avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--grad-brand); color: #14161a; display: inline-flex; align-items: center; justify-content: center; font-weight: 700 } .uc-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap } .uc-plan { color: var(--text-muted); font-size: 12px } .uc-caret { font-size: 18px; color: var(--text-muted) }
+.user-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); background: #26282a; border: 1px solid var(--border-color); border-radius: 14px; padding: 6px; box-shadow: var(--shadow-lg); animation: pop .16s var(--ease) both }
+
+/* Begrüßungsseite: Gruß, Eingabe und Artefakte mittig */
+.main-content:has(#welcome-screen:not(.hidden):not([style*="none"])) { justify-content: center; padding-bottom: 6vh }
+.main-content:has(#welcome-screen:not(.hidden):not([style*="none"])) .top-bar { position: absolute; top: 0; left: 0; right: 0 }
+.main-content:has(#welcome-screen:not(.hidden):not([style*="none"])) .chat-scroll-area { flex: 0 0 auto; overflow: visible; padding-top: 0; padding-bottom: 0 }
+.main-content:has(#welcome-screen:not(.hidden):not([style*="none"])) .input-section { padding-top: 6px; padding-bottom: 8px }
+.main-content:has(#welcome-screen:not(.hidden):not([style*="none"])) .input-box { min-height: 130px; border-radius: 22px }
+.main-content:has(#welcome-screen:not(.hidden):not([style*="none"])) .input-section, .welcome-extra { width: min(820px, 92%); margin-left: auto; margin-right: auto; padding-left: 0; padding-right: 0 }
+.welcome-extra { display: none }
+.main-content:has(#welcome-screen:not(.hidden):not([style*="none"])) .welcome-extra:not(.hidden) { display: block; margin-top: 18px }
+.welcome-screen { margin-bottom: 8px }
+.greeting { display: flex; align-items: center; justify-content: center; gap: 14px; font: 400 clamp(30px, 4.2vw, 44px)/1.15 "Iowan Old Style", "Palatino Linotype", Georgia, serif; letter-spacing: -.3px; background: none; -webkit-background-clip: initial; color: var(--text-primary); -webkit-text-fill-color: currentColor; animation: none }
+.welcome-logo { width: 44px; height: 44px; border-radius: 12px; object-fit: cover; animation: floaty 5s ease-in-out infinite }
+.welcome-extra .chips { justify-content: center; margin: 0 auto 26px }
+.we-head { display: flex; justify-content: space-between; align-items: baseline; color: var(--text-muted); font-size: 14px; margin-bottom: 10px; padding: 0 4px } .we-link { background: none; border: 0; color: var(--text-secondary); cursor: pointer; font: inherit } .we-link:hover { color: #fff }
+.we-cards, .ag-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px }
+.we-cards { grid-template-columns: repeat(3, 1fr) }
+.we-card { text-align: left; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 14px; padding: 0; overflow: hidden; cursor: pointer; color: var(--text-primary); font: inherit; display: flex; flex-direction: column; transition: transform .2s var(--ease), border-color .2s, box-shadow .2s }
+.we-card:hover { transform: translateY(-3px); border-color: var(--accent-blue); box-shadow: 0 12px 30px rgba(0, 0, 0, .4) }
+.we-card .we-title { padding: 10px 14px 0; font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap } .we-card small { padding: 0 14px 12px; color: var(--text-muted); font-size: 12px }
+.thumb { position: relative; height: 130px; overflow: hidden; background: #fff; border-bottom: 1px solid var(--border-color) }
+.thumb iframe { position: absolute; top: 0; left: 0; width: 400%; height: 400%; transform: scale(.25); transform-origin: 0 0; border: 0; pointer-events: none; background: #fff }
+.thumb pre { margin: 0; padding: 10px; background: #1b1c1d; height: 100%; font: 8px/1.4 ui-monospace, monospace; color: #9aa0a6; overflow: hidden }
+.artifact-gallery { position: fixed; inset: 0; z-index: 940; display: none; align-items: center; justify-content: center; background: rgba(8, 9, 12, .7); backdrop-filter: blur(8px) } .artifact-gallery.open { display: flex; animation: fade .2s both }
+.ag-card { width: min(1000px, 94vw); max-height: 88vh; overflow: auto; background: var(--bg-main); border: 1px solid var(--border-color); border-radius: 20px; padding: 20px 22px; box-shadow: var(--shadow-lg); animation: pop .28s var(--ease) both }
+.ag-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px } .ag-empty { color: var(--text-muted) }
+.hidden { display: none !important }
+@media (max-width: 768px) {
+  .we-cards { grid-template-columns: 1fr 1fr } .we-cards .we-card:nth-child(3) { display: none }
+  .main-content:has(#welcome-screen:not(.hidden):not([style*="none"])) { justify-content: flex-end; padding-bottom: 2vh }
+}
+@media (min-width: 769px) { .sidebar.collapsed { margin-left: -292px } }
