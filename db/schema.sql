@@ -152,3 +152,59 @@ CREATE INDEX IF NOT EXISTS app_images_app ON app_images (app_id);
 ALTER TABLE app_images ADD COLUMN IF NOT EXISTS uid TEXT;
 ALTER TABLE app_images ALTER COLUMN app_id DROP NOT NULL;
 CREATE INDEX IF NOT EXISTS app_images_uid ON app_images (uid);
+
+
+-- Projekte (wie bei Claude/ChatGPT): Anweisungen + Wissensdateien, Chats verweisen per projectId darauf
+CREATE TABLE IF NOT EXISTS user_projects (
+  id BIGSERIAL PRIMARY KEY,
+  uid TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  instructions TEXT NOT NULL DEFAULT '',
+  files JSONB NOT NULL DEFAULT '{}'::jsonb,
+  color TEXT NOT NULL DEFAULT '#8ab4f8',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS user_projects_uid_idx ON user_projects (uid, updated_at DESC);
+
+-- ===== Code Buddy Server (wie Discord): Server, Kanäle, Rollen, geteilte Apps =====
+CREATE TABLE IF NOT EXISTS servers (
+  id          BIGSERIAL PRIMARY KEY,
+  name        TEXT NOT NULL,
+  color       TEXT NOT NULL DEFAULT '#8ab4f8',
+  owner       TEXT NOT NULL,
+  invite_code TEXT NOT NULL UNIQUE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS server_members (
+  server_id BIGINT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+  uid       TEXT NOT NULL,
+  role      TEXT NOT NULL CHECK (role IN ('owner','editor','viewer')),
+  joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (server_id, uid)
+);
+CREATE INDEX IF NOT EXISTS server_members_uid ON server_members (uid);
+CREATE TABLE IF NOT EXISTS server_channels (
+  id         BIGSERIAL PRIMARY KEY,
+  server_id  BIGINT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+  name       TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS server_channels_server ON server_channels (server_id);
+CREATE TABLE IF NOT EXISTS server_messages (
+  id         BIGSERIAL PRIMARY KEY,
+  channel_id BIGINT NOT NULL REFERENCES server_channels(id) ON DELETE CASCADE,
+  sender     TEXT NOT NULL,
+  body       TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS server_messages_channel ON server_messages (channel_id, id);
+CREATE TABLE IF NOT EXISTS server_shares (
+  server_id  BIGINT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+  app_id     BIGINT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+  shared_by  TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (server_id, app_id)
+);
+CREATE INDEX IF NOT EXISTS server_shares_app ON server_shares (app_id);

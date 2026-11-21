@@ -315,3 +315,23 @@
 .mc-sg { padding: 14px 16px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, .08); background: rgba(255, 255, 255, .03); display: flex; flex-direction: column; gap: 6px }
 .mc-sg p { margin: 4px 0 0; font-size: .92rem } .mc-sg small { color: var(--text-muted) } .mc-sg .mc-actions { margin-top: auto; padding-top: 8px }
 .mc-sg a.cd-btn { text-decoration: none }
+
+/* Projekte */
+.pj-card { display: flex; flex-direction: column; gap: 6px; padding: 18px; border-radius: 18px; background: var(--bg-sidebar); border: 1px solid rgba(255, 255, 255, .07); text-decoration: none; color: inherit; transition: transform .15s, border-color .15s } .pj-card:hover { transform: translateY(-2px); border-color: var(--pc) }
+.pj-card p { margin: 0; color: var(--text-muted); font-size: 14px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden } .pj-card small { color: var(--text-muted); margin-top: auto; padding-top: 6px }
+.pj-dot { width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--pc) 22%, transparent); color: var(--pc) } .pj-dot.big { width: 54px; height: 54px; border-radius: 16px; flex: none }
+.pj-note { color: var(--text-muted); font-size: 14px; padding: 8px 2px }
+.pj-colors { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px } .pj-sw { width: 28px; height: 28px; border-radius: 50%; border: 2px solid transparent; cursor: pointer } .pj-sw.on { border-color: #fff }
+.pj-page { max-width: 1100px } .pj-back { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); text-decoration: none; margin-bottom: 14px; font-size: 14px } .pj-back:hover { color: #fff }
+.pj-head { display: flex; align-items: center; gap: 16px; margin-bottom: 22px } .pj-head .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px }
+.pj-title { background: none; border: 0; color: inherit; font-size: 28px; font-weight: 600; padding: 2px 6px; margin-left: -6px; border-radius: 8px; width: 100%; outline: none } .pj-title:focus, .pj-desc:focus { background: rgba(255, 255, 255, .06) }
+.pj-desc { background: none; border: 0; color: var(--text-muted); font-size: 15px; padding: 2px 6px; margin-left: -6px; border-radius: 8px; width: 100%; outline: none }
+.pj-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start } @media (max-width: 860px) { .pj-cols { grid-template-columns: 1fr } .pj-head { flex-wrap: wrap } }
+.pj-col { display: flex; flex-direction: column; gap: 18px; min-width: 0 }
+.pj-box { padding: 16px; border-radius: 18px; background: var(--bg-sidebar); border: 1px solid rgba(255, 255, 255, .07); display: flex; flex-direction: column; gap: 10px } .pj-box h3 { margin: 0; font-size: 16px }
+.pj-instr { resize: vertical; min-height: 120px; font-family: inherit }
+.pj-files, .pj-chats { display: flex; flex-direction: column; gap: 6px }
+.pj-file, .pj-chat { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px; background: rgba(255, 255, 255, .04); font-size: 14px; border: 0; color: inherit; text-align: left; cursor: default } .pj-chat { cursor: pointer } .pj-chat:hover { background: rgba(255, 255, 255, .09) }
+.pj-file .grow, .pj-chat .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap } .pj-file small, .pj-chat small { color: var(--text-muted) }
+.pj-pre { white-space: pre-wrap; word-break: break-word; font-size: 13px; max-height: 60vh; overflow: auto; margin: 0 }
+#chat-project-chip { display: inline-flex; align-items: center; gap: 4px; margin-left: 10px; padding: 3px 10px; border-radius: 999px; background: rgba(138, 180, 248, .14); border: 1px solid rgba(138, 180, 248, .35); font-size: 12px; cursor: pointer; font-weight: 400 } #chat-project-chip .material-symbols-outlined { font-size: 14px }
