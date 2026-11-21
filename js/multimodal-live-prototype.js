@@ -2,6 +2,7 @@
 import { CONFIG } from './config.js';
 import { Storage } from './storage.js';
 import { UI } from './ui.js';
+import { apiJson } from './backend.js';
 
 export class MultimodalLivePrototype {
     constructor() {
@@ -39,23 +40,22 @@ export class MultimodalLivePrototype {
         
         this.updateCallUI('Hole Server-Zulassung...');
         
-        let apiKey;
+        let liveToken;
         try {
-            const response = await fetch('/api/get-live-key');
-            const data = await response.json();
-            
-            if (!response.ok || !data.key) throw new Error(data.error || 'Key nicht gefunden');
-            apiKey = data.key;
+            // kurzlebiges Einmal-Token vom eigenen Backend (der echte Google-Key verlässt nie den Server)
+            const data = await apiJson('/live-token', { method: 'POST' });
+            liveToken = data.token;
+            if (!liveToken) throw new Error('Kein Token erhalten');
         } catch (err) {
-            console.error("Backend Key Error:", err);
-            this.updateCallUI('❌ Server-Key Fehler!');
+            console.error("Live-Token Fehler:", err);
+            this.updateCallUI('❌ Server-Fehler!');
             setTimeout(() => this.stopSession(liveCallBtn, liveStatusIndicator), 3000);
             return;
         }
 
         this.updateCallUI('Verbinde mit Google...');
 
-        const endpoint = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${apiKey}`;
+        const endpoint = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained?access_token=${encodeURIComponent(liveToken)}`;
 
         try {
             this.websocket = new WebSocket(endpoint);
