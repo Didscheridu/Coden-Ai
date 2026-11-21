@@ -29,6 +29,13 @@ const QUOTAS = {
 
 // Die drei Stufen der App: erst Google (schnell) und Groq, dann alle OpenRouter-Gratismodelle.
 // (Modell-IDs laut Google-AI-Studio- und Groq-Doku, Stand 21.11.2026)
+const THINKING_FIRST = [
+  'nvidia/nemotron-3-ultra-550b-a55b:free',
+  'baidu/ernie-5.5-flash-preview:free',
+  'nvidia/nemotron-3.5-super-vl:free',
+  'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'
+];
+
 const CASCADES = {
   // Schnell: kleine Modelle zuerst
   flash: [
@@ -36,11 +43,13 @@ const CASCADES = {
     { provider: 'groq', id: 'openai/gpt-oss-20b' },
     ...openrouter([...OPENROUTER_FREE].reverse())
   ],
+  // Thinking: zuerst die großen NVIDIA-Denkmodelle und ERNIE 5.5 Flash (alle gratis über OpenRouter), dann der Rest, dann Groq
   normal: [
+    ...openrouter(THINKING_FIRST),
+    ...openrouter(OPENROUTER_FREE.filter(m => !THINKING_FIRST.includes(m))),
     { provider: 'groq', id: 'qwen/qwen3.8-27b' },
     { provider: 'groq', id: 'openai/gpt-oss-20b' },
     { provider: 'groq', id: 'llama-3.3-70b-versatile' }, // bei Groq "Enterprise": kann ohne Vertrag fehlschlagen, dann springt die Kaskade weiter
-    ...openrouter(OPENROUTER_FREE),
     { provider: 'google', id: 'gemini-3.8-flash' }      // letzte Rettung, begrenzt
   ],
   // Pro: stärkste zuerst

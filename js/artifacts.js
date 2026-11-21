@@ -5,7 +5,7 @@
 export const ARTIFACT_PROMPT = `
 ARTEFAKTE: Wenn der Nutzer etwas Eigenständiges möchte (Webseite, Spiel, Tool, Rechner, Diagramm, SVG-Grafik, längeres Dokument, größeres Code-Programm), packe es in einen Artefakt-Block, damit es in einem eigenen Fenster erscheint:
 <artifact type="html" title="Kurzer Titel">…vollständiger Inhalt…</artifact>
-Erlaubte type-Werte: html (komplette, selbstständige HTML-Seite mit CSS und JS in einer Datei, kein Netzwerkzugriff), svg, markdown, code (dann zusätzlich language="python" o. Ä.).
+Erlaubte type-Werte: html (komplette, selbstständige HTML-Seite mit CSS und JS in einer Datei, kein Netzwerkzugriff, kein localStorage, keine externen Bilder oder APIs; Bibliotheken nur von cdnjs.cloudflare.com, cdn.jsdelivr.net oder unpkg.com; Tastatursteuerung auf document hören, Buttons und Funktionen testweise gedanklich durchgehen), svg, markdown, code (dann zusätzlich language="python" o. Ä.).
 Regeln: Der Inhalt steht ROH im Block, NICHT zusätzlich in einem Markdown-Codeblock. Schreibe vor oder nach dem Block höchstens ein, zwei kurze Sätze. Für kurze Antworten, Erklärungen und kleine Code-Schnipsel nutze KEIN Artefakt, sondern normales Markdown. Wenn der Nutzer eine Änderung wünscht, gib das Artefakt mit dem gleichen Titel komplett neu aus.`;
 
 const RE = /<artifact\s+([^>]*)>([\s\S]*?)(<\/artifact>|$)/g;
@@ -31,13 +31,19 @@ const LANG_EXT = { python: 'py', javascript: 'js', typescript: 'ts', java: 'java
 const ICON = { html: 'web', svg: 'draw', markdown: 'article', code: 'code' };
 const CSP = "default-src 'none'; img-src data: blob: https:; media-src data: blob:; style-src 'unsafe-inline' https:; font-src https: data:; script-src 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; connect-src 'none'; form-action 'none'; base-uri 'none'";
 
+// Läuft ohne allow-same-origin: localStorage wirft sonst einen Fehler und bricht ganze Skripte ab -> Ersatz im Speicher
+const SHIM = `<script>(function(){function mk(){var d={};return{getItem:function(k){return k in d?d[k]:null},setItem:function(k,v){d[k]=String(v)},removeItem:function(k){delete d[k]},clear:function(){d={}},key:function(i){return Object.keys(d)[i]||null},get length(){return Object.keys(d).length}}}
+try{window.localStorage.getItem('x')}catch(e){try{Object.defineProperty(window,'localStorage',{value:mk()});Object.defineProperty(window,'sessionStorage',{value:mk()})}catch(_){}}
+window.addEventListener('load',function(){try{window.focus();document.body&&document.body.setAttribute('tabindex','-1');document.body&&document.body.focus()}catch(e){}});
+window.addEventListener('error',function(e){try{parent.postMessage({codenArtifactError:String(e.message)},'*')}catch(_){}})})();<\/script>`;
 export function previewDoc(item) {
     const meta = `<meta http-equiv="Content-Security-Policy" content="${CSP}">`;
-    if (item.type === 'svg') return `<!doctype html><html><head><meta charset="utf-8">${meta}<style>html,body{margin:0;height:100%;display:flex;align-items:center;justify-content:center;background:#fff}svg{max-width:100%;max-height:100%}</style></head><body>${item.body}</body></html>`;
-    return item.body.includes('<head') ? item.body.replace(/<head([^>]*)>/i, `<head$1>${meta}`) : `<!doctype html><html><head><meta charset="utf-8">${meta}</head><body>${item.body}</body></html>`;
+    if (item.type === 'svg') return `<!doctype html><html><head><meta charset="utf-8">${meta}${SHIM}<style>html,body{margin:0;height:100%;display:flex;align-items:center;justify-content:center;background:#fff}svg{max-width:100%;max-height:100%}</style></head><body>${item.body}</body></html>`;
+    return item.body.includes('<head') ? item.body.replace(/<head([^>]*)>/i, `<head$1>${meta}${SHIM}`) : `<!doctype html><html><head><meta charset="utf-8">${meta}${SHIM}</head><body>${item.body}</body></html>`;
 }
 export const fileNameFor = (item) => (item.title.replace(/[^\w\-äöüÄÖÜß ]+/g, '').trim().replace(/\s+/g, '_') || 'artefakt') + '.' + (item.type === 'code' ? (LANG_EXT[item.language.toLowerCase()] || 'txt') : EXT[item.type]);
 
+window.addEventListener('message', (e) => { if (e.data && e.data.codenArtifactError && panel?.classList.contains('open')) { const w = panel.querySelector('.ap-writing'); w.hidden = false; w.textContent = '⚠ Fehler im Artefakt: ' + String(e.data.codenArtifactError).slice(0, 120); } });
 let panel, current = null; const versions = new Map(); // Titel -> Liste der Fassungen (nur in dieser Sitzung)
 
 function build() {
@@ -88,8 +94,8 @@ function show(item, keepTab) {
         else if (item.type === 'code') { pv.className = 'ap-preview'; pv.replaceChildren(); const pre = document.createElement('pre'); const c = document.createElement('code'); c.textContent = item.body; pre.appendChild(c); pv.appendChild(pre); try { if (item.language && hljs.getLanguage(item.language)) { c.className = 'language-' + item.language; hljs.highlightElement(c); } } catch (_) {} }
         else {
             let f = pv.querySelector('iframe');
-            if (!f) { pv.className = 'ap-preview'; pv.replaceChildren(); f = document.createElement('iframe'); f.setAttribute('sandbox', 'allow-scripts allow-modals'); f.setAttribute('referrerpolicy', 'no-referrer'); pv.appendChild(f); }
-            f.srcdoc = previewDoc(item);
+            if (!f) { pv.className = 'ap-preview'; pv.replaceChildren(); f = document.createElement('iframe'); f.setAttribute('sandbox', 'allow-scripts allow-modals allow-forms allow-pointer-lock'); f.setAttribute('referrerpolicy', 'no-referrer'); pv.appendChild(f); }
+            f.srcdoc = previewDoc(item); f.onload = () => { try { f.contentWindow.focus(); } catch (_) {} };
         }
     };
     // Während des Schreibens nur selten neu zeichnen (Skripte würden sonst dauernd neu starten); am Ende sofort
