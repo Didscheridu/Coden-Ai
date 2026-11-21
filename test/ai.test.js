@@ -1,0 +1,89 @@
+// Kontingent, Kaskaden-Reihenfolge, Streaming. Anbieter werden mit einem Fake-fetch simuliert, die Datenbank ist echt (PGlite).
+const { setup } = require('./helpers');
+const enc = new TextEncoder();
+const sseResponse = (chunks, { failAfter } = {}) => new Response(new ReadableStream({
+  async start(c) { let i = 0; for (const ch of chunks) { if (failAfter !== undefined && i++ >= failAfter) { c.error(new Error('Verbindung weg')); return; } c.enqueue(enc.encode(ch)); await new Promise(r => setTimeout(r, 1)); } c.close(); }
+}), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+const oa = (t) => `data: ${JSON.stringify({ choices: [{ delta: { content: t } }] })}\n\n`;
+const gem = (t) => `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: t }] } }] })}\n\n`;
+
+(async () => {
+  const { db, chk, finish } = await setup({ withApp: false });
+  Object.assign(process.env, { GROQ_API_KEY: 'x', OPENROUTER_API_KEY: 'x', GOOGLE_API_KEY: 'x' });
+  const ai = require('../server/ai');
+  const log = []; let mode = 'googleOnly';
+  global.fetch = async (url, o) => {
+    const body = JSON.parse(o?.body || '{}'); const isGoogle = url.includes('googleapis'); const model = isGoogle ? url.split('/models/')[1].split(':')[0] : body.model;
+    log.push(model);
+    if (mode === 'googleOnly') {
+      if (!isGoogle) return new Response(JSON.stringify({ error: { message: 'down' } }), { status: 500 });
+      return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'Antwort von ' + model }] } }] }), { status: 200 });
+    }
+    if (mode === 'groqWorks') return new Response(JSON.stringify({ choices: [{ message: { content: 'Groq ok' } }] }), { status: 200 });
+    if (mode === 'streamThink') return sseResponse([oa('Hal'), oa('lo <thi'), oa('nk>geheim</th'), oa('ink>Welt'), 'data: [DONE]\n\n']);
+    if (mode === 'streamFallback') { if (body.model === 'openai/gpt-oss-120b') return new Response('{}', { status: 500 }); if (body.model === 'llama-3.3-70b-versatile') return sseResponse([': ping\n\n', 'data: [DONE]\n\n']); return sseResponse([oa('Zweites Modell')]); }
+    if (mode === 'streamMidError') return sseResponse([oa('Teil1 '), oa('Teil2'), oa('Teil3')], { failAfter: 2 });
+    if (mode === 'streamGoogle') return sseResponse([gem('Ge'), gem('mini')]);
+  };
+  const counts = async (m) => (await db.query('SELECT total, public FROM model_quota WHERE model = $1', [m])).rows[0] || { total: 0, public: 0 };
+
+  // --- Reihenfolge ---
+  const last = (t) => ai.CASCADES[t][ai.CASCADES[t].length - 1].id;
+  chk('pro: Gemini 4 Hydrogen ist ganz hinten', last('pro'), 'gemini-4-hydrogen');
+  chk('normal: Gemini 3.8 Flash ist ganz hinten', last('normal'), 'gemini-3.8-flash');
+  chk('flash enthält keine knappen Modelle', ai.CASCADES.flash.some(m => ai.QUOTAS[m.id]), false);
+  chk('pro: Gemini nirgends sonst', ai.CASCADES.pro.filter(m => m.id === 'gemini-4-hydrogen').length, 1);
+  chk('alle 11 OpenRouter-Gratismodelle in "pro"', ai.CASCADES.pro.filter(m => m.provider === 'openrouter').length, 11);
+
+  // --- Wenn andere Modelle funktionieren, wird Gemini nie angefasst ---
+  mode = 'groqWorks'; log.length = 0;
+  const r1 = await ai.generate('pro', [{ role: 'user', content: 'hi' }], { isOwner: false });
+  chk('Groq beantwortet, Gemini 4 bleibt unberührt', [r1, log.includes('gemini-4-hydrogen'), (await counts('gemini-4-hydrogen')).total], ['Groq ok', false, 0]);
+
+  // --- Kontingent: alle anderen Modelle down, nur Google antwortet ---
+  mode = 'googleOnly'; log.length = 0;
+  const pubResults = [];
+  for (let i = 0; i < 12; i++) { try { pubResults.push(await ai.generate('pro', [{ role: 'user', content: 'hi' }], { isOwner: false })); } catch (e) { pubResults.push('FEHLER'); } }
+  chk('Öffentlich: genau 10 Antworten über Gemini 4', pubResults.filter(x => x === 'Antwort von gemini-4-hydrogen').length, 10);
+  chk('Öffentlich: Antwort 11 und 12 werden abgelehnt', pubResults.slice(10), ['FEHLER', 'FEHLER']);
+  chk('Zähler nach öffentlichen Aufrufen', await counts('gemini-4-hydrogen'), { total: 10, public: 10 });
+  const ownResults = [];
+  for (let i = 0; i < 12; i++) { try { ownResults.push(await ai.generate('pro', [{ role: 'user', content: 'hi' }], { isOwner: true })); } catch (e) { ownResults.push('FEHLER'); } }
+  chk('Owner: die übrigen 10 laufen', ownResults.filter(x => x === 'Antwort von gemini-4-hydrogen').length, 10);
+  chk('Owner: danach ist Schluss (Tageslimit 20)', ownResults.slice(10), ['FEHLER', 'FEHLER']);
+  chk('Zähler am Ende: 20 gesamt, 10 öffentlich', await counts('gemini-4-hydrogen'), { total: 20, public: 10 });
+  // 3.8 Flash hat denselben Mechanismus, eigener Zähler
+  const n1 = []; for (let i = 0; i < 11; i++) { try { n1.push(await ai.generate('normal', [{ role: 'user', content: 'hi' }], { isOwner: false })); } catch (e) { n1.push('FEHLER'); } }
+  chk('3.8 Flash: öffentlich max. 10', [n1.filter(x => x === 'Antwort von gemini-3.8-flash').length, n1[10]], [10, 'FEHLER']);
+  // Tageswechsel: neuer Tag = neuer Zähler
+  await db.query("UPDATE model_quota SET day = day - 1");
+  chk('Neuer Tag: wieder verfügbar', await ai.generate('pro', [{ role: 'user', content: 'hi' }], { isOwner: false }), 'Antwort von gemini-4-hydrogen');
+
+  // --- Parallele Aufrufe überschreiten das Limit nicht (atomar) ---
+  await db.query('DELETE FROM model_quota');
+  const par = await Promise.allSettled(Array.from({ length: 25 }, () => ai.generate('pro', [{ role: 'user', content: 'hi' }], { isOwner: false })));
+  chk('25 gleichzeitige öffentliche Aufrufe: höchstens 10 durch', [par.filter(x => x.status === 'fulfilled').length, (await counts('gemini-4-hydrogen')).total], [10, 10]);
+
+  // --- Streaming ---
+  mode = 'streamThink'; let deltas = []; let model = null;
+  await ai.generateStream('flash', [{ role: 'user', content: 'hi' }], { isOwner: false, onDelta: (v) => deltas.push(v), onModel: (m) => { model = m.id; } });
+  chk('Streaming: <think> über Stückgrenzen herausgefiltert', deltas.join(''), 'Hallo Welt');
+  chk('Streaming: Modellname gemeldet', typeof model, 'string');
+
+  mode = 'streamFallback'; deltas = [];
+  await ai.generateStream('pro', [{ role: 'user', content: 'hi' }], { isOwner: false, onDelta: (v) => deltas.push(v) });
+  chk('Streaming: erstes Modell Fehler, zweites leer, drittes liefert', deltas.join(''), 'Zweites Modell');
+
+  mode = 'streamMidError'; deltas = []; let err = null;
+  try { await ai.generateStream('flash', [{ role: 'user', content: 'hi' }], { isOwner: false, onDelta: (v) => deltas.push(v) }); } catch (e) { err = e; }
+  chk('Streaming: Abbruch mitten im Text bleibt als "partial" erkennbar', [deltas.join(''), !!err?.partial], ['Teil1 Teil2', true]);
+
+  mode = 'streamGoogle'; deltas = [];
+  await ai.generateStream('flash', [{ role: 'user', content: 'hi' }], { isOwner: false, onDelta: (v) => deltas.push(v) });
+  chk('Streaming über Google (SSE)', deltas.join(''), 'Gemini');
+
+  // --- ThinkFilter einzeln ---
+  const f = new ai.ThinkFilter(); let o = ''; for (const c of ['A<', 'b>', 'x <think>y</think>z']) o += f.push(c); o += f.flush();
+  chk('ThinkFilter: "<b>" bleibt, kein Hängenbleiben', o, 'A<b>x z'.replace(' ', ' '));
+  await finish();
+})();

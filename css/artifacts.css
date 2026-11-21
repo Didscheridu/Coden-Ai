@@ -1,0 +1,26 @@
+/* Artefakte: Karte im Chat + Seitenfenster */
+.artifact-card { display: flex; align-items: center; gap: 14px; width: min(100%, 420px); margin: 12px 0; padding: 14px 16px; text-align: left; cursor: pointer; color: var(--text-primary); background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 14px; font: inherit; transition: transform .2s var(--ease), border-color .2s, box-shadow .2s; }
+.artifact-card:hover { transform: translateY(-2px); border-color: var(--accent-blue); box-shadow: 0 10px 28px rgba(0, 0, 0, .35) }
+.artifact-card .ac-icon { font-size: 26px; color: var(--accent-blue); background: rgba(138, 180, 248, .12); padding: 8px; border-radius: 10px }
+.artifact-card .ac-text { display: flex; flex-direction: column; gap: 2px; min-width: 0 } .artifact-card b { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap } .artifact-card small { color: var(--text-muted); font-size: 12px }
+.artifact-card.writing { border-color: rgba(138, 180, 248, .5); animation: pulse 1.6s ease-in-out infinite }
+
+.artifact-panel { position: fixed; top: 0; right: 0; bottom: 0; width: min(46vw, 760px); z-index: 900; display: flex; flex-direction: column; background: var(--bg-main); border-left: 1px solid var(--border-color); box-shadow: -18px 0 50px rgba(0, 0, 0, .45); transform: translateX(105%); transition: transform .35s var(--ease), width .3s var(--ease); }
+.artifact-panel.open { transform: none } .artifact-panel.full { width: 100vw }
+body.artifact-open .main-content { margin-right: min(46vw, 760px); transition: margin .35s var(--ease) }
+.ap-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border-color); background: var(--bg-sidebar) }
+.ap-icon { color: var(--accent-blue) } .ap-title { flex: 1; min-width: 0; font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.ap-versions { background: var(--bg-surface); color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 4px 6px; font-size: 12px }
+.ap-tabs { display: flex; background: var(--bg-surface); border-radius: 999px; padding: 3px }
+.ap-tabs button { border: 0; background: transparent; color: var(--text-secondary); padding: 5px 12px; border-radius: 999px; cursor: pointer; font: 500 12px var(--font-main); transition: background .2s, color .2s }
+.ap-tabs button.active { background: var(--accent-blue); color: #0b1d3a }
+.ap-btn { border: 0; background: transparent; color: var(--text-secondary); width: 32px; height: 32px; border-radius: 50%; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: background .2s }
+.ap-btn:hover { background: rgba(255, 255, 255, .08) } .ap-btn .material-symbols-outlined { font-size: 20px }
+.ap-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column }
+.ap-preview { flex: 1; min-height: 0; overflow: auto; background: #fff } .ap-preview.md { background: var(--bg-main); padding: 24px 28px; line-height: 1.65 }
+.ap-preview iframe { width: 100%; height: 100%; border: 0; display: block; background: #fff }
+.ap-preview pre { margin: 0; padding: 16px; background: #1b1c1d; min-height: 100% } .ap-preview code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px }
+.ap-code { flex: 1; margin: 0; padding: 16px; overflow: auto; background: #1b1c1d; font-size: 13px; line-height: 1.5; font-family: ui-monospace, Menlo, Consolas, monospace; color: #d4d4d4 }
+.ap-code[hidden], .ap-preview[hidden], .ap-writing[hidden], .ap-versions[hidden] { display: none !important }
+.ap-writing { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); background: var(--glass); backdrop-filter: blur(10px); border: 1px solid var(--border-color); border-radius: 999px; padding: 7px 14px; font-size: 12px; color: var(--text-secondary); display: flex; gap: 8px; align-items: center }
+@media (max-width: 900px) { .artifact-panel { width: 100vw } body.artifact-open .main-content { margin-right: 0 } }

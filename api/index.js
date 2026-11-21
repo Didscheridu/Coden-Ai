@@ -4,7 +4,9 @@ const nodemailer = require('nodemailer');
 const { getSql } = require('../server/db');
 const { requireAuth, requireOwner } = require('../server/auth');
 const { rateLimit } = require('../server/rateLimit');
-const { generate } = require('../server/ai');
+const { generate, generateStream } = require('../server/ai');
+const { buddyRouter } = require('../server/buddy');
+const { wrapRouter } = require('../server/util');
 
 const app = express();
 app.disable('x-powered-by');
@@ -12,11 +14,7 @@ app.use(express.json({ limit: '4mb' }));
 app.use((req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 
 const api = express.Router();
-// Express 4 fängt Fehler in async-Handlern nicht selbst ab -> weiterreichen
-for (const m of ['get', 'put', 'post']) {
-  const orig = api[m].bind(api);
-  api[m] = (path, ...hs) => orig(path, ...hs.map(h => (req, res, next) => Promise.resolve(h(req, res, next)).catch(next)));
-}
+wrapRouter(api);
 
 // ---------- Wer bin ich? ----------
 api.get('/me', requireAuth, (req, res) => {
@@ -99,22 +97,40 @@ async function enforceSystemState(req, res, next) {
 }
 
 // ---------- Chat ----------
+function validChat(body) {
+  const { messages, tier } = body || {};
+  if (!Array.isArray(messages) || !messages.length || messages.length > 60 || typeof tier !== 'string') return false;
+  return messages.every(m => ['system', 'user', 'assistant'].includes(m.role) && typeof m.content === 'string' && m.content.length <= 100_000
+    && (!m.images || (Array.isArray(m.images) && m.images.length <= 4 && m.images.every(i => typeof i === 'string' && i.startsWith('data:image/')))));
+}
+
 api.post('/chat', requireAuth, rateLimit('chat', 20, 60), enforceSystemState, async (req, res) => {
-  const { messages, tier } = req.body || {};
-  if (!Array.isArray(messages) || !messages.length || messages.length > 60 || typeof tier !== 'string') {
-    return res.status(400).json({ error: 'Ungültige Anfrage.' });
-  }
-  for (const m of messages) {
-    if (!['system', 'user', 'assistant'].includes(m.role) || typeof m.content !== 'string' || m.content.length > 100_000
-      || (m.images && (!Array.isArray(m.images) || m.images.length > 4 || m.images.some(i => typeof i !== 'string' || !i.startsWith('data:image/'))))) {
-      return res.status(400).json({ error: 'Ungültige Nachricht.' });
-    }
-  }
+  if (!validChat(req.body)) return res.status(400).json({ error: 'Ungültige Anfrage.' });
   try {
-    res.json({ content: await generate(tier, messages) });
+    res.json({ content: await generate(req.body.tier, req.body.messages, { isOwner: req.user.isOwner }) });
   } catch (e) {
     res.status(e.status || 502).json({ error: e.message });
   }
+});
+
+// Live-Streaming (Server-Sent Events): Text kommt Stück für Stück an
+api.post('/chat/stream', requireAuth, rateLimit('chat', 20, 60), enforceSystemState, async (req, res) => {
+  if (!validChat(req.body)) return res.status(400).json({ error: 'Ungültige Anfrage.' });
+  const ac = new AbortController();
+  res.on('close', () => { if (!res.writableEnded) ac.abort(); }); // Nutzer hat abgebrochen -> Anbieter nicht weiter belasten
+  res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+  const send = (o) => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(o)}\n\n`); };
+  try {
+    await generateStream(req.body.tier, req.body.messages, {
+      isOwner: req.user.isOwner, signal: ac.signal,
+      onModel: (m) => send({ t: 'm', model: m.id }),
+      onDelta: (v) => send({ t: 'd', v })
+    });
+    send({ t: 'done' });
+  } catch (e) {
+    send({ t: 'e', error: ac.signal.aborted ? 'abgebrochen' : e.message, partial: !!e.partial });
+  }
+  res.end();
 });
 
 // ---------- E-Mail (über das eigene Konto des Nutzers, nur Gmail/Outlook) ----------
@@ -163,6 +179,7 @@ api.post('/live-token', requireAuth, rateLimit('live', 5, 300), async (req, res)
   }
 });
 
+api.use('/buddy', buddyRouter(requireAuth));
 app.use('/api', api);
 app.use((err, req, res, next) => {
   console.error(err);

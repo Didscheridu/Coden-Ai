@@ -20,6 +20,6 @@
   "scripts": {
     "db:migrate": "node --env-file-if-exists=.env.local --env-file-if-exists=.env db/migrate.js",
     "dev": "vercel dev",
-    "test": "node test/api.test.js"
+    "test": "node test/api.test.js && node test/ai.test.js && node test/buddy.test.js"
   }
 }

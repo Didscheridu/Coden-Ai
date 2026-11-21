@@ -1,4 +1,5 @@
 // js/ui.js
+import { splitArtifacts, Artifacts } from './artifacts.js';
 
 const AI_PROFILE_PIC_SRC = './images/coden_logo.jpg';
 
@@ -20,18 +21,7 @@ customRenderer.code = function(tokenOrCode, language) {
     const langLabel = lang ? lang.charAt(0).toUpperCase() + lang.slice(1) : 'Code';
     const encodedCode = encodeURIComponent(codeText);
 
-    return `
-    <div class="code-block-wrapper" style="margin: 16px 0; border-radius: 8px; overflow: hidden; background: #1e1e1e; border: 1px solid rgba(255,255,255,0.05);">
-        <div class="code-header" style="display: flex; justify-content: space-between; padding: 6px 14px; background: rgba(255,255,255,0.03); font-size: 11px; color: #888; border-bottom: 1px solid rgba(255,255,255,0.05);">
-            <span class="lang" style="font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">${langLabel}</span>
-            <div class="code-actions">
-                <button class="text-btn copy-code-btn" data-code="${encodedCode}" style="background: transparent; border: none; color: #888; cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 11px; padding: 0;">
-                    <span class="material-symbols-outlined" style="font-size: 14px;">content_copy</span> Kopieren
-                </button>
-            </div>
-        </div>
-        <pre style="margin: 0; padding: 14px; overflow-x: auto; background: transparent;"><code class="hljs ${validLanguage}" style="font-size: var(--chat-font-size, 14px); background: transparent; padding: 0; display: block; line-height: 1.5;">${highlightedCode}</code></pre>
-    </div>`;
+    return `<div class="code-block-wrapper"><div class="code-header"><span class="lang">${langLabel}</span><button class="copy-code-btn" data-code="${encodedCode}"><span class="material-symbols-outlined">content_copy</span> Kopieren</button></div><pre><code class="hljs ${validLanguage}">${highlightedCode}</code></pre></div>`;
 };
 
 marked.setOptions({ renderer: customRenderer, breaks: true, gfm: true });
@@ -42,15 +32,17 @@ export const UI = {
 
     init: () => {
         UI.chatContainer.addEventListener('click', async (e) => {
+            const card = e.target.closest('.artifact-card');
+            if (card && card._item) { Artifacts.open(card._item); return; }
             const copyBtn = e.target.closest('.copy-code-btn');
             if (copyBtn) {
                 const rawCode = decodeURIComponent(copyBtn.getAttribute('data-code'));
                 try {
                     await navigator.clipboard.writeText(rawCode);
                     const originalHTML = copyBtn.innerHTML;
-                    copyBtn.innerHTML = `<span class="material-symbols-outlined" style="font-size: 14px;">check</span> Kopiert!`;
-                    copyBtn.style.color = "var(--accent-green, #4caf50)";
-                    setTimeout(() => { copyBtn.innerHTML = originalHTML; copyBtn.style.color = "#888"; }, 2000);
+                    copyBtn.innerHTML = `<span class="material-symbols-outlined">check</span> Kopiert!`;
+                    copyBtn.classList.add('done');
+                    setTimeout(() => { copyBtn.innerHTML = originalHTML; copyBtn.classList.remove('done'); }, 2000);
                 } catch (err) { console.error('Fehler beim Kopieren:', err); }
             }
         });
@@ -69,132 +61,87 @@ export const UI = {
         });
     },
 
-    // Neu: Mit animate Parameter für den Typewriter-Effekt!
-    appendMessage: (text, isUser, animate = false) => {
-        const chatContainer = document.getElementById('chat-container');
-        if (!chatContainer) return;
-        
-        const welcomeScreen = document.getElementById('welcome-screen');
-        if (welcomeScreen) welcomeScreen.style.display = 'none';
-
-        const loadingIndicator = document.getElementById('coden-loading-row');
-        if (loadingIndicator) loadingIndicator.remove();
-
-        const msgDiv = document.createElement('div');
-        msgDiv.className = `message-row ${isUser ? 'user-message' : 'ai-message'}`;
-        
-        msgDiv.style.display = 'flex';
-        msgDiv.style.gap = '16px';
-        msgDiv.style.marginBottom = '24px';
-        msgDiv.style.alignItems = 'flex-start';
-        
-        if (isUser) msgDiv.style.flexDirection = 'row-reverse';
-
-        const avatar = document.createElement('div');
-        avatar.className = 'avatar';
-        avatar.style.flexShrink = '0'; avatar.style.width = '36px'; avatar.style.height = '36px'; avatar.style.borderRadius = '50%'; avatar.style.overflow = 'hidden'; avatar.style.display = 'flex'; avatar.style.alignItems = 'center'; avatar.style.justifyContent = 'center';
-
-        if (!isUser) {
-            avatar.style.background = 'transparent';
-            avatar.innerHTML = `<img src="${AI_PROFILE_PIC_SRC}" style="width:100%; height:100%; object-fit:contain;" onerror="this.style.display='none'">`;
-        } else {
-            const userPhoto = localStorage.getItem('coden_user_photo');
-            if (userPhoto) avatar.innerHTML = `<img src="${userPhoto}" style="width:100%; height:100%; object-fit:cover;">`;
-            else { avatar.style.background = 'var(--accent-blue, #2b6cb0)'; avatar.innerHTML = '<span class="material-symbols-outlined" style="color:white; font-size: 20px;">person</span>'; }
+    // Baut den Inhalt einer KI-Nachricht: Markdown-Abschnitte und Artefakt-Karten
+    renderRich: (content, text, msgKey) => {
+        const frag = document.createDocumentFragment(); let n = 0;
+        for (const seg of splitArtifacts(text)) {
+            if (seg.kind === 'text') {
+                if (!seg.text.trim()) continue;
+                const d = document.createElement('div'); d.className = 'md'; d.innerHTML = safeMarkdown(seg.text); frag.appendChild(d);
+            } else {
+                const item = { ...seg, key: msgKey + ':' + (n++) };
+                const ver = Artifacts.register(item);
+                const card = document.createElement('button'); card.type = 'button'; card.className = 'artifact-card' + (item.closed ? '' : ' writing'); card._item = item;
+                const ic = document.createElement('span'); ic.className = 'material-symbols-outlined ac-icon'; ic.textContent = { html: 'web', svg: 'draw', markdown: 'article', code: 'code' }[item.type];
+                const tx = document.createElement('span'); tx.className = 'ac-text';
+                const t = document.createElement('b'); t.textContent = item.title;
+                const sub = document.createElement('small'); sub.textContent = (item.closed ? ({ html: 'Webseite', svg: 'Grafik', markdown: 'Dokument', code: item.language || 'Code' }[item.type]) + (ver > 1 ? ' · Version ' + ver : '') + ' · zum Öffnen klicken' : 'Coden schreibt …');
+                tx.append(t, sub); card.append(ic, tx);
+                frag.appendChild(card);
+            }
         }
-
-        const content = document.createElement('div');
-        content.className = 'content';
-        content.style.maxWidth = '75%';
-        content.style.lineHeight = '1.6';
-        
-        if (isUser) {
-            content.style.background = 'var(--accent-blue, #2b6cb0)'; content.style.color = '#ffffff'; content.style.padding = '10px 16px'; content.style.borderRadius = '16px 16px 4px 16px'; content.style.fontSize = '15px';
-            content.innerHTML = safeMarkdown(text);
-        } else {
-            content.style.background = 'transparent'; content.style.color = 'var(--text-primary, #ececec)'; content.style.padding = '4px 0';
-        }
-
-        msgDiv.appendChild(avatar);
-        msgDiv.appendChild(content);
-        chatContainer.appendChild(msgDiv);
-
-        // 🌟 TYPEWRITER EFFEKT FÜR DIE KI 🌟
-        if (!isUser && animate) {
-            let i = 0;
-            const chunkSize = 2; // Wie viele Buchstaben pro Tick (Geschwindigkeit)
-            const typingInterval = setInterval(() => {
-                i += chunkSize;
-                if (i >= text.length) i = text.length;
-                
-                content.innerHTML = safeMarkdown(text.substring(0, i));
-                chatContainer.scrollTop = chatContainer.scrollHeight;
-
-                if (i >= text.length) {
-                    clearInterval(typingInterval);
-                    UI.applyPostRendering(content); // Code-Blöcke erst am Ende stylen
-                }
-            }, 10); // Geschwindigkeit (10ms)
-        } else if (!isUser && !animate) {
-            // Wenn Chats geladen werden (keine Animation)
-            content.innerHTML = safeMarkdown(text);
-            UI.applyPostRendering(content);
-        }
-
-        chatContainer.scrollTop = chatContainer.scrollHeight;
+        content.replaceChildren(frag);
+        content.querySelectorAll('pre code:not(.hljs)').forEach(b => { try { hljs.highlightElement(b); } catch (_) {} });
     },
 
-    // 🌟 WIEDER DA: Der Kreis-Spinner um das Logo 🌟
+    _newRow: (isUser) => {
+        const chatContainer = document.getElementById('chat-container');
+        const welcomeScreen = document.getElementById('welcome-screen'); if (welcomeScreen) welcomeScreen.style.display = 'none';
+        const loadingIndicator = document.getElementById('coden-loading-row'); if (loadingIndicator) loadingIndicator.remove();
+        const row = document.createElement('div'); row.className = `message-row ${isUser ? 'user-message' : 'ai-message'}`;
+        const avatar = document.createElement('div'); avatar.className = 'avatar';
+        if (!isUser) { const img = document.createElement('img'); img.src = AI_PROFILE_PIC_SRC; img.alt = ''; img.onerror = () => { img.style.display = 'none'; }; avatar.appendChild(img); }
+        else {
+            const photo = localStorage.getItem('coden_user_photo');
+            if (photo && /^(data:image\/|https:)/.test(photo)) { const img = document.createElement('img'); img.src = photo; img.alt = ''; avatar.appendChild(img); }
+            else { avatar.classList.add('user-default'); avatar.innerHTML = '<span class="material-symbols-outlined">person</span>'; }
+        }
+        const content = document.createElement('div'); content.className = 'content';
+        row.append(avatar, content); chatContainer.appendChild(row);
+        return { row, content, chatContainer };
+    },
+
+    _msgCounter: 0,
+
+    appendMessage: (text, isUser, animate = false) => {
+        const { content, chatContainer } = UI._newRow(isUser);
+        if (isUser) { content.innerHTML = safeMarkdown(text); }
+        else { UI.renderRich(content, text, 'm' + (++UI._msgCounter)); }
+        UI.scrollToBottom(true);
+    },
+
+    // Live-Streaming: update(fullText) wird oft aufgerufen, gezeichnet wird höchstens einmal pro Bildschirm-Frame
+    createStreamingMessage: () => {
+        const { row, content, chatContainer } = UI._newRow(false);
+        const key = 'm' + (++UI._msgCounter);
+        row.classList.add('streaming');
+        content.innerHTML = '<span class="typing-dots"><i></i><i></i><i></i></span>';
+        let latest = '', raf = 0, started = false;
+        const stick = () => chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 140;
+        const paint = () => { raf = 0; const follow = stick(); UI.renderRich(content, latest, key); if (follow) chatContainer.scrollTop = chatContainer.scrollHeight; };
+        return {
+            update(text) { latest = text; if (!started && text.trim()) started = true; if (started && !raf) raf = requestAnimationFrame(paint); },
+            finish(text) { cancelAnimationFrame(raf); raf = 0; latest = text; row.classList.remove('streaming'); if (!text.trim()) { row.remove(); return; } UI.renderRich(content, text, key); chatContainer.scrollTop = chatContainer.scrollHeight; },
+            fail(msg) { cancelAnimationFrame(raf); raf = 0; row.classList.remove('streaming'); const note = document.createElement('div'); note.className = 'stream-error'; note.textContent = msg; if (!latest.trim()) content.replaceChildren(note); else content.appendChild(note); },
+            remove() { cancelAnimationFrame(raf); row.remove(); }
+        };
+    },
+
     showLoading: (show, modelNameDisplay = "Coden denkt nach...") => {
         const chatContainer = document.getElementById('chat-container');
         if (!chatContainer) return;
-        
-        const existingIndicator = document.getElementById('coden-loading-row');
-        
-        if (show) {
-            if (UI.welcomeScreen) UI.welcomeScreen.classList.add('hidden');
-            if (existingIndicator) return; 
-
-            const loadingRow = document.createElement('div');
-            loadingRow.id = 'coden-loading-row';
-            loadingRow.style.display = 'flex'; loadingRow.style.gap = '16px'; loadingRow.style.marginBottom = '24px'; loadingRow.style.alignItems = 'flex-start';
-
-            // Platzhalter für das Avatar-Grid
-            const spacer = document.createElement('div');
-            spacer.style.width = '36px'; spacer.style.flexShrink = '0';
-
-            const content = document.createElement('div');
-            content.style.display = 'flex'; content.style.alignItems = 'center'; content.style.gap = '16px'; content.style.padding = '4px 0';
-
-            // Hier ist dein geliebter Spinner-Container!
-            const spinnerHTML = `
-                <div class="spinner-container" style="position: relative; width: 36px; height: 36px; display: flex; justify-content: center; align-items: center;">
-                    <div class="spinner" style="position: absolute; width: 100%; height: 100%; border: 3px solid rgba(255,255,255,0.1); border-top-color: var(--accent-blue); border-radius: 50%; animation: spin 1s linear infinite;"></div>
-                    <img src="${AI_PROFILE_PIC_SRC}" class="spinner-logo" style="width: 24px; height: 24px; border-radius: 50%; object-fit: cover;" onerror="this.style.display='none'">
-                </div>
-                <span style="font-size: 13px; color: var(--text-muted, #888); font-weight: 500;">${modelNameDisplay}</span>
-            `;
-            
-            // Falls du die Spin-Animation im CSS nicht mehr hast, injizieren wir sie sicherheitshalber:
-            if (!document.getElementById('spin-keyframes')) {
-                const style = document.createElement('style'); style.id = 'spin-keyframes';
-                style.innerHTML = `@keyframes spin { 100% { transform: rotate(360deg); } }`;
-                document.head.appendChild(style);
-            }
-
-            content.innerHTML = spinnerHTML;
-            loadingRow.appendChild(spacer);
-            loadingRow.appendChild(content);
-
-            chatContainer.appendChild(loadingRow);
-            UI.scrollToBottom();
-        } else {
-            if (existingIndicator) existingIndicator.remove();
-        }
+        const existing = document.getElementById('coden-loading-row');
+        if (!show) { if (existing) existing.remove(); return; }
+        if (UI.welcomeScreen) UI.welcomeScreen.classList.add('hidden');
+        if (existing) return;
+        const row = document.createElement('div'); row.id = 'coden-loading-row'; row.className = 'loading-row';
+        row.innerHTML = '<div class="spinner-container"><div class="spinner"></div><img class="spinner-logo" alt=""></div><span class="loading-text"></span>';
+        row.querySelector('img').src = AI_PROFILE_PIC_SRC; row.querySelector('.loading-text').textContent = modelNameDisplay;
+        chatContainer.appendChild(row); UI.scrollToBottom();
     },
 
-    scrollToBottom: () => {
-        UI.chatContainer.scrollTo({ top: UI.chatContainer.scrollHeight, behavior: 'smooth' });
+    scrollToBottom: (instant) => {
+        UI.chatContainer.scrollTo({ top: UI.chatContainer.scrollHeight, behavior: instant ? 'auto' : 'smooth' });
     },
 
     renderSidebar: (sessions, activeSessionId) => {
@@ -240,6 +187,7 @@ export const UI = {
     },
 
     resetUI: () => {
+        Artifacts.reset();
         const messages = UI.chatContainer.querySelectorAll('.message-row');
         messages.forEach(msg => msg.remove());
         const loadingIndicator = document.getElementById('coden-loading-row');

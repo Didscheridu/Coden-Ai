@@ -1,0 +1,89 @@
+/* Design-Feinschliff: Nachrichten, Animationen, Eingabe, Dialoge */
+:root {
+    --grad-brand: linear-gradient(135deg, #8ab4f8 0%, #c58af9 55%, #f28b82 100%);
+    --radius: 16px;
+    --ease: cubic-bezier(.2, .8, .2, 1);
+    --shadow-lg: 0 18px 50px rgba(0, 0, 0, .45);
+    --glass: rgba(30, 31, 32, .72);
+}
+html { scroll-behavior: smooth; }
+::selection { background: rgba(138, 180, 248, .35); }
+.chat-scroll-area { scrollbar-width: thin; scrollbar-color: #3c4043 transparent; }
+
+/* Willkommen */
+.welcome-screen { animation: rise .7s var(--ease) both; }
+.welcome-logo { animation: floaty 5s ease-in-out infinite; filter: drop-shadow(0 10px 28px rgba(138, 180, 248, .3)); }
+.greeting { background: var(--grad-brand); -webkit-background-clip: text; background-clip: text; color: transparent; background-size: 200% 200%; animation: shimmer 8s ease infinite; }
+.chips { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 28px; max-width: 640px; }
+.chip { background: var(--bg-surface); color: var(--text-secondary); border: 1px solid transparent; border-radius: 999px; padding: 10px 16px; font: 500 13px var(--font-main); cursor: pointer; transition: transform .2s var(--ease), border-color .2s, background .2s, color .2s; animation: rise .6s var(--ease) both; }
+.chip:nth-child(2) { animation-delay: .06s } .chip:nth-child(3) { animation-delay: .12s } .chip:nth-child(4) { animation-delay: .18s }
+.chip:hover { transform: translateY(-2px); border-color: var(--accent-blue); color: var(--text-primary); background: #303236; }
+
+/* Nachrichten */
+.message-row { display: flex; gap: 16px; margin-bottom: 26px; align-items: flex-start; animation: msgIn .35s var(--ease) both; }
+.message-row.user-message { flex-direction: row-reverse; }
+.message-row .avatar { flex: 0 0 36px; width: 36px; height: 36px; border-radius: 50%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.message-row .avatar img { width: 100%; height: 100%; object-fit: cover; }
+.ai-message .avatar { background: transparent; box-shadow: 0 0 0 2px rgba(138, 180, 248, .0); transition: box-shadow .4s; }
+.ai-message.streaming .avatar { box-shadow: 0 0 0 2px rgba(138, 180, 248, .55), 0 0 18px rgba(138, 180, 248, .35); animation: pulse 1.6s ease-in-out infinite; }
+.avatar.user-default { background: #2b6cb0; } .avatar.user-default .material-symbols-outlined { color: #fff; font-size: 20px; }
+.message-row .content { max-width: min(75%, 760px); line-height: 1.65; min-width: 0; overflow-wrap: anywhere; }
+.user-message .content { background: linear-gradient(135deg, #2b6cb0, #3b82c4); color: #fff; padding: 10px 16px; border-radius: 18px 18px 4px 18px; font-size: 15px; box-shadow: 0 6px 18px rgba(43, 108, 176, .28); }
+.ai-message .content { color: var(--text-primary); padding: 4px 0; max-width: min(100%, 820px); flex: 1; }
+.md > :first-child { margin-top: 0 } .md > :last-child { margin-bottom: 0 }
+.md p { margin: 0 0 12px } .md ul, .md ol { margin: 0 0 12px 22px } .md li { margin: 4px 0 }
+.md h1, .md h2, .md h3 { margin: 18px 0 8px; line-height: 1.3 } .md a { color: var(--accent-blue) }
+.md table { border-collapse: collapse; margin: 12px 0; display: block; overflow-x: auto } .md th, .md td { border: 1px solid var(--border-color); padding: 6px 12px }
+.md blockquote { border-left: 3px solid var(--accent-blue); padding: 2px 14px; color: var(--text-secondary); margin: 12px 0 }
+.md :not(pre) > code { background: var(--bg-surface); padding: 2px 6px; border-radius: 6px; font-size: .9em }
+.md img { max-width: 100%; border-radius: 10px; margin-top: 12px; border: 1px solid rgba(255, 255, 255, .06) }
+.stream-error { color: #f28b82; font-size: 13px; margin-top: 8px }
+
+/* Code-Blöcke */
+.code-block-wrapper { margin: 14px 0; border-radius: 12px; overflow: hidden; background: #1b1c1d; border: 1px solid rgba(255, 255, 255, .06); }
+.code-header { display: flex; justify-content: space-between; align-items: center; padding: 7px 14px; background: rgba(255, 255, 255, .03); font-size: 11px; color: #9aa0a6; border-bottom: 1px solid rgba(255, 255, 255, .05); }
+.code-header .lang { font-weight: 600; text-transform: uppercase; letter-spacing: .6px; }
+.copy-code-btn { background: transparent; border: 0; color: #9aa0a6; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font: 500 11px var(--font-main); padding: 3px 6px; border-radius: 6px; transition: background .2s, color .2s; }
+.copy-code-btn:hover { background: rgba(255, 255, 255, .08); color: #fff } .copy-code-btn.done { color: var(--accent-green) }
+.copy-code-btn .material-symbols-outlined { font-size: 14px }
+.code-block-wrapper pre { margin: 0; padding: 14px; overflow-x: auto; background: transparent }
+.code-block-wrapper code.hljs { background: transparent; padding: 0; display: block; line-height: 1.5; font-size: var(--chat-font-size, 14px); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace }
+
+/* Lade-Anzeige und Tippen */
+.loading-row { display: flex; gap: 16px; margin-bottom: 24px; align-items: center; padding-left: 0; animation: msgIn .3s var(--ease) both; }
+.spinner-container { position: relative; width: 36px; height: 36px; display: flex; justify-content: center; align-items: center }
+.spinner { position: absolute; inset: 0; border: 3px solid rgba(255, 255, 255, .08); border-top-color: var(--accent-blue); border-radius: 50%; animation: spin 1s linear infinite }
+.spinner-logo { width: 24px; height: 24px; border-radius: 50%; object-fit: cover }
+.loading-text { font-size: 13px; color: var(--text-muted); font-weight: 500 }
+.typing-dots, .dots { display: inline-flex; gap: 5px; align-items: center; height: 24px }
+.typing-dots i, .dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-blue); opacity: .5; animation: bounce 1.2s ease-in-out infinite }
+.typing-dots i:nth-child(2), .dots i:nth-child(2) { animation-delay: .15s } .typing-dots i:nth-child(3), .dots i:nth-child(3) { animation-delay: .3s }
+.ai-message.streaming .md > :last-child::after { content: ''; display: inline-block; width: 8px; height: 1.05em; margin-left: 3px; vertical-align: text-bottom; background: var(--accent-blue); border-radius: 2px; animation: blink 1s steps(2) infinite }
+.ai-message.streaming .md > pre:last-child::after, .ai-message.streaming .md > .code-block-wrapper:last-child::after { display: none }
+
+/* Eingabe */
+.input-box { transition: box-shadow .25s var(--ease), border-color .25s, transform .25s var(--ease); }
+.input-box:focus-within { box-shadow: 0 0 0 1px rgba(138, 180, 248, .55), 0 10px 40px rgba(138, 180, 248, .12); }
+#send-btn { transition: transform .2s var(--ease), background .2s; border-radius: 50%; }
+#send-btn:hover { transform: scale(1.1) } #send-btn:active { transform: scale(.92) }
+#send-btn.is-stop { background: rgba(242, 139, 130, .16); color: #f28b82 !important; animation: pulse 1.6s ease-in-out infinite }
+.nav-item, .icon-btn, .text-btn, .model-option { transition: background .2s, color .2s, transform .15s var(--ease); }
+.nav-item:active, .icon-btn:active { transform: scale(.97) }
+
+/* Dialoge */
+.modal-overlay { backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); animation: fade .2s ease both; }
+.modal-content { animation: pop .28s var(--ease) both; box-shadow: var(--shadow-lg); }
+.model-dropdown-menu { animation: pop .18s var(--ease) both; transform-origin: bottom left; }
+
+@keyframes msgIn { from { opacity: 0; transform: translateY(10px) } to { opacity: 1; transform: none } }
+@keyframes rise { from { opacity: 0; transform: translateY(18px) } to { opacity: 1; transform: none } }
+@keyframes pop { from { opacity: 0; transform: translateY(8px) scale(.97) } to { opacity: 1; transform: none } }
+@keyframes fade { from { opacity: 0 } to { opacity: 1 } }
+@keyframes spin { to { transform: rotate(360deg) } }
+@keyframes bounce { 0%, 60%, 100% { transform: translateY(0); opacity: .45 } 30% { transform: translateY(-5px); opacity: 1 } }
+@keyframes blink { 50% { opacity: 0 } }
+@keyframes pulse { 0%, 100% { opacity: 1 } 50% { opacity: .65 } }
+@keyframes floaty { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-6px) } }
+@keyframes shimmer { 0%, 100% { background-position: 0 50% } 50% { background-position: 100% 50% } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important } }
+@media (max-width: 768px) { .message-row .content { max-width: 88% } .ai-message .content { max-width: 100% } .chips { padding: 0 12px } }

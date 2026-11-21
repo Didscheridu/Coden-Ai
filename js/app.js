@@ -1,6 +1,8 @@
 // js/app.js
 import { CONFIG } from './config.js';
-import { generateAiResponse } from './api.js';
+import { generateAiResponse, streamAiResponse } from './api.js';
+import { ARTIFACT_PROMPT, Artifacts } from './artifacts.js';
+import { Buddy } from './buddy.js';
 import { UI } from './ui.js';
 import { Storage } from './storage.js';
 import { initGoogleLogin, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, auth } from './auth.js';
@@ -18,6 +20,13 @@ const errorMsg = document.getElementById('auth-error-msg');
 const userEmailDisplay = document.getElementById('user-email-display');
 const chatInput = document.getElementById('main-input');
 const sendBtn = document.getElementById('send-btn');
+let streamAbort = null;
+function setStreaming(on) {
+    if (!sendBtn) return;
+    sendBtn.classList.toggle('is-stop', on);
+    sendBtn.title = on ? 'Antwort stoppen' : 'Senden';
+    const ic = sendBtn.querySelector('.material-symbols-outlined'); if (ic) ic.textContent = on ? 'stop' : 'send';
+}
 const commandPopup = document.getElementById('command-popup');
 const newChatBtn = document.querySelector('.new-chat-btn');
 const liveCallBtn = document.getElementById('live-call-btn'); // Stelle sicher, dass du im HTML einen Button mit der ID 'live-call-btn' hast!
@@ -263,6 +272,7 @@ function forceModelChange(newModel, msg) {
 const multimodalLive = new MultimodalLivePrototype();
 
 function initApp() {
+    Buddy.init();
     try {
         appInitialized = true; 
         sessions = Storage.getSessions();
@@ -922,6 +932,7 @@ function renderAttachmentPreviews() {
 // 🚀 12. HAUPT SENDE FUNKTION (KI LOGIK)
 // ==========================================
 async function handleSend() {
+    if (streamAbort) { streamAbort.abort(); return; } // Während der Antwort ist der Button "Stopp"
     if (!chatInput) return; 
     const text = chatInput.value.trim(); 
     if (!text && pendingAttachments.length === 0) return;
@@ -1029,31 +1040,30 @@ async function handleSend() {
 WICHTIG: Du wurdest von Kayden entwickelt. Erwähne Kayden aber NUR DANN, wenn der Nutzer dich explizit danach fragt. Erwähne ihn NIEMALS ungefragt!
 1. Strukturiere deinen Text übersichtlich (Absätze, Listen, **Fettdruck**).
 2. Nutze passend Emojis 🚀💻✨.
-Heute ist ${new Date().toLocaleDateString('de-DE')}. Nutzer: ${userName}.`;
+Heute ist ${new Date().toLocaleDateString('de-DE')}. Nutzer: ${userName}.
+${ARTIFACT_PROMPT}`;
 
     context.unshift({ role: 'system', content: systemPrompt });
 
-   try {
-        UI.showLoading(true, `Coden generiert...`);
-        const aiResponse = await generateAiResponse(context, currentSelectedModel);
-        
-        UI.showLoading(false); 
-        // WICHTIG: Das 'true' am Ende schaltet die neue Tipp-Animation ein!
-        UI.appendMessage(aiResponse, false, true); 
-        
-        // Nachricht in den Verlauf pushen
-        currentSession.messages.push({ text: aiResponse, isUser: false }); 
-        
-        // 💾 FEHLER BEHOBEN: Wir speichern ERST, wenn die KI fertig geantwortet hat!
+    const live = UI.createStreamingMessage();
+    const ac = new AbortController(); streamAbort = ac; setStreaming(true);
+    let aiResponse = '';
+    try {
+        aiResponse = await streamAiResponse(context, currentSelectedModel, { signal: ac.signal, onDelta: (t) => { aiResponse = t; live.update(t); } });
+        live.finish(aiResponse);
+    } catch (err) {
+        aiResponse = err.text || aiResponse;
+        if (aiResponse.trim()) { live.finish(aiResponse); live.fail('⚠️ Die Antwort wurde unterbrochen: ' + err.message); }
+        else live.fail('❌ ' + err.message);
+    } finally { streamAbort = null; setStreaming(false); }
+
+    if (aiResponse.trim()) {
+        currentSession.messages.push({ text: aiResponse, isUser: false });
         const finalSessionsToSave = JSON.parse(JSON.stringify(sessions));
         finalSessionsToSave.forEach(s => s.messages.forEach(m => { if (m.images) delete m.images; }));
-        Storage.saveSessions(finalSessionsToSave); 
-        
+        Storage.saveSessions(finalSessionsToSave);
         UI.renderSidebar(sessions, activeSessionId);
-    } catch (err) { 
-        UI.showLoading(false); 
-        UI.appendMessage("❌ System Fehler: " + err.message, false); 
-    }    
+    }
 }
 async function generateChatTitle(firstMessage) {
     try {
@@ -1084,7 +1094,7 @@ Nachricht: "${firstMessage}"`;
     }
 }
 
-if (chatInput) { chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }); }
+if (chatInput) { chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!streamAbort) handleSend(); } }); }
 if (sendBtn) { sendBtn.addEventListener('click', handleSend); }
 
 
@@ -1106,4 +1116,10 @@ document.addEventListener('liveAITurnComplete', (e) => {
         sessionsToSave.forEach(s => s.messages.forEach(m => { if (m.images) delete m.images; }));
         Storage.saveSessions(sessionsToSave);
     }
+});
+
+// Vorschlags-Chips auf dem Startbildschirm
+document.getElementById('welcome-chips')?.addEventListener('click', (e) => {
+    const c = e.target.closest('.chip'); if (!c || !chatInput) return;
+    chatInput.value = c.dataset.prompt; chatInput.focus(); handleSend();
 });
