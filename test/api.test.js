@@ -1,0 +1,64 @@
+// End-to-End-Test gegen ein echtes Postgres (PGlite) mit der echten schema.sql und den echten Abfragen.
+const Module = require('module'); const path = require('path'); const fs = require('fs');
+const root = path.join(__dirname, '..');
+(async () => {
+  const { PGlite } = await import('@electric-sql/pglite');
+  const db = new PGlite();
+  await db.exec(fs.readFileSync(path.join(root, 'db/schema.sql'), 'utf8'));
+  const orig = Module._load;
+  Module._load = function (req, ...a) {
+    if (req === 'pg') return { Pool: class { on() {} query(text, values) { return db.query(text, values); } } };
+    return orig.call(this, req, ...a);
+  };
+  Object.assign(process.env, { DATABASE_URL: 'pglite', ADMIN_EMAIL: 'admin@test.de', ADMIN_SETUP_CODE: 'geheim123', JWT_SECRET: 'x'.repeat(40) });
+  const app = require(path.join(root, 'api/index.js'));
+  const srv = app.listen(0, async () => {
+    const base = `http://127.0.0.1:${srv.address().port}/api`;
+    const call = async (p, body, cookie, ip, method) => { const r = await fetch(base + p, { method: method || (body ? 'POST' : 'GET'), headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}), ...(ip ? { 'x-forwarded-for': ip } : {}) }, body: body ? JSON.stringify(body) : undefined });
+      return { s: r.status, j: await r.json().catch(() => ({})), c: (r.headers.get('set-cookie') || '').split(';')[0] }; };
+    const t = []; const chk = (n, got, want) => t.push([n, got, want]);
+    chk('me ohne Login', (await call('/me')).s, 401);
+    chk('chat ohne Login', (await call('/chat', { messages: [], tier: 'flash' })).s, 401);
+    const reg = await call('/auth/register', { email: 'User@x.de', password: 'sehrsicher1' }, null, '1.1.1.1');
+    chk('registrieren (echte DB)', reg.s, 200);
+    chk('doppelt registrieren', (await call('/auth/register', { email: 'user@x.de', password: 'sehrsicher1' }, null, '1.1.1.2')).s, 409);
+    chk('Login falsch', (await call('/auth/login', { email: 'user@x.de', password: 'nope' }, null, '2.2.2.2')).s, 401);
+    const login = await call('/auth/login', { email: 'user@x.de', password: 'sehrsicher1' }, null, '2.2.2.3');
+    chk('Login ok', login.s, 200);
+    chk('me', (await call('/me', null, login.c)).j.email, 'user@x.de');
+    chk('Daten: leer', (await call('/data', null, login.c)).j.exists, false);
+    const settings = { fontSize: 15, apiKey: 'GEHEIM', emailConfig: { provider: 'gmail', address: 'a@b.de', password: 'GEHEIM' } };
+    chk('Daten speichern', (await call('/data', { sessions: [{ id: '1', title: 'Hallo', messages: [] }], settings }, login.c, null, 'PUT')).s, 200);
+    const got = (await call('/data', null, login.c)).j;
+    chk('Daten lesen: Chat', got.sessions[0].title, 'Hallo');
+    chk('Secrets nicht in DB: apiKey', got.settings.apiKey, undefined);
+    chk('Secrets nicht in DB: Mailpasswort', got.settings.emailConfig.password, '');
+    chk('Daten überschreiben (upsert)', (await call('/data', { sessions: [], settings: {} }, login.c, null, 'PUT')).s, 200);
+    chk('system state leer', Object.keys((await call('/system/state', null, login.c)).j).length, 0);
+    chk('admin als user', (await call('/admin/command', { cmd: 'forceupdate' }, login.c)).s, 403);
+    const admin = await call('/auth/register', { email: 'admin@test.de', password: 'sehrsicher1', setupCode: 'geheim123' }, null, '3.3.3.3');
+    chk('admin registrieren', admin.s, 200);
+    chk('admin = owner', (await call('/me', null, admin.c)).j.isOwner, true);
+    chk('admin: lock pro', (await call('/admin/command', { cmd: 'lock', param: 'pro' }, admin.c)).s, 200);
+    chk('admin: lock thinking (merge)', (await call('/admin/command', { cmd: 'lock', param: 'thinking' }, admin.c)).s, 200);
+    chk('admin: unlock pro', (await call('/admin/command', { cmd: 'unlock', param: 'pro' }, admin.c)).s, 200);
+    chk('admin: broadcast', (await call('/admin/command', { cmd: 'broadcast', param: 'Hallo alle' }, admin.c)).s, 200);
+    chk('admin: font', (await call('/admin/command', { cmd: 'font', param: '18' }, admin.c)).s, 200);
+    const st = (await call('/system/state', null, login.c)).j;
+    chk('state: pro entsperrt', st.locks.pro, false);
+    chk('state: thinking gesperrt (Merge klappt)', st.locks.thinking, true);
+    chk('state: Broadcast', st.broadcast.message, 'Hallo alle');
+    chk('state: Font', st.fontSize, 18);
+    chk('Wartungsmodus an', (await call('/admin/command', { cmd: 'maintenance', param: 'on' }, admin.c)).s, 200);
+    chk('Wartung blockt User-Chat', (await call('/chat', { messages: [{ role: 'user', content: 'hi' }], tier: 'flash' }, login.c)).s, 503);
+    chk('Wartung: Owner nicht blockiert (kein 503)', (await call('/chat', { messages: [{ role: 'user', content: 'hi' }], tier: 'gibtsnicht' }, admin.c)).s, 400);
+    await call('/admin/command', { cmd: 'maintenance', param: 'off' }, admin.c);
+    let last; for (let i = 0; i < 25; i++) last = await call('/chat', { messages: [{ role: 'user', content: 'hi' }], tier: 'gibtsnicht' }, login.c);
+    chk('Rate-Limit (DB-Zähler)', last.s, 429);
+    let last2; for (let i = 0; i < 12; i++) last2 = await call('/auth/login', { email: 'user@x.de', password: 'falsch' }, null, '9.9.9.9');
+    chk('Login-Brute-Force gebremst', last2.s, 429);
+    let bad = 0; for (const [n, g, w] of t) { const ok = g === w; if (!ok) bad++; console.log(ok ? 'OK  ' : 'FAIL', n, ok ? '' : `(bekam ${g}, erwartet ${w})`); }
+    console.log(`\n${t.length - bad}/${t.length} bestanden`);
+    srv.close(); process.exit(bad ? 1 : 0);
+  });
+})();

@@ -3,7 +3,7 @@
 Frontend: statisches HTML/JS. Backend: Express (`api/index.js`) auf Vercel. Datenbank und Benutzerkonten: Neon Postgres. Kein Firebase mehr.
 
 ## Einrichtung (einmalig)
-1. **Neon**: Projekt anlegen, in der SQL-Konsole `db/schema.sql` ausführen, Connection-String kopieren.
+1. **Neon**: `neon login`, dann `neon deploy` (schreibt `DATABASE_URL` und `DATABASE_URL_UNPOOLED` in `.env.local`). Danach `npm install` und `npm run db:migrate` (spielt `db/schema.sql` über die direkte Verbindung ein). Tests: `npm test` (echtes Postgres über PGlite).
 2. **Vercel** > Settings > Environment Variables: alle Werte aus `.env.example` eintragen (`DATABASE_URL`, `JWT_SECRET`, `ADMIN_EMAIL`, `ADMIN_SETUP_CODE`, die KI-Keys), danach neu deployen.
 3. **Admin-Konto**: Mit `ADMIN_EMAIL` registrieren. Die App fragt dabei nach dem `ADMIN_SETUP_CODE`.
 4. Optional **Google-Login**: In der Google Cloud Console eine OAuth-Client-ID (Webanwendung) mit deiner Vercel-Domain als "Autorisierte JavaScript-Quelle" anlegen und als `GOOGLE_CLIENT_ID` eintragen. Ohne die Variable wird der Google-Button nicht angezeigt.
