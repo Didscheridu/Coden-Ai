@@ -189,8 +189,10 @@ api.post('/live-token', requireAuth, rateLimit('live', 5, 300), async (req, res)
 
 // Tabellen sicherstellen (einmal pro Serverstart), bevor Funktionen mit Datenbank laufen
 const { ensureSchema } = require('../server/schema');
+const { projectsRouter } = require('../server/projects');
+const { serversRouter } = require('../server/servers');
 const needsDb = (req, res, next) => { ensureSchema().then(() => next(), next); };
-api.use('/buddy', needsDb); api.use('/apps', needsDb); api.use('/data', needsDb);
+api.use('/buddy', needsDb); api.use('/servers', needsDb); api.use('/projects', needsDb); api.use('/apps', needsDb); api.use('/data', needsDb);
 app.use('/a', needsDb);
 // ---------- KI-Bilder für den normalen Chat (Cloudflare Flux) ----------
 api.post('/image', requireAuth, rateLimit('image', 10, 300), async (req, res) => {
@@ -207,6 +209,8 @@ api.post('/image', requireAuth, rateLimit('image', 10, 300), async (req, res) =>
 
 api.use('/buddy', buddyRouter(requireAuth));
 api.use('/mcp', mcpRouter(requireAuth));
+api.use('/projects', projectsRouter(requireAuth));
+api.use('/servers', serversRouter(requireAuth));
 api.use('/apps', appsRouter(requireAuth));
 api.use('/public', publicApiRouter());
 app.use('/api', api);

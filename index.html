@@ -82,101 +82,37 @@
 
         
         .gemini-live-overlay {
-            position: fixed; top: 0; left: 0; width: 100vw; height: 100dvh;
-            background: radial-gradient(circle at center, #0f0c20 0%, #020105 100%);
-            z-index: 10000; display: flex; flex-direction: column;
-            align-items: center; justify-content: space-between; color: white;
-            backdrop-filter: blur(15px);
+            position: fixed; inset: 0; width: 100vw; height: 100dvh; z-index: 10000;
+            background: radial-gradient(ellipse at 50% 100%, #14102e 0%, #05030d 70%);
+            display: flex; flex-direction: column; color: #fff; overflow: hidden;
         }
-
-        .live-top-bar { width: 100%; display: flex; justify-content: space-between; padding: 24px 32px; box-sizing: border-box; z-index: 100;}
-        .live-badge { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 15px; letter-spacing: 2px; text-shadow: 0 0 15px rgba(255,255,255,0.8); }
-        .live-dot { width: 12px; height: 12px; background: #00ff88; border-radius: 50%; box-shadow: 0 0 15px #00ff88, 0 0 30px #00ff88; animation: pulse-green 1s infinite alternate; }
-        @keyframes pulse-green { 0% { opacity: 0.2; transform: scale(0.8); } 100% { opacity: 1; transform: scale(1.3); } }
-
-        .viereck-wrapper {
-            position: relative; width: 160px; height: 160px;
-            display: flex; justify-content: center; align-items: center;
-            margin-top: 5vh;
-        }
-        
-        /* Das Zentrum */
-        .viereck-avatar {
-            position: relative; width: 130px; height: 130px; border-radius: 50%; 
-            z-index: 20; overflow: hidden; background: #000;
-            box-shadow: 0 0 40px rgba(0, 0, 0, 0.9);
-            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); /* Elastischer Bounce */
-            border: 2px solid rgba(255,255,255,0.05);
-        }
-        .viereck-avatar img { width: 100%; height: 100%; object-fit: cover; }
-        .viereck-avatar::after { content: ''; position: absolute; inset: 0; border-radius: 50%; box-shadow: inset 0 0 25px rgba(255,255,255,0.5); pointer-events: none; }
-        
-        .scale-wrapper {
-            position: absolute; width: 100%; height: 100%;
-            display: flex; justify-content: center; align-items: center;
-            opacity: 0; 
-        }
-        .pulse-viereck { width: 100%; height: 100%; position: absolute; }
-        
-        /* =========================================================
-           🎤 WENN DER USER SPRICHT (SONIC BOOMS)
-           ========================================================= */
-        .user-is-speaking .w-1, .user-is-speaking .w-2, .user-is-speaking .w-3 { opacity: 1; }
-        
-        /* Explosive Schallwellen (Kreise) */
-        .user-is-speaking .w-1 .v-1 { border: 4px solid #00f2fe; border-radius: 50%; box-shadow: 0 0 30px #00f2fe, inset 0 0 20px #00f2fe; animation: sonic-boom 1s infinite linear; }
-        .user-is-speaking .w-2 .v-2 { border: 2px solid #4facfe; border-radius: 50%; box-shadow: 0 0 40px #4facfe; animation: sonic-boom 1.2s infinite linear 0.2s; }
-        .user-is-speaking .w-3 .v-3 { border: 1px solid #00f2fe; border-radius: 50%; box-shadow: 0 0 20px #00f2fe; animation: sonic-boom 1.5s infinite linear 0.4s; }
-        
-        .user-is-speaking .viereck-avatar { 
-            box-shadow: 0 0 80px #00f2fe, 0 0 120px rgba(79, 172, 254, 0.4); 
-            transform: scale(1.08); border-color: #00f2fe;
-        }
-
-        @keyframes sonic-boom {
-            0% { transform: scale(0.8); opacity: 1; border-width: 6px; }
-            100% { transform: scale(3.5); opacity: 0; border-width: 0px; }
-        }
-
-        /* =========================================================
-           🔮 WENN DIE KI SPRICHT (LIQUID PLASMA ORB)
-           ========================================================= */
-        .ai-is-speaking .w-1, .ai-is-speaking .w-2, .ai-is-speaking .w-3 { opacity: 1; }
-
-        /* Magische, wabernde Flüssig-Kerne */
-        .ai-is-speaking .w-1 .v-1 { 
-            background: linear-gradient(45deg, #f093fb 0%, #f5576c 100%); mix-blend-mode: screen;
-            animation: liquid-morph 3s infinite linear; opacity: 0.6; filter: blur(5px);
-        }
-        .ai-is-speaking .w-2 .v-2 { 
-            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); mix-blend-mode: screen;
-            animation: liquid-morph 4s infinite linear reverse; opacity: 0.5; filter: blur(8px);
-        }
-        .ai-is-speaking .w-3 .v-3 { 
-            background: linear-gradient(225deg, #fa709a 0%, #fee140 100%); mix-blend-mode: screen;
-            animation: liquid-morph 5s infinite linear; opacity: 0.4; filter: blur(12px); transform: scale(1.2);
-        }
-        
-        /* Das Avatar atmet massiv */
-        .ai-is-speaking .viereck-avatar { 
-            box-shadow: 0 0 80px #f5576c, 0 0 150px rgba(0, 242, 254, 0.6); 
-            animation: ai-orb-breathe 2s infinite alternate ease-in-out; 
-            border-color: #f093fb;
-        }
-
-        @keyframes liquid-morph {
-            0% { transform: rotate(0deg) scale(1.3); border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%; }
-            50% { transform: rotate(180deg) scale(1.6); border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%; }
-            100% { transform: rotate(360deg) scale(1.3); border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%; }
-        }
-        @keyframes ai-orb-breathe {
-            0% { transform: scale(1); box-shadow: 0 0 60px #f093fb; }
-            100% { transform: scale(1.15); box-shadow: 0 0 120px #00f2fe, 0 0 60px #f5576c; }
-        }
-
-        .live-status-text { font-size: 24px; font-weight: 300; color: #fff; margin-top: 80px; letter-spacing: 1px; text-align: center; text-shadow: 0 0 20px rgba(255,255,255,0.4); z-index: 100; }
-        .gemini-hangup-btn { background: #ff2a2a; color: white; border: none; width: 80px; height: 80px; border-radius: 50%; display: flex; justify-content: center; align-items: center; cursor: pointer; box-shadow: 0 0 30px rgba(255, 42, 42, 0.4), inset 0 0 20px rgba(255,255,255,0.3); transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); margin-bottom: 60px; z-index: 100; }
-        .gemini-hangup-btn:hover { transform: scale(1.15); background: #ff0000; box-shadow: 0 0 50px rgba(255, 0, 0, 0.8); }
+        .live-top-bar { display: flex; align-items: center; gap: 12px; padding: 18px 22px; z-index: 3; }
+        .live-badge { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 14px; letter-spacing: 2px; }
+        .live-dot { width: 10px; height: 10px; background: #00ff88; border-radius: 50%; box-shadow: 0 0 12px #00ff88; animation: pulse-green 1s infinite alternate; }
+        @keyframes pulse-green { 0% { opacity: .35; } 100% { opacity: 1; } }
+        .live-top-bar .grow { flex: 1 }
+        .live-voice { background: rgba(255,255,255,.08); color: #fff; border: 1px solid rgba(255,255,255,.15); padding: 6px 10px; border-radius: 10px; font-size: 13px; outline: none; max-width: 40vw }
+        .live-voice option { color: #000 }
+        .live-end { display: flex; align-items: center; gap: 6px; background: #ff3b3b; color: #fff; border: 0; padding: 8px 16px; border-radius: 999px; font-weight: 600; cursor: pointer; font-size: 14px }
+        .live-end:hover { background: #ff1f1f }
+        .live-board { flex: 1; min-height: 0; width: min(720px, 100%); margin: 0 auto; padding: 4px 22px 0; display: flex; flex-direction: column; z-index: 2 }
+        .live-board-head { display: flex; align-items: center; gap: 8px; font-size: 13px; letter-spacing: .5px; color: rgba(255,255,255,.65); margin-bottom: 10px }
+        .live-ideas { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-bottom: 8px; -webkit-mask-image: linear-gradient(#000 85%, transparent) ; mask-image: linear-gradient(#000 85%, transparent) }
+        .live-idea { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 14px; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.08); font-size: 15px; line-height: 1.4; animation: idea-in .25s ease-out }
+        .live-idea.ai { border-color: rgba(245,87,108,.45) } .live-idea.me { border-color: rgba(79,172,254,.45) }
+        .live-idea .who { font-size: 11px; opacity: .6; display: block; margin-bottom: 2px }
+        .live-idea span.t { flex: 1; overflow-wrap: anywhere }
+        .live-idea button { background: none; border: 0; color: rgba(255,255,255,.5); cursor: pointer; padding: 0; line-height: 1 }
+        .live-idea button:hover { color: #fff }
+        @keyframes idea-in { from { opacity: 0; transform: translateY(6px) } }
+        .live-empty { color: rgba(255,255,255,.45); font-size: 14px; padding: 10px 2px }
+        .live-add { display: flex; gap: 8px; margin: 6px 0 0 }
+        .live-add input { flex: 1; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.15); color: #fff; border-radius: 12px; padding: 10px 12px; font-size: 14px; outline: none; min-width: 0 }
+        .live-add button { background: rgba(255,255,255,.14); color: #fff; border: 0; border-radius: 12px; padding: 0 14px; cursor: pointer }
+        .live-bottom { position: relative; height: 34dvh; min-height: 170px; flex: none; z-index: 1; margin-top: -10px }
+        .live-waves { position: absolute; inset: 0; width: 100%; height: 100% }
+        .live-status-text { position: absolute; left: 0; right: 0; bottom: max(18px, env(safe-area-inset-bottom)); text-align: center; font-size: 17px; font-weight: 400; letter-spacing: .5px; color: rgba(255,255,255,.9); text-shadow: 0 2px 12px rgba(0,0,0,.6); margin: 0; padding: 0 16px }
+        @media (max-width: 600px) { .live-voice { max-width: 46vw } .live-end span.l { display: none } .live-end { padding: 8px 12px } }
     </style>
 </head>
 <body>
@@ -218,7 +154,7 @@
                 <a href="#/artefakte" class="sb-item" id="open-artifacts-btn" data-route="artefakte"><span class="material-symbols-outlined">deployed_code</span><span class="sb-label">Artefakte</span></a>
                 <a href="#/verbindungen" class="sb-item" id="open-mcp-btn" data-route="verbindungen"><span class="material-symbols-outlined">hub</span><span class="sb-label">Verbindungen</span></a>
                 <a href="#/buddy" class="sb-item" id="open-buddy-btn" data-route="buddy"><span class="material-symbols-outlined">diversity_3</span><span class="sb-label">Code Buddy</span><span class="bd-nav-badge" style="display:none"></span></a>
-                <a href="#/buddy/projekte" class="sb-item" id="open-projects-btn"><span class="material-symbols-outlined">folder_open</span><span class="sb-label">Projekte</span></a>
+                <a href="#/projekte" class="sb-item" id="open-projects-btn" data-route="projekte"><span class="material-symbols-outlined">folder_open</span><span class="sb-label">Projekte</span></a>
             </nav>
             <div class="sidebar-scroll-area"></div>
             <div class="sidebar-footer">
@@ -234,9 +170,9 @@
         <main class="main-content">
             <header class="top-bar">
                 <div style="display: flex; align-items: center;">
-                    <div class="brand">Coden AI <span id="owner-badge" style="display:none; background:#ff4444; color:white; font-size:10px; padding:2px 6px; border-radius:4px; margin-left:8px; vertical-align:middle;">OWNER</span></div>
+                    <div class="brand">Coden AI <button type="button" id="chat-project-chip" class="hidden"></button><span id="owner-badge" style="display:none; background:#ff4444; color:white; font-size:10px; padding:2px 6px; border-radius:4px; margin-left:8px; vertical-align:middle;">OWNER</span></div>
                 </div>
-                <div id="user-email-display" style="font-size: 13px; color: var(--text-muted);"></div>
+                <div class="tb-right"><button class="icon-btn" id="export-chat-btn" title="Chat als Datei speichern" aria-label="Chat exportieren"><span class="material-symbols-outlined">download</span></button><div id="user-email-display" style="font-size: 13px; color: var(--text-muted);"></div></div>
             </header>
 
             <div class="chat-scroll-area" id="chat-container">
@@ -316,6 +252,16 @@
                 <input type="range" id="font-size-slider" min="12" max="22" value="15" class="settings-slider">
                 
                 <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border-color);">
+                    <h4 style="margin-bottom: 8px; font-weight: 500; font-size: 14px; color: var(--text-primary);">🎯 Persönliche Anweisungen</h4>
+                    <p style="margin: 0 0 8px; font-size: 12px; color: var(--text-muted);">Gelten in jedem Chat, zum Beispiel „Antworte kurz und auf Deutsch“.</p>
+                    <textarea id="custom-instructions" class="settings-input" rows="3" maxlength="1500" placeholder="Wie soll Coden mit dir arbeiten?" style="resize: vertical;"></textarea>
+                    <h4 style="margin: 20px 0 8px; font-weight: 500; font-size: 14px; color: var(--text-primary);">🧠 Gedächtnis</h4>
+                    <label style="display:flex; gap:8px; align-items:center; margin-bottom: 8px; font-size: 13px;"><input type="checkbox" id="memory-on"> Coden darf sich Dinge über mich merken</label>
+                    <textarea id="memory-notes" class="settings-input" rows="4" placeholder="Eine Sache pro Zeile, zum Beispiel: Ich lerne Python." style="resize: vertical;"></textarea>
+                    <p style="margin: 6px 0 0; font-size: 12px; color: var(--text-muted);">Hier kannst du alles lesen, ändern und löschen. Coden fügt neue Dinge nur hinzu, wenn du es sagst („merk dir …“).</p>
+                </div>
+
+                <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border-color);">
                     <h4 style="margin-bottom: 16px; font-weight: 500; font-size: 14px; color: var(--accent-blue);">⚙️ E-Mail Konto verknüpfen</h4>
                     <label>E-Mail Anbieter</label>
                     <select id="email-provider" class="settings-input" style="margin-bottom: 12px;"><option value="gmail">Gmail</option><option value="outlook">Outlook</option><option value="imap">Anderer Anbieter</option></select>
@@ -377,49 +323,30 @@
         </div>
     </div>
 
-    <div id="live-call-modal" class="hidden gemini-live-overlay">
-
-        <div class="live-main"> ... </div>
-
-        <div id="live-subtitles-container" class="subtitles-area">
-            <div id="live-subtitle-text" class="subtitle-bubble">Warte auf Sprache...</div>
-        </div>
-
+    <div id="live-call-modal" class="hidden gemini-live-overlay" role="dialog" aria-label="Live-Modus">
         <div class="live-top-bar">
-            <div class="live-badge">
-                <div class="live-dot"></div>
-                <span>LIVE</span>
-            </div>
-            <select id="live-voice-selector" style="background: rgba(0,0,0,0.5); color: white; border: 1px solid rgba(255,255,255,0.2); padding: 4px 8px; border-radius: 8px; outline: none; font-size: 12px; cursor: pointer;">
-                <option value="Aoede">Stimme: Aoede (Weiblich)</option>
-                <option value="Kore">Stimme: Kore (Weiblich)</option>
-                <option value="Puck">Stimme: Puck (Männlich)</option>
-                <option value="Charon">Stimme: Charon (Männlich)</option>
-                <option value="Fenrir">Stimme: Fenrir (Männlich)</option>
+            <div class="live-badge"><div class="live-dot"></div><span>LIVE</span></div>
+            <span class="grow"></span>
+            <select id="live-voice-selector" class="live-voice" aria-label="Stimme">
+                <option value="Aoede">Aoede (weiblich)</option>
+                <option value="Kore">Kore (weiblich)</option>
+                <option value="Puck">Puck (männlich)</option>
+                <option value="Charon">Charon (männlich)</option>
+                <option value="Fenrir">Fenrir (männlich)</option>
             </select>
+            <button id="end-call-btn" class="live-end" aria-label="Auflegen"><span class="material-symbols-outlined" style="font-size:20px">call_end</span><span class="l">Auflegen</span></button>
         </div>
-        
-        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1;">
-            
-            <div id="call-avatar-container" class="viereck-wrapper">
-                <div class="scale-wrapper w-1"><div class="pulse-viereck v-1"></div></div>
-                <div class="scale-wrapper w-2"><div class="pulse-viereck v-2"></div></div>
-                <div class="scale-wrapper w-3"><div class="pulse-viereck v-3"></div></div>
-                
-                <div class="viereck-avatar">
-                    <img src="./images/coden_logo.jpg" onerror="this.style.display='none'">
-                </div>
-            </div>
-            
-            <h2 id="call-status-text" class="live-status-text">Verbinde...</h2>
+        <div class="live-board">
+            <div class="live-board-head"><span class="material-symbols-outlined" style="font-size:18px">lightbulb</span> Brainstorm: Sag „halt das fest“ oder schreib selbst eine Idee</div>
+            <div id="live-ideas" class="live-ideas"></div>
+            <form id="live-add" class="live-add"><input id="live-add-input" maxlength="300" placeholder="Idee hinzufügen …" autocomplete="off"><button type="submit" aria-label="Hinzufügen"><span class="material-symbols-outlined">add</span></button></form>
         </div>
-
-        <div style="padding-bottom: 50px;">
-            <button id="end-call-btn" class="gemini-hangup-btn">
-                <span class="material-symbols-outlined" style="font-size: 36px;">call_end</span>
-            </button>
+        <div id="call-avatar-container" class="live-bottom">
+            <canvas id="live-waves" class="live-waves" aria-hidden="true"></canvas>
+            <h2 id="call-status-text" class="live-status-text">Verbinde …</h2>
         </div>
     </div>
+
 
     <script src="shared/app-styles.js"></script>
     <script src="shared/app-bundle.js"></script>

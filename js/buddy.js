@@ -15,7 +15,7 @@ const icon = (n) => h('span', { class: 'material-symbols-outlined', text: n });
 const api = (path, method = 'GET', body) => apiJson('/buddy' + path, { method, body: body ? JSON.stringify(body) : undefined });
 const timeStr = (iso) => { const d = new Date(iso); return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }); };
 
-let root, badge, state = { profile: null, tab: 'friends', view: null, friends: null, projects: [], timers: [] };
+let root, badge, state = { profile: null, tab: 'friends', view: null, friends: null, projects: [], timers: [], server: null, servers: [], channel: null };
 
 function clearTimers() { state.timers.forEach(clearInterval); state.timers = []; }
 function every(ms, fn) { const t = setInterval(() => { if (!document.hidden && root?.classList.contains('open')) fn().catch(() => {}); }, ms); state.timers.push(t); }
@@ -34,14 +34,14 @@ function shell() {
     const side = h('div', { class: 'bd-side' });
     const main = h('div', { class: 'bd-main' });
     const tabs = h('nav', { class: 'bd-tabs', role: 'tablist' }, ...TABS.map(([id, ic, label]) =>
-        h('button', { class: state.tab === id ? 'active' : '', role: 'tab', 'aria-selected': String(state.tab === id), onclick: () => { if (state.tab === id) return; state.tab = id; state.view = null; history.replaceState(null, '', '#/buddy' + (id === 'friends' ? '' : '/' + ({ projects: 'projekte', apps: 'apps' }[id]))); render(); } }, icon(ic), h('span', { text: label }))));
+        h('button', { class: state.tab === id ? 'active' : '', role: 'tab', 'aria-selected': String(state.tab === id), onclick: () => { if (state.tab === id && !state.server) return; state.tab = id; state.server = null; state.view = null; history.replaceState(null, '', '#/buddy' + (id === 'friends' ? '' : '/' + ({ projects: 'projekte', apps: 'apps' }[id]))); render(); } }, icon(ic), h('span', { text: label }))));
     const me = h('button', { class: 'bd-me', title: 'Profil bearbeiten', onclick: () => profileForm() }, h('div', { class: 'bd-avatar', text: (state.profile?.displayName || '?')[0].toUpperCase() }),
         h('div', {}, h('b', { text: state.profile?.displayName || '' }), h('small', { text: '@' + (state.profile?.handle || '') })), icon('edit'));
     const top = h('header', { class: 'bd-top' },
         h('button', { class: 'bd-back', title: 'Zurück zum Chat (Esc)', onclick: () => Buddy.close() }, icon('arrow_back'), h('span', { text: 'Zurück' })),
         h('div', { class: 'bd-brand' }, icon('diversity_3'), h('span', { text: 'Code Buddy' })), tabs, h('span', { class: 'grow' }), me);
     side.append(h('div', { class: 'bd-list', id: 'bd-list' }));
-    root.replaceChildren(h('div', { class: 'bd-card' }, top, h('div', { class: 'bd-cols' }, side, main)));
+    root.replaceChildren(h('div', { class: 'bd-card' }, top, h('div', { class: 'bd-cols' }, rail(), side, main)));
     return { side, main, list: side.querySelector('#bd-list') };
 }
 
@@ -66,7 +66,7 @@ function profileForm(first) {
 async function render() {
     if (!state.profile) return profileForm(true);
     const { main, list } = shell();
-    if (state.tab === 'friends') await renderFriends(main, list); else if (state.tab === 'apps') await renderApps(main, list); else await renderProjects(main, list);
+    if (state.server) await renderServer(main, list); else if (state.tab === 'friends') await renderFriends(main, list); else if (state.tab === 'apps') await renderApps(main, list); else await renderProjects(main, list);
 }
 
 async function renderFriends(main, list) {
@@ -201,6 +201,85 @@ async function renderApps(main, list) {
     }
 }
 
+
+// ---------------- Server (wie Discord) ----------------
+const ROLE = { owner: 'Besitzer', editor: 'Bearbeiter', viewer: 'Zuschauer' };
+const COLORS = ['#8ab4f8', '#81c995', '#f28b82', '#fdd663', '#c58af9', '#ff8bcb'];
+function rail() {
+    const goHome = () => { state.server = null; state.view = null; history.replaceState(null, '', '#/buddy'); render(); };
+    const pick = (id) => { state.server = id; state.channel = null; history.replaceState(null, '', '#/buddy/server/' + id); render(); };
+    return h('nav', { class: 'bd-rail', 'aria-label': 'Server' },
+        h('button', { class: 'bd-srv home' + (state.server ? '' : ' active'), title: 'Startseite: Freunde, Projekte, Apps', onclick: goHome }, icon('home')),
+        h('div', { class: 'bd-rail-sep' }),
+        ...state.servers.map(s => h('button', { class: 'bd-srv' + (state.server === s.id ? ' active' : ''), title: s.name, style: `--c:${/^#[0-9a-f]{6}$/i.test(s.color) ? s.color : '#8ab4f8'}`, onclick: () => pick(s.id), text: (s.name[0] || '?').toUpperCase() })),
+        h('button', { class: 'bd-srv add', title: 'Server erstellen oder beitreten', onclick: () => serverDialog(pick) }, icon('add')));
+}
+async function loadServers() { try { state.servers = (await apiJson('/servers')).servers; } catch (_) { state.servers = []; } }
+function serverDialog(pick) {
+    const name = h('input', { placeholder: 'Name des Servers', maxlength: 40 });
+    const code = h('input', { placeholder: 'Einladungscode', maxlength: 10 });
+    const err = h('div', { class: 'bd-err' });
+    const ov = h('div', { class: 'bd-ov', onclick: (e) => { if (e.target === ov) ov.remove(); } }, h('div', { class: 'bd-dlg' },
+        h('h3', { text: 'Server' }), h('label', { text: 'Neuen Server erstellen' }), name,
+        h('button', { class: 'bd-primary', text: 'Erstellen', onclick: async () => { try { const r = await apiJson('/servers', { method: 'POST', body: JSON.stringify({ name: name.value, color: COLORS[state.servers.length % COLORS.length] }) }); ov.remove(); await loadServers(); pick(r.server.id); } catch (e) { err.textContent = e.message; } } }),
+        h('div', { class: 'bd-rail-sep wide' }), h('label', { text: 'Oder mit Code beitreten' }), code,
+        h('button', { class: 'bd-btn', text: 'Beitreten', onclick: async () => { try { const r = await apiJson('/servers/join', { method: 'POST', body: JSON.stringify({ code: code.value }) }); ov.remove(); await loadServers(); pick(r.server.id); } catch (e) { err.textContent = e.message; } } }),
+        err, h('button', { class: 'bd-btn', text: 'Schließen', onclick: () => ov.remove() })));
+    root.appendChild(ov); name.focus();
+}
+
+async function renderServer(main, list) {
+    const id = state.server; let d;
+    try { d = await apiJson('/servers/' + id); } catch (e) { toast(e.message); state.server = null; await loadServers(); return render(); }
+    const me = d.server.role, canEdit = me !== 'viewer', isOwner = me === 'owner';
+    if (!state.channel || !d.channels.some(c => c.id === state.channel)) state.channel = d.channels[0]?.id;
+    const refresh = () => render();
+    const sApi = (path, method = 'GET', body) => apiJson(`/servers/${id}${path}`, { method, body: body ? JSON.stringify(body) : undefined });
+
+    list.replaceChildren(
+        h('div', { class: 'bd-srv-head' }, h('b', { text: d.server.name }), h('small', { text: ROLE[me] })),
+        isOwner ? h('div', { class: 'bd-invite' }, h('small', { text: 'Einladungscode' }), h('code', { text: d.server.inviteCode }),
+            h('button', { class: 'bd-icon sm', title: 'Kopieren', onclick: guard(async () => { await navigator.clipboard.writeText(d.server.inviteCode); toast('Code kopiert'); }) }, icon('content_copy')),
+            h('button', { class: 'bd-icon sm', title: 'Neuen Code erzeugen', onclick: guard(async () => { if (!confirm('Der alte Code funktioniert danach nicht mehr. Fortfahren?')) return; await sApi('/invite/reset', 'POST'); refresh(); }) }, icon('autorenew'))) : null,
+        h('div', { class: 'bd-sec row' }, h('span', { text: 'Kanäle' }), canEdit ? h('button', { class: 'bd-icon sm', title: 'Kanal anlegen', onclick: guard(async () => { const n = prompt('Name des Kanals:'); if (!n) return; const r = await sApi('/channels', 'POST', { name: n }); state.channel = r.channel.id; refresh(); }) }, icon('add')) : null),
+        ...d.channels.map(c => h('div', { class: 'bd-item clickable' + (state.channel === c.id ? ' active' : ''), onclick: () => { state.channel = c.id; refresh(); } }, icon('tag'), h('div', { class: 'grow' }, h('b', { text: c.name })),
+            isOwner && d.channels.length > 1 ? h('button', { class: 'bd-icon sm', title: 'Kanal löschen', onclick: guard(async (e) => { e.stopPropagation(); if (!confirm(`#${c.name} samt Nachrichten löschen?`)) return; await sApi('/channels/' + c.id, 'DELETE'); state.channel = null; refresh(); }) }, icon('delete')) : null)),
+        h('div', { class: 'bd-sec row' }, h('span', { text: 'Geteilte Apps' }), canEdit ? h('button', { class: 'bd-icon sm', title: 'Eine deiner Apps teilen', onclick: guard(async () => {
+            const mine = (await apiJson('/apps')).apps.filter(a => a.role === 'owner' && !d.apps.some(x => x.id === a.id));
+            if (!mine.length) return toast('Du hast keine App, die du noch teilen kannst.');
+            const pickName = prompt('Welche App teilen?\n' + mine.map(a => a.name).join(', ')); if (!pickName) return;
+            const app = mine.find(a => a.name.toLowerCase() === pickName.trim().toLowerCase()); if (!app) return toast('Diese App gibt es nicht.');
+            await sApi('/apps', 'POST', { appId: app.id }); refresh();
+        }) }, icon('add')) : null),
+        ...(d.apps.length ? d.apps.map(a => h('div', { class: 'bd-item clickable', onclick: () => { location.hash = '#/apps/' + a.id; } }, h('div', { class: 'bd-avatar', style: `background:${/^#[0-9a-f]{6}$/i.test(a.themeColor) ? a.themeColor : '#8ab4f8'}`, text: a.name[0].toUpperCase() }),
+            h('div', { class: 'grow' }, h('b', { text: a.name }), h('small', { text: 'von @' + (a.by || '?') + (me === 'viewer' ? ' · nur ansehen' : ' · bearbeitbar') })),
+            (isOwner || a.by === state.profile.handle) ? h('button', { class: 'bd-icon sm', title: 'Nicht mehr teilen', onclick: guard(async (e) => { e.stopPropagation(); await sApi('/apps/' + a.id, 'DELETE'); refresh(); }) }, icon('link_off')) : icon('chevron_right'))) : [h('small', { class: 'bd-empty', text: 'Noch nichts geteilt.' })]),
+        h('div', { class: 'bd-sec', text: `Mitglieder – ${d.members.length}` }),
+        ...d.members.map(m => h('div', { class: 'bd-item' }, h('div', { class: 'bd-avatar' + (m.online ? ' online' : ''), text: (m.displayName || '?')[0].toUpperCase() }),
+            h('div', { class: 'grow' }, h('b', { text: m.displayName + (m.me ? ' (du)' : '') }), h('small', { text: '@' + m.handle })),
+            (isOwner && m.role !== 'owner')
+                ? h('select', { class: 'bd-role', title: 'Rolle', onchange: guard(async (e) => { await sApi('/members/' + m.handle, 'PATCH', { role: e.target.value }); refresh(); }) }, ...['editor', 'viewer'].map(r => h('option', { value: r, text: ROLE[r], selected: m.role === r ? '' : null })))
+                : h('small', { class: 'bd-rolechip', text: ROLE[m.role] }),
+            (isOwner && m.role !== 'owner') ? h('button', { class: 'bd-icon sm', title: 'Entfernen', onclick: guard(async () => { if (!confirm(`@${m.handle} vom Server entfernen?`)) return; await sApi('/members/' + m.handle, 'DELETE'); refresh(); }) }, icon('person_remove')) : null)),
+        isOwner ? h('div', { class: 'bd-row' }, h('button', { class: 'bd-btn', onclick: guard(async () => { const f = prompt('Freund per @Benutzername hinzufügen (als Zuschauer):'); if (!f) return; await sApi('/members', 'POST', { handle: f.replace(/^@/, '').trim() }); refresh(); }) }, icon('person_add'), ' Freund hinzufügen'),
+            h('button', { class: 'bd-icon', title: 'Server löschen', onclick: guard(async () => { if (!confirm(`„${d.server.name}“ mit allen Kanälen löschen?`)) return; await sApi('', 'DELETE'); state.server = null; await loadServers(); render(); }) }, icon('delete_forever')))
+            : h('div', { class: 'bd-row' }, h('button', { class: 'bd-btn', onclick: guard(async () => { if (!confirm('Server verlassen?')) return; await sApi('/members/' + state.profile.handle, 'DELETE'); state.server = null; await loadServers(); render(); }) }, icon('logout'), ' Verlassen')));
+
+    // Kanal-Chat
+    const ch = d.channels.find(c => c.id === state.channel);
+    const log = h('div', { class: 'bd-log' }); const seen = new Set(); let last = 0;
+    const input = h('textarea', { rows: 1, placeholder: `Nachricht in #${ch?.name || ''}…`, maxlength: 2000 });
+    const add = (m) => { if (seen.has(m.id)) return; seen.add(m.id); last = Math.max(last, m.id); const near = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+        log.append(h('div', { class: 'bd-msg' + (m.mine ? ' mine' : '') }, m.mine ? null : h('small', { text: '@' + (m.handle || '?') }), h('div', { class: 'bd-bubble', text: m.body }), h('small', { text: timeStr(m.createdAt) }))); if (near || m.mine) log.scrollTop = log.scrollHeight; };
+    const send = guard(async () => { const body = input.value.trim(); if (!body || !ch) return; input.value = ''; add((await sApi(`/channels/${ch.id}/messages`, 'POST', { body })).message); });
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+    main.replaceChildren(h('div', { class: 'bd-chat-head' }, icon('tag'), h('div', { class: 'grow' }, h('b', { text: ch?.name || '' }), h('small', { text: d.server.name }))), log,
+        h('div', { class: 'bd-compose' }, input, h('button', { class: 'bd-primary round', title: 'Senden', onclick: send }, icon('send'))));
+    const poll = async () => { if (!ch) return; const r = await sApi(`/channels/${ch.id}/messages` + (last ? `?after=${last}` : '')); r.messages.forEach(add); };
+    poll().catch(e => toast(e.message)); every(3000, poll);
+    every(8000, async () => { const nd = await apiJson('/servers/' + id); if (JSON.stringify(nd.members.map(m => [m.handle, m.role])) !== JSON.stringify(d.members.map(m => [m.handle, m.role])) || nd.apps.length !== d.apps.length || nd.channels.length !== d.channels.length) refresh(); });
+}
+
 // ---------------- Öffentliche API ----------------
 async function updateBadge() {
     if (!auth.currentUser || !badge) return;
@@ -219,9 +298,10 @@ export const Buddy = {
     async mount(host, params = []) {
         const tab = { projekte: 'projects', projects: 'projects', apps: 'apps' }[params[0]] || 'friends';
         if (tab !== state.tab) { state.tab = tab; state.view = null; }
+        state.server = params[0] === 'server' && Number(params[1]) ? Number(params[1]) : (params[0] ? null : state.server);
         host.appendChild(root); root.classList.add('open'); document.body.classList.add('buddy-open');
         root.replaceChildren(h('div', { class: 'bd-loading' }, h('span', { class: 'dots' }, h('i'), h('i'), h('i'))));
-        try { state.profile = (await api('/me')).profile; await render(); } catch (e) { root.replaceChildren(h('div', { class: 'bd-card bd-solo' }, h('button', { class: 'bd-back bd-x', onclick: () => Buddy.close() }, icon('arrow_back'), h('span', { text: 'Zurück' })), h('div', { class: 'bd-center' }, h('p', { class: 'bd-err', text: e.message })))); }
+        try { state.profile = (await api('/me')).profile; await loadServers(); if (state.server && !state.servers.some(x => x.id === state.server)) state.server = null; await render(); } catch (e) { root.replaceChildren(h('div', { class: 'bd-card bd-solo' }, h('button', { class: 'bd-back bd-x', onclick: () => Buddy.close() }, icon('arrow_back'), h('span', { text: 'Zurück' })), h('div', { class: 'bd-center' }, h('p', { class: 'bd-err', text: e.message })))); }
     },
     unmount() { clearTimers(); root.classList.remove('open'); root.remove(); document.body.classList.remove('buddy-open'); updateBadge(); },
     close() { location.hash = '#/chat'; }
