@@ -4,8 +4,8 @@ export const CONFIG = {
     
     models: {
         flash: 'llama-3.1-8b-instant',          // Groq
-        normal: 'openai/gpt-4o',                // GitHub
-        pro: 'openai/o3-mini',                  // GitHub
+        normal: 'qwen/qwen3-32b',               // Groq
+        pro: 'openai/gpt-oss-120b',             // Groq
         openRouterCoder: 'nvidia/nemotron-3-super-120b-a12b:free' // OpenRouter
     }
 };

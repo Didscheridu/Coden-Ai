@@ -8,13 +8,11 @@ const CASCADES = {
   ],
   normal: [
     { provider: 'google', id: 'gemma-3-12b-it' },
-    { provider: 'github', id: 'gpt-4o' },
     { provider: 'groq', id: 'qwen/qwen3-32b' },
     { provider: 'openrouter', id: 'arcee-ai/trinity-large-preview:free' }
   ],
   pro: [
     { provider: 'google', id: 'gemma-3-27b-it' },
-    { provider: 'github', id: 'gpt-4.1' },
     { provider: 'groq', id: 'openai/gpt-oss-120b' },
     { provider: 'openrouter', id: 'nvidia/nemotron-3-super-120b-a12b:free' }
   ]
@@ -22,7 +20,6 @@ const CASCADES = {
 
 const OPENAI_COMPAT = {
   openrouter: { url: 'https://openrouter.ai/api/v1/chat/completions', env: 'OPENROUTER_API_KEY' },
-  github: { url: 'https://models.inference.ai.azure.com/chat/completions', env: 'GITHUB_API_KEY' },
   groq: { url: 'https://api.groq.com/openai/v1/chat/completions', env: 'GROQ_API_KEY' }
 };
 
@@ -41,8 +38,8 @@ async function callOpenAICompat(provider, modelId, messages) {
     return { role: m.role, content: m.content };
   });
   const payload = { model: modelId, messages: formatted };
-  if (provider === 'github' && /o1|o3-mini/.test(modelId)) payload.max_completion_tokens = 8192;
-  else { payload.max_tokens = 8192; payload.temperature = 0.7; }
+  payload.max_tokens = 8192;
+  payload.temperature = 0.7;
 
   const r = await fetch(cfg.url, {
     method: 'POST',

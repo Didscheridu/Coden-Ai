@@ -1007,68 +1007,6 @@ async function handleSend() {
         };
     });
 
-    // --- NEU: BILDERSTELLUNG ABFANGEN ---
-    // --- NEU: BILDERSTELLUNG ABFANGEN (VERBESSERT) ---
-    const lowerText = text.toLowerCase();
-    let isImageCommand = false;
-    let imagePrompt = "";
-
-    // Flexibler Check: Reagiert auf verschiedene Variationen!
-    if (lowerText.includes('bild von') || lowerText.includes('generiere ein bild') || lowerText.includes('erstelle ein bild') || lowerText.includes('mal ein bild')) {
-        isImageCommand = true;
-        
-        // Wir schneiden alles ab, was vor dem "von" steht, um das eigentliche Motiv zu bekommen
-        const splitText = lowerText.split('von');
-        if (splitText.length > 1) {
-            imagePrompt = splitText[1].trim(); // z.B. "einem vogel"
-        } else {
-            // Falls kein "von" drin war, nehmen wir einfach die ganze Nachricht als Prompt
-            imagePrompt = lowerText.replace(/erstelle|generiere|mach|zeichne|mal|ein|bild|bitte/gi, '').trim();
-        }
-        
-        // Sicherheits-Fallback
-        if (!imagePrompt) imagePrompt = "Ein cooles Kunstwerk"; 
-    }
-
-    if (isImageCommand) {
-        UI.showLoading(true, "Coden malt ein Bild...");
-        try {
-            const res = await apiFetch('/generate-image', {
-                method: 'POST',
-                body: JSON.stringify({ prompt: imagePrompt })
-            });
-            const data = await res.json();
-            
-            if (!res.ok) throw new Error(data.error || "Fehler von Freepik");
-
-            UI.showLoading(false);
-            
-            // Markdown generieren, das das Bild im Chat anzeigt
-            // Dateiname für den Download generieren (Leerzeichen durch Unterstriche ersetzen)
-            // Dateiname für den Download generieren
-            const safeFileName = imagePrompt.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'coden_image';
-
-// WICHTIG: Keine Leerzeichen vor dem HTML, sonst wird es als Code-Block erkannt!
-            const imageMarkdown = `🎨 **Hier ist dein Bild:**\n\n<div style="position: relative; display: inline-block; max-width: 350px; margin-top: 12px; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.3);"><img src="${data.imageUrl}" alt="${imagePrompt}" style="width: 100%; display: block; margin: 0 !important; border-radius: 0 !important;"><a href="${data.imageUrl}" download="${safeFileName}.jpg" style="position: absolute; bottom: 10px; right: 10px; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); color: white; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; text-decoration: none; transition: all 0.2s; box-shadow: 0 4px 12px rgba(0,0,0,0.5);" title="Bild herunterladen" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'"><span class="material-symbols-outlined" style="font-size: 20px;">download</span></a></div>`;
-
-     
-            
-            UI.appendMessage(imageMarkdown, false, false); 
-            currentSession.messages.push({ text: imageMarkdown, isUser: false });
-            
-            // Speichern (ohne große Base64 Bilder der User, aber unsere URL bleibt im Text)
-            const sessionsToSave = JSON.parse(JSON.stringify(sessions));
-            sessionsToSave.forEach(s => s.messages.forEach(m => { if (m.images) delete m.images; }));
-            Storage.saveSessions(sessionsToSave); 
-            UI.renderSidebar(sessions, activeSessionId);
-            
-        } catch (err) {
-            UI.showLoading(false);
-            UI.appendMessage("❌ **Fehler bei der Bilderstellung:** " + err.message, false);
-        }
-        return; // WICHTIG: Das return beendet die Funktion hier! So antwortet die Text-KI nicht mehr dazwischen!
-    }
-    // --- ENDE BILDERSTELLUNG ---
     let isEmailCommand = false;
     if (['mail', 'gmail', 'sende', 'schick', 'weiterleiten'].some(w => text.toLowerCase().includes(w))) {
         if (await showCustomConfirm("Möchtest du eine E-Mail senden?")) isEmailCommand = true;

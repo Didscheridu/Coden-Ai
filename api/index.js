@@ -117,29 +117,6 @@ api.post('/chat', requireAuth, rateLimit('chat', 20, 60), enforceSystemState, as
   }
 });
 
-// ---------- Bild ----------
-api.post('/generate-image', requireAuth, rateLimit('image', 5, 60), async (req, res) => {
-  const prompt = String(req.body?.prompt || '').slice(0, 1000);
-  if (!prompt) return res.status(400).json({ error: 'Prompt fehlt' });
-  const key = process.env.FREEPIK_API_KEY;
-  if (!key) return res.status(500).json({ error: 'Bildserver nicht konfiguriert.' });
-  try {
-    const r = await fetch('https://api.freepik.com/v1/ai/text-to-image', {
-      method: 'POST',
-      headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'x-freepik-api-key': key },
-      body: JSON.stringify({ prompt })
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.message || 'Fehler bei der Freepik API');
-    const first = data.data?.[0];
-    if (first?.base64) return res.json({ imageUrl: `data:image/jpeg;base64,${first.base64}` });
-    if (first?.url) return res.json({ imageUrl: first.url });
-    throw new Error('Unerwartetes Antwortformat von Freepik');
-  } catch (e) {
-    res.status(502).json({ error: e.message });
-  }
-});
-
 // ---------- E-Mail (über das eigene Konto des Nutzers, nur Gmail/Outlook) ----------
 const SMTP = {
   gmail: { host: 'smtp.gmail.com', port: 465, secure: true },
