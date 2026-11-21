@@ -3,8 +3,8 @@ import { CONFIG } from './config.js';
 import { generateAiResponse } from './api.js';
 import { UI } from './ui.js';
 import { Storage } from './storage.js';
-import { loginWithGoogle, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, auth, db } from './firebase-init.js';
-import { doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+import { loginWithGoogle, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, auth } from './firebase-init.js';
+import { apiFetch, apiJson } from './backend.js';
 import { checkRateLimit } from './Limit-Spamschutz.js';
 import { MultimodalLivePrototype } from './multimodal-live-prototype.js'; // 🔥 NEU: Der Live Client 🔥
 import { ChessEngine } from './Chess.js'; // 🔥 NEU HINZUGEFÜGT
@@ -44,8 +44,8 @@ let globalLockedModels = { pro: false, thinking: false };
 let currentSelectedModel = 'flash';
 
 let lastBroadcastTime = parseInt(localStorage.getItem('coden_last_broadcast')) || Date.now();
-let lastUpdateTime = 0;
-let lastGlobalClearTime = 0;
+let lastUpdateTime = parseInt(localStorage.getItem('coden_last_update')) || Date.now();
+let lastGlobalClearTime = parseInt(localStorage.getItem('coden_last_clear')) || Date.now();
 
 function showError(msg) { 
     if (errorMsg) { 
@@ -159,7 +159,7 @@ if (auth) {
     onAuthStateChanged(auth, async (user) => {
         try {
             if (user) {
-                isOwner = (user.email === 'kayden.schunack@gmail.com');
+                try { isOwner = (await apiJson('/me')).isOwner === true; } catch (e) { isOwner = false; } // serverseitig entschieden
                 const badge = document.getElementById('owner-badge');
                 if (badge) badge.style.display = isOwner ? 'inline-block' : 'none';
 
@@ -195,13 +195,19 @@ if (auth) {
 // ==========================================
 // 🌐 5. GLOBALE DATENBANK (Live Sync)
 // ==========================================
+let globalSyncTimer = null;
 function initGlobalSync() {
+    clearInterval(globalSyncTimer);
+    pollSystemState();
+    // Neon schläft bei Inaktivität ein -> bewusst nur alle 30 s abfragen, nur bei sichtbarem Tab
+    globalSyncTimer = setInterval(() => { if (!document.hidden && auth.currentUser) pollSystemState(); }, 30000);
+}
+
+async function pollSystemState() {
     try {
-        if (!db) return;
-        
-        onSnapshot(doc(db, "system", "state"), (docSnap) => {
-            if (docSnap.exists()) {
-                const data = docSnap.data();
+        const data = await apiJson('/system/state');
+        {
+            {
                 
                 // Modell-Sperren
                 if (data.locks) {
@@ -226,7 +232,7 @@ function initGlobalSync() {
                 
                 // Force Update
                 if (data.forceUpdate && data.forceUpdate > lastUpdateTime) { 
-                    lastUpdateTime = data.forceUpdate; 
+                    lastUpdateTime = data.forceUpdate; localStorage.setItem('coden_last_update', String(lastUpdateTime)); 
                     if (!isOwner) location.reload(); 
                 }
                 
@@ -245,7 +251,7 @@ function initGlobalSync() {
                 
                 // Global Clear
                 if (data.globalClear && data.globalClear > lastGlobalClearTime) {
-                    lastGlobalClearTime = data.globalClear;
+                    lastGlobalClearTime = data.globalClear; localStorage.setItem('coden_last_clear', String(lastGlobalClearTime));
                     sessions = [Storage.createNewSession()]; 
                     currentSession = sessions[0]; 
                     activeSessionId = currentSession.id;
@@ -255,7 +261,7 @@ function initGlobalSync() {
                     if (!isOwner) UI.appendMessage("⚠️ Der Administrator hat alle Chats global geleert.", false);
                 }
             }
-        });
+        }
     } catch (error) {}
 }
 
@@ -451,25 +457,26 @@ async function handleCommand(text) {
     
     // 🔑 Lokale Befehle
     if (cmd === '/api') {
-        const s = Storage.getSettings(); 
-        s.apiKey = param; 
-        Storage.saveSettings(s);
-        return UI.appendMessage(`⚙️ **SYSTEM:**\n🔑 API Key im Browser gespeichert!`, false);
+        return UI.appendMessage(`⚙️ **SYSTEM:**\n🔑 API-Keys liegen jetzt sicher im Backend (Vercel-Umgebungsvariablen). Dieser Befehl wird nicht mehr gebraucht.`, false);
     }
 
-    if (!db) return UI.appendMessage("❌ Datenbank-Fehler.", false);
-    
-    // 🛡️ HIER IST DAS FEHLENDE TRY!
     try {
-        if (cmd === '/lock') { await setDoc(doc(db, "system", "state"), { locks: { [args[1]]: true } }, { merge: true }); sysMsg = `🔒 ${args[1]} GLOBAL gesperrt.`; }
-        else if (cmd === '/unlock') { await setDoc(doc(db, "system", "state"), { locks: { [args[1]]: false } }, { merge: true }); sysMsg = `🔓 ${args[1]} GLOBAL entsperrt.`; }
-        else if (cmd === '/broadcast') { await setDoc(doc(db, "system", "state"), { broadcast: { message: param, time: Date.now() } }, { merge: true }); sysMsg = "📢 Broadcast LIVE gesendet."; }
-        else if (cmd === '/forceupdate') { await setDoc(doc(db, "system", "state"), { forceUpdate: Date.now() }, { merge: true }); sysMsg = "🔄 Reload befohlen."; }
-        else if (cmd === '/maintenance') { await setDoc(doc(db, "system", "state"), { maintenance: param === 'on' }, { merge: true }); sysMsg = `🛠️ Wartungsmodus: ${param.toUpperCase()}`; }
-        else if (cmd === '/model') { await setDoc(doc(db, "system", "state"), { globalModel: param }, { merge: true }); sysMsg = `🔄 Modell auf '${param}' gezwungen.`; }
-        else if (cmd === '/theme') { await setDoc(doc(db, "system", "state"), { theme: param }, { merge: true }); sysMsg = `🎨 Theme auf '${param}' gesetzt.`; }
-        else if (cmd === '/font') { await setDoc(doc(db, "system", "state"), { fontSize: parseInt(param) }, { merge: true }); sysMsg = `🔠 Schriftgröße für ALLE auf ${param}px.`; }
-        else if (cmd === '/clearall') { await setDoc(doc(db, "system", "state"), { globalClear: Date.now() }, { merge: true }); sysMsg = `🗑️ ALLE Chats bei ALLEN gelöscht!`; }
+        const ADMIN_CMDS = {
+            '/lock': () => [`lock`, args[1], `🔒 ${args[1]} GLOBAL gesperrt.`],
+            '/unlock': () => [`unlock`, args[1], `🔓 ${args[1]} GLOBAL entsperrt.`],
+            '/broadcast': () => [`broadcast`, param, "📢 Broadcast LIVE gesendet."],
+            '/forceupdate': () => [`forceupdate`, null, "🔄 Reload befohlen."],
+            '/maintenance': () => [`maintenance`, param, `🛠️ Wartungsmodus: ${String(param).toUpperCase()}`],
+            '/model': () => [`model`, param, `🔄 Modell auf '${param}' gezwungen.`],
+            '/theme': () => [`theme`, param, `🎨 Theme auf '${param}' gesetzt.`],
+            '/font': () => [`font`, param, `🔠 Schriftgröße für ALLE auf ${param}px.`],
+            '/clearall': () => [`clearall`, null, `🗑️ ALLE Chats bei ALLEN gelöscht!`]
+        };
+        if (ADMIN_CMDS[cmd]) {
+            const [name, value, okMsg] = ADMIN_CMDS[cmd]();
+            await apiJson('/admin/command', { method: 'POST', body: JSON.stringify({ cmd: name, param: value }) });
+            sysMsg = okMsg;
+        }
         else if (cmd === '/usage' || cmd === '/stats') { sysMsg = `📈 **System-Statistiken:**\nAlles läuft im grünen Bereich.`; }
         else { sysMsg = `Admin-Befehl ausgeführt: ${cmd}`; } 
         
@@ -770,9 +777,8 @@ if (sendRealEmailBtn) {
         sendRealEmailBtn.disabled = true;
         
         try {
-            const response = await fetch('/api/send-email', { 
+            const response = await apiFetch('/send-email', { 
                 method: 'POST', 
-                headers: { 'Content-Type': 'application/json' }, 
                 body: JSON.stringify({ 
                     provider: s.emailConfig.provider, 
                     email: s.emailConfig.address, 
@@ -1049,9 +1055,8 @@ async function handleSend() {
     if (isImageCommand) {
         UI.showLoading(true, "Coden malt ein Bild...");
         try {
-            const res = await fetch('/api/generate-image', {
+            const res = await apiFetch('/generate-image', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ prompt: imagePrompt })
             });
             const data = await res.json();

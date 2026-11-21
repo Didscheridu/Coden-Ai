@@ -2,6 +2,11 @@
 
 const AI_PROFILE_PIC_SRC = './images/coden_logo.jpg';
 
+// Markdown -> HTML, danach von DOMPurify bereinigt (Schutz vor XSS)
+function safeMarkdown(text) {
+    return DOMPurify.sanitize(marked.parse(text), { ADD_ATTR: ['download', 'target'] });
+}
+
 const customRenderer = new marked.Renderer();
 
 customRenderer.code = function(tokenOrCode, language) {
@@ -105,7 +110,7 @@ export const UI = {
         
         if (isUser) {
             content.style.background = 'var(--accent-blue, #2b6cb0)'; content.style.color = '#ffffff'; content.style.padding = '10px 16px'; content.style.borderRadius = '16px 16px 4px 16px'; content.style.fontSize = '15px';
-            content.innerHTML = marked.parse(text);
+            content.innerHTML = safeMarkdown(text);
         } else {
             content.style.background = 'transparent'; content.style.color = 'var(--text-primary, #ececec)'; content.style.padding = '4px 0';
         }
@@ -122,7 +127,7 @@ export const UI = {
                 i += chunkSize;
                 if (i >= text.length) i = text.length;
                 
-                content.innerHTML = marked.parse(text.substring(0, i));
+                content.innerHTML = safeMarkdown(text.substring(0, i));
                 chatContainer.scrollTop = chatContainer.scrollHeight;
 
                 if (i >= text.length) {
@@ -132,7 +137,7 @@ export const UI = {
             }, 10); // Geschwindigkeit (10ms)
         } else if (!isUser && !animate) {
             // Wenn Chats geladen werden (keine Animation)
-            content.innerHTML = marked.parse(text);
+            content.innerHTML = safeMarkdown(text);
             UI.applyPostRendering(content);
         }
 
@@ -213,12 +218,14 @@ export const UI = {
             item.innerHTML = `
                 <div class="nav-item-left" style="display: flex; align-items: center; gap: 12px; overflow: hidden; width: 100%;">
                     <span class="material-symbols-outlined">chat_bubble</span> 
-                    <span class="session-title" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${session.title}</span>
+                    <span class="session-title" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></span>
                 </div>
                 <button class="icon-btn delete-chat-btn" title="Chat löschen" style="padding: 4px; color: var(--text-muted); display: flex;">
                     <span class="material-symbols-outlined" style="font-size: 18px;">delete</span>
                 </button>
             `;
+
+            item.querySelector('.session-title').textContent = session.title; // kein innerHTML: Titel stammen von der KI
 
             item.querySelector('.nav-item-left').addEventListener('click', (e) => {
                 e.stopPropagation(); document.dispatchEvent(new CustomEvent('loadChatSession', { detail: session.id }));
