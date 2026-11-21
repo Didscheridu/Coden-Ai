@@ -72,10 +72,18 @@ function appsRouter(requireAuth) {
   const r = wrapRouter(express.Router());
   r.use(requireAuth);
 
-  async function memberOf(req, res, id) {
+  // Zugriff: direktes Mitglied, sonst über einen Server, in den die App geteilt wurde (Bearbeiter → editor, Zuschauer → viewer).
+  // needWrite = true: Zuschauer werden abgewiesen.
+  async function memberOf(req, res, id, needWrite = false) {
     id = toInt(id); if (!id) { bad(res, 404, 'App nicht gefunden.'); return null; }
-    const [a] = await getSql()`SELECT a.*, m.role FROM apps a JOIN app_members m ON m.app_id = a.id AND m.uid = ${req.user.uid} WHERE a.id = ${id}`;
+    let [a] = await getSql()`SELECT a.*, m.role FROM apps a JOIN app_members m ON m.app_id = a.id AND m.uid = ${req.user.uid} WHERE a.id = ${id}`;
+    if (!a) {
+      [a] = await getSql()`SELECT a.*, CASE WHEN bool_or(sm.role IN ('owner','editor')) THEN 'editor' ELSE 'viewer' END AS role
+        FROM apps a JOIN server_shares ss ON ss.app_id = a.id JOIN server_members sm ON sm.server_id = ss.server_id AND sm.uid = ${req.user.uid}
+        WHERE a.id = ${id} GROUP BY a.id`;
+    }
     if (!a) { bad(res, 404, 'App nicht gefunden.'); return null; }
+    if (needWrite && a.role === 'viewer') { bad(res, 403, 'Du darfst diese App nur ansehen.'); return null; }
     return a;
   }
   const meta = (a, req) => ({
@@ -97,6 +105,15 @@ function appsRouter(requireAuth) {
       SELECT a.id, a.name, a.kind, a.style, a.slug, a.published, a.updated_at, a.theme_color, a.preview_token, a.version, m.role,
         (SELECT count(*)::int FROM app_members x WHERE x.app_id = a.id) AS members
       FROM apps a JOIN app_members m ON m.app_id = a.id AND m.uid = ${req.user.uid} ORDER BY a.updated_at DESC LIMIT 100`;
+    // Über Server geteilte Apps (nur die, die nicht schon direkt zugänglich sind)
+    const shared = await getSql()`
+      SELECT a.id, a.name, a.kind, a.style, a.slug, a.published, a.updated_at, a.theme_color, a.preview_token, a.version,
+        CASE WHEN bool_or(sm.role IN ('owner','editor')) THEN 'editor' ELSE 'viewer' END AS role,
+        (SELECT count(*)::int FROM app_members x WHERE x.app_id = a.id) AS members
+      FROM apps a JOIN server_shares ss ON ss.app_id = a.id JOIN server_members sm ON sm.server_id = ss.server_id AND sm.uid = ${req.user.uid}
+      WHERE NOT EXISTS (SELECT 1 FROM app_members z WHERE z.app_id = a.id AND z.uid = ${req.user.uid})
+      GROUP BY a.id ORDER BY a.updated_at DESC LIMIT 100`;
+    rows.push(...shared);
     res.json({ apps: rows.map(a => ({ id: Number(a.id), name: a.name, kind: a.kind, style: a.style, slug: a.slug, published: a.published, role: a.role, members: a.members, themeColor: a.theme_color, version: a.version, updatedAt: iso(a.updated_at), url: publicUrl(req, a.slug), testUrl: publicUrl(req, a.slug) + '?t=' + a.preview_token })) });
   });
 
@@ -131,7 +148,7 @@ function appsRouter(requireAuth) {
   });
 
   r.patch('/:id', async (req, res) => {
-    const a = await memberOf(req, res, req.params.id); if (!a) return;
+    const a = await memberOf(req, res, req.params.id, true); if (!a) return;
     const b = req.body || {}; const sql = getSql();
     const name = b.name !== undefined ? String(b.name).trim().slice(0, 60) : a.name;
     const kind = b.kind !== undefined ? String(b.kind) : a.kind;
@@ -163,7 +180,7 @@ function appsRouter(requireAuth) {
     const set = req.body?.set && typeof req.body.set === 'object' && !Array.isArray(req.body.set) ? req.body.set : {};
     const remove = Array.isArray(req.body?.remove) ? req.body.remove.map(String) : [];
     for (let attempt = 0; attempt < 4; attempt++) {
-      const a = await memberOf(req, res, id); if (!a) return;
+      const a = await memberOf(req, res, id, true); if (!a) return;
       const files = { ...(a.files || {}) };
       for (const n of remove) delete files[n];
       for (const [n, c] of Object.entries(set)) files[n] = c;
@@ -195,7 +212,7 @@ function appsRouter(requireAuth) {
   });
   // KI-Bild erzeugen und als URL zurückgeben (Coden baut sie dann in die App ein)
   r.post('/:id/images', rateLimit('apps-img', 12, 300), async (req, res) => {
-    const a = await memberOf(req, res, req.params.id); if (!a) return;
+    const a = await memberOf(req, res, req.params.id, true); if (!a) return;
     const prompt = String(req.body?.prompt || '').trim().slice(0, 1500);
     if (prompt.length < 3) return bad(res, 400, 'Beschreibe das Bild kurz.');
     const [{ n }] = await getSql()`SELECT count(*)::int AS n FROM app_images WHERE app_id = ${a.id}`;
@@ -207,7 +224,7 @@ function appsRouter(requireAuth) {
     res.json({ key, url: `${baseUrl(req)}/api/public/img/${key}` });
   });
   r.post('/:id/messages', rateLimit('apps-msg', 90, 60), async (req, res) => {
-    const a = await memberOf(req, res, req.params.id); if (!a) return;
+    const a = await memberOf(req, res, req.params.id, true); if (!a) return;
     const role = String(req.body?.role || 'user'); const body = String(req.body?.body ?? '');
     const m = req.body?.meta && typeof req.body.meta === 'object' ? req.body.meta : {};
     if (!['user', 'assistant', 'tool', 'event'].includes(role)) return bad(res, 400, 'Ungültige Rolle.');
@@ -281,7 +298,7 @@ function appsRouter(requireAuth) {
 
   // ---------- Android-APK (über GitHub Actions) ----------
   r.post('/:id/apk', rateLimit('apps-apk', 6, 3600), async (req, res) => {
-    const a = await memberOf(req, res, req.params.id); if (!a) return;
+    const a = await memberOf(req, res, req.params.id, true); if (!a) return;
     if (!['android', 'both'].includes(a.kind)) return bad(res, 400, 'APKs gibt es nur für Android-Apps.');
     if (!a.published) return bad(res, 400, 'Veröffentliche die App zuerst – die APK öffnet deine Coden-Adresse.', { code: 'NOT_PUBLISHED' });
     if (!apk.configured()) return bad(res, 501, 'Der APK-Build ist auf diesem Server noch nicht eingerichtet (GH_APK_TOKEN fehlt).', { code: 'APK_NOT_CONFIGURED' });
