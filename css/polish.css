@@ -89,3 +89,11 @@ html { scroll-behavior: smooth; }
 @media (max-width: 768px) { .message-row .content { max-width: 88% } .ai-message .content { max-width: 100% } .chips { padding: 0 12px } }
 #stop-btn { color: #f28b82; background: rgba(242, 139, 130, .16); border-radius: 50%; animation: pulse 1.6s ease-in-out infinite }
 #send-btn.queued { opacity: .55 }
+
+/* Chat-Bilder: immer komplett sichtbar, egal wie groß der Bildschirm ist */
+.md .img-card { margin: 12px 0 0; display: inline-flex; flex-direction: column; gap: 8px; max-width: 100% }
+.md .img-card img { display: block; margin: 0; width: auto; height: auto; max-width: 100%; max-height: min(62vh, 560px); object-fit: contain; cursor: zoom-in; background: rgba(255, 255, 255, .03) }
+.img-bar { display: flex; flex-wrap: wrap; gap: 6px }
+.img-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .1); background: rgba(255, 255, 255, .05); color: inherit; font: inherit; font-size: 13px; cursor: pointer; transition: background .15s }
+.img-btn:hover { background: rgba(255, 255, 255, .11) } .img-btn:disabled { opacity: .5; cursor: wait }
+.img-btn .material-symbols-outlined { font-size: 18px }
