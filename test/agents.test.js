@@ -15,7 +15,9 @@ const { setup } = require('./helpers');
     dunkel: ['Ich mache es dunkel.\n<edit path="style.css">\n<find>body{margin:0}</find>\n<replace>body{margin:0;background:#111}</replace>\n</edit>\nFertig, jetzt ist es dunkel.'],
     kaputt: ['Ich baue eine Hilfsdatei.\n<file path="util.js">\nfunction ( {\n</file>\nErledigt.', 'Ups, Syntaxfehler – behoben.\n<file path="util.js">\nfunction hilfe() { return 1; }\n</file>\nJetzt passt alles.'],
     merk: ['Ich merke mir das.\n<tool name="memory">Spielfeld ist immer 960x540, Farben aus style.css</tool>', 'Gemerkt!'],
-    solo: ['Ich versuche Sub-Agenten.\n<tool name="spawn">' + SPAWN + '</tool>', 'Dann mache ich es selbst. Fertig.']
+    solo: ['Ich versuche Sub-Agenten.\n<tool name="spawn">' + SPAWN + '</tool>', 'Dann mache ich es selbst. Fertig.'],
+    ankuendigung: ['Ich sehe das Problem: die Initialisierung ist falsch. Let me fix the initialization order.', 'Hier die Korrektur.\n<file path="init.js">\nwindow.bereit = true;\n</file>\nBehoben – die App startet jetzt richtig.'],
+    etappen: ['Schritt eins: Grundgerüst.\n<file path="etappe.js">\nwindow.e = 1;\n</file>\n<tool name="check"/>', 'Schritt zwei: erweitert.\n<file path="etappe.js">\nwindow.e = 2;\n</file>\n<tool name="check"/>', 'Alles fertig und geprüft.\n<tool name="done"/>']
   };
   global.fetch = async (url, opts = {}) => {
     if (String(url).startsWith('http://127.0.0.1')) return realFetch(url, opts);
@@ -29,7 +31,7 @@ const { setup } = require('./helpers');
       seen.main.push(sys);
       const users = body.messages.filter(m => m.role === 'user'); const results = users.filter(m => /^\[Werkzeug-Ergebnisse\]/.test(m.content)).length;
       const wish = [...body.messages].reverse().find(m => m.role === 'user' && !/^\[Werkzeug-Ergebnisse\]/.test(m.content)).content;
-      const key = /Weltraum/.test(wish) ? 'team' : /dunkel/.test(wish) ? 'dunkel' : /Hilfsdatei/.test(wish) ? 'kaputt' : /merk/.test(wish) ? 'merk' : 'solo';
+      const key = /Weltraum/.test(wish) ? 'team' : /dunkel/.test(wish) ? 'dunkel' : /Hilfsdatei/.test(wish) ? 'kaputt' : /merk/.test(wish) ? 'merk' : /Repariere/.test(wish) ? 'ankuendigung' : /Etappen/.test(wish) ? 'etappen' : 'solo';
       seen.results.push(users[users.length - 1].content);
       return sse(MAIN[key][Math.min(results, MAIN[key].length - 1)]);
     }
@@ -53,7 +55,8 @@ const { setup } = require('./helpers');
   const ag = t1.evs.filter(e => e.t === 'a').pop()?.agents || [];
   chk('Lauf: ID zuerst, done zuletzt', `${t1.evs[0].t} ${t1.evs[t1.evs.length - 1].t}`, 'run done');
   chk('Main Agent im Systemprompt, Team-Modus verlangt spawn', /TEAM-MODUS GEWÄHLT/.test(seen.main[0]) && /<tool name="spawn">/.test(seen.main[0]), true);
-  chk('Main Agent hat 4 Schritte gemacht', seen.main.length, 4);
+  chk('Main Agent: 4 Arbeitsschritte + Abnahme', seen.main.length, 5);
+  chk('Abnahme: Bitte des Nutzers wird Punkt für Punkt geprüft', /\[Abnahme\][\s\S]*Weltraum-Spiel mit Start-Knopf/.test(seen.results[4]), true);
   chk('Agenten: Main + 2 Sub-Agenten (mit parent)', ag.map(a => a.role + (a.parent ? '>' + a.parent : '')).join(','), 'main,coder>main,coder>main');
   chk('Sub-Agenten mit Kit im Prompt', seen.kits.sort().join(' | '), 'LAYOUT-DESIGNER 🎨 | SPIEL-ENTWICKLER 🎮');
   chk('Modell je Schwierigkeit (leicht=Flash, schwer=Pro ohne Ultra-Freigabe)', ag.filter(a => a.parent).map(a => a.kit + ':' + a.tier).join(' '), 'layout:Flash game:Pro');
@@ -64,10 +67,10 @@ const { setup } = require('./helpers');
   chk('Dateien der Sub-Agenten gespeichert, fremde verworfen', Object.keys(f1).sort().join(','), 'game.js,index.html,style.css');
   chk('Main Agent hat den Fehler der Sub-Agenten selbst behoben', f1['game.js'].includes('if (true)'), false);
   const m1 = await lastAi(app.id);
-  chk('Eine Nachricht für den ganzen Lauf (mit Werkzeug-Ergebnissen)', (m1.body.match(/<result name="(\w+)"/g) || []).map(x => x.slice(14, -1)).join(','), 'spawn,search,read,check');
+  chk('Eine Nachricht für den ganzen Lauf (mit Werkzeug-Ergebnissen)', (m1.body.match(/<result name="(\w+)"/g) || []).map(x => x.slice(14, -1)).join(','), 'spawn,search,read,check,review');
   chk('Ergebnis spawn als Zeile', /<result name="spawn" ok="0">2\/2 Sub-Agenten fertig · 1 Problem gefunden<\/result>/.test(m1.body), true);
   chk('Nachricht gekürzt (keine Dateiinhalte), Abschluss da', !/getElementById\("start"\)\.onclick/.test(m1.body) && /Fertig! Das Spiel läuft/.test(m1.body), true);
-  chk('Meta: Schritte und geänderte Dateien', `${m1.meta.steps} ${m1.meta.changed.map(c => c.path).sort().join(',')}`, '4 game.js,index.html,style.css');
+  chk('Meta: Schritte und geänderte Dateien', `${m1.meta.steps} ${m1.meta.changed.map(c => c.path).sort().join(',')}`, '5 game.js,index.html,style.css');
   chk('Nur EINE Assistenten-Nachricht im Verlauf', (await G(`/apps/${app.id}/messages`, anna)).j.messages.filter(m => m.role !== 'user').length, 1);
 
   // --- Solo, kleine Änderung: ein Schritt, automatische Prüfung ok ---
@@ -87,7 +90,30 @@ const { setup } = require('./helpers');
   // --- Solo: spawn nicht erlaubt ---
   seen.main = []; await say(app.id, 'Mach das alleine');
   await agent(app.id, { tier: 'pro', mode: 'single' });
-  chk('Solo: spawn wird abgelehnt', /Solo-Modus/.test(lastResult()), true);
+  chk('Solo: spawn wird abgelehnt', seen.results.some(r => /Solo-Modus/.test(r)), true);
+
+  // --- Nur angekündigt statt gehandelt: Coden hakt nach, statt aufzuhören ---
+  seen.main = []; seen.results = []; await say(app.id, 'Repariere die Initialisierung');
+  await agent(app.id, { tier: 'pro', mode: 'auto' });
+  chk('Nachhaken: zweiter Schritt mit Aufforderung', `${seen.main.length} ${/\[System\] Du hast nur angekündigt/.test(seen.results[1])}`, '2 true');
+  chk('Nachhaken: Änderung kam danach wirklich', (await G('/apps/' + app.id, anna)).j.files['init.js'], 'window.bereit = true;');
+  chk('Nachhaken als Zeile in der Antwort', /<result name="nudge"/.test((await lastAi(app.id)).body), true);
+  chk('Main-Prompt: Deutsch, handeln statt ankündigen, Kit ist geladen', /IMMER auf Deutsch/.test(seen.main[0]) && /HANDELN statt ankündigen/.test(seen.main[0]) && /coden-kit\.js wird IMMER vor deinen Skripten geladen/.test(seen.main[0]), true);
+
+  // --- Etappen: Zeit einer Server-Ausführung reicht nicht -> der Agent setzt sich selbst fort ---
+  process.env.CODEN_LEG_STEPS = '1'; // jede Etappe macht genau einen Schritt
+  seen.main = []; await say(app.id, 'Bau es in Etappen');
+  const e1 = await agent(app.id, { tier: 'pro', mode: 'single' });
+  chk('Etappe 1 endet mit "cont" statt "done"', e1.evs[e1.evs.length - 1].t, 'cont');
+  const runE = e1.evs[0].id; let stE;
+  for (let i = 0; i < 60; i++) { stE = (await G(`/apps/${app.id}/agent?run=${runE}`, anna)).j; if (stE.status !== 'running') break; await new Promise(r => setTimeout(r, 150)); }
+  process.env.CODEN_LEG_STEPS = '';
+  chk('Etappen: Lauf am Ende fertig', stE.status, 'done');
+  chk('Etappen: 3 Arbeitsschritte + Abnahme in 4 Etappen, Verlauf bleibt erhalten', `${seen.main.length} ${(stE.text.match(/<result name="leg"/g) || []).length} ${/<result name="review"/.test(stE.text)}`, '4 3 true');
+  chk('Etappen: Ergebnis gespeichert', (await G('/apps/' + app.id, anna)).j.files['etappe.js'], 'window.e = 2;');
+  const mE = await lastAi(app.id);
+  chk('Etappen: genau eine Antwort mit Meta', `${mE.meta.legs} ${mE.meta.steps} ${/Alles fertig und geprüft/.test(mE.body)}`, '4 4 true');
+  chk('Etappen-Schlüssel ist verbraucht (kein zweites Fortsetzen)', (await realFetch(`${base}/apps/${app.id}/agent/continue`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Coden-Leg': 'x'.repeat(48) }, body: JSON.stringify({ run: runE }) })).status, 403);
 
   // --- Gedächtnis CODEN.md ---
   seen.main = []; await say(app.id, 'Bitte merk dir das Spielfeld');

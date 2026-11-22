@@ -20,6 +20,16 @@ class Run {
     this.beat = setInterval(() => this.flush().catch(() => {}), HEARTBEAT_MS);
   }
   get signal() { return this.ac.signal; }
+  // Fortsetzung in einer neuen Server-Ausführung: bisherigen Stand übernehmen
+  restore(row) { this.text = row.text || ''; this.think = { h: '', v: '', steps: [], ...(row.think || {}) }; this.agents = row.agents || []; this.model = row.model || null; this.extra = (row.meta && row.meta.extra) || {}; return this; }
+  // Etappe zu Ende, der Lauf geht in einer neuen Ausführung weiter: Stand sichern, aber NICHT abschließen
+  async pause() {
+    clearInterval(this.beat); clearTimeout(this.timer); this.timer = null;
+    if (this.flushing) await this.flushing.catch(() => {});
+    await this.flush().catch(() => {}); this.status = 'paused'; live.delete(this.id);
+  }
+  // Die nächste Etappe konnte doch nicht starten: in dieser Ausführung weiterlaufen
+  unpause() { if (this.status !== 'paused') return; this.status = 'running'; live.set(this.id, this); this.beat = setInterval(() => this.flush().catch(() => {}), HEARTBEAT_MS); }
   emit(ev) { for (const s of this.subs) { try { s(ev); } catch (_) { /* Zuschauer weg */ } } }
   // Text anhängen (normale Antwort)
   delta(v) { if (!v) return; this.text += v; this.emit({ t: 'd', v }); this.schedule(); }
@@ -66,9 +76,13 @@ async function startRun({ uid, isOwner, kind, ref, meta = {} }, job) {
   const [row] = await sql`INSERT INTO ai_runs (uid, kind, ref, meta) VALUES (${uid}, ${kind}, ${String(ref).slice(0, 80)}, ${JSON.stringify(meta)}::jsonb) RETURNING *`;
   if (Math.random() < 0.05) sql`DELETE FROM ai_runs WHERE created_at < now() - interval '7 days'`.catch(() => {});
   const run = new Run(row, { isOwner }); live.set(run.id, run);
+  return drive(run, job);
+}
+function drive(run, job) {
   const done = (async () => {
     try {
-      await job(run);
+      const r = await job(run);
+      if (r && r.continued) { run.continued = true; if (run.status === 'running') await run.pause(); return; } // nächste Etappe übernimmt
       await run.finish(run.signal.aborted ? 'stopped' : 'done', null, { claimed: run.subs.size > 0 });
     } catch (e) {
       const stopped = run.signal.aborted;
@@ -78,6 +92,14 @@ async function startRun({ uid, isOwner, kind, ref, meta = {} }, job) {
   })();
   waitUntil(done); // Vercel: Funktion nicht einfrieren, solange der Lauf noch arbeitet
   return { run, done };
+}
+// Einen laufenden Lauf in einer neuen Server-Ausführung fortsetzen (nächste Etappe)
+async function resumeRun(id, { isOwner = false } = {}, job) {
+  const [row] = await getSql()`SELECT * FROM ai_runs WHERE id = ${id} AND status = 'running'`;
+  if (!row || live.has(Number(row.id))) return null;
+  const run = new Run(row, { isOwner }).restore(row); live.set(run.id, run);
+  if (row.stop) run.ac.abort();
+  return drive(run, job);
 }
 
 // Hängt eine HTTP-Antwort als Live-Zuschauer (SSE) an einen Lauf. Schließt der Nutzer die Seite, läuft der Lauf weiter.
@@ -90,7 +112,8 @@ async function serveRun(res, run, done) {
   send({ t: 'run', id: run.id });
   await done;
   clearInterval(ping); run.subs.delete(sub);
-  if (run.status === 'error') send({ t: 'e', error: run.error || 'Fehler', partial: !!run.text });
+  if (run.continued) send({ t: 'cont', id: run.id }); // läuft in der nächsten Etappe weiter -> Client verfolgt per Abfrage
+  else if (run.status === 'error') send({ t: 'e', error: run.error || 'Fehler', partial: !!run.text });
   else send({ t: 'done', status: run.status });
   if (!res.writableEnded) res.end();
 }
@@ -146,4 +169,4 @@ function runsRouter(requireAuth) {
   return r;
 }
 
-module.exports = { startRun, serveRun, runsRouter, Run, _live: live };
+module.exports = { startRun, resumeRun, serveRun, runsRouter, Run, _live: live };
