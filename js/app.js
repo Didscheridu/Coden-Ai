@@ -59,6 +59,8 @@ let pendingAttachments = []; // Speichert unsere angehängten Dateien temporär
 let isOwner = false;
 let globalLockedModels = { pro: false, thinking: false }; 
 let currentSelectedModel = 'flash';
+let pinnedModel = null; // { key, label, keep } – per /modelle gewählt; gilt für die nächste Anfrage (oder dauerhaft bei „bleiben“)
+let modelList = [];
 
 let lastBroadcastTime = parseInt(localStorage.getItem('coden_last_broadcast')) || Date.now();
 let lastUpdateTime = parseInt(localStorage.getItem('coden_last_update')) || Date.now();
@@ -357,6 +359,7 @@ const commands = [
     { name: "/broadcast", opts: ["<nachricht>"], desc: "Pop-Up an ALLE User" },
     { name: "/maintenance", opts: ["on", "off"], desc: "Sperrt App komplett" },
     { name: "/forceupdate", desc: "Erzwingt Reload bei Usern" },
+    { name: "/modelle", opts: ["<nummer>", "auto"], desc: "Liste aller Modelle; nächste Anfrage geht an das gewählte" },
     { name: "/model", opts: ["flash", "normal", "pro"], desc: "Ändert Modell GLOBAL" },
     { name: "/theme", opts: ["normal", "matrix"], desc: "Ändert Design GLOBAL" },
     { name: "/font", opts: ["12", "15", "18", "22"], desc: "Ändert Schriftgröße GLOBAL" },
@@ -451,6 +454,24 @@ async function handleCommand(text) {
     // 🛑 Ab hier nur noch für den Owner (Dich)
     if (!isOwner) {
         return UI.appendMessage("❌ Zugriff verweigert.", false);
+    }
+
+    // 🤖 /modelle: alle Modelle auflisten, /modelle 3 = nächste Anfrage an Modell 3, "bleiben" = dauerhaft, /modelle auto = zurück zur Automatik
+    if (cmd === '/modelle' || cmd === '/models') {
+        try {
+            if (!modelList.length || !param || param === 'neu') modelList = (await apiJson('/models')).models;
+            const [what, mode] = param.toLowerCase().split(/\s+/);
+            if (what === 'auto' || what === 'aus') { pinnedModel = null; return UI.appendMessage('🤖 **Modell-Wahl:** Automatik ist wieder an (die Stufe oben entscheidet).', false); }
+            if (what && what !== 'neu') {
+                const m = /^\d+$/.test(what) ? modelList[parseInt(what, 10) - 1] : modelList.find(x => x.id.toLowerCase().includes(what));
+                if (!m) return UI.appendMessage(`❌ Kein Modell „${what}“. Tippe /modelle für die Liste.`, false);
+                if (!m.ready) return UI.appendMessage(`❌ ${m.providerName} hat noch keinen API-Key (in Vercel eintragen).`, false);
+                pinnedModel = { key: m.key, label: `${m.providerName} · ${m.id}`, keep: mode === 'bleiben' };
+                return UI.appendMessage(`🤖 **Modell gewählt:** ${pinnedModel.label}\n${pinnedModel.keep ? 'Gilt für alle Anfragen, bis du /modelle auto tippst.' : 'Gilt für deine **nächste** Anfrage.'}`, false);
+            }
+            const lines = modelList.map((m, i) => `${i + 1}. **${m.id}** · ${m.providerName}${m.ready ? '' : ' · ⚠ kein Key'}${m.limited ? ' · knapp' : ''}${pinnedModel?.key === m.key ? ' ← gewählt' : ''}`);
+            return UI.appendMessage(`🤖 **Alle Modelle (${modelList.length}):**\n\n${lines.join('\n')}\n\nWähle mit \`/modelle 3\` (nächste Anfrage) oder \`/modelle 3 bleiben\`. Zurück zur Automatik: \`/modelle auto\`.`, false);
+        } catch (e) { return UI.appendMessage('❌ ' + e.message, false); }
     }
     
     let sysMsg = "";
@@ -1111,7 +1132,7 @@ BILDER: Wünscht der Nutzer ein Bild (Foto, Bild, Illustration, Wallpaper, Gemä
         const live = UI.createStreamingMessage();
         aiResponse = '';
         try {
-            aiResponse = await streamAiResponse(context, currentSelectedModel, { signal: ac.signal, onDelta: (t) => { aiResponse = t; live.update(hideImageTags(t)); } });
+            aiResponse = await streamAiResponse(context, currentSelectedModel, { signal: ac.signal, model: pinnedModel?.key, onDelta: (t) => { aiResponse = t; live.update(hideImageTags(t)); } });
             // KI-Bilder: Befehle aus dem Text nehmen, Bilder erzeugen und als echte Bilder anhängen
             const wanted = [...aiResponse.matchAll(IMAGE_TAG)].map(m => (m[1].match(/prompt\s*=\s*"([^"]*)"/i) || [])[1]).filter(Boolean).slice(0, 2);
             const call = parseCall(aiResponse);
@@ -1159,7 +1180,7 @@ BILDER: Wünscht der Nutzer ein Bild (Foto, Bild, Illustration, Wallpaper, Gemä
             break;
         }
       }
-    } finally { streamAbort = null; setStreaming(false); }
+    } finally { streamAbort = null; setStreaming(false); if (pinnedModel && !pinnedModel.keep) pinnedModel = null; }
     const queued = sendWhenDone; sendWhenDone = false;
 
     if (aiResponse.trim()) sessionAtSend.messages.push({ text: aiResponse, isUser: false });

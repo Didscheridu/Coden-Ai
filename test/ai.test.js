@@ -42,6 +42,18 @@ const gem = (t) => `data: ${JSON.stringify({ candidates: [{ content: { parts: [{
   chk('NVIDIA antwortet zuerst, wenn der Key gesetzt ist', [await ai.generate('normal', [{ role: 'user', content: 'hi' }], {}), log[0]], ['Groq ok', 'moonshotai/kimi-k3.1-pro']);
   delete process.env.NVIDIA_API_KEY;
 
+  // --- /modelle: gezielt ein Modell wählen ---
+  const lm = ai.listModels();
+  chk('Modellliste: eindeutig, enthält NVIDIA + Groq + Google', [new Set(lm.map(m => m.key)).size === lm.length, ['nvidia', 'groq', 'openrouter', 'google'].every(p => lm.some(m => m.provider === p))], [true, true]);
+  chk('Modellliste: Gemini als knapp markiert', lm.find(m => m.id === 'gemini-4-hydrogen').limited, true);
+  mode = 'groqWorks'; log.length = 0;
+  const pr = await ai.generate('flash', [{ role: 'user', content: 'hi' }], { pin: 'groq:llama-3.3-70b-versatile' });
+  chk('Pin: genau dieses Modell wird gefragt', [pr, log.join()], ['Groq ok', 'llama-3.3-70b-versatile']);
+  let pe; try { await ai.generate('pro', [{ role: 'user', content: 'hi' }], { pin: 'groq:gibt-es-nicht' }); } catch (e) { pe = e.status; }
+  chk('Pin: unbekanntes Modell → 400', pe, 400);
+  mode = 'streamFallback'; log.length = 0; let fe; try { await ai.generate('pro', [{ role: 'user', content: 'hi' }], { pin: 'groq:openai/gpt-oss-120b' }); } catch (e) { fe = e.message; }
+  chk('Pin: fällt das Modell aus, wird NICHT auf andere ausgewichen', [!!fe, log.join()], [true, 'openai/gpt-oss-120b']);
+
   // --- Wenn andere Modelle funktionieren, wird Gemini nie angefasst ---
   mode = 'groqWorks'; log.length = 0;
   const r1 = await ai.generate('pro', [{ role: 'user', content: 'hi' }], { isOwner: false });

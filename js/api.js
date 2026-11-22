@@ -9,8 +9,8 @@ export async function generateAiResponse(messages, tier) {
 
 // Live-Streaming per Server-Sent Events. onDelta(text) liefert den bisherigen GESAMTTEXT.
 // Gibt den fertigen Text zurück; bei Abbruch (signal) den bisherigen Text. Fehler nach Teilausgabe tragen e.partial.
-export async function streamAiResponse(messages, tier, { onDelta, onModel, signal, maxTokens } = {}) {
-    const res = await apiFetch('/chat/stream', { method: 'POST', body: JSON.stringify({ messages, tier, ...(maxTokens ? { maxTokens } : {}) }), signal });
+export async function streamAiResponse(messages, tier, { onDelta, onModel, signal, maxTokens, model } = {}) {
+    const res = await apiFetch('/chat/stream', { method: 'POST', body: JSON.stringify({ messages, tier, ...(maxTokens ? { maxTokens } : {}), ...(model ? { model } : {}) }), signal });
     if (!res.ok) {
         let d = {}; try { d = await res.json(); } catch (_) {}
         const err = new Error(d.error || `HTTP ${res.status}`); err.code = d.code; throw err;

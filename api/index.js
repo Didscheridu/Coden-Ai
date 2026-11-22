@@ -4,7 +4,7 @@ const nodemailer = require('nodemailer');
 const { getSql } = require('../server/db');
 const { requireAuth, requireOwner } = require('../server/auth');
 const { rateLimit } = require('../server/rateLimit');
-const { generate, generateStream } = require('../server/ai');
+const { generate, generateStream, listModels } = require('../server/ai');
 const { buddyRouter } = require('../server/buddy');
 const { appsRouter, publicApiRouter, hostedRouter, baseUrl } = require('../server/apps');
 const { generateImage } = require('../server/images');
@@ -102,6 +102,13 @@ async function enforceSystemState(req, res, next) {
 }
 
 // ---------- Chat ----------
+// Befehl /modelle: Liste aller Modelle (nur Owner) und gezielt ein Modell wählen
+api.get('/models', requireAuth, (req, res) => {
+  if (!req.user.isOwner) return res.status(403).json({ error: 'Nur der Owner.' });
+  res.json({ models: listModels() });
+});
+const pinOf = (req) => (typeof req.body?.model === 'string' && req.user.isOwner ? req.body.model.slice(0, 120) : undefined);
+
 function validChat(body) {
   const { messages, tier } = body || {};
   if (!Array.isArray(messages) || !messages.length || messages.length > 60 || typeof tier !== 'string') return false;
@@ -115,7 +122,7 @@ const maxTokensOf = (b) => { const n = parseInt(b?.maxTokens, 10); return Number
 api.post('/chat', requireAuth, rateLimit('chat', 20, 60), enforceSystemState, async (req, res) => {
   if (!validChat(req.body)) return res.status(400).json({ error: 'Ungültige Anfrage.' });
   try {
-    res.json({ content: await generate(req.body.tier, req.body.messages, { isOwner: req.user.isOwner, maxTokens: maxTokensOf(req.body) }) });
+    res.json({ content: await generate(req.body.tier, req.body.messages, { isOwner: req.user.isOwner, maxTokens: maxTokensOf(req.body), pin: pinOf(req) }) });
   } catch (e) {
     res.status(e.status || 502).json({ error: e.message });
   }
@@ -130,7 +137,7 @@ api.post('/chat/stream', requireAuth, rateLimit('chat', 20, 60), enforceSystemSt
   const send = (o) => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(o)}\n\n`); };
   try {
     await generateStream(req.body.tier, req.body.messages, {
-      isOwner: req.user.isOwner, signal: ac.signal, maxTokens: maxTokensOf(req.body),
+      isOwner: req.user.isOwner, signal: ac.signal, maxTokens: maxTokensOf(req.body), pin: pinOf(req),
       onModel: (m) => send({ t: 'm', model: m.id }),
       onDelta: (v) => send({ t: 'd', v })
     });
