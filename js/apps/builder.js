@@ -111,7 +111,7 @@ export function mountBuilder(host, appId) {
         const box = h('span', { class: 'effort-seg bl-effort', title: 'Denkaufwand' }, ...[['low', 'Niedrig'], ['medium', 'Mittel'], ['high', 'Hoch']].map(([v, l]) => h('button', { type: 'button', 'data-effort': v, text: l })));
         bindEffortButtons(box); return box;
     }
-    const MODES = [['auto', 'smart_toy', 'Auto', 'Coden entscheidet: kleine Änderungen allein, große Aufgaben im Team'], ['team', 'groups', 'Team', 'Planer + mehrere Coder parallel + Prüfer – für neue Apps und große Umbauten'], ['single', 'bolt', 'Solo', 'Ein Agent, am schnellsten für kleine Änderungen']];
+    const MODES = [['auto', 'smart_toy', 'Auto', 'Coden entscheidet: kleine Änderungen allein, große Aufgaben im Team'], ['team', 'groups', 'Team', 'Immer mehrere Spezial-Agenten parallel (Layout, Logik, Spiel, Daten …). Leichte Teile mit Flash, schwere mit dem stärksten Modell.'], ['single', 'bolt', 'Solo', 'Ein Agent, am schnellsten für kleine Änderungen']];
     function drawTiers() {
         const mode = h('select', { class: 'bl-mode', title: 'Agenten-Modus', onchange: (e) => { st.mode = e.target.value; localStorage.setItem('coden_agent_mode', st.mode); } }, ...MODES.map(([v, , l, tip]) => h('option', { value: v, text: (v === 'team' ? '👥 ' : v === 'single' ? '⚡ ' : '🤖 ') + l, title: tip, selected: st.mode === v })));
         tierBox.replaceChildren(...TIERS.filter(t => t.id !== 'ultra' || auth.currentUser?.isOwner).map(t => h('button', { class: 'bl-tier' + (st.tier === t.id ? ' active' : ''), title: t.tip, text: t.label, onclick: () => { st.tier = t.id; localStorage.setItem('coden_app_tier', t.id); drawTiers(); } })), drawEffort(), mode);
@@ -369,7 +369,7 @@ export function mountBuilder(host, appId) {
             const doneN = list.filter(a => a.status === 'done').length;
             const head = h('div', { class: 'ag-team-h' }, icon('groups'), h('span', { text: list.length > 2 ? 'Coden-Agententeam' : 'Coden-Agent' }), h('small', { class: 'ag-clock', text: `${doneN}/${list.length} · ${Math.round((Date.now() - t0) / 1000)} s` }));
             team.replaceChildren(head, ...list.map(a => h('div', { class: 'ag-row ' + a.status }, h('span', { class: 'ag-ic' }, icon(a.status === 'done' ? 'check' : a.status === 'error' ? 'priority_high' : ROLE_IC[a.role] || 'smart_toy')),
-                h('div', { class: 'ag-t' }, h('b', { text: a.title }), a.detail ? h('small', { text: a.detail }) : null), h('span', { class: 'ag-st', text: ST[a.status] || '' }))));
+                h('div', { class: 'ag-t' }, h('b', { text: a.title }), a.tier ? h('em', { class: 'ag-tier t-' + a.tier.toLowerCase(), title: 'Modell dieses Agenten' + (a.level ? ' · Schwierigkeit: ' + ({ easy: 'leicht', medium: 'mittel', hard: 'schwer' }[a.level] || a.level) : ''), text: a.tier }) : null, a.detail ? h('small', { text: a.detail }) : null), h('span', { class: 'ag-st', text: ST[a.status] || '' }))));
         };
         let agents = [], thinkGone = false;
         tick = setInterval(() => { const c = team.querySelector('.ag-clock'); if (c) c.textContent = `${agents.filter(a => a.status === 'done').length}/${agents.length} · ${Math.round((Date.now() - t0) / 1000)} s`; }, 1000);

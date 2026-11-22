@@ -131,3 +131,24 @@ body.ap-resizing iframe { pointer-events: none }
 @media (max-width: 768px) {
   body:has(.sidebar:not(.collapsed)) .main-content::after { content: ''; position: fixed; inset: 0; background: rgba(0, 0, 0, .5); z-index: 9998; animation: fade .2s both }
 }
+
+/* App-Karte: Löschen / Verlassen */
+.ap-act.danger:hover { background: #c5221f }
+.ap-card.removing { animation: ap-out .26s ease forwards; pointer-events: none }
+@keyframes ap-out { to { opacity: 0; transform: scale(.92) } }
+/* Assistent: KI-Einstellungen */
+.wz-ai { margin: 14px 0 4px; border: 1px solid var(--border-color); border-radius: 16px; padding: 4px 14px 12px; background: rgba(255, 255, 255, .02) }
+.wz-ai summary { display: flex; align-items: center; gap: 8px; padding: 8px 0; cursor: pointer; list-style: none }
+.wz-ai summary::-webkit-details-marker { display: none }
+.wz-ai summary .material-symbols-outlined { color: var(--accent-blue); font-size: 20px } .wz-ai summary small { color: var(--text-muted); margin-left: auto; font-size: 12px }
+.wz-ai .cd-label { margin-top: 8px }
+.wz-seg { display: flex; flex-wrap: wrap; gap: 6px }
+.wz-opt { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border-color); background: transparent; color: var(--text-secondary); border-radius: 999px; padding: 7px 14px; font: 500 13px var(--font-main); cursor: pointer; transition: border-color .15s, background .15s, color .15s }
+.wz-opt .material-symbols-outlined { font-size: 17px }
+.wz-opt:hover { border-color: var(--accent-blue); color: var(--text-primary) }
+.wz-opt.active { background: rgba(138, 180, 248, .16); border-color: var(--accent-blue); color: var(--accent-blue) }
+.wz-ai-hint { margin: 8px 2px 0; font-size: 12.5px; color: var(--text-muted); line-height: 1.45 }
+/* Agenten-Team: Modell je Agent */
+.ag-tier { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 6px; font: 600 10.5px/16px var(--font-main); font-style: normal; vertical-align: 1px; background: rgba(255, 255, 255, .08); color: var(--text-secondary) }
+.ag-tier.t-flash { background: rgba(252, 196, 25, .15); color: #fcc419 } .ag-tier.t-pro { background: rgba(138, 180, 248, .16); color: var(--accent-blue) }
+.ag-tier.t-ultra { background: rgba(197, 138, 249, .18); color: #c58af9 } .ag-tier.t-thinking { background: rgba(109, 213, 140, .15); color: var(--accent-green) }

@@ -7,6 +7,9 @@ import { h, icon, timeAgo, copy } from './dom.js';
 import { KINDS, scaffold, fromArtifact } from './templates.js';
 import { GAME_TEMPLATES } from './games.js';
 import { mountBuilder, stylePreview, loadStyleFonts } from './builder.js';
+import { confirmBox } from './dialogs.js';
+import { auth } from '../auth.js';
+import { bindEffortButtons } from '../effort.js';
 
 const S = () => window.CodenStyles;
 let active = null;
@@ -75,8 +78,24 @@ async function gallery(host) {
                     a.members > 1 ? h('span', { class: 'ap-shared', title: a.members + ' Personen' }, icon('group'), String(a.members)) : null),
                 h('div', { class: 'ap-actions' },
                     h('button', { class: 'ap-act', title: a.published ? 'Adresse kopieren' : 'Testlink kopieren', onclick: async (e) => { e.stopPropagation(); if (await copy(a.published ? a.url : a.testUrl)) toast('Link kopiert', { type: 'ok' }); } }, icon('link')),
-                    h('a', { class: 'ap-act', title: 'Öffnen', href: a.published ? a.url : a.testUrl, target: '_blank', rel: 'noopener', onclick: (e) => e.stopPropagation() }, icon('open_in_new')))));
+                    h('a', { class: 'ap-act', title: 'Öffnen', href: a.published ? a.url : a.testUrl, target: '_blank', rel: 'noopener', onclick: (e) => e.stopPropagation() }, icon('open_in_new')),
+                    a.role === 'owner'
+                        ? h('button', { class: 'ap-act danger', title: 'App löschen', onclick: (e) => { e.stopPropagation(); remove(a, e.currentTarget.closest('.ap-card')); } }, icon('delete'))
+                        : h('button', { class: 'ap-act danger', title: 'App verlassen', onclick: (e) => { e.stopPropagation(); leave(a, e.currentTarget.closest('.ap-card')); } }, icon('logout')))));
     };
+    // App löschen – nur nach Bestätigung, danach verschwindet die Karte
+    const drop = (a, el) => { all = all.filter(x => x.id !== a.id); el?.classList.add('removing'); setTimeout(() => { drawFilters(); draw(); }, el ? 260 : 0); };
+    async function remove(a, el) {
+        const ok = await confirmBox(`Willst du „${a.name}“ wirklich löschen? Alle Dateien, der Chat mit Coden und die Bilder werden endgültig gelöscht.${a.published ? ' Die Adresse ' + a.url + ' geht dann nicht mehr.' : ''} Das kann man nicht rückgängig machen.`, { ok: 'Ja, endgültig löschen', danger: true });
+        if (!ok) return;
+        try { await apiJson('/apps/' + a.id, { method: 'DELETE' }); drop(a, el); toast(`„${a.name}“ gelöscht`, { type: 'ok' }); }
+        catch (e) { toast(e.message, { type: 'error' }); }
+    }
+    async function leave(a, el) {
+        if (!(await confirmBox(`„${a.name}“ verlassen? Die App bleibt beim Besitzer, du siehst sie dann nicht mehr.`, { ok: 'Verlassen', danger: true }))) return;
+        try { await apiJson(`/apps/${a.id}/leave`, { method: 'POST', body: '{}' }); drop(a, el); toast(`„${a.name}“ verlassen`, { type: 'ok' }); }
+        catch (e) { toast(e.message, { type: 'error' }); }
+    }
     try { all = (await apiJson('/apps')).apps; } catch (e) { grid.replaceChildren(h('div', { class: 'ap-empty wide' }, icon('cloud_off'), h('h2', { text: 'Apps konnten nicht geladen werden' }), h('p', { text: e.message }), h('button', { class: 'ap-new', onclick: () => location.reload() }, icon('refresh'), 'Neu laden'))); return; }
     drawFilters(); draw();
 }
@@ -122,10 +141,11 @@ function wizard(host) {
             idea.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) create.click(); });
             const examples = st.kind === 'game' ? ['Mach daraus ein Weltraum-Abenteuer mit Bossgegnern', 'Füge Level, Power-ups und eine Bestenliste hinzu', 'Pixel-Art-Stil mit Retro-Musik', 'Zwei Spieler an einer Tastatur'] : st.kind === 'web' ? ['Webseite für mein Café mit Speisekarte und Öffnungszeiten', 'Mein Portfolio mit Projekten und Kontaktformular', 'Landingpage für ein Produkt mit Preisen und FAQ'] : ['To-do-App mit Kategorien und Fälligkeitsdaten', 'Habit-Tracker mit Serien und Statistiken', 'Rezept-App mit Favoriten und Einkaufsliste', 'Budget-App mit Ausgaben nach Kategorie'];
             const tpl = GAME_TEMPLATES.find(t => t.id === st.template);
+            const ai = aiSettings();
             body.append(h('h1', { text: st.kind === 'game' ? 'Wie heißt dein Spiel?' : 'Wie heißt deine App?' }),
                 h('div', { class: 'wz-summary' }, h('span', { class: 'bl-badge' }, icon(KINDS[st.kind].icon), KINDS[st.kind].label), st.kind === 'game' ? h('span', { class: 'bl-badge' }, icon('extension'), tpl ? tpl.emoji + ' ' + tpl.name : 'Leeres Spiel') : h('span', { class: 'bl-badge' }, icon('palette'), style ? style.name : 'Coden entscheidet')),
                 h('label', { class: 'cd-label', text: 'Name' }), name, h('label', { class: 'cd-label', text: 'Idee' }), idea,
-                h('div', { class: 'wz-ex' }, examples.map(t => h('button', { class: 'ap-chip', text: t, onclick: () => { idea.value = t; idea.focus(); } }))), err,
+                h('div', { class: 'wz-ex' }, examples.map(t => h('button', { class: 'ap-chip', text: t, onclick: () => { idea.value = t; idea.focus(); } }))), ai, err,
                 h('div', { class: 'wz-foot' }, h('button', { class: 'bl-btn', onclick: () => { st.name = name.value; st.idea = idea.value; st.step = 1; draw(); } }, icon('arrow_back'), 'Zurück'), h('span', { class: 'grow' }), create),
                 h('p', { class: 'wz-note' }, icon('info'), ' Coden legt sofort ein schickes Grundgerüst an und baut dann deine Idee. Du siehst alles live.'));
             setTimeout(() => (st.name ? idea : name).focus(), 60);
@@ -140,4 +160,28 @@ function kindArt(k) {
     if (k === 'web') return h('div', { class: 'ka web' }, h('i'), h('i'), h('i'));
     if (k === 'both') return h('div', { class: 'ka both' }, h('div', { class: 'ka-ph ios' }), h('div', { class: 'ka-ph android' }));
     return h('div', { class: 'ka' }, h('div', { class: 'ka-ph ' + k }));
+}
+
+// ---------- KI-Einstellungen im Assistenten: Modell, Denkaufwand, Agenten-Modus ----------
+// Wird in localStorage gemerkt – der Builder startet den ersten Lauf genau damit.
+const WZ_TIERS = [['flash', 'bolt', 'Flash', 'Am schnellsten'], ['normal', 'psychology', 'Thinking', 'Denkt länger nach'], ['pro', 'workspace_premium', 'Pro', 'Stark – Empfehlung für Apps'], ['ultra', 'diamond', 'Ultra', 'Nur die besten Modelle']];
+const WZ_MODES = [['auto', 'smart_toy', 'Auto', 'Coden entscheidet: kleine Wünsche allein, große im Team'], ['team', 'groups', 'Team', 'Immer mehrere Spezial-Agenten parallel. Leichte Teile bekommen ein schnelles, schwere ein starkes Modell.'], ['single', 'person', 'Solo', 'Ein Agent mit dem gewählten Modell']];
+function aiSettings() {
+    const get = (k, d, ok) => { const v = localStorage.getItem(k); return ok.includes(v) ? v : d; };
+    const isOwner = !!auth.currentUser?.isOwner;
+    let tier = get('coden_app_tier', 'pro', WZ_TIERS.map(t => t[0])); if (tier === 'ultra' && !isOwner) tier = 'pro';
+    let mode = get('coden_agent_mode', 'auto', WZ_MODES.map(m => m[0]));
+    const seg = (items, cur, key, onPick) => h('div', { class: 'wz-seg' }, items.map(([v, ic, l, tip]) => h('button', { type: 'button', class: 'wz-opt' + (v === cur ? ' active' : ''), title: tip, 'data-v': v,
+        onclick: (e) => { localStorage.setItem(key, v); e.currentTarget.parentNode.querySelectorAll('.wz-opt').forEach(b => b.classList.toggle('active', b.dataset.v === v)); onPick(v); } }, icon(ic), h('span', { text: l }))));
+    const hint = h('p', { class: 'wz-ai-hint' });
+    const explain = () => { const m = WZ_MODES.find(x => x[0] === mode); hint.textContent = (m ? m[3] : '') + (mode === 'team' ? ` Mittlere Aufgaben nutzen ${WZ_TIERS.find(t => t[0] === tier)[2]}.` : ''); };
+    const effort = h('div', { class: 'wz-seg' }, ...[['low', 'Niedrig'], ['medium', 'Mittel'], ['high', 'Hoch']].map(([v, l]) => h('button', { type: 'button', class: 'wz-opt', 'data-effort': v, text: l })));
+    bindEffortButtons(effort);
+    const box = h('details', { class: 'wz-ai', open: true },
+        h('summary', {}, icon('tune'), h('b', { text: 'So baut Coden' }), h('small', { text: 'Modell, Denkaufwand und Agenten' })),
+        h('label', { class: 'cd-label', text: 'Modell' }), seg(WZ_TIERS.filter(t => t[0] !== 'ultra' || isOwner), tier, 'coden_app_tier', (v) => { tier = v; explain(); }),
+        h('label', { class: 'cd-label', text: 'Denkaufwand' }), effort,
+        h('label', { class: 'cd-label', text: 'Agenten' }), seg(WZ_MODES, mode, 'coden_agent_mode', (v) => { mode = v; explain(); }), hint);
+    explain();
+    return box;
 }

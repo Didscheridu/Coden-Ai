@@ -12,7 +12,7 @@ const { setup } = require('./helpers');
     if (/Du bist der Planer/.test(sys)) { seen.planner++; return json(planReply); }
     if (/Du bist der Prüfer/.test(sys)) { seen.reviewer++; return json('{"issues":[]}'); }
     if (/TEAM-MODUS/.test(sys)) {
-      const task = sys.match(/DEINE Aufgabe: (.*)/)[1]; seen.team.push(task);
+      const task = sys.match(/DEINE Aufgabe: (.*)/)[1]; seen.team.push(task); seen.kits = (seen.kits || []).concat((sys.match(/DU BIST DER ([^\n–]+)/) || [])[1] || '-');
       if (/Aufbau/.test(task)) return sse('Ich baue den Aufbau.\n<file path="index.html">\n<!doctype html><html><head><link rel="stylesheet" href="coden-kit.css"><link rel="stylesheet" href="style.css"></head><body><canvas id="game"></canvas><button id="start">Start</button><script src="coden-kit.js"></script><script src="game.js"></script></body></html>\n</file>\n<file path="style.css">\nbody{margin:0}\n</file>\n<file path="app.js">\n// darf ich nicht\n</file>');
       return sse('Logik kommt.\n<file path="game.js">\ndocument.getElementById("start").onclick = () => { const c = document.getElementById("game"); c.width = 10; };\nif (true) {\n</file>');
     }
@@ -32,13 +32,15 @@ const { setup } = require('./helpers');
   await P(`/apps/${app.id}/messages`, { role: 'user', body: 'Bau mir ein Weltraum-Shooter-Spiel mit Punkten, Leben, Gegnern und Startbildschirm' }, anna);
 
   // --- Team-Modus ---
-  planReply = JSON.stringify({ mode: 'team', summary: 'Ein Weltraum-Shooter mit Canvas.', contract: 'index.html hat <canvas id="game"> und #start; game.js startet das Spiel.', tasks: [{ title: 'Aufbau & Design', files: ['index.html', 'style.css'], goal: 'HTML und CSS' }, { title: 'Spiellogik', files: ['game.js'], goal: 'Schleife, Gegner' }], next: 'Sound einbauen?' });
+  planReply = JSON.stringify({ mode: 'team', summary: 'Ein Weltraum-Shooter mit Canvas.', contract: 'index.html hat <canvas id="game"> und #start; game.js startet das Spiel.', tasks: [{ title: 'Aufbau & Design', agent: 'layout', level: 'leicht', files: ['index.html', 'style.css'], goal: 'HTML und CSS' }, { title: 'Spiellogik', agent: 'game', level: 'schwer', files: ['game.js'], goal: 'Schleife, Gegner' }], next: 'Sound einbauen?' });
   const t1 = await agent(app.id, { tier: 'pro' });
   const agentsEv = t1.evs.filter(e => e.t === 'a').pop()?.agents || [];
   chk('Team: Lauf startet mit ID und endet mit done', `${t1.evs[0].t} ${t1.evs[t1.evs.length - 1].t}`, 'run done');
   chk('Team: Planer wurde gefragt', seen.planner, 1);
   chk('Team: zwei Coder liefen (je eine Aufgabe)', seen.team.sort().join(' | '), 'Aufbau & Design | Spiellogik');
   chk('Team: Agentenliste mit Planer, 2 Codern, Prüfer, Fixer', agentsEv.map(a => a.role).join(','), 'planner,coder,coder,fixer,reviewer');
+  chk('Team: Spezial-Agenten mit Kit im Prompt', seen.kits.map(x => x.trim()).sort().join(' | '), 'LAYOUT-DESIGNER 🎨 | SPIEL-ENTWICKLER 🎮');
+  chk('Team: Modell je Schwierigkeit (leicht=Flash, schwer=stärkstes erlaubtes=Pro)', agentsEv.filter(a => a.role === 'coder').map(a => a.kit + ':' + a.tier).join(' '), 'layout:Flash game:Pro');
   const f1 = (await G('/apps/' + app.id, anna)).j.files;
   chk('Team: Dateien beider Coder gespeichert', Object.keys(f1).sort().join(','), 'game.js,index.html,style.css');
   chk('Team: fremde Datei (app.js) des Coders wurde NICHT übernommen', 'app.js' in f1, false);
@@ -72,5 +74,31 @@ const { setup } = require('./helpers');
   chk('Getrennt: Antwort steht im Verlauf', last.role === 'assistant' && /dunkel/.test(last.body), true);
   chk('Nach dem Lauf: kein aktiver Agent', (await G(`/apps/${app.id}/poll?after=1`, anna)).j.agentRun, null);
   chk('Ungültige App', (await agent(99999, { tier: 'pro' })).s, 404);
+
+  // --- Team-Modus: immer mehrere Agenten, auch wenn der Planer "single" sagt oder der Wunsch kurz ist ---
+  await call(`/apps/${app.id}/files`, { set: { 'style.css': 'body{margin:0}' } }, anna, 'PUT');
+  delay = 0; seen.team = []; seen.kits = []; planReply = JSON.stringify({ mode: 'single', summary: 'Farbe ändern', tasks: [{ title: 'CSS', files: ['style.css'] }] });
+  await P(`/apps/${app.id}/messages`, { role: 'user', body: 'Mach es blau' }, anna);
+  const f1t = await agent(app.id, { tier: 'pro', mode: 'team' });
+  const ag2 = f1t.evs.filter(e => e.t === 'a').pop()?.agents || [];
+  chk('Team erzwungen: Planer lief trotz kurzem Wunsch', seen.planner, 2);
+  chk('Team erzwungen: zwei Spezial-Agenten (Layout + Spiel)', ag2.filter(a => a.role === 'coder').map(a => a.kit).join(','), 'layout,game');
+  chk('Team erzwungen: Spiel-Logik als schwer eingestuft', ag2.find(a => a.kit === 'game').level, 'hard');
+
+  // --- Löschen und Verlassen ---
+  const other = (await P('/apps', { name: 'Zum Löschen', kind: 'web' }, anna)).j.app;
+  await call('/buddy/me', { handle: 'anna', displayName: 'Anna' }, anna, 'PUT'); await call('/buddy/me', { handle: 'ben', displayName: 'Ben' }, ben, 'PUT');
+  await P('/buddy/requests', { handle: 'ben' }, anna); await P('/buddy/requests/anna/accept', {}, ben);
+  const inv = await P(`/apps/${other.id}/members`, { handle: 'ben' }, anna);
+  chk('Freund eingeladen', inv.s, 200);
+  {
+    chk('Mitglied darf nicht löschen', (await call('/apps/' + other.id, null, ben, 'DELETE')).s, 403);
+    chk('Mitglied kann verlassen', (await P(`/apps/${other.id}/leave`, {}, ben)).s, 200);
+    chk('Nach dem Verlassen: App weg für Mitglied', (await G('/apps/' + other.id, ben)).s, 404);
+  }
+  chk('Besitzer kann nicht verlassen', (await P(`/apps/${other.id}/leave`, {}, anna)).s, 400);
+  chk('Besitzer löscht', (await call('/apps/' + other.id, null, anna, 'DELETE')).s, 200);
+  chk('Gelöscht: nicht mehr da', (await G('/apps/' + other.id, anna)).s, 404);
+  chk('Gelöscht: nicht mehr in der Liste', (await G('/apps', anna)).j.apps.some(a => a.id === other.id), false);
   await finish();
 })();
