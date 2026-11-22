@@ -187,7 +187,7 @@ async function callModel(m, messages, { stream, onDelta, signal, maxTokens }) {
   const r = await fetch(cfg.url, {
     method: 'POST', signal,
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'HTTP-Referer': 'https://coden-ai.vercel.app', 'X-Title': 'Coden AI' },
-    body: JSON.stringify({ model: m.id, messages: toOpenAI(messages), max_tokens: maxTokens || 8192, temperature: 0.7, ...(stream ? { stream: true } : {}) })
+    body: JSON.stringify({ model: m.id, messages: toOpenAI(messages), max_tokens: maxTokens || 8192, temperature: 0.7, ...(m.provider === 'nvidia' && /kimi/.test(m.id) ? { reasoning_effort: 'low' } : {}), ...(stream ? { stream: true } : {}) })
   });
   if (!r.ok) await failFrom(r);
   if (!stream) { const d = await r.json(); if (d.error) throw new Error(d.error.message); return d.choices?.[0]?.message?.content || ''; }
@@ -245,6 +245,10 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
       console.warn(`[ai] ${m.provider}/${m.id} fehlgeschlagen:`, e.message);
       last = e;
     }
+  }
+  if (pin) { // gezielt gewähltes Modell: genaue Ursache nennen statt „überlastet“
+    const m = cascade[0]; const hint = /401|403|unauthor|invalid.*key|api key/i.test(last?.message || '') ? ` – der API-Key von ${PROVIDER_NAMES[m.provider] || m.provider} wird abgelehnt (in Vercel prüfen, danach neu deployen)` : '';
+    throw new Error(`${m.id} (${PROVIDER_NAMES[m.provider] || m.provider}): ${last?.message}${hint}`);
   }
   throw new Error(`Alle Server sind überlastet. Letzter Fehler: ${last?.message}`);
 }
