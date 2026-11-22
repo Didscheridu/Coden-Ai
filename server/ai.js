@@ -125,13 +125,14 @@ function toGemini(modelId, messages) {
 
 // Filtert <think>…</think> auch dann, wenn die Tags über Stream-Stücke verteilt ankommen
 class ThinkFilter {
-  constructor() { this.buf = ''; this.inThink = false; }
+  constructor(onThink) { this.buf = ''; this.inThink = false; this.onThink = onThink; }
   push(chunk) {
     this.buf += chunk; let out = '';
     for (;;) {
       if (this.inThink) {
         const i = this.buf.indexOf('</think>');
-        if (i === -1) { this.buf = this.buf.slice(-8); return out; }
+        if (i === -1) { if (this.onThink && this.buf.length > 8) this.onThink(this.buf.slice(0, -8)); this.buf = this.buf.slice(-8); return out; }
+        if (this.onThink && i > 0) this.onThink(this.buf.slice(0, i));
         this.buf = this.buf.slice(i + 8).replace(/^\n+/, ''); this.inThink = false;
       } else {
         const i = this.buf.indexOf('<think>');
@@ -143,6 +144,26 @@ class ThinkFilter {
     }
   }
   flush() { const r = this.inThink ? '' : this.buf; this.buf = ''; return r; }
+}
+
+// Macht aus dem Denk-Text eine kurze Überschrift + den Ausschnitt des aktuellen Schritts.
+// Ältere Schritte werden verworfen: es gibt immer nur den aktuellen.
+class ThinkTracker {
+  constructor(emit, { every = 300, now = Date.now } = {}) { this.emit = emit; this.every = every; this.now = now; this.text = ''; this.last = 0; this.head = ''; this.from = 0; }
+  push(chunk) {
+    if (!chunk) return; this.text += chunk;
+    if (this.text.length > 6000) { const cut = this.text.length - 3000; this.text = this.text.slice(cut); this.from = Math.max(0, this.from - cut); }
+    const heads = [...this.text.matchAll(/(?:^|\n)\s*(?:#{1,4}\s+(.{3,80})|\*\*([^*\n]{3,80})\*\*)\s*(?=\n|$)/g)];
+    const hm = heads[heads.length - 1];
+    let head = this.head, changed = false;
+    if (hm) { const t = (hm[1] || hm[2]).trim().replace(/[:.]+$/, ''); if (t !== this.head) { head = t; this.from = hm.index + hm[0].length; changed = true; } }
+    else if (!this.head) { head = 'Überlege …'; }
+    const t = this.now();
+    if (!changed && t - this.last < this.every) { this.head = head; return; }
+    this.head = head; this.last = t;
+    const snippet = this.text.slice(this.from).replace(/\*\*/g, '').replace(/\s+/g, ' ').trim().slice(-400);
+    this.emit({ h: head.slice(0, 80), v: snippet });
+  }
 }
 
 // Liest Server-Sent-Events und liefert die "data:"-Inhalte
@@ -168,7 +189,7 @@ async function failFrom(r) {
 }
 
 // ---------- Ein Modell aufrufen (stream=true: Stücke an onDelta) ----------
-async function callModel(m, messages, { stream, onDelta, signal, maxTokens }) {
+async function callModel(m, messages, { stream, onDelta, onThink, signal, maxTokens }) {
   if (m.provider === 'google') {
     const key = process.env.GOOGLE_API_KEY;
     if (!key) throw new Error('GOOGLE_API_KEY fehlt');
@@ -178,7 +199,7 @@ async function callModel(m, messages, { stream, onDelta, signal, maxTokens }) {
     const textOf = (d) => (d.candidates?.[0]?.content?.parts || []).filter(p => p.text && !p.thought).map(p => p.text).join('');
     if (!stream) return textOf(await r.json());
     let full = '';
-    for await (const raw of sseData(r)) { let d; try { d = JSON.parse(raw); } catch (e) { continue; } const t = textOf(d); if (t) { full += t; onDelta(t); } }
+    for await (const raw of sseData(r)) { let d; try { d = JSON.parse(raw); } catch (e) { continue; } const th = (d.candidates?.[0]?.content?.parts || []).filter(p => p.text && p.thought).map(p => p.text).join(''); if (th) onThink?.(th); const t = textOf(d); if (t) { full += t; onDelta(t); } }
     return full;
   }
   const cfg = OPENAI_COMPAT[m.provider];
@@ -196,7 +217,10 @@ async function callModel(m, messages, { stream, onDelta, signal, maxTokens }) {
     if (raw === '[DONE]') break;
     let d; try { d = JSON.parse(raw); } catch (e) { continue; }
     if (d.error) throw new Error(d.error.message || 'Stream-Fehler');
-    const t = d.choices?.[0]?.delta?.content; // Denk-Teile (reasoning) werden bewusst ignoriert
+    const dl = d.choices?.[0]?.delta || {};
+    const th = dl.reasoning_content || dl.reasoning; // Denk-Teile: nur als Überschrift an den Nutzer, nie als Antworttext
+    if (th && typeof th === 'string') onThink?.(th);
+    const t = dl.content;
     if (t) { full += t; onDelta(t); }
   }
   return full;
@@ -216,7 +240,7 @@ const findModel = (key) => listModels().find(m => m.key === key) || null;
 // ---------- Kaskade ----------
 // Probiert die Modelle der Stufe der Reihe nach. Fällt eines aus (oder liefert nichts), kommt das nächste.
 // Beim Streamen ist Wechsel nur möglich, solange noch nichts an den Nutzer geschickt wurde.
-async function run(tier, messages, { isOwner = false, stream = false, onDelta = () => {}, onModel = () => {}, signal, maxTokens, pin } = {}) {
+async function run(tier, messages, { isOwner = false, stream = false, onDelta = () => {}, onModel = () => {}, onThink, signal, maxTokens, pin } = {}) {
   let cascade = CASCADES[tier];
   if (pin) { // ein bestimmtes Modell erzwingen (nur Owner, kein Ausweichen auf andere)
     const m = findModel(pin);
@@ -229,9 +253,11 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
     if (signal?.aborted) throw new Error('abgebrochen');
     try {
       if (QUOTAS[m.id] && !(await reserveQuota(m.id, isOwner))) { last = new Error(`${m.id}: Tageslimit erreicht`); continue; }
-      let sent = false; const filter = new ThinkFilter();
+      let sent = false;
+      const tracker = onThink && stream ? new ThinkTracker(onThink) : null;
+      const filter = new ThinkFilter(tracker ? (t) => tracker.push(t) : undefined);
       const emit = (t) => { const v = filter.push(t); if (v) { if (!sent) { sent = true; onModel(m); } onDelta(v); } };
-      const full = await callModel(m, messages, { stream, onDelta: emit, signal, maxTokens }).catch((e) => { if (sent) e.partial = true; throw e; });
+      const full = await callModel(m, messages, { stream, onDelta: emit, onThink: tracker ? (t) => tracker.push(t) : undefined, signal, maxTokens }).catch((e) => { if (sent) e.partial = true; throw e; });
       if (stream) {
         const rest = filter.flush(); if (rest) { if (!sent) { sent = true; onModel(m); } onDelta(rest); }
         if (!sent) throw new Error('Leere Antwort');
@@ -256,4 +282,4 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
 const generate = async (tier, messages, opts = {}) => (await run(tier, messages, opts)).text;
 const generateStream = (tier, messages, opts) => run(tier, messages, { ...opts, stream: true });
 
-module.exports = { listModels, generate, generateStream, CASCADES, QUOTAS, ThinkFilter };
+module.exports = { listModels, generate, generateStream, CASCADES, QUOTAS, ThinkFilter, ThinkTracker };

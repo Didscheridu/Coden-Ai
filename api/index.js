@@ -138,7 +138,8 @@ api.post('/chat/stream', requireAuth, rateLimit('chat', 20, 60), enforceSystemSt
   try {
     await generateStream(req.body.tier, req.body.messages, {
       isOwner: req.user.isOwner, signal: ac.signal, maxTokens: maxTokensOf(req.body), pin: pinOf(req),
-      onModel: (m) => send({ t: 'm', model: m.id }),
+      onModel: (m) => { if (req.user.isOwner) send({ t: 'm', model: m.id }); }, // Modellname sieht nur der Owner
+      onThink: (k) => send({ t: 'k', h: k.h, v: k.v }),
       onDelta: (v) => send({ t: 'd', v })
     });
     send({ t: 'done' });
