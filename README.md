@@ -16,6 +16,14 @@ Das Backend braucht keinen Firebase-Schlüssel: Es prüft die Login-Tokens über
 - E-Mail-Passwörter und eigene Keys werden nie in der Datenbank gespeichert.
 - Live-Call nutzt kurzlebige Einmal-Tokens statt des echten Google-Keys.
 
+## Neu: Sub-Agenten ohne Abbruch, 3D-Kit
+
+- **Sub-Agenten laufen alle gleichzeitig** (bis 8 pro Auftrag). Schreibt der Main Agent mehrere `spawn`-Aufrufe in einen Schritt, werden sie zu EINEM Auftrag zusammengefasst (`mergeSpawns`), statt nacheinander zu laufen.
+- **Kein „zu wenig Zeit für Sub-Agenten“ mehr**: Reicht die Restzeit einer Etappe nicht (`CODEN_SPAWN_MIN_MS`, Standard 150 s), startet der Agent eine frische Etappe und die Sub-Agenten beginnen dort. Sind Sub-Agenten kurz vor Etappen-Ende noch nicht fertig (`CODEN_SUB_RESERVE_MS`, 30 s Reserve), werden sie angehalten, ihr bisheriger Text gesichert (`state.subResume`) und in der nächsten Etappe schreiben sie nahtlos weiter (Fortsetzungs-Prompt). Fertige Ergebnisse werden sofort gespeichert.
+- **3D-Kit `Coden.three`** (in `kit/coden-kit.js`, für three.js 0.149.0 als klassisches Skript): `world()` (Renderer, Himmel, Nebel, Sonne mit Schatten, Verfolger-/Orbit-Kamera, Schleife), fertige Modelle (`car` in 9 Typen, `tree`, `building`, `house`, `character` + `walk`, `lamp`, `coin`, `checkpoint` …), ganze Welten (`track` mit Bordsteinen/Startlinie/Startaufstellung, `city`, `terrain`, `water`, `road`), Fahrphysik `vehicle()` (Drift, Boost, Kollision, Gelände), `input()` (Tastatur + Touch-Joystick), KI-Fahrer `driver()`. Farben mit richtigem Farbmanagement.
+- **Spezial-Agent `three`** (🧊 3D-Entwickler) mit eigenem Kit; Spiele und Apps mit three.js bekommen die 3D-Doku im Prompt.
+- **Neue Spielvorlage „3D-Rennen“**: Strecke, 5 KI-Gegner, 3 Runden, Platzierung, Drift, Boost-Münzen, Tacho, Countdown, Touch-Steuerung.
+
 ## Neu: Nutzungslimits, Push-Benachrichtigungen, temporärer Chat, Handy-Scaling
 
 - **Nutzungslimits wie bei Claude/Gemini** (`server/usage.js`, Tabelle `usage_limits`): ein 5-Stunden-Fenster und ein Wochenfenster, die sich mit Tokens füllen. Beide beginnen mit der ersten Anfrage und setzen sich danach komplett zurück. Gezählt wird geschätzt (≈ 4 Zeichen = 1 Token): Ausgabe + Denken voll, Eingabe zu einem Viertel; Flash zählt 0,5×, Thinking 1×, Pro 1,5×, Ultra 2×. Ist ein Limit voll, werden neue Anfragen abgelehnt (`429`, `code: 'limit'`, mit Rücksetz-Zeit) – Chat, Hintergrund-Lauf und App-Agent. Eine Aufgabe, die schon läuft, darf weiterarbeiten; erst wenn sie sehr lange weit darüber geht (Kulanz 125 %), hält die KI an und sagt, wann es weitergeht. Der Owner hat kein Limit. Anzeige: Einstellungen → Nutzung (Balken + Rücksetz-Zeit) und ein Hinweis über dem Eingabefeld ab 80 %. Einstellbar per `CODEN_LIMIT_5H` (Standard 400000), `CODEN_LIMIT_WEEK` (4000000), `CODEN_LIMIT_GRACE_PCT` (125).
