@@ -19,6 +19,7 @@ const gem = (t) => `data: ${JSON.stringify({ candidates: [{ content: { parts: [{
       if (!isGoogle) return new Response(JSON.stringify({ error: { message: 'down' } }), { status: 500 });
       return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'Antwort von ' + model }] } }] }), { status: 200 });
     }
+    if (mode === 'nvidiaOnly') return url.includes('nvidia') ? new Response(JSON.stringify({ choices: [{ message: { content: 'NVIDIA ok' } }] }), { status: 200 }) : new Response(JSON.stringify({ error: { message: 'down' } }), { status: 500 });
     if (mode === 'groqWorks') return new Response(JSON.stringify({ choices: [{ message: { content: 'Groq ok' } }] }), { status: 200 });
     if (mode === 'streamThink') return sseResponse([oa('Hal'), oa('lo <thi'), oa('nk>geheim</th'), oa('ink>Welt'), 'data: [DONE]\n\n']);
     if (mode === 'streamFallback') { if (body.model === 'openai/gpt-oss-120b') return new Response('{}', { status: 500 }); if (body.model === 'llama-3.3-70b-versatile') return sseResponse([': ping\n\n', 'data: [DONE]\n\n']); return sseResponse([oa('Zweites Modell')]); }
@@ -35,11 +36,22 @@ const gem = (t) => `data: ${JSON.stringify({ candidates: [{ content: { parts: [{
   chk('pro: Gemini nirgends sonst', ai.CASCADES.pro.filter(m => m.id === 'gemini-4-hydrogen').length, 1);
   chk('alle 11 OpenRouter-Gratismodelle in "pro"', ai.CASCADES.pro.filter(m => m.provider === 'openrouter').length, 11);
 
-  // --- NVIDIA NIM ---
-  chk('NVIDIA: Kimi K3.1 Pro führt "normal" an', [ai.CASCADES.normal[0].provider, ai.CASCADES.normal[0].id], ['nvidia', 'moonshotai/kimi-k3.1-pro']);
-  chk('NVIDIA in allen drei Stufen', ['flash', 'normal', 'pro'].map(t => ai.CASCADES[t].some(m => m.provider === 'nvidia')), [true, true, true]);
-  process.env.NVIDIA_API_KEY = 'x'; mode = 'groqWorks'; log.length = 0;
-  chk('NVIDIA antwortet zuerst, wenn der Key gesetzt ist', [await ai.generate('normal', [{ role: 'user', content: 'hi' }], {}), log[0]], ['Groq ok', 'moonshotai/kimi-k3.1-pro']);
+  // --- Neue Anbieter + NVIDIA nur im Notfall ---
+  const idx = (t, pr) => ai.CASCADES[t].map(m => m.provider);
+  for (const t of ['flash', 'normal', 'pro']) {
+    const ps = idx(t); const firstNv = ps.indexOf('nvidia');
+    chk(`${t}: NVIDIA steht hinter allen anderen Anbietern (außer Gemini-Reserve)`, ps.slice(firstNv).every(p => p === 'nvidia' || p === 'google'), true);
+    chk(`${t}: Mistral/Hugging Face vor NVIDIA`, ['mistral', 'huggingface'].every(p => ps.indexOf(p) > -1 && ps.indexOf(p) < firstNv), true);
+  }
+  chk('pro: SambaNova vorhanden, vor NVIDIA', idx('pro').indexOf('sambanova') < idx('pro').indexOf('nvidia'), true);
+  chk('normal beginnt mit Devstral (Coding-Modell)', ai.CASCADES.normal[0].id, 'devstral-medium-latest');
+  const lm0 = ai.listModels();
+  chk('Modellliste enthält alle neuen Anbieter', ['mistral', 'huggingface', 'sambanova', 'nvidia'].every(p => lm0.some(m => m.provider === p)), true);
+  process.env.MISTRAL_API_KEY = 'x'; mode = 'groqWorks'; log.length = 0;
+  chk('Mistral antwortet in "normal" zuerst, wenn der Key gesetzt ist', [await ai.generate('normal', [{ role: 'user', content: 'hi' }], {}), log[0]].join('|'), 'Groq ok|devstral-medium-latest');
+  delete process.env.MISTRAL_API_KEY;
+  process.env.NVIDIA_API_KEY = 'x'; mode = 'nvidiaOnly'; log.length = 0;
+  chk('NVIDIA springt im Notfall ein', await ai.generate('flash', [{ role: 'user', content: 'hi' }], {}), 'NVIDIA ok');
   delete process.env.NVIDIA_API_KEY;
 
   // --- /modelle: gezielt ein Modell wählen ---
