@@ -5,6 +5,7 @@ import { Router } from '../router.js';
 import { auth } from '../auth.js';
 import { toast } from '../toast.js';
 import { h, icon, md, sleep, copy } from './dom.js';
+import { getEffort, setEffort, bindEffortButtons } from '../effort.js';
 import { createThinkPanel } from '../think-panel.js';
 import { systemPrompt, parse, apply, condense } from './agent.js';
 import { ghExport } from './github.js';
@@ -106,8 +107,12 @@ export function mountBuilder(host, appId) {
         people.replaceChildren(...st.members.slice(0, 5).map(m => h('span', { class: 'bl-ava' + (m.online ? ' on' : ''), title: `${m.displayName}${m.handle ? ' (@' + m.handle + ')' : ''}${m.me ? ' – du' : ''}${m.online ? ' · online' : ''}`, text: (m.displayName || '?')[0].toUpperCase() })));
         people.classList.toggle('hidden', st.members.length < 2);
     }
+    function drawEffort() {
+        const box = h('span', { class: 'effort-seg bl-effort', title: 'Denkaufwand' }, ...[['low', 'Niedrig'], ['medium', 'Mittel'], ['high', 'Hoch']].map(([v, l]) => h('button', { type: 'button', 'data-effort': v, text: l })));
+        bindEffortButtons(box); return box;
+    }
     function drawTiers() {
-        tierBox.replaceChildren(...TIERS.filter(t => t.id !== 'ultra' || auth.currentUser?.isOwner).map(t => h('button', { class: 'bl-tier' + (st.tier === t.id ? ' active' : ''), title: t.tip, text: t.label, onclick: () => { st.tier = t.id; localStorage.setItem('coden_app_tier', t.id); drawTiers(); } })));
+        tierBox.replaceChildren(...TIERS.filter(t => t.id !== 'ultra' || auth.currentUser?.isOwner).map(t => h('button', { class: 'bl-tier' + (st.tier === t.id ? ' active' : ''), title: t.tip, text: t.label, onclick: () => { st.tier = t.id; localStorage.setItem('coden_app_tier', t.id); drawTiers(); } })), drawEffort());
     }
     function drawDevices() {
         const list = KINDS[st.app.kind].devices; deviceBtns.classList.toggle('hidden', list.length < 2 || st.view !== 'preview');

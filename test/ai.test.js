@@ -11,7 +11,7 @@ const gem = (t) => `data: ${JSON.stringify({ candidates: [{ content: { parts: [{
   const { db, chk, finish } = await setup({ withApp: false });
   Object.assign(process.env, { GROQ_API_KEY: 'x', OPENROUTER_API_KEY: 'x', GOOGLE_API_KEY: 'x' });
   const ai = require('../server/ai');
-  const log = []; let mode = 'googleOnly';
+  const log = []; let mode = 'googleOnly'; let lastBody = null; const calls = [];
   global.fetch = async (url, o) => {
     const body = JSON.parse(o?.body || '{}'); const isGoogle = url.includes('googleapis'); const model = isGoogle ? url.split('/models/')[1].split(':')[0] : body.model;
     log.push(model);
@@ -20,6 +20,14 @@ const gem = (t) => `data: ${JSON.stringify({ candidates: [{ content: { parts: [{
       return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'Antwort von ' + model }] } }] }), { status: 200 });
     }
     if (mode === 'groqWorks') return new Response(JSON.stringify({ choices: [{ message: { content: 'Groq ok' } }] }), { status: 200 });
+    if (mode === 'streamLength') {
+      if (isGoogle) return new Response('{}', { status: 500 });
+      lastBody = body; calls.push(body);
+      const cont = JSON.stringify(body.messages).includes('abgeschnitten');
+      const fin = (r) => `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: r }] })}\n\n`;
+      return cont ? sseResponse([oa('Teil2'), fin('stop'), 'data: [DONE]\n\n']) : sseResponse([oa('Teil1 '), fin('length'), 'data: [DONE]\n\n']);
+    }
+    if (mode === 'effort') { lastBody = body; return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 }); }
     if (mode === 'streamThink') return sseResponse([oa('Hal'), oa('lo <thi'), oa('nk>geheim</th'), oa('ink>Welt'), 'data: [DONE]\n\n']);
     if (mode === 'streamFallback') { if (body.model === 'openai/gpt-oss-120b') return new Response('{}', { status: 500 }); if (body.model === 'llama-3.3-70b-versatile') return sseResponse([': ping\n\n', 'data: [DONE]\n\n']); return sseResponse([oa('Zweites Modell')]); }
     if (mode === 'streamReason') return sseResponse([`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: '**Frage lesen**\nIch lese. ' } }] })}\n\n`, `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: '\n**Antwort planen**\nJetzt plane ich.' } }] })}\n\n`, oa('Fertig'), 'data: [DONE]\n\n']);
@@ -97,6 +105,20 @@ const gem = (t) => `data: ${JSON.stringify({ candidates: [{ content: { parts: [{
   mode = 'streamFallback'; deltas = []; const st2 = [];
   await ai.generateStream('flash', [{ role: 'user', content: 'hi' }], { onDelta: (v) => deltas.push(v), onThink: (k) => st2.push(k.h) });
   chk('Denken: auch ohne Denk-Ausgabe kommt Fortschritt (Start + Modellwechsel)', [st2[0], st2.includes('Anderes Modell wird versucht …')], ['Anfrage läuft …', true]);
+  mode = 'streamLength'; deltas = []; calls.length = 0;
+  await ai.generateStream('flash', [{ role: 'user', content: 'schreib viel' }], { onDelta: (v) => deltas.push(v) });
+  chk('Lange Antwort: abgeschnitten → automatisch fortgesetzt, nahtlos', [deltas.join(''), calls.length], ['Teil1 Teil2', 2]);
+  chk('Fortsetzung bekommt den bisherigen Text', calls[1].messages.some(m => m.role === 'assistant' && m.content === 'Teil1 '), true);
+  chk('Standard-Limit pro Aufruf ist 16384 Tokens', calls[0].max_tokens, 16384);
+  mode = 'effort';
+  await ai.generate('pro', [{ role: 'user', content: 'hi' }], { effort: 'high', pin: 'groq:openai/gpt-oss-120b' });
+  chk('Denkaufwand: Groq gpt-oss bekommt reasoning_effort', lastBody.reasoning_effort, 'high');
+  await ai.generate('pro', [{ role: 'user', content: 'hi' }], { effort: 'low', pin: 'groq:llama-3.3-70b-versatile' });
+  chk('Denkaufwand: Modelle ohne Unterstützung bekommen keinen Parameter', [lastBody.reasoning_effort, lastBody.reasoning], [undefined, undefined]);
+  await ai.generate('pro', [{ role: 'user', content: 'hi' }], { effort: 'low', pin: 'openrouter:google/gemma-4-31b-it:free' });
+  chk('Denkaufwand: OpenRouter bekommt reasoning.effort', lastBody.reasoning?.effort, 'low');
+  await ai.generate('pro', [{ role: 'user', content: 'hi' }], { effort: 'extrem', pin: 'groq:openai/gpt-oss-120b' });
+  chk('Denkaufwand: ungültiger Wert wird ignoriert', lastBody.reasoning_effort, undefined);
   const tk = []; const T = new ai.ThinkTracker((x) => tk.push(x), { every: 0, now: (() => { let n = 0; return () => n++; })() });
   T.push('ohne Überschrift, einfach Text'); chk('Denken: ohne Überschrift → „Überlege …“', tk[0].h, 'Überlege …');
   const tf = []; const F = new ai.ThinkFilter((x) => tf.push(x)); F.push('<think>abc defghijkl</think>ok'); F.flush();

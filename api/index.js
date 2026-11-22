@@ -118,12 +118,13 @@ function validChat(body) {
 }
 
 // Der App-Agent darf längere Antworten schreiben (ganze Dateien), normale Chats bleiben bei 8192
+const effortOf = (b) => (['low', 'medium', 'high'].includes(b?.effort) ? b.effort : undefined);
 const maxTokensOf = (b) => { const n = parseInt(b?.maxTokens, 10); return Number.isFinite(n) ? Math.max(1024, Math.min(n, 16384)) : undefined; };
 
 api.post('/chat', requireAuth, rateLimit('chat', 20, 60), enforceSystemState, async (req, res) => {
   if (!validChat(req.body)) return res.status(400).json({ error: 'Ungültige Anfrage.' });
   try {
-    res.json({ content: await generate(req.body.tier, req.body.messages, { isOwner: req.user.isOwner, maxTokens: maxTokensOf(req.body), pin: pinOf(req) }) });
+    res.json({ content: await generate(req.body.tier, req.body.messages, { isOwner: req.user.isOwner, maxTokens: maxTokensOf(req.body), effort: effortOf(req.body), pin: pinOf(req) }) });
   } catch (e) {
     res.status(e.status || 502).json({ error: e.message });
   }
@@ -138,7 +139,7 @@ api.post('/chat/stream', requireAuth, rateLimit('chat', 20, 60), enforceSystemSt
   const send = (o) => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(o)}\n\n`); };
   try {
     await generateStream(req.body.tier, req.body.messages, {
-      isOwner: req.user.isOwner, signal: ac.signal, maxTokens: maxTokensOf(req.body), pin: pinOf(req),
+      isOwner: req.user.isOwner, signal: ac.signal, maxTokens: maxTokensOf(req.body), effort: effortOf(req.body), pin: pinOf(req),
       onModel: (m) => { if (req.user.isOwner) send({ t: 'm', model: m.id }); }, // Modellname sieht nur der Owner
       onThink: (k) => send({ t: 'k', h: k.h, v: k.v }),
       onDelta: (v) => send({ t: 'd', v })

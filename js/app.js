@@ -2,6 +2,7 @@
 import './dom-safe.js';
 import { CONFIG } from './config.js';
 import { generateAiResponse, streamAiResponse } from './api.js';
+import { bindEffortButtons } from './effort.js';
 import { ARTIFACT_PROMPT, Artifacts } from './artifacts.js';
 import { Buddy } from './buddy.js';
 import { Layout, greetingText } from './layout.js';
@@ -606,6 +607,7 @@ if (modelSelectorBtn && modelDropdownMenu) {
         }
     });
 
+    bindEffortButtons();
     document.querySelectorAll('.model-option').forEach(option => {
         option.addEventListener('click', () => {
             const selectedId = option.id;
