@@ -35,6 +35,13 @@ const gem = (t) => `data: ${JSON.stringify({ candidates: [{ content: { parts: [{
   chk('pro: Gemini nirgends sonst', ai.CASCADES.pro.filter(m => m.id === 'gemini-4-hydrogen').length, 1);
   chk('alle 11 OpenRouter-Gratismodelle in "pro"', ai.CASCADES.pro.filter(m => m.provider === 'openrouter').length, 11);
 
+  // --- NVIDIA NIM ---
+  chk('NVIDIA: Kimi K3.1 Pro führt "normal" an', [ai.CASCADES.normal[0].provider, ai.CASCADES.normal[0].id], ['nvidia', 'moonshotai/kimi-k3.1-pro']);
+  chk('NVIDIA in allen drei Stufen', ['flash', 'normal', 'pro'].map(t => ai.CASCADES[t].some(m => m.provider === 'nvidia')), [true, true, true]);
+  process.env.NVIDIA_API_KEY = 'x'; mode = 'groqWorks'; log.length = 0;
+  chk('NVIDIA antwortet zuerst, wenn der Key gesetzt ist', [await ai.generate('normal', [{ role: 'user', content: 'hi' }], {}), log[0]], ['Groq ok', 'moonshotai/kimi-k3.1-pro']);
+  delete process.env.NVIDIA_API_KEY;
+
   // --- Wenn andere Modelle funktionieren, wird Gemini nie angefasst ---
   mode = 'groqWorks'; log.length = 0;
   const r1 = await ai.generate('pro', [{ role: 'user', content: 'hi' }], { isOwner: false });
