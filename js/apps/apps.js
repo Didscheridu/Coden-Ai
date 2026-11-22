@@ -165,7 +165,7 @@ function kindArt(k) {
 // ---------- KI-Einstellungen im Assistenten: Modell, Denkaufwand, Agenten-Modus ----------
 // Wird in localStorage gemerkt – der Builder startet den ersten Lauf genau damit.
 const WZ_TIERS = [['flash', 'bolt', 'Flash', 'Am schnellsten'], ['normal', 'psychology', 'Thinking', 'Denkt länger nach'], ['pro', 'workspace_premium', 'Pro', 'Stark – Empfehlung für Apps'], ['ultra', 'diamond', 'Ultra', 'Nur die besten Modelle']];
-const WZ_MODES = [['auto', 'smart_toy', 'Auto', 'Coden entscheidet: kleine Wünsche allein, große im Team'], ['team', 'groups', 'Team', 'Immer mehrere Spezial-Agenten parallel. Leichte Teile bekommen ein schnelles, schwere ein starkes Modell.'], ['single', 'person', 'Solo', 'Ein Agent mit dem gewählten Modell']];
+const WZ_MODES = [['auto', 'smart_toy', 'Auto', 'Der Main Agent arbeitet wie ein echter Coding-Agent (lesen, suchen, schreiben, prüfen) und startet bei großen Aufgaben selbst Sub-Agenten.'], ['team', 'groups', 'Team', 'Der Main Agent startet immer mehrere Spezial-Sub-Agenten parallel – leichte Teile mit Flash, schwere mit dem stärksten Modell – und prüft danach alles selbst.'], ['single', 'person', 'Solo', 'Nur der Main Agent mit dem gewählten Modell, ohne Sub-Agenten.']];
 function aiSettings() {
     const get = (k, d, ok) => { const v = localStorage.getItem(k); return ok.includes(v) ? v : d; };
     const isOwner = !!auth.currentUser?.isOwner;
@@ -174,7 +174,7 @@ function aiSettings() {
     const seg = (items, cur, key, onPick) => h('div', { class: 'wz-seg' }, items.map(([v, ic, l, tip]) => h('button', { type: 'button', class: 'wz-opt' + (v === cur ? ' active' : ''), title: tip, 'data-v': v,
         onclick: (e) => { localStorage.setItem(key, v); e.currentTarget.parentNode.querySelectorAll('.wz-opt').forEach(b => b.classList.toggle('active', b.dataset.v === v)); onPick(v); } }, icon(ic), h('span', { text: l }))));
     const hint = h('p', { class: 'wz-ai-hint' });
-    const explain = () => { const m = WZ_MODES.find(x => x[0] === mode); hint.textContent = (m ? m[3] : '') + (mode === 'team' ? ` Mittlere Aufgaben nutzen ${WZ_TIERS.find(t => t[0] === tier)[2]}.` : ''); };
+    const explain = () => { const m = WZ_MODES.find(x => x[0] === mode); hint.textContent = (m ? m[3] : '') + (mode !== 'single' ? ` Main Agent und mittlere Aufgaben nutzen ${WZ_TIERS.find(t => t[0] === tier)[2]}.` : ''); };
     const effort = h('div', { class: 'wz-seg' }, ...[['low', 'Niedrig'], ['medium', 'Mittel'], ['high', 'Hoch']].map(([v, l]) => h('button', { type: 'button', class: 'wz-opt', 'data-effort': v, text: l })));
     bindEffortButtons(effort);
     const box = h('details', { class: 'wz-ai', open: true },

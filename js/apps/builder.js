@@ -19,6 +19,16 @@ const TIERS = [{ id: 'ultra', label: 'Ultra', tip: 'Nur die allerbesten Modelle 
 const DEVICES = { ios: { w: 393, h: 852, label: 'iPhone', icon: 'phone_iphone' }, android: { w: 412, h: 915, label: 'Android', icon: 'android' }, desktop: { w: 0, h: 0, label: 'Desktop', icon: 'desktop_windows' }, tablet: { w: 834, h: 1112, label: 'Tablet', icon: 'tablet_mac' }, phone: { w: 390, h: 844, label: 'Handy', icon: 'smartphone' }, landscape: { w: 844, h: 390, label: 'Handy quer', icon: 'stay_current_landscape' } };
 const FILE_ICON = (n) => /\.html?$/.test(n) ? 'html' : /\.css$/.test(n) ? 'css' : /\.js$/.test(n) ? 'javascript' : /\.json$/.test(n) ? 'data_object' : /\.svg$/.test(n) ? 'image' : 'description';
 const MAX_AUTOFIX = 2;
+// Arbeits-Werkzeuge des Main Agents (laufen auf dem Server) – im Chat als kompakte Zeile wie bei Claude Code
+const AGENT_TOOLS = { list: ['folder_open', 'Dateien ansehen'], read: ['visibility', 'Liest'], search: ['search', 'Sucht'], check: ['fact_check', 'Prüft die App'], fetch: ['language', 'Liest Webseite'], web_search: ['travel_explore', 'Sucht im Web'], memory: ['bookmark_add', 'Merkt sich'], spawn: ['groups', 'Startet Sub-Agenten'], done: ['check', 'Fertig'] };
+function agentToolChip(t) {
+    const [ic, label] = AGENT_TOOLS[t.name]; const a = t.attrs || {};
+    let what = a.path || a.query || a.url || a.pattern || '';
+    if (t.name === 'read' && a.start) what += ` (Zeilen ${a.start}–${a.end || '…'})`;
+    if (t.name === 'memory') what = (t.body || '').slice(0, 80);
+    if (t.name === 'spawn') { try { const j = JSON.parse((t.body.match(/\{[\s\S]*\}/) || ['{}'])[0]); what = (j.tasks || []).map(x => x.title).filter(Boolean).join(' · '); } catch (_) { what = ''; } }
+    return h('div', { class: 'bl-atool t-' + t.name }, icon(ic), h('b', { text: label }), what ? h('code', { text: String(what).slice(0, 120) }) : null);
+}
 
 export function mountBuilder(host, appId) {
     const st = { id: appId, app: null, files: {}, members: [], messages: [], seen: new Set(), lastId: 0, version: 0, running: false, abort: null, autoFix: 0, imgRounds: 0,
@@ -111,7 +121,7 @@ export function mountBuilder(host, appId) {
         const box = h('span', { class: 'effort-seg bl-effort', title: 'Denkaufwand' }, ...[['low', 'Niedrig'], ['medium', 'Mittel'], ['high', 'Hoch']].map(([v, l]) => h('button', { type: 'button', 'data-effort': v, text: l })));
         bindEffortButtons(box); return box;
     }
-    const MODES = [['auto', 'smart_toy', 'Auto', 'Coden entscheidet: kleine Änderungen allein, große Aufgaben im Team'], ['team', 'groups', 'Team', 'Immer mehrere Spezial-Agenten parallel (Layout, Logik, Spiel, Daten …). Leichte Teile mit Flash, schwere mit dem stärksten Modell.'], ['single', 'bolt', 'Solo', 'Ein Agent, am schnellsten für kleine Änderungen']];
+    const MODES = [['auto', 'smart_toy', 'Auto', 'Der Main Agent entscheidet selbst, ob er Sub-Agenten startet'], ['team', 'groups', 'Team', 'Der Main Agent startet immer Sub-Agenten (Layout, Logik, Spiel, Daten …) mit passendem Modell und prüft danach alles'], ['single', 'bolt', 'Solo', 'Nur der Main Agent – am schnellsten für kleine Änderungen']];
     function drawTiers() {
         const mode = h('select', { class: 'bl-mode', title: 'Agenten-Modus', onchange: (e) => { st.mode = e.target.value; localStorage.setItem('coden_agent_mode', st.mode); } }, ...MODES.map(([v, , l, tip]) => h('option', { value: v, text: (v === 'team' ? '👥 ' : v === 'single' ? '⚡ ' : '🤖 ') + l, title: tip, selected: st.mode === v })));
         tierBox.replaceChildren(...TIERS.filter(t => t.id !== 'ultra' || auth.currentUser?.isOwner).map(t => h('button', { class: 'bl-tier' + (st.tier === t.id ? ' active' : ''), title: t.tip, text: t.label, onclick: () => { st.tier = t.id; localStorage.setItem('coden_app_tier', t.id); drawTiers(); } })), drawEffort(), mode);
@@ -292,15 +302,17 @@ export function mountBuilder(host, appId) {
     function fillAssistant(body, text, { meta = {}, msgId = null, final = false } = {}) {
         const p = parse(text); const done = answers(); const frag = [];
         if (body.firstElementChild && !body.firstElementChild._sig) body.replaceChildren();
-        let ti = 0;
-        for (const s of p.segs) {
+        let ti = 0; const lastPlan = p.segs.reduce((k, x, i) => x.kind === 'plan' ? i : k, -1); // nur den neuesten Plan zeigen
+        for (const [si, s] of p.segs.entries()) {
             if (s.kind === 'text') { if (s.text.trim()) frag.push(md(s.text.replace(/\[Datei (geschrieben|geändert|gelöscht): ([^\]]+)\]\n?/g, '').replace(/\(Geänderte Dateien:[^)]*\)/g, ''))); }
             else if (s.kind === 'op' && !final) frag.push(sig('op:' + s.op.type + ':' + s.op.path + ':' + (s.op.closed ? 1 : 0), h('div', { class: 'bl-op' + (s.op.closed ? ' done' : ' busy') }, icon(s.op.type === 'delete' ? 'delete' : s.op.closed ? 'check_circle' : 'edit'), h('span', { text: (s.op.type === 'delete' ? 'Löscht ' : s.op.type === 'edit' ? (s.op.closed ? 'Geändert: ' : 'Ändert ') : (s.op.closed ? 'Geschrieben: ' : 'Schreibt ')) + s.op.path }), s.op.type === 'file' ? h('small', { text: s.op.content.split('\n').length + ' Zeilen' }) : null)));
-            else if (s.kind === 'plan') frag.push(h('div', { class: 'bl-plan' }, h('b', {}, icon('checklist'), ' Plan'), ...s.plan.items.map(it => h('div', { class: 'bl-pi' + (it.done ? ' done' : '') }, icon(it.done ? 'check_circle' : 'radio_button_unchecked'), h('span', { text: it.text })))));
+            else if (s.kind === 'plan') { if (si === lastPlan) frag.push(h('div', { class: 'bl-plan' }, h('b', {}, icon('checklist'), ' Plan'), ...s.plan.items.map(it => h('div', { class: 'bl-pi' + (it.done ? ' done' : '') }, icon(it.done ? 'check_circle' : 'radio_button_unchecked'), h('span', { text: it.text }))))); }
             else if (s.kind === 'sql') frag.push(h('div', { class: 'bl-sql' }, h('div', { class: 'bl-sqlh' }, icon('database'), h('b', { text: 'SQL' }), h('span', { class: 'grow' }),
                 h('button', { class: 'bl-btn sm', onclick: async () => { if (await copy(s.sql.code)) toast('SQL kopiert – füge es im SQL-Editor ein', { type: 'ok' }); } }, icon('content_copy'), ' Kopieren'),
                 st.app?.integrations?.database?.provider === 'supabase' ? h('a', { class: 'bl-btn sm', href: 'https://supabase.com/dashboard/project/' + ((st.app.integrations.database.url || '').match(/https:\/\/([a-z0-9-]+)\./)?.[1] || '') + '/sql/new', target: '_blank', rel: 'noopener' }, icon('open_in_new'), ' SQL-Editor') : null),
                 h('pre', {}, h('code', { class: 'language-sql', text: s.sql.code }))));
+            else if (s.kind === 'result') frag.push(h('div', { class: 'bl-result' + (s.ok ? '' : ' bad') }, icon(s.ok ? 'subdirectory_arrow_right' : 'error'), h('span', { text: s.text })));
+            else if (s.kind === 'tool' && AGENT_TOOLS[s.tool.name]) { if (s.tool.name !== 'done') frag.push(agentToolChip(s.tool)); }
             else if (s.kind === 'tool') {
                 const key = msgId ? `${msgId}:${ti++}` : null; const ans = key ? done[key] : null;
                 if (!final) { frag.push(sig('tool:' + s.tool.name + ':' + (s.tool.id || ''), h('div', { class: 'bl-op busy' }, icon(s.tool.name === 'image' ? 'image' : 'build'), h('span', { text: s.tool.name === 'image' ? 'Bild wird geplant: ' + (s.tool.id || '') : 'Werkzeug: ' + s.tool.name })))); continue; }
@@ -362,13 +374,13 @@ export function mountBuilder(host, appId) {
         col.append(panel.el, team, body); log.append(el); st.liveEl = el; scrollLog(true);
         let text = '', raf = 0, lastPaint = 0, t0 = Date.parse(startedAt) || Date.now(), tick = null;
         const paint = () => { raf = 0; lastPaint = Date.now(); fillAssistant(body, text); scrollLog(); };
-        const ROLE_IC = { planner: 'account_tree', coder: 'code', reviewer: 'fact_check', fixer: 'build', designer: 'image' };
+        const ROLE_IC = { main: 'psychology', planner: 'account_tree', coder: 'code', reviewer: 'fact_check', fixer: 'build', designer: 'image' };
         const ST = { wait: 'wartet', run: 'arbeitet', done: 'fertig', error: 'Problem' };
         const drawTeam = (list) => {
             if (!list?.length) return; team.classList.remove('hidden');
             const doneN = list.filter(a => a.status === 'done').length;
-            const head = h('div', { class: 'ag-team-h' }, icon('groups'), h('span', { text: list.length > 2 ? 'Coden-Agententeam' : 'Coden-Agent' }), h('small', { class: 'ag-clock', text: `${doneN}/${list.length} · ${Math.round((Date.now() - t0) / 1000)} s` }));
-            team.replaceChildren(head, ...list.map(a => h('div', { class: 'ag-row ' + a.status }, h('span', { class: 'ag-ic' }, icon(a.status === 'done' ? 'check' : a.status === 'error' ? 'priority_high' : ROLE_IC[a.role] || 'smart_toy')),
+            const head = h('div', { class: 'ag-team-h' }, icon('groups'), h('span', { text: list.some(a => a.parent) ? 'Main Agent + Sub-Agenten' : 'Coden-Agent' }), h('small', { class: 'ag-clock', text: `${doneN}/${list.length} · ${Math.round((Date.now() - t0) / 1000)} s` }));
+            team.replaceChildren(head, ...list.map(a => h('div', { class: 'ag-row ' + a.status + (a.parent ? ' sub' : '') }, h('span', { class: 'ag-ic' }, icon(a.status === 'done' ? 'check' : a.status === 'error' ? 'priority_high' : ROLE_IC[a.role] || 'smart_toy')),
                 h('div', { class: 'ag-t' }, h('b', { text: a.title }), a.tier ? h('em', { class: 'ag-tier t-' + a.tier.toLowerCase(), title: 'Modell dieses Agenten' + (a.level ? ' · Schwierigkeit: ' + ({ easy: 'leicht', medium: 'mittel', hard: 'schwer' }[a.level] || a.level) : ''), text: a.tier }) : null, a.detail ? h('small', { text: a.detail }) : null), h('span', { class: 'ag-st', text: ST[a.status] || '' }))));
         };
         let agents = [], thinkGone = false;

@@ -152,3 +152,12 @@ body.ap-resizing iframe { pointer-events: none }
 .ag-tier { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 6px; font: 600 10.5px/16px var(--font-main); font-style: normal; vertical-align: 1px; background: rgba(255, 255, 255, .08); color: var(--text-secondary) }
 .ag-tier.t-flash { background: rgba(252, 196, 25, .15); color: #fcc419 } .ag-tier.t-pro { background: rgba(138, 180, 248, .16); color: var(--accent-blue) }
 .ag-tier.t-ultra { background: rgba(197, 138, 249, .18); color: #c58af9 } .ag-tier.t-thinking { background: rgba(109, 213, 140, .15); color: var(--accent-green) }
+
+/* Main Agent: Werkzeug-Zeilen und Ergebnisse (wie Claude Code / Codex) */
+.bl-atool { display: flex; align-items: center; gap: 7px; margin: 6px 0 0; padding: 5px 10px; border-radius: 10px; background: rgba(255, 255, 255, .035); border: 1px solid rgba(255, 255, 255, .06); font-size: 12.5px; color: var(--text-secondary); max-width: 100%; overflow: hidden }
+.bl-atool .material-symbols-outlined { font-size: 16px; color: var(--accent-blue) } .bl-atool b { font-weight: 600; white-space: nowrap }
+.bl-atool code { font: 12px ui-monospace, Menlo, monospace; color: var(--text-primary); background: none; padding: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0 }
+.bl-atool.t-spawn { border-color: rgba(197, 138, 249, .3); background: rgba(197, 138, 249, .07) } .bl-atool.t-spawn .material-symbols-outlined { color: #c58af9 }
+.bl-result { display: flex; align-items: center; gap: 6px; margin: 2px 0 2px 14px; font-size: 12px; color: var(--text-muted) } .bl-result .material-symbols-outlined { font-size: 15px }
+.bl-result.bad { color: #f2a19a }
+.ag-row.sub { padding-left: 30px; position: relative } .ag-row.sub::before { content: ''; position: absolute; left: 24px; top: 0; bottom: 50%; width: 10px; border-left: 1.5px solid rgba(255, 255, 255, .15); border-bottom: 1.5px solid rgba(255, 255, 255, .15); border-bottom-left-radius: 6px }

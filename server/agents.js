@@ -1,12 +1,13 @@
-// Coden-Agententeam für den App-Builder. Läuft komplett auf dem Server (Hintergrund-Lauf), baut also weiter,
-// auch wenn die Seite zu ist. Ablauf:
-//   1. Planer   – versteht die Aufgabe, entscheidet: nur antworten, ein Coder oder ein Team; teilt Dateien auf
-//   2. Coder    – ein Agent (kleine Änderungen) oder bis zu 4 parallele Sub-Agenten mit gemeinsamem "Vertrag"
-//   3. Prüfer   – Syntax, fehlende Dateien/Elemente (ohne KI) + im Team ein KI-Prüfer, ob die Teile zusammenpassen
-//   4. Fixer    – behebt gefundene Probleme (höchstens 2 Runden), danach Bilder einbauen
+// Coden-Agenten für den App-Builder. Läuft komplett auf dem Server (Hintergrund-Lauf), baut also weiter,
+// auch wenn die Seite zu ist. Aufbau wie bei Claude Code / Codex / Gemini CLI:
+//   MAIN AGENT – mit ihm spricht der Nutzer. Er arbeitet in Schritten (denken → Code schreiben und/oder Werkzeuge
+//                benutzen → Ergebnisse lesen → weiter) mit list/read/search/check/fetch/web_search/memory/image.
+//   SUB-AGENTEN – startet der Main Agent mit spawn: Spezial-Agenten mit Kit und eigenem Modell (je nach Schwierigkeit),
+//                parallel, jeder nur an seinen Dateien. Danach integriert und prüft der Main Agent.
+//   Automatische Prüfung (Syntax, fehlende Dateien/Elemente) nach Änderungen – Fehler gehen zurück an den Main Agent.
 const vm = require('vm');
 const Agent = require('../shared/agent-core');
-const { generate, generateStream } = require('./ai');
+const { generateStream } = require('./ai');
 
 const MAX_FIX = 2, MAX_TEAM = 5, TEAM_PARALLEL = 3, HISTORY = 18;
 
@@ -37,22 +38,11 @@ function historyFrom(rows) {
   return out.map(m => ({ ...m, content: m.content.slice(0, 90000) }));
 }
 
-const PLANNER = `Du bist der Planer im Coden-Agententeam (App-Builder). Du schreibst KEINEN Code. Du entscheidest, wie die letzte Bitte des Nutzers erledigt wird, und antwortest NUR mit JSON:
-{"mode":"answer|single|team","summary":"1 Satz auf Deutsch, was gebaut/geändert wird","contract":"gemeinsame Absprachen für das Team: Element-IDs, CSS-Klassen, globale Funktionen und Variablen (Name + Zweck), Datenformate, Reihenfolge der <script>-Dateien","tasks":[{"title":"kurzer Titel","agent":"layout","level":"mittel","files":["index.html"],"goal":"was genau in diese Dateien gehört"}],"next":"ein Vorschlag für den nächsten Schritt"}
-Spezial-Agenten (Feld "agent", wähle für jede Aufgabe den passendsten):
-${Agent.KIT_IDS.map(id => `- ${id}: ${Agent.KITS[id].name} – ${Agent.KITS[id].for}`).join('\n')}
-Schwierigkeit (Feld "level"): "leicht" (Texte, Daten, kleines CSS → schnelles Modell), "mittel" (normale Seiten und Logik), "schwer" (komplexe Logik, Spiel-Engine, Physik, Algorithmen, viele Zusammenhänge → stärkstes Modell). Sei ehrlich – nicht alles ist schwer.
-Regeln:
-- "answer": der Nutzer fragt nur etwas, es muss nichts geändert werden (tasks leer).
-- "single": kleine oder mittlere Änderungen an 1–3 Dateien, Fehler beheben, Design anpassen, alles was ein Agent schnell schafft (tasks: eine Aufgabe).
-- "team": neue App/neues Spiel oder große Umbauten mit mehreren Bereichen. 2–5 Aufgaben, JEDE Datei gehört genau EINER Aufgabe. Typisch: (1) index.html + style.css (Aufbau & Design), (2) Logik/Daten in app.js oder data.js, (3) weitere Seiten/Module (z. B. game.js, ui.js). Der contract muss so genau sein, dass die Agenten unabhängig voneinander zusammenpassenden Code schreiben (z. B. "index.html hat <canvas id=\\"game\\">, <div id=\\"menu\\">, Knopf #start; app.js definiert window.startGame()").
-- Dateinamen: index.html, style.css, app.js, weitere .js/.html/.json/.svg. coden-kit.css/js gibt es schon (nicht als Aufgabe).
-- Nur gültiges JSON, keine Erklärung davor oder danach.`;
-
 const LEVEL = { leicht: 'easy', easy: 'easy', einfach: 'easy', mittel: 'medium', medium: 'medium', normal: 'medium', schwer: 'hard', hard: 'hard', schwierig: 'hard' };
 function parsePlan(text, files) {
   const m = String(text || '').match(/\{[\s\S]*\}/); if (!m) return null;
   let p; try { p = JSON.parse(m[0]); } catch (_) { return null; }
+  if (!p.mode && Array.isArray(p.tasks)) p.mode = 'team'; // spawn-Aufruf des Main Agents
   if (!p || !['answer', 'single', 'team'].includes(p.mode)) return null;
   const seen = new Set();
   const tasks = (Array.isArray(p.tasks) ? p.tasks : []).slice(0, MAX_TEAM).map(t => ({
@@ -88,161 +78,154 @@ function defaultTeam(ctx) {
     ] };
 }
 
-function planInput(ctx, history) {
-  const names = Object.keys(ctx.files).sort();
-  const peek = String(ctx.files['index.html'] || '').slice(0, 2500);
-  const recent = history.slice(-6).map(m => `${m.role === 'user' ? 'NUTZER' : 'CODEN'}: ${m.content.replace(/<!--[\s\S]*?-->/g, '').slice(0, 1200)}`).join('\n\n');
-  return `App: "${ctx.app.name}" · Typ: ${Agent.KIND_TEXT[ctx.app.kind] || ctx.app.kind}
-Dateien (${names.length}): ${names.map(n => `${n} (${String(ctx.files[n]).split('\n').length} Zeilen)`).join(', ') || 'keine'}
-Anfang von index.html:
-${peek}
-
-Gespräch (neueste zuletzt):
-${recent}`;
-}
-// Nur ein Grundgerüst ohne eigene Inhalte? (Dann lohnt sich ein Team für die erste Version)
-const looksFresh = (files) => Object.values(files).join('').length < 9000 && /Sag Coden im Chat|Deine neue App|Grundgerüst|Neues Spiel/.test(Object.values(files).join(''));
+const MAX_STEPS = 12, MAX_SPAWNS = 2, MAX_TOOLS_PER_STEP = 6, MAX_IMG_ROUNDS = 2;
+const Tools = require('./agent-tools');
+const WAIT_TOOLS = ['database', 'ask', 'secret'];
+const escAttr = (s) => String(s).replace(/[<>"&\n]/g, (c) => ({ '<': '‹', '>': '›', '"': '“', '&': '+', '\n': ' ' }[c]));
+const TOOL_VERB = { list: 'listet Dateien', read: 'liest', search: 'sucht', check: 'prüft die App', fetch: 'liest eine Webseite', web_search: 'sucht im Web', memory: 'merkt sich etwas', spawn: 'startet Sub-Agenten', image: 'erstellt Bilder' };
 
 async function runAppAgent(run, ctx) {
   const t0 = Date.now(); const timeLeft = () => SOFT_DEADLINE_MS - (Date.now() - t0);
   const agents = [];
-  const push = () => run.setAgents(agents.map(a => ({ id: a.id, role: a.role, title: a.title, status: a.status, detail: a.detail, tier: a.tier ? TIER_NAME[a.tier] : undefined, kit: a.kit, level: a.level })));
+  const push = () => run.setAgents(agents.map(a => ({ id: a.id, role: a.role, title: a.title, status: a.status, detail: a.detail, tier: a.tier ? TIER_NAME[a.tier] : undefined, kit: a.kit, level: a.level, parent: a.parent })));
   const add = (o) => { const a = { status: 'wait', detail: '', ...o }; agents.push(a); push(); return a; };
   const set = (a, patch) => { Object.assign(a, patch); push(); };
-  const style = ctx.style; let files = { ...ctx.files }; let history = ctx.history.slice();
+  const style = ctx.style; let files = { ...ctx.files }; const history = ctx.history.slice();
   const common = { isOwner: ctx.isOwner, signal: run.signal, effort: ctx.effort };
-  const sys = (team) => ({ role: 'system', content: Agent.systemPrompt({ app: ctx.app, files, style, team }) });
-  const summary = { rounds: 0, changed: [] };
+  const spawnAllowed = ctx.mode !== 'single';
+  const mainCfg = { maxSteps: MAX_STEPS, spawn: spawnAllowed, team: ctx.mode === 'team' && ctx.trigger === 'user' };
+  const sys = (team) => ({ role: 'system', content: Agent.systemPrompt({ app: ctx.app, files, style, team, main: team ? null : mainCfg }) });
+  const main = add({ id: 'main', role: 'main', title: '🧠 Main Agent', tier: ctx.tier, detail: 'liest deine Nachricht' }); set(main, { status: 'run' });
 
-  // ---------- 1. Planer (nur bei echten Nutzer-Bitten) ----------
-  let plan = null;
-  const last = history[history.length - 1]?.content || '';
-  const fromUser = ctx.trigger === 'user';
-  const tiny = last.length < 50 && !looksFresh(files);
-  const forceTeam = ctx.mode === 'team' && fromUser; // Team-Modus: immer mehrere Agenten
-  if (fromUser && (forceTeam || (!tiny && ctx.mode !== 'single'))) {
-    const planner = add({ id: 'plan', role: 'planner', title: '🧭 Planer', tier: 'pro', detail: 'versteht die Aufgabe und verteilt sie' });
-    set(planner, { status: 'run' }); run.thinkStep({ h: 'Planer teilt die Aufgabe auf …', v: '' });
-    try {
-      const txt = await generate('pro', [{ role: 'system', content: PLANNER + (forceTeam ? '\n\nDER NUTZER HAT DEN TEAM-MODUS GEWÄHLT: "mode" MUSS "team" sein, mit 2–5 Aufgaben für verschiedene Spezial-Agenten – auch bei kleineren Wünschen.' : '') }, { role: 'user', content: planInput(ctx, history) }], { ...common, maxTokens: 2500, effort: 'low' });
-      plan = parsePlan(txt, files);
-    } catch (e) { if (run.signal.aborted) throw e; }
-    if (forceTeam && (!plan || plan.mode !== 'team')) plan = { ...defaultTeam(ctx), summary: plan?.summary || 'Das Coden-Team setzt deinen Wunsch um.', next: plan?.next || '' };
-    set(planner, { status: plan ? 'done' : 'error', detail: plan ? (plan.mode === 'team' ? `Team aus ${plan.tasks.length} Agenten: ${plan.summary}` : plan.mode === 'answer' ? 'nur eine Frage – keine Änderung nötig' : plan.summary || 'ein Agent reicht') : 'ohne Plan weiter (ein Agent)' });
-  }
-  if (!plan) plan = { mode: 'single', tasks: [], summary: '', contract: '', next: '' };
+  const steps = [];                    // Gespräch innerhalb dieses Laufs (Antworten des Main Agents + Werkzeug-Ergebnisse)
+  const changed = new Map();           // Datei -> Art der Änderung (für die Anzeige)
+  let dirtySinceCheck = false, fixes = 0, spawns = 0, imgRounds = 0, stepsDone = 0, waits = false, stopReason = '';
+  const out = { text: '' };            // gesamte sichtbare Antwort (wächst nur – Zuschauer bekommen nur das Neue)
+  const emit = (t) => { if (!t) return; out.text += t; run.delta(t); };
 
-  // ---------- 2. Bauen ----------
-  let round = await (plan.mode === 'team' ? teamRound() : singleRound(plan.mode === 'answer' ? 'Antwort' : 'Coder', plan.mode === 'answer' ? 'beantwortet die Frage' : (plan.summary || 'baut die Änderung')));
-
-  // ---------- 3./4. Prüfen, beheben, Bilder ----------
-  let reviewed = false;
-  for (let fix = 0, img = 0; ;) {
-    if (run.signal.aborted || timeLeft() < 25_000) break;
-    if (round.waits) break; // wartet auf den Nutzer (Datenbank, Rückfrage, Schlüssel)
-    const imgs = round.tools.filter(t => t.name === 'image' && t.prompt).slice(0, 3);
-    if (imgs.length && img < 2) {
-      img++;
-      const painter = add({ id: 'img' + img, role: 'designer', title: '🖼️ Bild-Agent', detail: `erstellt ${imgs.length} Bild${imgs.length > 1 ? 'er' : ''}` }); set(painter, { status: 'run' });
-      const out = await Promise.all(imgs.map(async (t) => { try { return { id: t.id || 'bild', url: await ctx.image(t.prompt) }; } catch (e) { return { id: t.id || 'bild', error: e.message }; } }));
-      const ok = out.filter(o => o.url);
-      set(painter, { status: ok.length ? 'done' : 'error', detail: ok.length ? `${ok.length} Bild${ok.length > 1 ? 'er' : ''} fertig` : 'Bilder gehen gerade nicht' });
-      const msg = `[Bilder] ${out.map(o => o.url ? `- ${o.id}: ${o.url}` : `- ${o.id}: FEHLGESCHLAGEN (${o.error})`).join('\n')}\n${ok.length ? 'Baue die Bilder jetzt mit diesen URLs ein (<img src="…" alt="…">).' : 'Bilder gehen gerade nicht – nimm Unsplash-Bilder, SVGs oder Emojis und erwähne es kurz.'}`;
-      await toolMessage(msg, ok.length ? `${ok.length} Bild${ok.length > 1 ? 'er' : ''} erstellt` : 'Bilder konnten nicht erstellt werden');
-      round = await singleRound('Coder', 'baut die Bilder ein'); continue;
-    }
-    if (!round.changed.length && !round.problems.length && (plan.mode !== 'team' || reviewed)) break;
-    let issues = round.problems.slice();
-    if (round.changed.length) issues = issues.concat(Agent.check(files, { syntax }));
-    if (plan.mode === 'team' && !reviewed && !issues.length && timeLeft() > 70_000) { reviewed = true; issues = issues.concat(await reviewTeam()); }
-    issues = [...new Set(issues)].slice(0, 10);
-    if (!issues.length || fix >= MAX_FIX) { if (issues.length) summary.open = issues.length; break; }
-    fix++;
-    await toolMessage(`[Automatische Prüfung] Nach deiner letzten Antwort gibt es diese Probleme:\n${issues.map(i => '- ' + i).join('\n')}\nBehebe sie jetzt (nur die nötigen Änderungen).`, `Prüfer: ${issues.length} Problem${issues.length > 1 ? 'e' : ''} gefunden – wird behoben …`);
-    round = await singleRound('🛠️ Fixer', `behebt ${issues.length} Problem${issues.length > 1 ? 'e' : ''}`, 'fixer');
-  }
-  run.setExtra({ done: true, rounds: summary.rounds, open: summary.open || 0 });
-  return { files, summary };
-
-  // ---------- Bausteine ----------
-  async function toolMessage(body, display) {
-    await ctx.post('tool', body, { display, auto: true });
-    history.push({ role: 'user', content: body });
-    history = mergeRoles(history);
-  }
-  async function finishRound(text, meta) {
-    summary.rounds++;
-    const p = Agent.parse(text); const res = Agent.apply(files, p.ops);
-    if (Object.keys(res.set).length || res.remove.length) { files = await ctx.save(res.set, res.remove); summary.changed.push(...res.changed.map(c => c.path)); }
-    const reply = withReply(text, p);
-    const m = { changed: res.changed, model: run.model || undefined, problems: res.problems.length || undefined, auto: meta.auto || undefined, agents: meta.agents };
-    await ctx.post('assistant', Agent.condense(reply) || '…', m);
-    history.push({ role: 'assistant', content: Agent.condense(reply) }); history = mergeRoles(history);
-    run.setExtra({ round: summary.rounds });
-    return { changed: res.changed, problems: res.problems, tools: p.tools, waits: p.tools.some(t => ['database', 'ask', 'secret'].includes(t.name)), team: !!meta.team };
-  }
-  // Ein Agent schreibt die Antwort; der Text kommt live beim Nutzer an
-  async function singleRound(title, detail, role = 'coder') {
-    const a = add({ id: role + (summary.rounds + 1), role, title, detail, tier: ctx.tier }); set(a, { status: 'run' });
-    run.setText('');
+  for (let step = 1; step <= MAX_STEPS; step++) {
+    if (run.signal.aborted) break;
+    if (timeLeft() < 30_000) { stopReason = 'time'; break; }
+    stepsDone = step;
+    set(main, { status: 'run', detail: step === 1 ? 'denkt nach …' : `Schritt ${step}: denkt nach …` });
+    if (out.text) emit('\n\n');
     let text = '';
     try {
-      await generateStream(ctx.tier, [sys(), ...history], { ...common, maxTokens: 16000, onModel: (m) => run.setModel(m), onThink: (k) => run.thinkStep(k), onDelta: (v) => { text += v; run.delta(v); if (text.length % 2000 < v.length) set(a, { detail: progress(text) || detail }); } });
-    } catch (e) { if (!text.trim()) { set(a, { status: 'error', detail: e.message.slice(0, 120) }); throw e; } }
-    const r = await finishRound(text, { auto: role === 'fixer', agents: brief() });
-    set(a, { status: 'done', detail: r.changed.length ? r.changed.map(c => c.path).slice(0, 4).join(', ') : (role === 'fixer' ? 'keine Änderung nötig' : 'geantwortet') });
-    return r;
+      await generateStream(ctx.tier, [sys(), ...history, ...steps], { ...common, maxTokens: 16000, onModel: (m) => run.setModel(m), onThink: (k) => run.thinkStep(k),
+        onDelta: (v) => { text += v; emit(v); if (text.length % 1500 < v.length) { const pr = progress(text); if (pr) set(main, { detail: pr }); } } });
+    } catch (e) { if (run.signal.aborted) break; if (!text.trim()) { if (step === 1) throw e; emit('⚠️ ' + e.message); break; } }
+
+    // 1) Dateien des Main Agents anwenden
+    const p = Agent.parse(text);
+    const res = Agent.apply(files, p.ops);
+    if (Object.keys(res.set).length || res.remove.length) { files = await ctx.save(res.set, res.remove); res.changed.forEach(c => changed.set(c.path, c)); dirtySinceCheck = true; }
+    steps.push({ role: 'assistant', content: Agent.condense(text) || '…' });
+
+    // 2) Werkzeuge ausführen
+    waits = p.tools.some(t => WAIT_TOOLS.includes(t.name));
+    const auto = p.tools.filter(t => Agent.AUTO_TOOLS.includes(t.name)).slice(0, MAX_TOOLS_PER_STEP);
+    const results = [];
+    if (res.problems.length) results.push({ name: 'apply', ok: false, summary: `${res.problems.length} Änderung(en) nicht angewendet`, text: `[Änderungen] Diese Änderungen konnten nicht angewendet werden:\n${res.problems.map(x => '- ' + x).join('\n')}\nLies die Datei (read) und versuche es mit dem exakten Text erneut.` });
+    const imgs = auto.filter(t => t.name === 'image');
+    for (const t of auto.filter(x => x.name !== 'image')) {
+      if (run.signal.aborted) break;
+      set(main, { detail: `${TOOL_VERB[t.name] || t.name} ${t.attrs.path || t.attrs.query || t.attrs.url || ''}`.trim() });
+      results.push({ name: t.name, ...(await execTool(t)) });
+    }
+    if (imgs.length) results.push({ name: 'image', ...(await images(imgs)) });
+
+    // 3) Fertig? – nur, wenn nichts mehr offen ist. Davor (wie ein Hook) automatisch prüfen, falls Dateien geändert wurden
+    const isDone = p.tools.some(t => t.name === 'done');
+    if (waits) break;
+    if (!results.length) {
+      if (dirtySinceCheck && fixes < MAX_FIX && timeLeft() > 45_000) {
+        const c = Tools.check(files); dirtySinceCheck = false;
+        if (c.issues.length) { fixes++; results.push({ name: 'check', ok: false, summary: c.summary + ' – Main Agent behebt sie', text: `[Automatische Prüfung] ${c.text}\nBehebe diese Probleme jetzt selbst.` }); }
+      }
+      if (!results.length) break;
+    }
+    emit('\n' + results.map(r => `<result name="${escAttr(r.name)}" ok="${r.ok ? 1 : 0}">${escAttr(r.summary)}</result>`).join('\n'));
+    steps.push({ role: 'user', content: '[Werkzeug-Ergebnisse]\n\n' + results.map(r => r.text).join('\n\n') + (isDone ? '\n\nDu hattest "done" gesagt, aber es gibt noch Ergebnisse – prüfe sie und schließe dann ab.' : '') });
+    if (step === MAX_STEPS) stopReason = 'steps';
   }
-  // Mehrere Sub-Agenten bauen gleichzeitig je ihre eigenen Dateien
-  async function teamRound() {
-    plan.tasks.forEach(t => { t.tier = tierFor(t.level, ctx.tier, ctx.allowUltra); });
-    const coders = plan.tasks.map((t, i) => { const k = Agent.kitFor(t.agent); return add({ id: 'coder' + (i + 1), role: 'coder', kit: t.agent, tier: t.tier, level: t.level, title: `${k ? k.emoji + ' ' + k.name : 'Coder ' + (i + 1)}: ${t.title}`, detail: t.files.join(', ') }); });
-    const header = () => `${plan.summary || 'Das Coden-Team baut deine App.'}\n\n<plan>\n${plan.tasks.map((t, i) => `- [${coders[i].status === 'done' ? 'x' : ' '}] ${t.title} (${t.files.join(', ')})`).join('\n')}\n</plan>`;
-    run.setText(header());
-    const owner = new Map(); plan.tasks.forEach((t, i) => t.files.forEach(f => owner.set(f, i)));
-    const outs = new Array(plan.tasks.length).fill('');
-    const queue = plan.tasks.map((t, i) => i);
+  if (stopReason === 'time') emit('\n\n⏱️ Für diesen Lauf ist die Zeit um. Schreib „weiter“, dann mache ich genau hier weiter.');
+  if (stopReason === 'steps') emit('\n\n⏸️ Ich habe die maximale Anzahl Schritte erreicht. Schreib „weiter“, dann mache ich weiter.');
+  set(main, { status: 'done', detail: `${stepsDone} Schritt${stepsDone > 1 ? 'e' : ''}${changed.size ? ' · ' + changed.size + ' Datei' + (changed.size > 1 ? 'en' : '') : ''}${spawns ? ' · ' + agents.filter(a => a.parent).length + ' Sub-Agenten' : ''}` });
+
+  // Eine Nachricht für den ganzen Lauf (Dateiinhalte gekürzt, Werkzeug-Ergebnisse bleiben als kurze Zeilen)
+  const reply = withReply(out.text, Agent.parse(out.text));
+  if (reply !== out.text) { const suffix = reply.slice(out.text.replace(/\s+$/, '').length); if (suffix.trim()) emit(suffix); }
+  await ctx.post('assistant', Agent.condense(out.text) || '…', { changed: [...changed.values()], model: run.model || undefined, agents: agents.map(a => ({ title: a.title, status: a.status, tier: a.tier ? TIER_NAME[a.tier] : undefined })).slice(0, 12), steps: stepsDone });
+  run.setExtra({ done: true, steps: stepsDone });
+  return { files, summary: { steps: stepsDone, changed: [...changed.keys()] } };
+
+  // ---------- Werkzeuge ----------
+  async function execTool(t) {
+    const a = t.attrs;
+    switch (t.name) {
+      case 'list': return Tools.list(files, a.pattern);
+      case 'read': return Tools.read(files, a.path || a.file, a.start, a.end);
+      case 'search': return Tools.search(files, a.query || t.body, a.regex);
+      case 'check': { dirtySinceCheck = false; return Tools.check(files); }
+      case 'fetch': return Tools.fetchUrl(a.url || t.body);
+      case 'web_search': return Tools.webSearch(a.query || t.body);
+      case 'memory': { const r = Tools.memory(files, t.body || a.text); if (r.set) { files = await ctx.save(r.set, []); changed.set('CODEN.md', { type: 'edit', path: 'CODEN.md' }); } return r; }
+      case 'spawn': return spawn(t.body);
+      default: return { ok: false, summary: 'unbekanntes Werkzeug', text: `Unbekanntes Werkzeug "${t.name}".` };
+    }
+  }
+  async function images(list) {
+    if (imgRounds >= MAX_IMG_ROUNDS) return { ok: false, summary: 'keine weiteren Bilder', text: '[Bilder] Für diesen Lauf sind keine weiteren Bilder möglich – nimm SVGs, Emojis oder Unsplash.' };
+    imgRounds++;
+    const painter = add({ id: 'img' + imgRounds, role: 'designer', parent: 'main', title: '🖼️ Bild-Agent', detail: `erstellt ${list.length} Bild${list.length > 1 ? 'er' : ''}` }); set(painter, { status: 'run' });
+    const done = await Promise.all(list.slice(0, 3).map(async (t) => { try { return { id: t.id || 'bild', url: await ctx.image(t.prompt) }; } catch (e) { return { id: t.id || 'bild', error: e.message }; } }));
+    const ok = done.filter(o => o.url);
+    set(painter, { status: ok.length ? 'done' : 'error', detail: ok.length ? `${ok.length} Bild${ok.length > 1 ? 'er' : ''} fertig` : 'Bilder gehen gerade nicht' });
+    return { ok: ok.length > 0, summary: ok.length ? `${ok.length} Bild${ok.length > 1 ? 'er' : ''} erstellt` : 'Bilder gehen gerade nicht', text: `[Bilder]\n${done.map(o => o.url ? `- ${o.id}: ${o.url}` : `- ${o.id}: FEHLGESCHLAGEN (${o.error})`).join('\n')}\n${ok.length ? 'Baue sie jetzt mit diesen URLs ein.' : 'Nimm stattdessen SVGs, Emojis oder Unsplash-Bilder.'}` };
+  }
+  // ---------- Sub-Agenten (spawn) ----------
+  async function spawn(body) {
+    if (!spawnAllowed) return { ok: false, summary: 'Solo-Modus: keine Sub-Agenten', text: 'Im Solo-Modus gibt es keine Sub-Agenten – erledige die Aufgabe selbst.' };
+    if (spawns >= MAX_SPAWNS) return { ok: false, summary: 'Sub-Agenten-Limit erreicht', text: `Höchstens ${MAX_SPAWNS} spawn-Aufrufe pro Lauf – mach den Rest selbst.` };
+    if (timeLeft() < 90_000) return { ok: false, summary: 'zu wenig Zeit für Sub-Agenten', text: 'Für Sub-Agenten reicht die Zeit in diesem Lauf nicht mehr – mach es selbst oder kleiner.' };
+    const plan = parsePlan(body, files);
+    if (!plan || !plan.tasks.length) return { ok: false, summary: 'ungültiger spawn-Auftrag', text: 'spawn braucht gültiges JSON: {"contract":"…","tasks":[{"title":"…","agent":"logic","level":"mittel","files":["app.js"],"goal":"…"}]} – jede Datei nur in einer Aufgabe.' };
+    spawns++;
+    const n = spawns; const tasks = plan.tasks;
+    tasks.forEach(t => { t.tier = tierFor(t.level, ctx.tier, ctx.allowUltra); });
+    const subs = tasks.map((t, i) => { const k = Agent.kitFor(t.agent); return add({ id: `sub${n}-${i + 1}`, role: 'coder', parent: 'main', kit: t.agent, tier: t.tier, level: t.level, title: `${k ? k.emoji + ' ' + k.name : 'Sub-Agent ' + (i + 1)}: ${t.title}`, detail: t.files.join(', ') }); });
+    set(main, { detail: `wartet auf ${tasks.length} Sub-Agenten …` });
+    const owner = new Map(); tasks.forEach((t, i) => t.files.forEach(f => owner.set(f, i)));
+    const outs = new Array(tasks.length).fill(''); const notes = new Array(tasks.length).fill('');
+    const queue = tasks.map((t, i) => i);
+    const lastUser = [...history].reverse().find(m => m.role === 'user');
+    const brief = { role: 'user', content: `${lastUser ? 'Wunsch des Nutzers: ' + lastUser.content.slice(0, 4000) + '\n\n' : ''}Auftrag vom Main Agent: ${plan.summary || 'siehe Aufgaben'}. Erledige jetzt DEINE Aufgabe.` };
     const worker = async () => {
       for (let i; (i = queue.shift()) !== undefined;) {
         if (run.signal.aborted) return;
-        const t = plan.tasks[i]; set(coders[i], { status: 'run', detail: 'startet …' });
-        const team = { role: `${Agent.kitFor(t.agent)?.name || 'Coder'} (Agent ${i + 1} von ${plan.tasks.length})`, summary: plan.summary, contract: plan.contract, tasks: plan.tasks, task: t };
-        const only = history.slice(-4);
+        const t = tasks[i]; set(subs[i], { status: 'run', detail: 'startet …' });
+        const team = { role: `${Agent.kitFor(t.agent)?.name || 'Sub-Agent'} (Sub-Agent ${i + 1} von ${tasks.length}, beauftragt vom Main Agent)`, summary: plan.summary || 'Auftrag vom Main Agent', contract: plan.contract, tasks, task: t };
         try {
-          await generateStream(t.tier, [sys(team), ...(only[0]?.role === 'user' ? only : history.slice(-1))], { ...common, maxTokens: 16000, onModel: (m) => run.setModel(m), onDelta: (v) => { outs[i] += v; if (outs[i].length % 1500 < v.length) set(coders[i], { detail: progress(outs[i]) || 'schreibt …' }); } });
-          const p = Agent.parse(outs[i]); const mine = p.ops.filter(o => owner.get(o.path) === i); // nur die eigenen Dateien (sonst überschreiben sich Agenten gegenseitig)
-          outs[i] = rebuild(outs[i], mine);
-          set(coders[i], { status: mine.length ? 'done' : 'error', detail: mine.length ? `${mine.length} Datei${mine.length > 1 ? 'en' : ''}: ${mine.map(o => o.path).join(', ')}` : 'hat keine Datei geliefert' });
-        } catch (e) { if (run.signal.aborted) return; set(coders[i], { status: 'error', detail: e.message.slice(0, 120) }); }
-        run.setText(header());
+          await generateStream(t.tier, [sys(team), brief], { ...common, maxTokens: 16000, onDelta: (v) => { outs[i] += v; if (outs[i].length % 1500 < v.length) set(subs[i], { detail: progress(outs[i]) || 'schreibt …' }); } });
+          const pp = Agent.parse(outs[i]); const mine = pp.ops.filter(o => owner.get(o.path) === i);
+          const foreign = pp.ops.filter(o => owner.get(o.path) !== i).map(o => o.path);
+          notes[i] = pp.segs.filter(x => x.kind === 'text').map(x => x.text).join(' ').replace(/\s+/g, ' ').trim().slice(0, 300) + (foreign.length ? ` (fremde Dateien verworfen: ${foreign.join(', ')})` : '');
+          outs[i] = mine;
+          set(subs[i], { status: mine.length ? 'done' : 'error', detail: mine.length ? `${mine.length} Datei${mine.length > 1 ? 'en' : ''}: ${mine.map(o => o.path).join(', ')}` : 'hat keine Datei geliefert' });
+        } catch (e) { outs[i] = []; if (run.signal.aborted) return; notes[i] = 'Fehler: ' + e.message; set(subs[i], { status: 'error', detail: e.message.slice(0, 120) }); }
       }
     };
     await Promise.all(Array.from({ length: Math.min(TEAM_PARALLEL, queue.length) }, worker));
-    if (run.signal.aborted) throw new Error('abgebrochen');
-    // Fehlt ein Teil (Agent ausgefallen)? Dann übernimmt ein Agent die liegengebliebenen Dateien
-    const missing = plan.tasks.filter((t, i) => coders[i].status === 'error');
-    const body = outs.filter(Boolean).join('\n\n');
-    const done = plan.tasks.filter((t, i) => coders[i].status === 'done');
-    const text = `${header()}\n\n${body}\n\n**${missing.length ? 'Fast fertig' : 'Fertig'}!** Das Coden-Team hat ${done.length} von ${plan.tasks.length} Aufgaben erledigt:\n${plan.tasks.map((t, i) => `- ${coders[i].status === 'done' ? '✅' : '⚠️'} ${t.title}`).join('\n')}\n\n${plan.next ? 'Nächster Schritt: ' + plan.next : 'Schau dir die Vorschau an und sag mir, was ich verbessern soll.'}`;
-    const r = await finishRound(text, { team: true, agents: brief() });
-    if (missing.length && timeLeft() > 60_000) {
-      await toolMessage(`[Team] Diese Aufgaben sind ausgefallen und müssen noch erledigt werden:\n${missing.map(t => `- ${t.title}: ${t.files.join(', ')} – ${t.goal}`).join('\n')}\nVertrag: ${plan.contract}\nSchreibe die fehlenden Dateien jetzt vollständig.`, `${missing.length} Aufgabe${missing.length > 1 ? 'n' : ''} werden nachgeholt …`);
-      return singleRound('Ersatz-Coder', 'holt die ausgefallenen Aufgaben nach');
-    }
-    return r;
+    const ops = outs.flat().filter(Boolean);
+    const r = Agent.apply(files, ops);
+    if (Object.keys(r.set).length || r.remove.length) { files = await ctx.save(r.set, r.remove); r.changed.forEach(c => changed.set(c.path, c)); dirtySinceCheck = true; }
+    const c = Tools.check(files); dirtySinceCheck = false;
+    set(main, { detail: 'prüft die Ergebnisse der Sub-Agenten' });
+    const okN = subs.filter(x => x.status === 'done').length;
+    const report = tasks.map((t, i) => `${subs[i].status === 'done' ? '✅' : '⚠️'} ${subs[i].title} [${TIER_NAME[t.tier]}] → ${(Array.isArray(outs[i]) ? outs[i].map(o => o.path).join(', ') : '') || 'nichts geliefert'}${notes[i] ? '\n   Notiz: ' + notes[i] : ''}`).join('\n');
+    return { ok: okN === tasks.length && !c.issues.length, summary: `${okN}/${tasks.length} Sub-Agenten fertig · ${c.summary}`,
+      text: `[Sub-Agenten] ${okN} von ${tasks.length} fertig:\n${report}${r.problems.length ? '\nNicht angewendet: ' + r.problems.join('; ') : ''}\n\n${c.text}\n\nJetzt bist DU dran: lies die neuen Dateien (read/search), prüfe, ob alles zum Vertrag passt, schreibe fehlende Verbindungen selbst und behebe Fehler. Ausgefallene Aufgaben erledigst du selbst.` };
   }
-  // KI-Prüfer: passen die parallel geschriebenen Teile zusammen?
-  async function reviewTeam() {
-    const rv = add({ id: 'review', role: 'reviewer', title: '🔎 Prüfer', tier: 'pro', detail: 'prüft, ob alle Teile zusammenpassen' }); set(rv, { status: 'run' });
-    const listing = Object.keys(files).sort().map(n => `=== ${n} ===\n${String(files[n]).slice(0, 14000)}`).join('\n\n').slice(0, 60000);
-    try {
-      const txt = await generate('pro', [{ role: 'system', content: 'Du bist der Prüfer im Coden-Team. Mehrere Agenten haben parallel Dateien einer Web-App geschrieben. Finde NUR echte Fehler, durch die etwas nicht funktioniert: IDs/Klassen, die in HTML und JS nicht übereinstimmen, aufgerufene Funktionen/Variablen, die nirgends definiert sind, falsche Script-Reihenfolge, fehlende Dateien, offensichtliche Logikfehler (z. B. Knopf ohne Funktion). Keine Stil-Wünsche. Antworte NUR mit JSON: {"issues":["konkreter Fehler mit Datei und Name", …]} (leere Liste, wenn alles passt, höchstens 6).' }, { role: 'user', content: listing }], { ...common, maxTokens: 1500, effort: 'low' });
-      const m = String(txt).match(/\{[\s\S]*\}/); const list = m ? (JSON.parse(m[0]).issues || []).map(x => String(x).slice(0, 300)).filter(Boolean).slice(0, 6) : [];
-      set(rv, { status: 'done', detail: list.length ? `${list.length} Problem${list.length > 1 ? 'e' : ''} gefunden` : 'alles passt zusammen' });
-      return list;
-    } catch (e) { if (run.signal.aborted) throw e; set(rv, { status: 'done', detail: 'Prüfung übersprungen' }); return []; }
-  }
-  function brief() { return agents.map(a => ({ title: a.title, status: a.status })).slice(0, 10); }
 }
 
 // Fortschritt eines schreibenden Agenten: welche Datei, wie viele Zeilen
@@ -270,4 +253,4 @@ function withReply(text, p) {
   return text.replace(/\s+$/, '') + `\n\nFertig – ich habe ${list} ${p.ops.some(o => o.type === 'file') ? 'geschrieben bzw. angepasst' : 'angepasst'}. Schau dir die Vorschau an und sag mir, was ich noch ändern soll.`;
 }
 
-module.exports = { runAppAgent, historyFrom, parsePlan, tierFor, defaultTeam, _progress: progress };
+module.exports = { runAppAgent, historyFrom, parsePlan, tierFor, defaultTeam, MAX_STEPS, _progress: progress };
