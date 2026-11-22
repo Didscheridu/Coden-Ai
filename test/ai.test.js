@@ -54,6 +54,8 @@ const gem = (t) => `data: ${JSON.stringify({ candidates: [{ content: { parts: [{
   mode = 'streamFallback'; log.length = 0; let fe; try { await ai.generate('pro', [{ role: 'user', content: 'hi' }], { pin: 'groq:openai/gpt-oss-120b' }); } catch (e) { fe = e.message; }
   chk('Pin: fällt das Modell aus, wird NICHT auf andere ausgewichen', [!!fe, log.join()], [true, 'openai/gpt-oss-120b']);
 
+  mode = 'googleOnly'; let ke; try { await ai.generate('pro', [{ role: 'user', content: 'hi' }], { pin: 'groq:openai/gpt-oss-120b' }); } catch (e) { ke = e.message; }
+  chk('Pin: Fehlermeldung nennt Modell', /gpt-oss-120b \(Groq\): down/.test(ke || ''), true);
   // --- Wenn andere Modelle funktionieren, wird Gemini nie angefasst ---
   mode = 'groqWorks'; log.length = 0;
   const r1 = await ai.generate('pro', [{ role: 'user', content: 'hi' }], { isOwner: false });
