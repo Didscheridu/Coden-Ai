@@ -21,6 +21,7 @@ const FILE_ICON = (n) => /\.html?$/.test(n) ? 'html' : /\.css$/.test(n) ? 'css' 
 const MAX_AUTOFIX = 2;
 // Arbeits-Werkzeuge des Main Agents (laufen auf dem Server) – im Chat als kompakte Zeile wie bei Claude Code
 const AGENT_TOOLS = { list: ['folder_open', 'Dateien ansehen'], read: ['visibility', 'Liest'], search: ['search', 'Sucht'], check: ['fact_check', 'Prüft die App'], fetch: ['language', 'Liest Webseite'], web_search: ['travel_explore', 'Sucht im Web'], memory: ['bookmark_add', 'Merkt sich'], spawn: ['groups', 'Startet Sub-Agenten'], done: ['check', 'Fertig'] };
+const RESULT_IC = { leg: 'replay', nudge: 'bolt', review: 'task_alt' };
 function agentToolChip(t) {
     const [ic, label] = AGENT_TOOLS[t.name]; const a = t.attrs || {};
     let what = a.path || a.query || a.url || a.pattern || '';
@@ -311,7 +312,7 @@ export function mountBuilder(host, appId) {
                 h('button', { class: 'bl-btn sm', onclick: async () => { if (await copy(s.sql.code)) toast('SQL kopiert – füge es im SQL-Editor ein', { type: 'ok' }); } }, icon('content_copy'), ' Kopieren'),
                 st.app?.integrations?.database?.provider === 'supabase' ? h('a', { class: 'bl-btn sm', href: 'https://supabase.com/dashboard/project/' + ((st.app.integrations.database.url || '').match(/https:\/\/([a-z0-9-]+)\./)?.[1] || '') + '/sql/new', target: '_blank', rel: 'noopener' }, icon('open_in_new'), ' SQL-Editor') : null),
                 h('pre', {}, h('code', { class: 'language-sql', text: s.sql.code }))));
-            else if (s.kind === 'result') frag.push(h('div', { class: 'bl-result' + (s.ok ? '' : ' bad') }, icon(s.ok ? 'subdirectory_arrow_right' : 'error'), h('span', { text: s.text })));
+            else if (s.kind === 'result') frag.push(h('div', { class: 'bl-result' + (s.ok ? '' : ' bad') + ' r-' + s.name }, icon(RESULT_IC[s.name] || (s.ok ? 'subdirectory_arrow_right' : 'error')), h('span', { text: s.text })));
             else if (s.kind === 'tool' && AGENT_TOOLS[s.tool.name]) { if (s.tool.name !== 'done') frag.push(agentToolChip(s.tool)); }
             else if (s.kind === 'tool') {
                 const key = msgId ? `${msgId}:${ti++}` : null; const ans = key ? done[key] : null;

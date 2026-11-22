@@ -12,7 +12,7 @@ const { iconPng } = require('./icon');
 const Bundle = require('../shared/app-bundle');
 const Styles = require('../shared/app-styles');
 const apk = require('./apk');
-const { startRun, serveRun, _live: liveRuns } = require('./runs');
+const { startRun, resumeRun, serveRun, _live: liveRuns } = require('./runs');
 const { runAppAgent, historyFrom } = require('./agents');
 
 const KINDS = ['web', 'ios', 'android', 'both', 'game'];
@@ -72,6 +72,8 @@ function publicUrl(req, slug) { return `${baseUrl(req)}/a/${slug}/`; }
 // =====================================================================
 function appsRouter(requireAuth) {
   const r = wrapRouter(express.Router());
+  // Interne Fortsetzung eines Agenten-Laufs (nächste Etappe). Ohne Login, aber nur mit dem geheimen Etappen-Schlüssel des Laufs.
+  r.post('/:id/agent/continue', (req, res, next) => continueLeg(req, res).catch(next));
   r.use(requireAuth);
 
   // Zugriff: direktes Mitglied, sonst über einen Server, in den die App geteilt wurde (Bearbeiter → editor, Zuschauer → viewer).
@@ -225,6 +227,7 @@ function appsRouter(requireAuth) {
   });
   // KI-Bild erzeugen und als URL zurückgeben (Coden baut sie dann in die App ein)
   async function makeImage(a, uid, req, prompt) {
+    const base = typeof req === 'string' ? req : baseUrl(req);
     prompt = String(prompt || '').trim().slice(0, 1500);
     if (prompt.length < 3) throw Object.assign(new Error('Beschreibe das Bild kurz.'), { status: 400 });
     const [{ n }] = await getSql()`SELECT count(*)::int AS n FROM app_images WHERE app_id = ${a.id}`;
@@ -232,7 +235,7 @@ function appsRouter(requireAuth) {
     const img = await generateImage(prompt);
     const key = crypto.randomBytes(9).toString('hex');
     await getSql()`INSERT INTO app_images (key, app_id, uid, prompt, mime, data) VALUES (${key}, ${a.id}, ${uid}, ${prompt}, ${img.mime}, ${img.data})`;
-    return { key, url: `${baseUrl(req)}/api/public/img/${key}` };
+    return { key, url: `${base}/api/public/img/${key}` };
   }
   r.post('/:id/images', rateLimit('apps-img', 12, 300), async (req, res) => {
     const a = await memberOf(req, res, req.params.id, true); if (!a) return;
@@ -263,16 +266,26 @@ function appsRouter(requireAuth) {
     const effort = ['low', 'medium', 'high'].includes(req.body?.effort) ? req.body.effort : undefined;
     const mode = ['auto', 'single', 'team'].includes(req.body?.mode) ? req.body.mode : 'auto';
     const rows = await loadMessages(a.id, req.user.uid, 0, 40);
-    const sql = getSql(); const uid = req.user.uid; const appId = a.id;
+    const opts = { uid: req.user.uid, isOwner: req.user.isOwner, tier, effort, mode, allowUltra: !(await locked(req, 'ultra')),
+      trigger: rows.length && rows[rows.length - 1].role === 'user' ? 'user' : 'tool', lastMsgId: rows.length ? Number(rows[rows.length - 1].id) : 0,
+      imgBase: baseUrl(req), selfBase: selfUrl(req) };
+    const ctx = agentCtx(a, opts, historyFrom(rows));
+    const { run, done } = await startRun({ uid: opts.uid, isOwner: opts.isOwner, kind: 'app', ref: String(a.id), meta: { tier, mode } }, (run) => { ctx.run = run; return runAppAgent(run, ctx); });
+    await serveRun(res, run, done);
+  });
+  // Eigene Adresse dieser Ausführung (für den Selbstaufruf der nächsten Etappe)
+  function selfUrl(req) { return `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.headers.host}`.replace(/\/$/, ''); }
+  // Alles, was der Agent zum Arbeiten braucht – unabhängig von der HTTP-Anfrage, damit spätere Etappen es neu aufbauen können
+  function agentCtx(a, o, history, state) {
+    const sql = getSql(); const appId = a.id; const uid = o.uid;
     const ctx = {
       app: { id: Number(a.id), name: a.name, kind: a.kind, style: a.style, integrations: a.integrations || {} },
-      files: a.files || {}, history: historyFrom(rows), tier, effort, mode, isOwner: req.user.isOwner, style: Styles.byId(a.style),
-      allowUltra: !(await locked(req, 'ultra')), // schwere Team-Aufgaben dürfen dann Ultra nutzen
-      trigger: rows.length && rows[rows.length - 1].role === 'user' ? 'user' : 'tool',
+      files: a.files || {}, history, tier: o.tier, effort: o.effort, mode: o.mode, isOwner: o.isOwner, style: Styles.byId(a.style), allowUltra: o.allowUltra, trigger: o.trigger, state,
       // Dateien speichern wie PUT /files (mit Versionsprüfung, damit gleichzeitige Änderungen nicht verloren gehen)
       async save(set, remove) {
         for (let attempt = 0; attempt < 5; attempt++) {
           const [cur] = await sql`SELECT files, version FROM apps WHERE id = ${appId}`;
+          if (!cur) throw new Error('Die App wurde gelöscht.');
           const files = { ...(cur.files || {}) }; for (const n of remove) delete files[n]; for (const [n, c] of Object.entries(set)) files[n] = c;
           const err = checkFiles(files); if (err) throw new Error(err);
           const ok = await sql`UPDATE apps SET files = ${JSON.stringify(files)}::jsonb, version = version + 1, updated_at = now() WHERE id = ${appId} AND version = ${cur.version} RETURNING version`;
@@ -285,11 +298,44 @@ function appsRouter(requireAuth) {
         await sql`INSERT INTO app_messages (app_id, sender, role, body, meta) VALUES (${appId}, ${uid}, ${role}, ${String(body).slice(0, LIMITS.msg)}, ${JSON.stringify(m)}::jsonb)`;
         sql`UPDATE apps SET updated_at = now() WHERE id = ${appId}`.catch(() => {});
       },
-      image: async (prompt) => (await makeImage(a, uid, req, prompt)).url
+      image: async (prompt) => (await makeImage(a, uid, o.imgBase, prompt)).url,
+      // Nächste Etappe: Stand mit geheimem Schlüssel im Lauf speichern, dann die eigene Fortsetzungs-Adresse aufrufen
+      async continueLeg(state) {
+        const run = ctx.run; if (!run) return false;
+        const key = crypto.randomBytes(24).toString('hex');
+        await run.pause();
+        await sql`UPDATE ai_runs SET meta = meta || ${JSON.stringify({ cont: { key, state, opts: o } })}::jsonb, updated_at = now() WHERE id = ${run.id}`;
+        const headers = { 'Content-Type': 'application/json', 'X-Coden-Leg': key };
+        if (process.env.VERCEL_AUTOMATION_BYPASS_SECRET) headers['x-vercel-protection-bypass'] = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+        try {
+          const r = await fetch(`${o.selfBase}/api/apps/${appId}/agent/continue`, { method: 'POST', headers, body: JSON.stringify({ run: run.id }), signal: AbortSignal.timeout(20000) });
+          if (r.ok) return true;
+          console.warn('[agent] Etappe abgelehnt:', r.status);
+        } catch (e) { console.warn('[agent] Etappe nicht erreichbar:', e.message); }
+        await sql`UPDATE ai_runs SET meta = meta - 'cont' WHERE id = ${run.id}`.catch(() => {});
+        run.unpause(); return false;
+      }
     };
-    const { run, done } = await startRun({ uid, isOwner: req.user.isOwner, kind: 'app', ref: String(a.id), meta: { tier, mode } }, (run) => runAppAgent(run, ctx));
-    await serveRun(res, run, done);
-  });
+    return ctx;
+  }
+  async function continueLeg(req, res) {
+    const appId = toInt(req.params.id); const runId = toInt(req.body?.run); const key = String(req.headers['x-coden-leg'] || '');
+    if (!appId || !runId || key.length !== 48) return bad(res, 400, 'Ungültig.');
+    const sql = getSql();
+    const [row] = await sql`SELECT id, meta FROM ai_runs WHERE id = ${runId} AND kind = 'app' AND ref = ${String(appId)} AND status = 'running'`;
+    const cont = row?.meta?.cont;
+    if (!cont || typeof cont.key !== 'string' || cont.key.length !== key.length || !crypto.timingSafeEqual(Buffer.from(cont.key), Buffer.from(key))) return bad(res, 403, 'Nicht erlaubt.');
+    const took = await sql`UPDATE ai_runs SET meta = meta - 'cont', updated_at = now() WHERE id = ${runId} AND meta->'cont'->>'key' = ${key} RETURNING id`;
+    if (!took.length) return bad(res, 409, 'Diese Etappe läuft schon.'); // Schlüssel gilt nur einmal
+    const [a] = await sql`SELECT * FROM apps WHERE id = ${appId}`;
+    if (!a) { await sql`UPDATE ai_runs SET status = 'error', error = 'Die App wurde gelöscht.' WHERE id = ${runId}`; return bad(res, 404, 'App nicht gefunden.'); }
+    const o = cont.opts || {};
+    const rows = (await loadMessages(a.id, o.uid, 0, 60)).filter(m => Number(m.id) <= (o.lastMsgId || Infinity));
+    const ctx = agentCtx(a, { ...o, selfBase: o.selfBase || selfUrl(req) }, historyFrom(rows), cont.state);
+    const started = await resumeRun(runId, { isOwner: o.isOwner }, (run) => { ctx.run = run; return runAppAgent(run, ctx); });
+    if (!started) return bad(res, 409, 'Der Lauf ist nicht mehr aktiv.');
+    res.status(202).json({ ok: true }); // die Arbeit läuft im Hintergrund weiter (waitUntil)
+  }
   // Stand eines Agenten-Laufs dieser App (für alle Mitglieder, auch nach dem Neuladen)
   r.get('/:id/agent', async (req, res) => {
     const a = await memberOf(req, res, req.params.id); if (!a) return;

@@ -78,86 +78,158 @@ function defaultTeam(ctx) {
     ] };
 }
 
-const MAX_STEPS = 12, MAX_SPAWNS = 2, MAX_TOOLS_PER_STEP = 6, MAX_IMG_ROUNDS = 2;
+const MAX_STEPS = 40, MAX_SPAWNS = 3, MAX_TOOLS_PER_STEP = 6, MAX_IMG_ROUNDS = 2;
 const Tools = require('./agent-tools');
 const WAIT_TOOLS = ['database', 'ask', 'secret'];
 const escAttr = (s) => String(s).replace(/[<>"&\n]/g, (c) => ({ '<': '‹', '>': '›', '"': '“', '&': '+', '\n': ' ' }[c]));
 const TOOL_VERB = { list: 'listet Dateien', read: 'liest', search: 'sucht', check: 'prüft die App', fetch: 'liest eine Webseite', web_search: 'sucht im Web', memory: 'merkt sich etwas', spawn: 'startet Sub-Agenten', image: 'erstellt Bilder' };
 
+// ---------- Etappen: ein Lauf darf auf Vercel höchstens 300 s dauern. Für große Aufgaben speichert der Agent
+// seinen Stand und startet sich selbst in einer neuen Server-Ausführung neu (bis MAX_LEGS, insgesamt MAX_TOTAL_STEPS).
+const LEG_START_MS = 160_000;   // danach keinen neuen Schritt mehr in dieser Etappe beginnen
+const legStart = () => Number(process.env.CODEN_LEG_START_MS) || LEG_START_MS;
+const legSteps = () => Number(process.env.CODEN_LEG_STEPS) || Infinity; // nur für Tests: Schritte pro Etappe
+const LEG_HARD_MS = 262_000;    // spätestens dann wird ein laufender Schritt abgebrochen (und in der nächsten Etappe wiederholt)
+const MAX_LEGS = 10, MAX_TOTAL_STEPS = 40, MAX_NUDGES = 3;
+const HEAVY = ['spawn', 'image', 'fetch', 'web_search'];
+// Hat das Modell nur angekündigt, statt zu handeln? (häufigster Grund, warum Agenten "einfach aufhören")
+const INTENT = /\b(let me|i will|i'll|i'm going to|i am going to|now i|next,? i|i need to|lass mich|ich werde|ich muss|ich (mache|baue|schreibe|füge|behebe|ändere|prüfe|repariere|ergänze|passe|verschiebe|kümmere)[^.!?\n]{0,30}\b(jetzt|nun|als nächstes|gleich|noch)|jetzt (behebe|baue|schreibe|füge|ändere|prüfe|repariere|ergänze|kümmere|passe)|als nächstes|im nächsten schritt)\b/i;
+const tailText = (p) => { let k = -1; p.segs.forEach((x, i) => { if (x.kind !== 'text') k = i; }); return p.segs.slice(k + 1).filter(x => x.kind === 'text').map(x => x.text).join(' ').trim().slice(-500); };
+const isQuestion = (w) => /\?\s*$/.test(w.trim()) && w.length < 400 && !/\b(bau|mach|füg|änder|erstell|fix|behebe|reparier|programmier|schreib|ergänz|verbesser|add|build|make|create)/i.test(w);
+
 async function runAppAgent(run, ctx) {
-  const t0 = Date.now(); const timeLeft = () => SOFT_DEADLINE_MS - (Date.now() - t0);
-  const agents = [];
+  const t0 = Date.now(); const elapsed = () => Date.now() - t0; const timeLeft = () => LEG_HARD_MS - elapsed();
+  const S = ctx.state || {};                       // Stand aus der vorigen Etappe (oder leer beim Start)
+  const leg = (S.leg || 0) + 1;
+  const agents = S.agents || [];
   const push = () => run.setAgents(agents.map(a => ({ id: a.id, role: a.role, title: a.title, status: a.status, detail: a.detail, tier: a.tier ? TIER_NAME[a.tier] : undefined, kit: a.kit, level: a.level, parent: a.parent })));
   const add = (o) => { const a = { status: 'wait', detail: '', ...o }; agents.push(a); push(); return a; };
   const set = (a, patch) => { Object.assign(a, patch); push(); };
   const style = ctx.style; let files = { ...ctx.files }; const history = ctx.history.slice();
-  const common = { isOwner: ctx.isOwner, signal: run.signal, effort: ctx.effort };
+  const legAc = new AbortController(); const legTimer = setTimeout(() => legAc.abort(), LEG_HARD_MS);
+  const signal = AbortSignal.any ? AbortSignal.any([run.signal, legAc.signal]) : run.signal;
+  const common = { isOwner: ctx.isOwner, signal, effort: ctx.effort };
   const spawnAllowed = ctx.mode !== 'single';
-  const mainCfg = { maxSteps: MAX_STEPS, spawn: spawnAllowed, team: ctx.mode === 'team' && ctx.trigger === 'user' };
+  const mainCfg = { maxSteps: MAX_TOTAL_STEPS, spawn: spawnAllowed, team: ctx.mode === 'team' && ctx.trigger === 'user' && !S.spawns };
   const sys = (team) => ({ role: 'system', content: Agent.systemPrompt({ app: ctx.app, files, style, team, main: team ? null : mainCfg }) });
-  const main = add({ id: 'main', role: 'main', title: '🧠 Main Agent', tier: ctx.tier, detail: 'liest deine Nachricht' }); set(main, { status: 'run' });
+  const main = agents.find(a => a.id === 'main') || add({ id: 'main', role: 'main', title: '🧠 Main Agent', tier: ctx.tier, detail: 'liest deine Nachricht' });
+  set(main, { status: 'run', detail: leg > 1 ? `Etappe ${leg}: macht weiter …` : 'liest deine Nachricht' });
 
-  const steps = [];                    // Gespräch innerhalb dieses Laufs (Antworten des Main Agents + Werkzeug-Ergebnisse)
-  const changed = new Map();           // Datei -> Art der Änderung (für die Anzeige)
-  let dirtySinceCheck = false, fixes = 0, spawns = 0, imgRounds = 0, stepsDone = 0, waits = false, stopReason = '';
-  const out = { text: '' };            // gesamte sichtbare Antwort (wächst nur – Zuschauer bekommen nur das Neue)
+  const steps = S.steps || [];                     // Gespräch innerhalb dieses Auftrags (Antworten + Werkzeug-Ergebnisse)
+  const changed = new Map(S.changed || []);        // Datei -> Art der Änderung (für die Anzeige)
+  let dirtySinceCheck = !!S.dirty, fixes = S.fixes || 0, spawns = S.spawns || 0, imgRounds = S.imgRounds || 0, stepsTotal = S.stepsTotal || 0;
+  let nudges = S.nudges || 0, reviewed = !!S.reviewed, waits = false, finished = false, pending = S.pending || null;
+  const wish = String([...history].reverse().find(m => m.role === 'user')?.content || '');
+  const out = { text: run.text || '' };            // gesamte sichtbare Antwort (wächst nur – Zuschauer bekommen nur das Neue)
   const emit = (t) => { if (!t) return; out.text += t; run.delta(t); };
-
-  for (let step = 1; step <= MAX_STEPS; step++) {
-    if (run.signal.aborted) break;
-    if (timeLeft() < 30_000) { stopReason = 'time'; break; }
-    stepsDone = step;
-    set(main, { status: 'run', detail: step === 1 ? 'denkt nach …' : `Schritt ${step}: denkt nach …` });
-    if (out.text) emit('\n\n');
-    let text = '';
-    try {
-      await generateStream(ctx.tier, [sys(), ...history, ...steps], { ...common, maxTokens: 16000, onModel: (m) => run.setModel(m), onThink: (k) => run.thinkStep(k),
-        onDelta: (v) => { text += v; emit(v); if (text.length % 1500 < v.length) { const pr = progress(text); if (pr) set(main, { detail: pr }); } } });
-    } catch (e) { if (run.signal.aborted) break; if (!text.trim()) { if (step === 1) throw e; emit('⚠️ ' + e.message); break; } }
-
-    // 1) Dateien des Main Agents anwenden
-    const p = Agent.parse(text);
-    const res = Agent.apply(files, p.ops);
-    if (Object.keys(res.set).length || res.remove.length) { files = await ctx.save(res.set, res.remove); res.changed.forEach(c => changed.set(c.path, c)); dirtySinceCheck = true; }
-    steps.push({ role: 'assistant', content: Agent.condense(text) || '…' });
-
-    // 2) Werkzeuge ausführen
-    waits = p.tools.some(t => WAIT_TOOLS.includes(t.name));
-    const auto = p.tools.filter(t => Agent.AUTO_TOOLS.includes(t.name)).slice(0, MAX_TOOLS_PER_STEP);
-    const results = [];
-    if (res.problems.length) results.push({ name: 'apply', ok: false, summary: `${res.problems.length} Änderung(en) nicht angewendet`, text: `[Änderungen] Diese Änderungen konnten nicht angewendet werden:\n${res.problems.map(x => '- ' + x).join('\n')}\nLies die Datei (read) und versuche es mit dem exakten Text erneut.` });
-    const imgs = auto.filter(t => t.name === 'image');
+  const results = [];                              // Ergebnisse, die an den Main Agent zurückgehen
+  let stepsInLeg = 0;
+  const flushResults = (extra = '') => {
+    if (!results.length) return;
+    emit('\n' + results.map(r => `<result name="${escAttr(r.name)}" ok="${r.ok ? 1 : 0}">${escAttr(r.summary)}</result>`).join('\n'));
+    steps.push({ role: 'user', content: '[Werkzeug-Ergebnisse]\n\n' + results.map(r => r.text).join('\n\n') + extra });
+    results.length = 0;
+  };
+  const runTools = async (auto) => {
     for (const t of auto.filter(x => x.name !== 'image')) {
-      if (run.signal.aborted) break;
+      if (signal.aborted) break;
       set(main, { detail: `${TOOL_VERB[t.name] || t.name} ${t.attrs.path || t.attrs.query || t.attrs.url || ''}`.trim() });
       results.push({ name: t.name, ...(await execTool(t)) });
     }
-    if (imgs.length) results.push({ name: 'image', ...(await images(imgs)) });
+    const imgs = auto.filter(t => t.name === 'image'); if (imgs.length && !signal.aborted) results.push({ name: 'image', ...(await images(imgs)) });
+  };
+  if (leg > 1) emit(`\n\n<result name="leg" ok="1">Etappe ${leg} – Coden arbeitet weiter</result>`);
 
-    // 3) Fertig? – nur, wenn nichts mehr offen ist. Davor (wie ein Hook) automatisch prüfen, falls Dateien geändert wurden
-    const isDone = p.tools.some(t => t.name === 'done');
-    if (waits) break;
-    if (!results.length) {
-      if (dirtySinceCheck && fixes < MAX_FIX && timeLeft() > 45_000) {
-        const c = Tools.check(files); dirtySinceCheck = false;
-        if (c.issues.length) { fixes++; results.push({ name: 'check', ok: false, summary: c.summary + ' – Main Agent behebt sie', text: `[Automatische Prüfung] ${c.text}\nBehebe diese Probleme jetzt selbst.` }); }
-      }
-      if (!results.length) break;
+  try {
+    // Werkzeuge, die am Ende der letzten Etappe keine Zeit mehr hatten (z. B. spawn), zuerst ausführen
+    if (pending?.length) {
+      const tools = pending.map(t => ({ ...t, attrs: t.attrs || {} })); pending = null;
+      await runTools(tools); flushResults();
     }
-    emit('\n' + results.map(r => `<result name="${escAttr(r.name)}" ok="${r.ok ? 1 : 0}">${escAttr(r.summary)}</result>`).join('\n'));
-    steps.push({ role: 'user', content: '[Werkzeug-Ergebnisse]\n\n' + results.map(r => r.text).join('\n\n') + (isDone ? '\n\nDu hattest "done" gesagt, aber es gibt noch Ergebnisse – prüfe sie und schließe dann ab.' : '') });
-    if (step === MAX_STEPS) stopReason = 'steps';
-  }
-  if (stopReason === 'time') emit('\n\n⏱️ Für diesen Lauf ist die Zeit um. Schreib „weiter“, dann mache ich genau hier weiter.');
-  if (stopReason === 'steps') emit('\n\n⏸️ Ich habe die maximale Anzahl Schritte erreicht. Schreib „weiter“, dann mache ich weiter.');
-  set(main, { status: 'done', detail: `${stepsDone} Schritt${stepsDone > 1 ? 'e' : ''}${changed.size ? ' · ' + changed.size + ' Datei' + (changed.size > 1 ? 'en' : '') : ''}${spawns ? ' · ' + agents.filter(a => a.parent).length + ' Sub-Agenten' : ''}` });
+    while (!finished && !waits) {
+      if (run.signal.aborted) break;
+      if (stepsTotal >= MAX_TOTAL_STEPS) { emit('\n\n⏸️ Ich habe die maximale Anzahl Schritte für einen Auftrag erreicht. Schreib „weiter“, dann mache ich genau hier weiter.'); break; }
+      if (stepsInLeg > 0 && (elapsed() > legStart() || stepsInLeg >= legSteps())) return await nextLeg();
+      stepsInLeg++;
+      stepsTotal++;
+      set(main, { status: 'run', detail: `Schritt ${stepsTotal}${leg > 1 ? ' · Etappe ' + leg : ''}: denkt nach …` });
+      if (out.text) emit('\n\n');
+      let text = '';
+      try {
+        await generateStream(ctx.tier, [sys(), ...history, ...steps], { ...common, maxTokens: 16000, onModel: (m) => run.setModel(m), onThink: (k) => run.thinkStep(k),
+          onDelta: (v) => { text += v; emit(v); if (text.length % 1500 < v.length) { const pr = progress(text); if (pr) set(main, { detail: pr }); } } });
+      } catch (e) {
+        if (run.signal.aborted) break;
+        if (legAc.signal.aborted) { stepsTotal--; emit('\n\n_(Diese Etappe ist vorbei – der Schritt wird gleich wiederholt.)_'); return await nextLeg(); }
+        if (!text.trim()) { if (stepsTotal === 1 && !steps.length) throw e; emit('⚠️ ' + e.message); break; }
+      }
 
-  // Eine Nachricht für den ganzen Lauf (Dateiinhalte gekürzt, Werkzeug-Ergebnisse bleiben als kurze Zeilen)
-  const reply = withReply(out.text, Agent.parse(out.text));
-  if (reply !== out.text) { const suffix = reply.slice(out.text.replace(/\s+$/, '').length); if (suffix.trim()) emit(suffix); }
-  await ctx.post('assistant', Agent.condense(out.text) || '…', { changed: [...changed.values()], model: run.model || undefined, agents: agents.map(a => ({ title: a.title, status: a.status, tier: a.tier ? TIER_NAME[a.tier] : undefined })).slice(0, 12), steps: stepsDone });
-  run.setExtra({ done: true, steps: stepsDone });
-  return { files, summary: { steps: stepsDone, changed: [...changed.keys()] } };
+      // 1) Dateien des Main Agents anwenden
+      const p = Agent.parse(text);
+      const res = Agent.apply(files, p.ops);
+      if (Object.keys(res.set).length || res.remove.length) { files = await ctx.save(res.set, res.remove); res.changed.forEach(c => changed.set(c.path, c)); dirtySinceCheck = true; }
+      steps.push({ role: 'assistant', content: Agent.condense(text) || '…' });
+      if (res.problems.length) results.push({ name: 'apply', ok: false, summary: `${res.problems.length} Änderung(en) nicht angewendet`, text: `[Änderungen] Diese Änderungen konnten nicht angewendet werden:\n${res.problems.map(x => '- ' + x).join('\n')}\nLies die Stelle (read/search) und versuche es mit dem EXAKTEN Text erneut – oder schreibe die Datei komplett neu.` });
+
+      // 2) Werkzeuge ausführen (schwere Werkzeuge bei knapper Zeit in die nächste Etappe verschieben)
+      waits = p.tools.some(t => WAIT_TOOLS.includes(t.name));
+      const auto = p.tools.filter(t => Agent.AUTO_TOOLS.includes(t.name)).slice(0, MAX_TOOLS_PER_STEP);
+      if (auto.some(t => HEAVY.includes(t.name)) && timeLeft() < 120_000 && leg < MAX_LEGS) { flushResults(); return await nextLeg(auto); }
+      await runTools(auto);
+      if (waits) break;
+
+      // 3) Fertig? Nur wenn nichts mehr offen ist – sonst nachhaken, prüfen, abnehmen
+      const isDone = p.tools.some(t => t.name === 'done');
+      if (!results.length) {
+        const tail = tailText(p);
+        const announced = !p.ops.length && (INTENT.test(tail) || /:\s*$/.test(tail));
+        const nothingBuilt = !changed.size && !p.ops.length && !isQuestion(wish) && ctx.trigger === 'user' && !spawns;
+        if (!isDone && nudges < MAX_NUDGES && (announced || nothingBuilt)) {
+          nudges++;
+          results.push({ name: 'nudge', ok: false, summary: 'Coden setzt die Ankündigung jetzt um', text: announced
+            ? '[System] Du hast nur angekündigt, was du tun willst, aber keine Änderung ausgegeben. Gib JETZT die vollständigen <file>- oder <edit>-Blöcke dafür aus (oder benutze ein Werkzeug) – ohne erneute Ankündigung.'
+            : '[System] Der Nutzer möchte, dass du etwas baust oder änderst, aber es wurde noch keine Datei geändert. Setze es jetzt vollständig um (<file>/<edit>' + (spawnAllowed ? ' oder spawn' : '') + ').' });
+        } else if (dirtySinceCheck && fixes < MAX_FIX) {
+          const c = Tools.check(files); dirtySinceCheck = false;
+          if (c.issues.length) { fixes++; results.push({ name: 'check', ok: false, summary: c.summary + ' – Main Agent behebt sie', text: `[Automatische Prüfung] ${c.text}\nBehebe diese Probleme jetzt selbst.` }); }
+        }
+        // Abnahme: einmal pro Auftrag die Bitte Punkt für Punkt gegen den Code prüfen lassen
+        if (!results.length && !reviewed && changed.size && (spawns || changed.size >= 2 || stepsTotal >= 3) && stepsTotal < MAX_TOTAL_STEPS - 1) {
+          reviewed = true;
+          results.push({ name: 'review', ok: true, summary: 'Abnahme: prüft deine Bitte Punkt für Punkt', text: `[Abnahme] Bevor du fertig bist: Geh die Bitte des Nutzers Punkt für Punkt durch und prüfe jeden Punkt gegen den AKTUELLEN Code oben (nicht gegen deine Erinnerung). Denk auch an: Startet die App ohne Fehler? Hat jeder Knopf eine Funktion? Funktioniert es auf dem Handy (Touch)? Schreibe eine kurze Liste mit ✅/❌.\nBei ❌: behebe es SOFORT in diesem Schritt mit <file>/<edit>. Wenn alles ✅ ist: kurze Abschlussnachricht auf Deutsch und <tool name="done"/>.\n\nBitte des Nutzers:\n${wish.slice(0, 3000)}` });
+        }
+        if (!results.length) { finished = true; break; }
+      }
+      flushResults(isDone ? '\n\nDu hattest "done" gesagt, aber es gibt noch offene Punkte – erledige sie und schließe dann ab.' : '');
+    }
+  } finally { clearTimeout(legTimer); }
+
+  set(main, { status: 'done', detail: `${stepsTotal} Schritt${stepsTotal !== 1 ? 'e' : ''}${leg > 1 ? ' · ' + leg + ' Etappen' : ''}${changed.size ? ' · ' + changed.size + ' Datei' + (changed.size > 1 ? 'en' : '') : ''}${spawns ? ' · ' + agents.filter(a => a.parent && a.role === 'coder').length + ' Sub-Agenten' : ''}` });
+  return finish();
+
+  async function finish() {
+    // Eine Nachricht für den ganzen Auftrag (Dateiinhalte gekürzt, Werkzeug-Ergebnisse bleiben als kurze Zeilen)
+    const reply = withReply(out.text, Agent.parse(out.text));
+    if (reply !== out.text) { const suffix = reply.slice(out.text.replace(/\s+$/, '').length); if (suffix.trim()) emit(suffix); }
+    await ctx.post('assistant', Agent.condense(out.text) || '…', { changed: [...changed.values()], model: run.model || undefined, agents: agents.map(a => ({ title: a.title, status: a.status, tier: a.tier ? TIER_NAME[a.tier] : undefined })).slice(0, 14), steps: stepsTotal, legs: leg });
+    run.setExtra({ done: true, steps: stepsTotal, legs: leg });
+    return { files, summary: { steps: stepsTotal, legs: leg, changed: [...changed.keys()] } };
+  }
+  // Stand sichern und die nächste Etappe auf dem Server starten
+  async function nextLeg(deferred) {
+    if (leg >= MAX_LEGS || !ctx.continueLeg) {
+      emit('\n\n⏸️ Das war ein großer Auftrag – ich habe hier pausiert. Schreib „weiter“, dann mache ich genau hier weiter.');
+      set(main, { status: 'done', detail: `pausiert nach ${stepsTotal} Schritten` });
+      return finish();
+    }
+    set(main, { status: 'run', detail: `Etappe ${leg} fertig – startet Etappe ${leg + 1} …` });
+    const keepSteps = steps.slice(-30).map(m => ({ role: m.role, content: String(m.content).slice(0, 12000) }));
+    const state = { leg, agents: agents.map(a => ({ ...a })), steps: keepSteps, changed: [...changed.entries()], dirty: dirtySinceCheck, fixes, spawns, imgRounds, stepsTotal, nudges, reviewed,
+      pending: deferred ? deferred.map(t => ({ name: t.name, attrs: t.attrs, body: t.body, id: t.id, prompt: t.prompt })) : null };
+    const ok = await ctx.continueLeg(state).catch((e) => { console.warn('[agent] Etappe konnte nicht starten:', e.message); return false; });
+    if (!ok) { ctx.continueLeg = null; return nextLeg(deferred); }
+    return { continued: true };
+  }
 
   // ---------- Werkzeuge ----------
   async function execTool(t) {

@@ -161,3 +161,6 @@ body.ap-resizing iframe { pointer-events: none }
 .bl-result { display: flex; align-items: center; gap: 6px; margin: 2px 0 2px 14px; font-size: 12px; color: var(--text-muted) } .bl-result .material-symbols-outlined { font-size: 15px }
 .bl-result.bad { color: #f2a19a }
 .ag-row.sub { padding-left: 30px; position: relative } .ag-row.sub::before { content: ''; position: absolute; left: 24px; top: 0; bottom: 50%; width: 10px; border-left: 1.5px solid rgba(255, 255, 255, .15); border-bottom: 1.5px solid rgba(255, 255, 255, .15); border-bottom-left-radius: 6px }
+.bl-result.r-leg, .bl-result.r-review, .bl-result.r-nudge { margin: 10px 0 4px; padding: 6px 10px; border-radius: 10px; color: var(--text-secondary); background: rgba(138, 180, 248, .07); border: 1px dashed rgba(138, 180, 248, .25) }
+.bl-result.r-review { background: rgba(109, 213, 140, .07); border-color: rgba(109, 213, 140, .3) } .bl-result.r-review .material-symbols-outlined { color: var(--accent-green) }
+.bl-result.r-nudge { color: var(--text-muted) } .bl-result.r-nudge .material-symbols-outlined { color: #fcc419 }
