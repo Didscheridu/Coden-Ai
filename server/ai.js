@@ -8,13 +8,9 @@ const OPENROUTER_FREE = [
   'nvidia/nemotron-3-ultra-550b-a55b:free',          // 1M Kontext, groß (550B MoE)
   'baidu/ernie-5.5-flash-preview:free',              // 1M Kontext
   'particle-ai/particle-1:free',                     // 1M Kontext, Coding, Bilder
-  'inclusionai/ling-3.2-flash:free',                 // 1M Kontext, Bilder
   'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free', // multimodal
-  'google/gemma-4-31b-it:free',                      // 256K, Bilder
   'google/gemma-4-26b-a4b-it:free',                  // 256K, Bilder
-  'recursive/flint-v1.0:free',                       // 256K, Coding
-  'nvidia/nemotron-3.5-lightning:free',              // klein und schnell
-  'liquid/lfm-3-1.7b:free'                           // sehr klein
+  'nvidia/nemotron-3.5-lightning:free'               // klein und schnell
 ];
 const openrouter = (ids) => ids.map(id => ({ provider: 'openrouter', id }));
 
@@ -22,10 +18,7 @@ const openrouter = (ids) => ids.map(id => ({ provider: 'openrouter', id }));
 // total = Limit pro Tag bei Google, publicMax = davon dürfen normale Nutzer höchstens verbrauchen.
 // Der Rest (total - publicMax) ist für den Owner reserviert. Anpassbar über Umgebungsvariablen.
 const intEnv = (name, def) => { const n = parseInt(process.env[name], 10); return Number.isFinite(n) && n >= 0 ? n : def; };
-const QUOTAS = {
-  'gemini-4-hydrogen': { total: intEnv('GEMINI_4_HYDROGEN_DAILY', 20), publicMax: intEnv('GEMINI_4_HYDROGEN_PUBLIC', 10) },
-  'gemini-3.8-flash': { total: intEnv('GEMINI_3_8_FLASH_DAILY', 20), publicMax: intEnv('GEMINI_3_8_FLASH_PUBLIC', 10) }
-};
+const QUOTAS = {}; // aktuell hat kein Modell ein Tageslimit (die knappen Gemini-Modelle sind entfernt); der Mechanismus bleibt für künftige Modelle
 
 // Die drei Stufen der App: erst Google (schnell) und Groq, dann alle OpenRouter-Gratismodelle.
 // (Modell-IDs laut Google-AI-Studio- und Groq-Doku, Stand 21.11.2026)
@@ -39,10 +32,10 @@ const THINKING_FIRST = [
 // Coden Ultra: nur die besten der besten, Qualität vor Tempo.
 // Standardmäßig gesperrt, nur der Owner darf (siehe api/index.js).
 const ULTRA = [
-  { provider: 'google', id: 'gemini-4-hydrogen' },      // knapp: zählt ins Tageskontingent
-  ...openrouter(['nvidia/nemotron-3-ultra-550b-a55b:free', 'nvidia/nemotron-3.5-super-vl:free', 'baidu/ernie-5.5-flash-preview:free', 'particle-ai/particle-1:free']),
+  ...openrouter(['nvidia/nemotron-3-ultra-550b-a55b:free']),   // größtes Modell (550B), liefert die längsten Antworten
+  { provider: 'groq', id: 'qwen/qwen3.8-27b' },
   { provider: 'groq', id: 'openai/gpt-oss-120b' },
-  { provider: 'google', id: 'gemini-3.8-flash' }
+  ...openrouter(['nvidia/nemotron-3.5-super-vl:free', 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'])
 ];
 
 const CASCADES = {
@@ -59,15 +52,13 @@ const CASCADES = {
     ...openrouter(OPENROUTER_FREE.filter(m => !THINKING_FIRST.includes(m))),
     { provider: 'groq', id: 'qwen/qwen3.8-27b' },
     { provider: 'groq', id: 'openai/gpt-oss-20b' },
-    { provider: 'groq', id: 'llama-3.3-70b-versatile' }, // bei Groq "Enterprise": kann ohne Vertrag fehlschlagen, dann springt die Kaskade weiter
-    { provider: 'google', id: 'gemini-3.8-flash' }      // letzte Rettung, begrenzt
+    { provider: 'groq', id: 'openai/gpt-oss-120b' }
   ],
   // Pro: stärkste zuerst
   pro: [
     { provider: 'groq', id: 'openai/gpt-oss-120b' },
-    { provider: 'groq', id: 'llama-3.3-70b-versatile' },
-    ...openrouter(OPENROUTER_FREE),
-    { provider: 'google', id: 'gemini-4-hydrogen' }     // letzte Rettung, begrenzt
+    { provider: 'groq', id: 'qwen/qwen3.8-27b' },
+    ...openrouter(OPENROUTER_FREE)
   ]
 };
 

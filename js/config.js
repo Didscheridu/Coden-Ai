@@ -4,7 +4,7 @@ export const CONFIG = {
     // Die echte Modell-Auswahl pro Stufe steht in server/ai.js.
     models: {
         flash: 'gemini-3.5-flash-lite',  // Google
-        normal: 'gemini-3.8-flash',      // Google
-        pro: 'gemini-4-hydrogen'         // Google
+        normal: 'gemini-3.5-flash-lite', // Google
+        pro: 'gemini-3.5-flash-lite'     // Google
     }
 };
