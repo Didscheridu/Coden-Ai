@@ -4,6 +4,7 @@ const express = require('express');
 const { getSql } = require('./db');
 const { rateLimit } = require('./rateLimit');
 const { wrapRouter } = require('./util');
+const Coden = require('./coden-chat');
 
 const HANDLE_RE = /^[a-z0-9_]{3,20}$/;
 const RESERVED = new Set(['coden', 'admin', 'support', 'system', 'owner', 'moderator']);
@@ -161,25 +162,79 @@ function buddyRouter(requireAuth) {
   });
 
   // ---------- Direktnachrichten ----------
-  const msgOut = (m, uid) => ({ id: Number(m.id), mine: m.sender === uid, body: m.body, createdAt: iso(m.created_at) });
+  const msgOut = (m, uid) => m.sender === 'coden'
+    ? { id: Number(m.id), mine: false, ai: true, handle: 'coden', displayName: 'Coden', body: m.body, createdAt: iso(m.created_at) }
+    : { id: Number(m.id), mine: m.sender === uid, body: m.body, attachment: m.attachment || undefined, createdAt: iso(m.created_at) };
+
+  // Gespräch zwischen zwei Personen inkl. Coden-Antworten (sender 'coden', recipient = Fragesteller, peer = Gegenüber)
+  const thread = async (uid, other, after) => {
+    const sql = getSql();
+    return after
+      ? await sql`SELECT id, sender, body, attachment, created_at FROM dm_messages WHERE id > ${after}
+          AND ((sender = ${uid} AND recipient = ${other}) OR (sender = ${other} AND recipient = ${uid})
+            OR (sender = 'coden' AND ((recipient = ${uid} AND peer = ${other}) OR (recipient = ${other} AND peer = ${uid})))) ORDER BY id LIMIT 200`
+      : (await sql`SELECT id, sender, body, attachment, created_at FROM dm_messages WHERE
+          ((sender = ${uid} AND recipient = ${other}) OR (sender = ${other} AND recipient = ${uid})
+            OR (sender = 'coden' AND ((recipient = ${uid} AND peer = ${other}) OR (recipient = ${other} AND peer = ${uid})))) ORDER BY id DESC LIMIT 60`).reverse();
+  };
 
   r.get('/messages/:handle', needProfile, async (req, res) => {
     const other = await requireFriend(req, res, req.params.handle); if (!other) return;
     const uid = req.user.uid; const sql = getSql(); const after = toInt(req.query.after);
-    const rows = after
-      ? await sql`SELECT id, sender, body, created_at FROM dm_messages WHERE id > ${after} AND ((sender = ${uid} AND recipient = ${other.uid}) OR (sender = ${other.uid} AND recipient = ${uid})) ORDER BY id LIMIT 200`
-      : (await sql`SELECT id, sender, body, created_at FROM dm_messages WHERE (sender = ${uid} AND recipient = ${other.uid}) OR (sender = ${other.uid} AND recipient = ${uid}) ORDER BY id DESC LIMIT 60`).reverse();
-    if (rows.some(m => m.sender !== uid)) sql`UPDATE dm_messages SET read_at = now() WHERE sender = ${other.uid} AND recipient = ${uid} AND read_at IS NULL`.catch(() => {});
+    const rows = await thread(uid, other.uid, after);
+    if (rows.some(m => m.sender === other.uid)) sql`UPDATE dm_messages SET read_at = now() WHERE sender = ${other.uid} AND recipient = ${uid} AND read_at IS NULL`.catch(() => {});
     res.json({ messages: rows.map(m => msgOut(m, uid)) });
   });
 
+  // Anhang teilen: gibt dem Freund sofort Zugriff (App als Zuschauer/Bearbeiter, Projekt als Mitglied)
+  async function shareAttachment(req, res, other, att) {
+    const sql = getSql(); const type = att?.type; const id = toInt(att?.id);
+    if (type === 'app') {
+      const role = att.role === 'editor' ? 'editor' : 'viewer';
+      const [a] = await sql`SELECT a.id, a.name FROM apps a JOIN app_members m ON m.app_id = a.id AND m.uid = ${req.user.uid} AND m.role = 'owner' WHERE a.id = ${id}`;
+      if (!a) { bad(res, 403, 'Du kannst nur Apps teilen, die dir gehören.'); return null; }
+      await sql`INSERT INTO app_members (app_id, uid, role) VALUES (${a.id}, ${other.uid}, ${role}) ON CONFLICT (app_id, uid) DO UPDATE SET role = EXCLUDED.role WHERE app_members.role <> 'owner'`;
+      return { type: 'app', id: Number(a.id), name: a.name, role };
+    }
+    if (type === 'project') {
+      const proj = await memberOf(req, res, id); if (!proj) return null;
+      if (proj.role !== 'owner') { bad(res, 403, 'Nur der Besitzer kann ein Projekt teilen.'); return null; }
+      const [{ n }] = await sql`SELECT count(*)::int AS n FROM project_members WHERE project_id = ${proj.id}`;
+      const [already] = await sql`SELECT 1 FROM project_members WHERE project_id = ${proj.id} AND uid = ${other.uid}`;
+      if (!already && n >= LIMITS.membersPerProject) { bad(res, 400, 'Das Projekt hat schon die maximale Mitgliederzahl.'); return null; }
+      await sql`INSERT INTO project_members (project_id, uid, role) VALUES (${proj.id}, ${other.uid}, 'editor') ON CONFLICT DO NOTHING`;
+      return { type: 'project', id: Number(proj.id), name: proj.title, role: 'editor' };
+    }
+    bad(res, 400, 'Unbekannter Anhang.'); return null;
+  }
+
   r.post('/messages/:handle', rateLimit('buddy-msg', 40, 60), needProfile, async (req, res) => {
     const other = await requireFriend(req, res, req.params.handle); if (!other) return;
-    const body = String(req.body?.body || '').trim();
+    let body = String(req.body?.body || '').trim();
+    let attachment = null;
+    if (req.body?.attachment) {
+      attachment = await shareAttachment(req, res, other, req.body.attachment); if (!attachment) return;
+      if (!body) body = `📎 ${attachment.type === 'app' ? 'App' : 'Projekt'} geteilt: ${attachment.name}`;
+    }
     if (!body) return bad(res, 400, 'Leere Nachricht.');
     if (body.length > LIMITS.msg) return bad(res, 400, `Maximal ${LIMITS.msg} Zeichen.`);
-    const [m] = await getSql()`INSERT INTO dm_messages (sender, recipient, body) VALUES (${req.user.uid}, ${other.uid}, ${body}) RETURNING id, sender, body, created_at`;
-    res.json({ message: msgOut(m, req.user.uid) });
+    const sql = getSql();
+    const [m] = await sql`INSERT INTO dm_messages (sender, recipient, body, attachment) VALUES (${req.user.uid}, ${other.uid}, ${body}, ${attachment ? JSON.stringify(attachment) : null}::jsonb) RETURNING id, sender, body, attachment, created_at`;
+    const out = { message: msgOut(m, req.user.uid) };
+    // @coden: Coden antwortet im selben Gespräch (für beide sichtbar)
+    if (Coden.mentionsCoden(body)) {
+      try {
+        if (!(await Coden.canAsk(req.user.uid))) out.codenError = `Coden braucht eine Pause (höchstens ${Coden.LIMIT.perWindow} Fragen in ${Coden.LIMIT.windowMin} Minuten).`;
+        else {
+          const hist = (await thread(req.user.uid, other.uid)).slice(-14);
+          const who = (m2) => m2.sender === 'coden' ? 'coden' : (m2.sender === req.user.uid ? req.profile.handle : other.handle);
+          const text = await Coden.ask({ isOwner: req.user.isOwner, where: `Direktnachricht zwischen @${req.profile.handle} und @${other.handle}`, asker: req.profile.handle, history: hist.map(m2 => ({ who: who(m2), body: m2.body })) });
+          const [c] = await sql`INSERT INTO dm_messages (sender, recipient, peer, ai_for, body, read_at) VALUES ('coden', ${req.user.uid}, ${other.uid}, ${req.user.uid}, ${text}, now()) RETURNING id, sender, body, attachment, created_at`;
+          out.reply = msgOut(c, req.user.uid);
+        }
+      } catch (e) { console.warn('[coden-chat]', e.message); out.codenError = 'Coden ist gerade überlastet. Versuch es gleich nochmal.'; }
+    }
+    res.json(out);
   });
 
   // ---------- Projekte ----------

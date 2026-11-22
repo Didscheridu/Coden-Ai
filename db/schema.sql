@@ -208,3 +208,13 @@ CREATE TABLE IF NOT EXISTS server_shares (
   PRIMARY KEY (server_id, app_id)
 );
 CREATE INDEX IF NOT EXISTS server_shares_app ON server_shares (app_id);
+
+-- ===== @coden im Chat, Anhänge in Direktnachrichten, Zuschauer-Rolle bei Apps =====
+ALTER TABLE dm_messages ADD COLUMN IF NOT EXISTS attachment JSONB;
+ALTER TABLE dm_messages ADD COLUMN IF NOT EXISTS peer TEXT;       -- bei Coden-Antworten: der andere Gesprächspartner
+ALTER TABLE dm_messages ADD COLUMN IF NOT EXISTS ai_for TEXT;     -- bei Coden-Antworten: wer Coden gefragt hat
+ALTER TABLE server_messages ADD COLUMN IF NOT EXISTS ai_for TEXT;
+CREATE INDEX IF NOT EXISTS dm_ai_for ON dm_messages (ai_for, created_at) WHERE ai_for IS NOT NULL;
+CREATE INDEX IF NOT EXISTS server_ai_for ON server_messages (ai_for, created_at) WHERE ai_for IS NOT NULL;
+ALTER TABLE app_members DROP CONSTRAINT IF EXISTS app_members_role_check;
+ALTER TABLE app_members ADD CONSTRAINT app_members_role_check CHECK (role IN ('owner','editor','viewer'));

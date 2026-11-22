@@ -1,6 +1,7 @@
 // js/buddy.js – Code Buddy: Freunde, Nachrichten, gemeinsame Projekte (alles per DOM/textContent, kein innerHTML mit Nutzerdaten)
 import { apiJson } from './backend.js';
 import { auth } from './auth.js';
+import { md } from './apps/dom.js';
 
 const h = (tag, props = {}, ...kids) => {
     const el = document.createElement(tag);
@@ -14,6 +15,20 @@ const h = (tag, props = {}, ...kids) => {
 const icon = (n) => h('span', { class: 'material-symbols-outlined', text: n });
 const api = (path, method = 'GET', body) => apiJson('/buddy' + path, { method, body: body ? JSON.stringify(body) : undefined });
 const timeStr = (iso) => { const d = new Date(iso); return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }); };
+
+// Eine Chat-Nachricht zeichnen: Menschen als Text, Coden mit Markdown (Codeblöcke), geteilte Apps/Projekte als Karte
+function msgEl(m, { withName } = {}) {
+    const name = m.ai ? h('small', { class: 'bd-ai-name' }, icon('auto_awesome'), ' Coden') : (withName && !m.mine ? h('small', { text: '@' + (m.handle || '?') }) : null);
+    let body;
+    if (m.ai) body = h('div', { class: 'bd-bubble ai' }, md(m.body));
+    else if (m.attachment) body = h('div', { class: 'bd-bubble card' }, h('div', { class: 'bd-attach' }, icon(m.attachment.type === 'app' ? 'apps' : 'folder_open'),
+        h('div', { class: 'grow' }, h('b', { text: m.attachment.name }), h('small', { text: m.attachment.type === 'app' ? (m.attachment.role === 'editor' ? 'App · du darfst bearbeiten' : 'App · nur ansehen') : 'Projekt · du bist Mitglied' })),
+        h('button', { class: 'bd-btn', onclick: () => { if (m.attachment.type === 'app') location.hash = '#/apps/' + m.attachment.id; else { state.server = null; state.tab = 'projects'; state.view = { id: m.attachment.id }; history.replaceState(null, '', '#/buddy/projekte'); render(); } } }, 'Öffnen')));
+    else body = h('div', { class: 'bd-bubble', text: m.body });
+    return h('div', { class: 'bd-msg' + (m.mine ? ' mine' : '') + (m.ai ? ' ai' : '') }, name, body, m.createdAt ? h('small', { text: timeStr(m.createdAt) }) : null);
+}
+// „Coden schreibt …“, solange die KI antwortet
+function typing(log) { const t = h('div', { class: 'bd-msg ai typing' }, h('small', { class: 'bd-ai-name' }, icon('auto_awesome'), ' Coden schreibt …')); log.append(t); log.scrollTop = log.scrollHeight; return () => t.remove(); }
 
 let root, badge, state = { profile: null, tab: 'friends', view: null, friends: null, projects: [], timers: [], server: null, servers: [], channel: null };
 
@@ -110,15 +125,37 @@ function openChat(friend, main, list, silent) {
     state.view = friend; if (!silent) list.querySelectorAll('.bd-item').forEach(i => i.classList.remove('active'));
     let lastId = 0; const seen = new Set();
     const log = h('div', { class: 'bd-log' });
-    const input = h('textarea', { rows: 1, placeholder: `Nachricht an ${friend.displayName}…`, maxlength: 2000 });
-    const add = (m) => { if (seen.has(m.id)) return; seen.add(m.id); lastId = Math.max(lastId, m.id); const near = log.scrollHeight - log.scrollTop - log.clientHeight < 80; log.append(h('div', { class: 'bd-msg' + (m.mine ? ' mine' : '') }, h('div', { class: 'bd-bubble', text: m.body }), h('small', { text: timeStr(m.createdAt) }))); if (near || m.mine) log.scrollTop = log.scrollHeight; };
-    const send = guard(async () => { const body = input.value.trim(); if (!body) return; input.value = ''; const r = await api('/messages/' + friend.handle, 'POST', { body }); add(r.message); });
+    const input = h('textarea', { rows: 1, placeholder: `Nachricht an ${friend.displayName} … (mit @coden fragst du die KI)`, maxlength: 2000 });
+    const add = (m) => { if (seen.has(m.id)) return; seen.add(m.id); lastId = Math.max(lastId, m.id); const near = log.scrollHeight - log.scrollTop - log.clientHeight < 80; log.append(msgEl(m)); if (near || m.mine) log.scrollTop = log.scrollHeight; };
+    const post = async (payload) => {
+        const wantsAi = /(^|[^a-z0-9_])@coden(?![a-z0-9_])/i.test(payload.body || '');
+        const done = wantsAi ? typing(log) : null;
+        try { const r = await api('/messages/' + friend.handle, 'POST', payload); add(r.message); if (r.reply) add(r.reply); if (r.codenError) toast(r.codenError); }
+        finally { done?.(); }
+    };
+    const send = guard(async () => { const body = input.value.trim(); if (!body) return; input.value = ''; await post({ body }); });
+    const share = () => shareDialog(friend, async (attachment) => { await post({ attachment }); toast('Geteilt'); });
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
     main.replaceChildren(h('div', { class: 'bd-chat-head' }, h('div', { class: 'bd-avatar', text: friend.displayName[0].toUpperCase() }), h('div', { class: 'grow' }, h('b', { text: friend.displayName }), h('small', { text: '@' + friend.handle })),
         h('button', { class: 'bd-icon', title: 'Freund entfernen', onclick: guard(async () => { if (!confirm(`${friend.displayName} aus deinen Freunden entfernen?`)) return; await api('/friends/' + friend.handle, 'DELETE'); state.view = null; render(); }) }, icon('person_remove'))),
-        log, h('div', { class: 'bd-compose' }, input, h('button', { class: 'bd-primary round', title: 'Senden', onclick: send }, icon('send'))));
-    const poll = async () => { const r = await api(`/messages/${friend.handle}` + (lastId ? `?after=${lastId}` : '')); r.messages.forEach(add); if (r.messages.some(m => !m.mine)) updateBadge(); };
+        log, h('div', { class: 'bd-compose' }, h('button', { class: 'bd-icon', title: 'App oder Projekt teilen', onclick: guard(share) }, icon('attach_file')), input, h('button', { class: 'bd-primary round', title: 'Senden', onclick: send }, icon('send'))));
+    const poll = async () => { const r = await api(`/messages/${friend.handle}` + (lastId ? `?after=${lastId}` : '')); r.messages.forEach(add); if (r.messages.some(m => !m.mine && !m.ai)) updateBadge(); };
     poll().catch(e => toast(e.message)); every(3000, poll); input.focus();
+}
+
+// App oder Projekt per DM teilen (gibt dem Freund sofort Zugriff)
+async function shareDialog(friend, onPick) {
+    const [apps, projects] = await Promise.all([apiJson('/apps').then(d => d.apps.filter(a => a.role === 'owner')).catch(() => []), api('/projects').then(d => d.projects.filter(p => p.role === 'owner')).catch(() => [])]);
+    const role = h('select', { class: 'bd-role' }, h('option', { value: 'viewer', text: 'nur ansehen' }), h('option', { value: 'editor', text: 'darf bearbeiten' }));
+    const ov = h('div', { class: 'bd-ov', onclick: (e) => { if (e.target === ov) ov.remove(); } });
+    const pickIt = (att) => async () => { ov.remove(); try { await onPick(att); } catch (e) { toast(e.message); } };
+    const row = (ic, title, sub, att) => h('div', { class: 'bd-item clickable', onclick: pickIt(att) }, icon(ic), h('div', { class: 'grow' }, h('b', { text: title }), h('small', { text: sub })), icon('send'));
+    ov.append(h('div', { class: 'bd-dlg' }, h('h3', { text: `An ${friend.displayName} teilen` }),
+        apps.length ? h('label', { text: 'Rechte für Apps' }) : null, apps.length ? role : null,
+        h('div', { class: 'bd-sec', text: 'Deine Apps' }), ...(apps.length ? apps.map(a => h('div', { class: 'bd-item clickable', onclick: () => pickIt({ type: 'app', id: a.id, role: role.value })() }, icon('apps'), h('div', { class: 'grow' }, h('b', { text: a.name }), h('small', { text: 'App' })), icon('send'))) : [h('small', { class: 'bd-empty', text: 'Du hast noch keine eigene App.' })]),
+        h('div', { class: 'bd-sec', text: 'Deine Code-Buddy-Projekte' }), ...(projects.length ? projects.map(p => row('folder_open', p.title, 'Projekt · Freund wird Mitglied', { type: 'project', id: p.id })) : [h('small', { class: 'bd-empty', text: 'Noch kein Projekt.' })]),
+        h('button', { class: 'bd-btn', text: 'Abbrechen', onclick: () => ov.remove() })));
+    root.appendChild(ov);
 }
 
 // ---------------- Projekte ----------------
@@ -268,10 +305,14 @@ async function renderServer(main, list) {
     // Kanal-Chat
     const ch = d.channels.find(c => c.id === state.channel);
     const log = h('div', { class: 'bd-log' }); const seen = new Set(); let last = 0;
-    const input = h('textarea', { rows: 1, placeholder: `Nachricht in #${ch?.name || ''}…`, maxlength: 2000 });
+    const input = h('textarea', { rows: 1, placeholder: `Nachricht in #${ch?.name || ''} … (mit @coden fragst du die KI)`, maxlength: 2000 });
     const add = (m) => { if (seen.has(m.id)) return; seen.add(m.id); last = Math.max(last, m.id); const near = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
-        log.append(h('div', { class: 'bd-msg' + (m.mine ? ' mine' : '') }, m.mine ? null : h('small', { text: '@' + (m.handle || '?') }), h('div', { class: 'bd-bubble', text: m.body }), h('small', { text: timeStr(m.createdAt) }))); if (near || m.mine) log.scrollTop = log.scrollHeight; };
-    const send = guard(async () => { const body = input.value.trim(); if (!body || !ch) return; input.value = ''; add((await sApi(`/channels/${ch.id}/messages`, 'POST', { body })).message); });
+        log.append(msgEl(m, { withName: true })); if (near || m.mine) log.scrollTop = log.scrollHeight; };
+    const send = guard(async () => {
+        const body = input.value.trim(); if (!body || !ch) return; input.value = '';
+        const done = /(^|[^a-z0-9_])@coden(?![a-z0-9_])/i.test(body) ? typing(log) : null;
+        try { const r = await sApi(`/channels/${ch.id}/messages`, 'POST', { body }); add(r.message); if (r.reply) add(r.reply); if (r.codenError) toast(r.codenError); } finally { done?.(); }
+    });
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
     main.replaceChildren(h('div', { class: 'bd-chat-head' }, icon('tag'), h('div', { class: 'grow' }, h('b', { text: ch?.name || '' }), h('small', { text: d.server.name }))), log,
         h('div', { class: 'bd-compose' }, input, h('button', { class: 'bd-primary round', title: 'Senden', onclick: send }, icon('send'))));
