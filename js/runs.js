@@ -47,8 +47,11 @@ export async function watchRun(id, { onDelta, onThink, onModel, onAgents, onExtr
 // zusätzlich onRun(id) sobald der Server den Lauf angelegt hat.
 export async function runAiResponse(messages, tier, { ref, meta, onDelta, onModel, onThink, onRun, onExtra, signal, maxTokens, model, effort } = {}) {
     const ac = new AbortController(); // nur die Verbindung – ein Abbruch hier stoppt NICHT den Lauf
-    const res = await apiFetch('/runs/chat', { method: 'POST', signal: ac.signal, body: JSON.stringify({ messages, tier, ref, meta, ...(maxTokens ? { maxTokens } : {}), ...(model ? { model } : {}), effort: effort || getEffort() }) });
-    if (!res.ok) { let d = {}; try { d = await res.json(); } catch (_) {} const err = new Error(d.error || `HTTP ${res.status}`); err.code = d.code; err.usage = d.usage; throw err; }
+    const body = JSON.stringify({ messages, tier, ref, meta, ...(maxTokens ? { maxTokens } : {}), ...(model ? { model } : {}), effort: effort || getEffort() });
+    let res = await apiFetch('/runs/chat', { method: 'POST', signal: ac.signal, body });
+    // Kurzer Server-Schluckauf (Kaltstart, Absturz einer Instanz): einmal still neu versuchen
+    if (res.status >= 500 && !signal?.aborted) { await sleep(900); res = await apiFetch('/runs/chat', { method: 'POST', signal: ac.signal, body }); }
+    if (!res.ok) throw await httpError(res);
     let id = null, full = '', end = null, fail = null;
     const onAbort = () => { if (id) stopRun(id).catch(() => {}); };
     signal?.addEventListener('abort', onAbort);
@@ -74,6 +77,15 @@ export async function runAiResponse(messages, tier, { ref, meta, onDelta, onMode
     if (r.status === 'error') { const err = new Error(r.error || 'Fehler'); err.partial = !!r.text; err.text = r.text; err.runId = id; throw err; }
     await claimRun(id).catch(() => {}); // dieses Gerät hat die Antwort -> andere sollen sie nicht noch einmal einfügen
     return r.text;
+}
+
+// Verständliche Fehlermeldung, auch wenn der Server nur eine Fehlerseite statt JSON schickt
+async function httpError(res) {
+    const raw = await res.text().catch(() => ''); let d = {};
+    try { d = JSON.parse(raw); } catch (_) { /* keine JSON-Antwort */ }
+    const code = (raw.match(/\b[A-Z][A-Z_]{8,}\b/) || [])[0];
+    const msg = d.error || (res.status >= 500 ? `Der Server hatte gerade ein Problem (HTTP ${res.status}${code ? ' · ' + code : ''}). Bitte versuch es gleich nochmal.` : `HTTP ${res.status}`);
+    const err = new Error(msg); err.code = d.code; err.usage = d.usage; err.status = res.status; return err;
 }
 
 export const listRuns = (kind = 'chat') => apiJson('/runs?kind=' + kind).then(r => r.runs || []);

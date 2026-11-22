@@ -20,6 +20,11 @@ const meterFor = (req) => new Meter(req.user, req.body?.tier);
 // Limit-Prüfung braucht die Tabelle: vorher sicherstellen
 const gate = (req, res, next) => ensureSchema().then(() => limitGate(req, res, next), next);
 
+// Ein einzelner vergessener Fehler (z. B. in einem Hintergrund-Lauf) darf nie die ganze Funktion abstürzen lassen:
+// sonst antwortet Vercel allen gleichzeitigen Anfragen nur noch mit „HTTP 500“.
+process.on('unhandledRejection', (e) => console.error('[unhandledRejection]', e?.stack || e));
+process.on('uncaughtException', (e) => console.error('[uncaughtException]', e?.stack || e));
+
 const app = express();
 app.disable('x-powered-by');
 app.use(express.json({ limit: '4mb' }));
@@ -27,6 +32,15 @@ app.use((req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 
 const api = express.Router();
 wrapRouter(api);
+
+// ---------- Selbsttest (ohne Login, verrät nichts Geheimes): coden-ai.vercel.app/api/health ----------
+api.get('/health', async (req, res) => {
+  const out = { ok: true, node: process.version, db: false, schema: false, push: false };
+  try { await getSql()`SELECT 1`; out.db = true; } catch (e) { out.ok = false; out.dbError = String(e.message).slice(0, 120); }
+  try { out.schema = await ensureSchema(); } catch (_) { out.schema = false; }
+  try { require('web-push'); out.push = true; } catch (e) { out.pushError = String(e.code || e.message).slice(0, 80); }
+  res.status(out.ok ? 200 : 503).json(out);
+});
 
 // ---------- Wer bin ich? ----------
 api.get('/me', requireAuth, (req, res) => {

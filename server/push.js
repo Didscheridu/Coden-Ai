@@ -1,8 +1,10 @@
 // Push-Benachrichtigungen (Web Push): „Coden ist fertig“ kommt auch an, wenn die Seite komplett zu ist.
 // Die VAPID-Schlüssel kommen aus VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY. Fehlen sie, erzeugt der Server einmalig
 // ein Paar und legt es in app_secrets ab (nie in system_state, das jeder Nutzer lesen darf).
-const webpush = require('web-push');
 const { getSql } = require('./db');
+// Erst bei Bedarf laden: ein Problem mit der Push-Bibliothek darf nie das ganze Backend (Chat!) lahmlegen
+let wp = null;
+const webpush = () => (wp ||= require('web-push'));
 
 let keys = null;
 async function vapid() {
@@ -13,13 +15,13 @@ async function vapid() {
     const [r] = await sql`SELECT value FROM app_secrets WHERE name = 'vapid'`;
     if (r) keys = r.value;
     else {
-      const k = webpush.generateVAPIDKeys();
+      const k = webpush().generateVAPIDKeys();
       await sql`INSERT INTO app_secrets (name, value) VALUES ('vapid', ${JSON.stringify(k)}::jsonb) ON CONFLICT (name) DO NOTHING`;
       const [again] = await sql`SELECT value FROM app_secrets WHERE name = 'vapid'`; // gleichzeitig gestartete Server nutzen dasselbe Paar
       keys = again.value;
     }
   }
-  webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:' + (process.env.ADMIN_EMAIL || 'admin@coden-ai.app'), keys.publicKey, keys.privateKey);
+  webpush().setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:' + (process.env.ADMIN_EMAIL || 'admin@coden-ai.app'), keys.publicKey, keys.privateKey);
   return keys;
 }
 
@@ -36,7 +38,7 @@ async function notify(uid, payload) {
     const body = JSON.stringify({ title: String(payload.title || 'Coden ist fertig').slice(0, 80), body: String(payload.body || '').slice(0, 180), url: String(payload.url || '/').slice(0, 300), tag: String(payload.tag || 'coden').slice(0, 60) });
     let sent = 0;
     await Promise.all(subs.map(async (s) => {
-      try { await (sender || webpush.sendNotification)({ endpoint: s.endpoint, keys: s.keys }, body, { TTL: 3600 * 12 }); sent++; }
+      try { await (sender || ((...a) => webpush().sendNotification(...a)))({ endpoint: s.endpoint, keys: s.keys }, body, { TTL: 3600 * 12 }); sent++; }
       catch (e) { if (e.statusCode === 404 || e.statusCode === 410) await getSql()`DELETE FROM push_subs WHERE endpoint = ${s.endpoint}`.catch(() => {}); }
     }));
     return sent;
