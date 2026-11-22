@@ -309,7 +309,28 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
   throw new Error(`Alle Server sind überlastet. Letzter Fehler: ${last?.message}`);
 }
 
+// ---------- Modell-Test (/model-test): ein einzelnes Modell ohne Fallback messen ----------
+const TEST_PROMPT = 'Baue ein kleines Snake-Spiel als eine einzige HTML-Datei (HTML, CSS und JavaScript zusammen). Es soll Punkte zählen, per Pfeiltasten steuerbar sein, ein Game Over zeigen und einen Neustart-Button haben. Antworte nur mit dem Code.';
+async function probe(key, messages, { signal, onProgress = () => {}, maxTokens = 6000 } = {}) {
+  const m = findModel(key);
+  if (!m) return { ok: false, error: 'Unbekanntes Modell' };
+  const out = { key, id: m.id, provider: m.provider, providerName: m.providerName, ok: false, ms: 0, ttft: null, chars: 0, thinkChars: 0, text: '' };
+  if (!m.ready) return { ...out, error: 'kein API-Key' };
+  if (QUOTAS[m.id] && !(await reserveQuota(m.id, true))) return { ...out, error: 'Tageslimit erreicht' };
+  const t0 = Date.now(); let lastP = 0;
+  const tick = (force) => { out.ms = Date.now() - t0; const n = Date.now(); if (force || n - lastP > 400) { lastP = n; onProgress({ chars: out.chars, thinkChars: out.thinkChars, ms: out.ms, ttft: out.ttft }); } };
+  const filter = new ThinkFilter((t) => { out.thinkChars += t.length; tick(); });
+  const see = (v) => { if (!v) return; if (out.ttft === null) out.ttft = Date.now() - t0; out.chars += v.length; out.text += v; tick(); };
+  try {
+    await callModel(m, messages, { stream: true, onDelta: (t) => see(filter.push(t)), onThink: (t) => { out.thinkChars += t.length; tick(); }, signal, maxTokens });
+    see(filter.flush());
+    out.ms = Date.now() - t0;
+    if (!out.chars) return { ...out, error: 'Leere Antwort' };
+    return { ...out, ok: true };
+  } catch (e) { out.ms = Date.now() - t0; return { ...out, error: signal?.aborted ? 'abgebrochen/Zeitlimit' : e.message }; }
+}
+
 const generate = async (tier, messages, opts = {}) => (await run(tier, messages, opts)).text;
 const generateStream = (tier, messages, opts) => run(tier, messages, { ...opts, stream: true });
 
-module.exports = { listModels, generate, generateStream, CASCADES, QUOTAS, ThinkFilter, ThinkTracker, EFFORTS };
+module.exports = { probe, TEST_PROMPT, listModels, generate, generateStream, CASCADES, QUOTAS, ThinkFilter, ThinkTracker, EFFORTS };

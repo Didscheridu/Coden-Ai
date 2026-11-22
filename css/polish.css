@@ -136,3 +136,11 @@ html { scroll-behavior: smooth; }
 .effort-seg button { flex: 1; background: none; border: 0; color: inherit; font: inherit; font-size: 12px; padding: 4px 10px; cursor: pointer }
 .effort-seg button.active { background: rgba(138, 180, 248, .22); color: var(--text-primary, #fff) }
 .bl-effort { margin-left: auto }
+
+/* /model-test: Live-Tabelle */
+.mt { width: min(1100px, 100%); font-size: 12px } .mt-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 8px } .mt-info { color: var(--text-muted) }
+.mt-btn { background: none; border: 1px solid var(--border-color, rgba(255,255,255,.2)); color: inherit; border-radius: 8px; padding: 3px 10px; cursor: pointer; font: inherit; font-size: 12px }
+.mt-scroll { overflow-x: auto; border: 1px solid var(--border-color, rgba(255,255,255,.12)); border-radius: 10px }
+.mt-table { border-collapse: collapse; width: 100%; white-space: nowrap } .mt-table th, .mt-table td { padding: 4px 7px; text-align: left; border-bottom: 1px solid rgba(255,255,255,.06) }
+.mt-table th { color: var(--text-muted); font-weight: 500; position: sticky; top: 0 } .mt-table tr.wait { opacity: .5 } .mt-table tr.bad td { color: #f28b82 } .mt-live { color: #81c995; animation: pulse 1.2s ease-in-out infinite }
+.mt-foot { margin-top: 6px; color: var(--text-muted); font-size: 12px }

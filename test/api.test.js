@@ -80,6 +80,12 @@ const root = path.join(__dirname, '..');
     chk('/models: Nutzer verboten', (await call('/models', null, user)).s, 403);
     const ml = await call('/models', null, admin);
     chk('/models: Owner bekommt die Liste', `${ml.s} ${ml.j.models.some(m => m.provider === 'groq')} ${typeof ml.j.models[0].key}`, '200 true string');
+    chk('/models/test: Nutzer verboten', (await call('/models/test', {}, user)).s, 403);
+    { const r = await fetch(base + '/models/test', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + admin }, body: '{}' });
+      const evs = (await r.text()).split('\n\n').filter(x => x.startsWith('data: ')).map(x => JSON.parse(x.slice(6)));
+      const rowsT = evs.filter(e => e.t === 'r');
+      chk('/models/test: Owner bekommt init, ein Ergebnis je Modell, done', `${evs[0].t} ${evs[0].models.length === rowsT.length && rowsT.length > 10} ${evs[evs.length - 1].t}`, 'init true done');
+      chk('/models/test: ohne Keys meldet jedes Modell „kein API-Key“', rowsT.every(e => e.row.ok === false && /Key|Tageslimit/.test(e.row.error)), true); }
     chk('Modell erzwingen: unbekanntes Modell → 400 (Owner)', (await call('/chat', { messages: [{ role: 'user', content: 'hi' }], tier: 'flash', model: 'groq:gibt-es-nicht' }, admin)).s, 400);
     chk('email: fremder SMTP-Host abgelehnt', (await call('/send-email', { provider: 'evil.com', email: 'a@b.de', password: 'p', to: 'c@d.de', text: 't' }, user)).s, 400);
     let last; for (let i = 0; i < 25; i++) last = await call('/chat', { messages: [{ role: 'user', content: 'hi' }], tier: 'gibtsnicht' }, user);

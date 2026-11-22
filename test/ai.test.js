@@ -119,6 +119,15 @@ const gem = (t) => `data: ${JSON.stringify({ candidates: [{ content: { parts: [{
   chk('Denkaufwand: OpenRouter bekommt reasoning.effort', lastBody.reasoning?.effort, 'low');
   await ai.generate('pro', [{ role: 'user', content: 'hi' }], { effort: 'extrem', pin: 'groq:openai/gpt-oss-120b' });
   chk('Denkaufwand: ungültiger Wert wird ignoriert', lastBody.reasoning_effort, undefined);
+  // --- /model-test: probe ---
+  mode = 'streamThink'; const pb = await ai.probe('groq:openai/gpt-oss-120b', [{ role: 'user', content: 'hi' }]);
+  chk('probe: misst Zeichen (ohne <think>) und Zeit', [pb.ok, pb.chars, pb.text, pb.ttft !== null, pb.ms >= 0], [true, 10, 'Hallo Welt', true, true]);
+  mode = 'streamReason'; const pr2 = await ai.probe('groq:openai/gpt-oss-120b', [{ role: 'user', content: 'hi' }]);
+  chk('probe: Denk-Zeichen getrennt gezählt', [pr2.text, pr2.thinkChars > 0], ['Fertig', true]);
+  mode = 'streamFallback'; const pfe = await ai.probe('groq:openai/gpt-oss-120b', [{ role: 'user', content: 'hi' }]);
+  chk('probe: Fehler → ok false, kein Fallback auf andere Modelle', [pfe.ok, !!pfe.error], [false, true]);
+  const savedKey = process.env.GROQ_API_KEY; delete process.env.GROQ_API_KEY; const pk = await ai.probe('groq:openai/gpt-oss-120b', []);
+  process.env.GROQ_API_KEY = savedKey; chk('probe: ohne Key → „kein API-Key“', [pk.ok, pk.error], [false, 'kein API-Key']);
   const tk = []; const T = new ai.ThinkTracker((x) => tk.push(x), { every: 0, now: (() => { let n = 0; return () => n++; })() });
   T.push('ohne Überschrift, einfach Text'); chk('Denken: ohne Überschrift → „Überlege …“', tk[0].h, 'Überlege …');
   const tf = []; const F = new ai.ThinkFilter((x) => tf.push(x)); F.push('<think>abc defghijkl</think>ok'); F.flush();

@@ -3,6 +3,7 @@ import './dom-safe.js';
 import { CONFIG } from './config.js';
 import { generateAiResponse, streamAiResponse } from './api.js';
 import { bindEffortButtons } from './effort.js';
+import { runModelTest } from './model-test.js';
 import { ARTIFACT_PROMPT, Artifacts } from './artifacts.js';
 import { Buddy } from './buddy.js';
 import { Layout, greetingText } from './layout.js';
@@ -364,6 +365,7 @@ const commands = [
     { name: "/broadcast", opts: ["<nachricht>"], desc: "Pop-Up an ALLE User" },
     { name: "/maintenance", opts: ["on", "off"], desc: "Sperrt App komplett" },
     { name: "/forceupdate", desc: "Erzwingt Reload bei Usern" },
+    { name: "/model-test", opts: ["<eigener prompt>"], desc: "Testet ALLE Modelle live mit demselben Prompt und rankt sie" },
     { name: "/modelle", opts: ["<nummer>", "auto"], desc: "Liste aller Modelle; nächste Anfrage geht an das gewählte" },
     { name: "/model", opts: ["flash", "normal", "pro", "ultra"], desc: "Ändert Modell GLOBAL" },
     { name: "/theme", opts: ["normal", "matrix"], desc: "Ändert Design GLOBAL" },
@@ -460,6 +462,9 @@ async function handleCommand(text) {
     if (!isOwner) {
         return UI.appendMessage("❌ Zugriff verweigert.", false);
     }
+
+    // 🧪 /model-test: alle Modelle gleichzeitig testen (live), Ergebnis als Rangliste
+    if (cmd === '/model-test' || cmd === '/modeltest') return runModelTest(UI, param.trim());
 
     // 🤖 /modelle: alle Modelle auflisten, /modelle 3 = nächste Anfrage an Modell 3, "bleiben" = dauerhaft, /modelle auto = zurück zur Automatik
     if (cmd === '/modelle' || cmd === '/models') {
