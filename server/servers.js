@@ -6,6 +6,7 @@ const express = require('express');
 const { getSql } = require('./db');
 const { rateLimit } = require('./rateLimit');
 const { wrapRouter } = require('./util');
+const Coden = require('./coden-chat');
 
 const LIMITS = { servers: 10, members: 50, channels: 10, msg: 2000, shares: 30 };
 const HANDLE_RE = /^[a-z0-9_]{3,20}$/;
@@ -175,8 +176,12 @@ function serversRouter(requireAuth) {
     const rows = after
       ? await sql()`SELECT m.id, m.sender, m.body, m.created_at, p.handle, p.display_name FROM server_messages m LEFT JOIN profiles p ON p.uid = m.sender WHERE m.channel_id = ${c.id} AND m.id > ${after} ORDER BY m.id LIMIT 200`
       : await sql()`SELECT * FROM (SELECT m.id, m.sender, m.body, m.created_at, p.handle, p.display_name FROM server_messages m LEFT JOIN profiles p ON p.uid = m.sender WHERE m.channel_id = ${c.id} ORDER BY m.id DESC LIMIT 100) x ORDER BY id`;
-    res.json({ messages: rows.map(m => ({ id: Number(m.id), body: m.body, handle: m.handle, displayName: m.display_name || m.handle || '?', mine: m.sender === req.user.uid, createdAt: iso(m.created_at) })) });
+    res.json({ messages: rows.map(m => msgOut(m, req.user.uid)) });
   });
+  const msgOut = (m, uid) => m.sender === 'coden'
+    ? { id: Number(m.id), body: m.body, ai: true, handle: 'coden', displayName: 'Coden', mine: false, createdAt: iso(m.created_at) }
+    : { id: Number(m.id), body: m.body, handle: m.handle, displayName: m.display_name || m.handle || '?', mine: m.sender === uid, createdAt: iso(m.created_at) };
+
   r.post('/:id/channels/:cid/messages', rateLimit('server-msg', 60, 60), async (req, res) => {
     const s = await member(req, res); if (!s) return;
     const c = await channel(req, res, s); if (!c) return;
@@ -184,7 +189,20 @@ function serversRouter(requireAuth) {
     if (!body) return bad(res, 400, 'Leere Nachricht.');
     if (body.length > LIMITS.msg) return bad(res, 400, `Höchstens ${LIMITS.msg} Zeichen.`);
     const [row] = await sql()`INSERT INTO server_messages (channel_id, sender, body) VALUES (${c.id}, ${req.user.uid}, ${body}) RETURNING id, created_at`;
-    res.json({ message: { id: Number(row.id), body, handle: req.profile.handle, displayName: req.profile.display_name, mine: true, createdAt: iso(row.created_at) } });
+    const out = { message: { id: Number(row.id), body, handle: req.profile.handle, displayName: req.profile.display_name, mine: true, createdAt: iso(row.created_at) } };
+    // @coden: Coden antwortet im Kanal (für alle sichtbar)
+    if (Coden.mentionsCoden(body)) {
+      try {
+        if (!(await Coden.canAsk(req.user.uid))) out.codenError = `Coden braucht eine Pause (höchstens ${Coden.LIMIT.perWindow} Fragen in ${Coden.LIMIT.windowMin} Minuten).`;
+        else {
+          const hist = (await sql()`SELECT * FROM (SELECT m.id, m.sender, m.body, p.handle FROM server_messages m LEFT JOIN profiles p ON p.uid = m.sender WHERE m.channel_id = ${c.id} ORDER BY m.id DESC LIMIT 14) x ORDER BY id`);
+          const text = await Coden.ask({ isOwner: req.user.isOwner, where: `Kanal #${c.name} auf dem Server „${s.name}“`, asker: req.profile.handle, history: hist.map(m => ({ who: m.sender === 'coden' ? 'coden' : (m.handle || '?'), body: m.body })) });
+          const [r2] = await sql()`INSERT INTO server_messages (channel_id, sender, body, ai_for) VALUES (${c.id}, 'coden', ${text}, ${req.user.uid}) RETURNING id, created_at`;
+          out.reply = { id: Number(r2.id), body: text, ai: true, handle: 'coden', displayName: 'Coden', mine: false, createdAt: iso(r2.created_at) };
+        }
+      } catch (e) { console.warn('[coden-chat]', e.message); out.codenError = 'Coden ist gerade überlastet. Versuch es gleich nochmal.'; }
+    }
+    res.json(out);
   });
 
   // ---------- Apps teilen ----------

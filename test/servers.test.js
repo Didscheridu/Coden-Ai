@@ -115,6 +115,59 @@ const { setup } = require('./helpers');
   chk('Nur Besitzer löscht Server', [(await D('/servers/' + sid, E.t)).s, (await D('/servers/' + sid, O.t)).s], [404, 200]);
   chk('Server weg', (await call('/servers/' + sid, null, O.t)).s, 404);
 
+  // ===== @coden in Kanälen und Direktnachrichten =====
+  const realFetch = global.fetch; let aiCalls = 0, aiFail = false, lastPrompt = '';
+  Object.assign(process.env, { GROQ_API_KEY: 'x' });
+  global.fetch = async (url, o) => {
+    if (String(url).startsWith('http://127.0.0.1')) return realFetch(url, o);
+    aiCalls++; lastPrompt = o?.body || '';
+    if (aiFail) return new Response(JSON.stringify({ error: { message: 'down' } }), { status: 500 });
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'Hallo vom Test-Coden' } }] }), { status: 200 });
+  };
+  const s2 = (await P('/servers', { name: 'Codeclub' }, O.t)).j.server.id;
+  const gen2 = (await call('/servers/' + s2, null, O.t)).j.channels[0].id;
+  await P(`/servers/${s2}/members`, { handle: hE, role: 'viewer' }, O.t);
+  chk('Kanal: ohne @coden keine KI', [(await P(`/servers/${s2}/channels/${gen2}/messages`, { body: 'nur Menschen hier' }, O.t)).j.reply, aiCalls], [undefined, 0]);
+  chk('Kanal: E-Mail-Adresse oder @codenxyz löst Coden nicht aus', [(await P(`/servers/${s2}/channels/${gen2}/messages`, { body: 'mail an a@coden.de und @codenfan' }, O.t)).j.reply, aiCalls], [undefined, 0]);
+  const cm = await P(`/servers/${s2}/channels/${gen2}/messages`, { body: '@coden was ist eine Schleife?' }, E.t);
+  chk('Kanal: @coden → Coden antwortet', [cm.j.reply?.body, cm.j.reply?.ai, cm.j.reply?.handle, aiCalls], ['Hallo vom Test-Coden', true, 'coden', 1]);
+  chk('Kanal: Prompt trennt Chat als Daten', /CHAT_START/.test(lastPrompt) && /was ist eine Schleife/.test(lastPrompt), true);
+  const seen = await call(`/servers/${s2}/channels/${gen2}/messages`, null, O.t);
+  chk('Kanal: alle sehen Codens Antwort', seen.j.messages.filter(m => m.ai).map(m => m.displayName + ':' + m.body), ['Coden:Hallo vom Test-Coden']);
+  aiFail = true; const cf = await P(`/servers/${s2}/channels/${gen2}/messages`, { body: '@coden hilf' }, E.t);
+  chk('Kanal: KI-Fehler → Nachricht bleibt, Hinweis kommt', [cf.s, !!cf.j.message, !!cf.j.codenError, cf.j.reply], [200, true, true, undefined]);
+  aiFail = false;
+  let lim; for (let i = 0; i < 12; i++) { lim = await P(`/servers/${s2}/channels/${gen2}/messages`, { body: '@coden nochmal ' + i }, E.t); if (lim.j.codenError && !/überlastet/.test(lim.j.codenError)) break; }
+  chk('Kanal: höchstens 10 Fragen pro 10 Minuten', /Pause/.test(lim.j.codenError || ''), true);
+
+  // Direktnachrichten: @coden + Teilen
+  const d1 = await P(`/buddy/messages/${hE}`, { body: 'Hey' }, O.t);
+  chk('DM: normal', [d1.s, d1.j.reply], [200, undefined]);
+  const dc = await P(`/buddy/messages/${hE}`, { body: 'Kannst du @coden fragen?' }, O.t);   // O hat sein Limit nicht erreicht (Owner-Pfad egal)
+  chk('DM: @coden antwortet oder nennt Pause (Limit gehört zum Fragesteller)', !!dc.j.reply || /Pause/.test(dc.j.codenError || ''), true);
+  const dmE = await call(`/buddy/messages/${hO}`, null, E.t);
+  chk('DM: Gegenüber sieht Codens Antwort ebenfalls (falls gegeben)', dc.j.reply ? dmE.j.messages.some(m => m.ai && m.body === 'Hallo vom Test-Coden') : true, true);
+  const dmX = await call(`/buddy/messages/${hO}`, null, X.t);
+  chk('DM: Fremde sehen das Gespräch nicht', dmX.s, 403);
+
+  const qa = await P('/apps', { name: 'Teilbar', kind: 'web', style: '', files: { 'index.html': '<h1>x</h1>' } }, O.t); const qid = qa.j.app.id;
+  chk('DM-Teilen: App an Nicht-Freund verboten', (await P(`/buddy/messages/${'xtern_h'}`, { attachment: { type: 'app', id: qid } }, O.t)).s, 403);
+  const sh = await P(`/buddy/messages/${hE}`, { attachment: { type: 'app', id: qid, role: 'viewer' } }, O.t);
+  chk('DM-Teilen: App als Zuschauer', [sh.s, sh.j.message.attachment.role, sh.j.message.attachment.name, /geteilt/.test(sh.j.message.body)], [200, 'viewer', 'Teilbar', true]);
+  chk('DM-Teilen: Empfänger sieht App', (await call('/apps/' + qid, null, E.t)).j.app.role, 'viewer');
+  chk('DM-Teilen: Zuschauer darf nicht ändern', (await PU(`/apps/${qid}/files`, { set: { 'a.txt': 'x' } }, E.t)).s, 403);
+  chk('DM-Teilen: Empfänger sieht Karte im Verlauf', (await call(`/buddy/messages/${hO}`, null, E.t)).j.messages.some(m => m.attachment?.id === qid), true);
+  chk('DM-Teilen: auf Bearbeiter hochstufen', [(await P(`/buddy/messages/${hE}`, { attachment: { type: 'app', id: qid, role: 'editor' } }, O.t)).s, (await PU(`/apps/${qid}/files`, { set: { 'a.txt': 'ok' } }, E.t)).s], [200, 200]);
+  chk('DM-Teilen: nur Besitzer darf teilen', (await P(`/buddy/messages/${hO}`, { attachment: { type: 'app', id: qid, role: 'editor' } }, E.t)).s, 403);
+  const eapp = (await P('/apps', { name: 'EApp', kind: 'web', style: '', files: { 'index.html': 'e' } }, E.t)).j.app.id;
+  chk('DM-Teilen: Freund teilt zurück, Besitzer behält Besitzerrolle', [(await P(`/buddy/messages/${hO}`, { attachment: { type: 'app', id: eapp, role: 'viewer' } }, E.t)).s, (await call('/apps/' + eapp, null, O.t)).j.app.role, (await call('/apps/' + eapp, null, E.t)).j.app.role], [200, 'viewer', 'owner']);
+  chk('DM-Teilen: unbekannter Typ', (await P(`/buddy/messages/${hE}`, { attachment: { type: 'virus', id: 1 } }, O.t)).s, 400);
+  const bp = await P('/buddy/projects', { title: 'Zusammen' }, O.t);
+  const shp = await P(`/buddy/messages/${hE}`, { attachment: { type: 'project', id: bp.j.id } }, O.t);
+  chk('DM-Teilen: Buddy-Projekt', [shp.s, shp.j.message.attachment.type], [200, 'project']);
+  chk('DM-Teilen: Empfänger ist Mitglied', (await call('/buddy/projects/' + bp.j.id, null, E.t)).s, 200);
+  global.fetch = realFetch;
+
   // Grenzen
   let last; for (let i = 0; i < 12; i++) { last = await P('/servers', { name: 'S' + i }, X.t); if (last.s !== 200) break; }
   chk('Servergrenze', last.s, 400);
