@@ -202,11 +202,27 @@ async function callModel(m, messages, { stream, onDelta, signal, maxTokens }) {
   return full;
 }
 
+// ---------- Modellliste (für den Befehl /modelle) ----------
+const PROVIDER_NAMES = { nvidia: 'NVIDIA', groq: 'Groq', openrouter: 'OpenRouter', google: 'Google' };
+const keyOf = (m) => `${m.provider}:${m.id}`;
+function listModels() {
+  const seen = new Map();
+  for (const tier of ['pro', 'normal', 'flash']) for (const m of CASCADES[tier]) if (!seen.has(keyOf(m))) seen.set(keyOf(m), { key: keyOf(m), provider: m.provider, providerName: PROVIDER_NAMES[m.provider] || m.provider, id: m.id,
+    ready: m.provider === 'google' ? !!process.env.GOOGLE_API_KEY : !!process.env[OPENAI_COMPAT[m.provider]?.env], limited: !!QUOTAS[m.id] });
+  return [...seen.values()];
+}
+const findModel = (key) => listModels().find(m => m.key === key) || null;
+
 // ---------- Kaskade ----------
 // Probiert die Modelle der Stufe der Reihe nach. Fällt eines aus (oder liefert nichts), kommt das nächste.
 // Beim Streamen ist Wechsel nur möglich, solange noch nichts an den Nutzer geschickt wurde.
-async function run(tier, messages, { isOwner = false, stream = false, onDelta = () => {}, onModel = () => {}, signal, maxTokens } = {}) {
-  const cascade = CASCADES[tier];
+async function run(tier, messages, { isOwner = false, stream = false, onDelta = () => {}, onModel = () => {}, signal, maxTokens, pin } = {}) {
+  let cascade = CASCADES[tier];
+  if (pin) { // ein bestimmtes Modell erzwingen (nur Owner, kein Ausweichen auf andere)
+    const m = findModel(pin);
+    if (!m) throw Object.assign(new Error('Unbekanntes Modell.'), { status: 400 });
+    cascade = [m];
+  }
   if (!cascade) throw Object.assign(new Error('Unbekannter Modus.'), { status: 400 });
   let last;
   for (const m of cascade) {
@@ -236,4 +252,4 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
 const generate = async (tier, messages, opts = {}) => (await run(tier, messages, opts)).text;
 const generateStream = (tier, messages, opts) => run(tier, messages, { ...opts, stream: true });
 
-module.exports = { generate, generateStream, CASCADES, QUOTAS, ThinkFilter };
+module.exports = { listModels, generate, generateStream, CASCADES, QUOTAS, ThinkFilter };
