@@ -8,7 +8,17 @@ const vm = require('vm');
 const Agent = require('../shared/agent-core');
 const { generate, generateStream } = require('./ai');
 
-const MAX_FIX = 2, MAX_TEAM = 4, TEAM_PARALLEL = 3, HISTORY = 18;
+const MAX_FIX = 2, MAX_TEAM = 5, TEAM_PARALLEL = 3, HISTORY = 18;
+
+// Modell je nach Schwierigkeit: leicht -> Flash (schnell), mittel -> das gewählte Modell, schwer -> das stärkste erlaubte
+const RANK = { flash: 1, normal: 2, pro: 3, ultra: 4 };
+const TIER_NAME = { flash: 'Flash', normal: 'Thinking', pro: 'Pro', ultra: 'Ultra' };
+function tierFor(level, chosen, allowUltra) {
+  const strongest = allowUltra ? 'ultra' : 'pro';
+  if (level === 'easy') return 'flash';
+  if (level === 'hard') return RANK[chosen] > RANK[strongest] ? chosen : strongest;
+  return chosen;
+}
 const SOFT_DEADLINE_MS = 230_000; // danach keine neuen Runden mehr (Vercel beendet Funktionen nach 300 s)
 const syntax = (code) => { try { new vm.Script(code); return null; } catch (e) { return e.message; } };
 const FILE_OK = /^(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9_.\-/]{0,99}$/;
@@ -28,14 +38,18 @@ function historyFrom(rows) {
 }
 
 const PLANNER = `Du bist der Planer im Coden-Agententeam (App-Builder). Du schreibst KEINEN Code. Du entscheidest, wie die letzte Bitte des Nutzers erledigt wird, und antwortest NUR mit JSON:
-{"mode":"answer|single|team","summary":"1 Satz auf Deutsch, was gebaut/geändert wird","contract":"gemeinsame Absprachen für das Team: Element-IDs, CSS-Klassen, globale Funktionen und Variablen (Name + Zweck), Datenformate, Reihenfolge der <script>-Dateien","tasks":[{"title":"kurzer Titel","files":["index.html"],"goal":"was genau in diese Dateien gehört"}],"next":"ein Vorschlag für den nächsten Schritt"}
+{"mode":"answer|single|team","summary":"1 Satz auf Deutsch, was gebaut/geändert wird","contract":"gemeinsame Absprachen für das Team: Element-IDs, CSS-Klassen, globale Funktionen und Variablen (Name + Zweck), Datenformate, Reihenfolge der <script>-Dateien","tasks":[{"title":"kurzer Titel","agent":"layout","level":"mittel","files":["index.html"],"goal":"was genau in diese Dateien gehört"}],"next":"ein Vorschlag für den nächsten Schritt"}
+Spezial-Agenten (Feld "agent", wähle für jede Aufgabe den passendsten):
+${Agent.KIT_IDS.map(id => `- ${id}: ${Agent.KITS[id].name} – ${Agent.KITS[id].for}`).join('\n')}
+Schwierigkeit (Feld "level"): "leicht" (Texte, Daten, kleines CSS → schnelles Modell), "mittel" (normale Seiten und Logik), "schwer" (komplexe Logik, Spiel-Engine, Physik, Algorithmen, viele Zusammenhänge → stärkstes Modell). Sei ehrlich – nicht alles ist schwer.
 Regeln:
 - "answer": der Nutzer fragt nur etwas, es muss nichts geändert werden (tasks leer).
 - "single": kleine oder mittlere Änderungen an 1–3 Dateien, Fehler beheben, Design anpassen, alles was ein Agent schnell schafft (tasks: eine Aufgabe).
-- "team": neue App/neues Spiel oder große Umbauten mit mehreren Bereichen. 2–4 Aufgaben, JEDE Datei gehört genau EINER Aufgabe. Typisch: (1) index.html + style.css (Aufbau & Design), (2) Logik/Daten in app.js oder data.js, (3) weitere Seiten/Module (z. B. game.js, ui.js). Der contract muss so genau sein, dass die Agenten unabhängig voneinander zusammenpassenden Code schreiben (z. B. "index.html hat <canvas id=\\"game\\">, <div id=\\"menu\\">, Knopf #start; app.js definiert window.startGame()").
+- "team": neue App/neues Spiel oder große Umbauten mit mehreren Bereichen. 2–5 Aufgaben, JEDE Datei gehört genau EINER Aufgabe. Typisch: (1) index.html + style.css (Aufbau & Design), (2) Logik/Daten in app.js oder data.js, (3) weitere Seiten/Module (z. B. game.js, ui.js). Der contract muss so genau sein, dass die Agenten unabhängig voneinander zusammenpassenden Code schreiben (z. B. "index.html hat <canvas id=\\"game\\">, <div id=\\"menu\\">, Knopf #start; app.js definiert window.startGame()").
 - Dateinamen: index.html, style.css, app.js, weitere .js/.html/.json/.svg. coden-kit.css/js gibt es schon (nicht als Aufgabe).
 - Nur gültiges JSON, keine Erklärung davor oder danach.`;
 
+const LEVEL = { leicht: 'easy', easy: 'easy', einfach: 'easy', mittel: 'medium', medium: 'medium', normal: 'medium', schwer: 'hard', hard: 'hard', schwierig: 'hard' };
 function parsePlan(text, files) {
   const m = String(text || '').match(/\{[\s\S]*\}/); if (!m) return null;
   let p; try { p = JSON.parse(m[0]); } catch (_) { return null; }
@@ -43,10 +57,35 @@ function parsePlan(text, files) {
   const seen = new Set();
   const tasks = (Array.isArray(p.tasks) ? p.tasks : []).slice(0, MAX_TEAM).map(t => ({
     title: String(t.title || 'Aufgabe').slice(0, 80), goal: String(t.goal || '').slice(0, 900),
+    agent: Agent.KIT_IDS.includes(t.agent) ? t.agent : guessAgent(t), level: LEVEL[String(t.level || '').toLowerCase()] || 'medium',
     files: (Array.isArray(t.files) ? t.files : []).map(f => String(f).replace(/^\.?\//, '')).filter(f => FILE_OK.test(f) && !/^coden-kit\./.test(f) && !seen.has(f) && seen.add(f)).slice(0, 6)
   })).filter(t => t.files.length);
   let mode = p.mode; if (mode === 'team' && tasks.length < 2) mode = 'single';
   return { mode, summary: String(p.summary || '').slice(0, 300), contract: String(p.contract || '').slice(0, 2500), tasks, next: String(p.next || '').slice(0, 200) };
+}
+
+// Ohne Angabe: Agent an den Dateien erkennen
+function guessAgent(t) {
+  const f = (t.files || []).join(' ') + ' ' + (t.title || '');
+  if (/game|spiel|level|physik/i.test(f)) return 'game';
+  if (/\.(html?|css)\b|layout|design/i.test(f)) return 'layout';
+  if (/\.svg\b|grafik|icon|logo|art/i.test(f)) return 'art';
+  if (/data|\.json\b|daten|api|db/i.test(f)) return 'data';
+  if (/text|inhalt|content|fragen/i.test(f)) return 'content';
+  return 'logic';
+}
+// Team-Modus ohne brauchbaren Plan: trotzdem aufteilen (Aufbau & Design / Logik bzw. Spiel)
+function defaultTeam(ctx) {
+  const names = Object.keys(ctx.files);
+  const js = names.filter(n => /\.js$/.test(n) && !/^coden-kit/.test(n));
+  const game = ctx.app.kind === 'game';
+  const logicFiles = js.length ? js.slice(0, 6) : [game ? 'game.js' : 'app.js'];
+  return { mode: 'team', summary: 'Das Coden-Team setzt deinen Wunsch um.', next: '',
+    contract: `index.html bindet coden-kit.js und danach ${logicFiles.join(', ')} am Ende von <body> ein. Alle Elemente, die die Logik braucht, haben eine id (kebab-case). Die Logik schreibt keine Styles, das Layout keine Logik.`,
+    tasks: [
+      { title: 'Aufbau & Design', agent: 'layout', level: 'medium', files: ['index.html', 'style.css'], goal: 'Struktur und Aussehen passend zum Wunsch des Nutzers.' },
+      { title: game ? 'Spiellogik' : 'App-Logik', agent: game ? 'game' : 'logic', level: 'hard', files: logicFiles, goal: 'Die Funktionen, die der Nutzer sich wünscht, vollständig und fehlerfrei.' }
+    ] };
 }
 
 function planInput(ctx, history) {
@@ -67,7 +106,7 @@ const looksFresh = (files) => Object.values(files).join('').length < 9000 && /Sa
 async function runAppAgent(run, ctx) {
   const t0 = Date.now(); const timeLeft = () => SOFT_DEADLINE_MS - (Date.now() - t0);
   const agents = [];
-  const push = () => run.setAgents(agents.map(a => ({ id: a.id, role: a.role, title: a.title, status: a.status, detail: a.detail })));
+  const push = () => run.setAgents(agents.map(a => ({ id: a.id, role: a.role, title: a.title, status: a.status, detail: a.detail, tier: a.tier ? TIER_NAME[a.tier] : undefined, kit: a.kit, level: a.level })));
   const add = (o) => { const a = { status: 'wait', detail: '', ...o }; agents.push(a); push(); return a; };
   const set = (a, patch) => { Object.assign(a, patch); push(); };
   const style = ctx.style; let files = { ...ctx.files }; let history = ctx.history.slice();
@@ -80,14 +119,15 @@ async function runAppAgent(run, ctx) {
   const last = history[history.length - 1]?.content || '';
   const fromUser = ctx.trigger === 'user';
   const tiny = last.length < 50 && !looksFresh(files);
-  if (fromUser && !tiny && ctx.mode !== 'single') {
-    const planner = add({ id: 'plan', role: 'planner', title: 'Planer', detail: 'versteht die Aufgabe und verteilt sie' });
+  const forceTeam = ctx.mode === 'team' && fromUser; // Team-Modus: immer mehrere Agenten
+  if (fromUser && (forceTeam || (!tiny && ctx.mode !== 'single'))) {
+    const planner = add({ id: 'plan', role: 'planner', title: '🧭 Planer', tier: 'pro', detail: 'versteht die Aufgabe und verteilt sie' });
     set(planner, { status: 'run' }); run.thinkStep({ h: 'Planer teilt die Aufgabe auf …', v: '' });
     try {
-      const txt = await generate('pro', [{ role: 'system', content: PLANNER }, { role: 'user', content: planInput(ctx, history) }], { ...common, maxTokens: 2500, effort: 'low' });
+      const txt = await generate('pro', [{ role: 'system', content: PLANNER + (forceTeam ? '\n\nDER NUTZER HAT DEN TEAM-MODUS GEWÄHLT: "mode" MUSS "team" sein, mit 2–5 Aufgaben für verschiedene Spezial-Agenten – auch bei kleineren Wünschen.' : '') }, { role: 'user', content: planInput(ctx, history) }], { ...common, maxTokens: 2500, effort: 'low' });
       plan = parsePlan(txt, files);
     } catch (e) { if (run.signal.aborted) throw e; }
-    if (plan && ctx.mode === 'team' && plan.mode === 'single' && plan.tasks.length) plan.mode = 'single';
+    if (forceTeam && (!plan || plan.mode !== 'team')) plan = { ...defaultTeam(ctx), summary: plan?.summary || 'Das Coden-Team setzt deinen Wunsch um.', next: plan?.next || '' };
     set(planner, { status: plan ? 'done' : 'error', detail: plan ? (plan.mode === 'team' ? `Team aus ${plan.tasks.length} Agenten: ${plan.summary}` : plan.mode === 'answer' ? 'nur eine Frage – keine Änderung nötig' : plan.summary || 'ein Agent reicht') : 'ohne Plan weiter (ein Agent)' });
   }
   if (!plan) plan = { mode: 'single', tasks: [], summary: '', contract: '', next: '' };
@@ -103,7 +143,7 @@ async function runAppAgent(run, ctx) {
     const imgs = round.tools.filter(t => t.name === 'image' && t.prompt).slice(0, 3);
     if (imgs.length && img < 2) {
       img++;
-      const painter = add({ id: 'img' + img, role: 'designer', title: 'Bild-Agent', detail: `erstellt ${imgs.length} Bild${imgs.length > 1 ? 'er' : ''}` }); set(painter, { status: 'run' });
+      const painter = add({ id: 'img' + img, role: 'designer', title: '🖼️ Bild-Agent', detail: `erstellt ${imgs.length} Bild${imgs.length > 1 ? 'er' : ''}` }); set(painter, { status: 'run' });
       const out = await Promise.all(imgs.map(async (t) => { try { return { id: t.id || 'bild', url: await ctx.image(t.prompt) }; } catch (e) { return { id: t.id || 'bild', error: e.message }; } }));
       const ok = out.filter(o => o.url);
       set(painter, { status: ok.length ? 'done' : 'error', detail: ok.length ? `${ok.length} Bild${ok.length > 1 ? 'er' : ''} fertig` : 'Bilder gehen gerade nicht' });
@@ -119,7 +159,7 @@ async function runAppAgent(run, ctx) {
     if (!issues.length || fix >= MAX_FIX) { if (issues.length) summary.open = issues.length; break; }
     fix++;
     await toolMessage(`[Automatische Prüfung] Nach deiner letzten Antwort gibt es diese Probleme:\n${issues.map(i => '- ' + i).join('\n')}\nBehebe sie jetzt (nur die nötigen Änderungen).`, `Prüfer: ${issues.length} Problem${issues.length > 1 ? 'e' : ''} gefunden – wird behoben …`);
-    round = await singleRound('Fixer', `behebt ${issues.length} Problem${issues.length > 1 ? 'e' : ''}`, 'fixer');
+    round = await singleRound('🛠️ Fixer', `behebt ${issues.length} Problem${issues.length > 1 ? 'e' : ''}`, 'fixer');
   }
   run.setExtra({ done: true, rounds: summary.rounds, open: summary.open || 0 });
   return { files, summary };
@@ -143,7 +183,7 @@ async function runAppAgent(run, ctx) {
   }
   // Ein Agent schreibt die Antwort; der Text kommt live beim Nutzer an
   async function singleRound(title, detail, role = 'coder') {
-    const a = add({ id: role + (summary.rounds + 1), role, title, detail }); set(a, { status: 'run' });
+    const a = add({ id: role + (summary.rounds + 1), role, title, detail, tier: ctx.tier }); set(a, { status: 'run' });
     run.setText('');
     let text = '';
     try {
@@ -155,7 +195,8 @@ async function runAppAgent(run, ctx) {
   }
   // Mehrere Sub-Agenten bauen gleichzeitig je ihre eigenen Dateien
   async function teamRound() {
-    const coders = plan.tasks.map((t, i) => add({ id: 'coder' + (i + 1), role: 'coder', title: `Coder ${i + 1}: ${t.title}`, detail: t.files.join(', ') }));
+    plan.tasks.forEach(t => { t.tier = tierFor(t.level, ctx.tier, ctx.allowUltra); });
+    const coders = plan.tasks.map((t, i) => { const k = Agent.kitFor(t.agent); return add({ id: 'coder' + (i + 1), role: 'coder', kit: t.agent, tier: t.tier, level: t.level, title: `${k ? k.emoji + ' ' + k.name : 'Coder ' + (i + 1)}: ${t.title}`, detail: t.files.join(', ') }); });
     const header = () => `${plan.summary || 'Das Coden-Team baut deine App.'}\n\n<plan>\n${plan.tasks.map((t, i) => `- [${coders[i].status === 'done' ? 'x' : ' '}] ${t.title} (${t.files.join(', ')})`).join('\n')}\n</plan>`;
     run.setText(header());
     const owner = new Map(); plan.tasks.forEach((t, i) => t.files.forEach(f => owner.set(f, i)));
@@ -165,10 +206,10 @@ async function runAppAgent(run, ctx) {
       for (let i; (i = queue.shift()) !== undefined;) {
         if (run.signal.aborted) return;
         const t = plan.tasks[i]; set(coders[i], { status: 'run', detail: 'startet …' });
-        const team = { role: `Coder ${i + 1} von ${plan.tasks.length}`, summary: plan.summary, contract: plan.contract, tasks: plan.tasks, task: t };
+        const team = { role: `${Agent.kitFor(t.agent)?.name || 'Coder'} (Agent ${i + 1} von ${plan.tasks.length})`, summary: plan.summary, contract: plan.contract, tasks: plan.tasks, task: t };
         const only = history.slice(-4);
         try {
-          await generateStream(ctx.tier, [sys(team), ...(only[0]?.role === 'user' ? only : history.slice(-1))], { ...common, maxTokens: 16000, onModel: (m) => run.setModel(m), onDelta: (v) => { outs[i] += v; if (outs[i].length % 1500 < v.length) set(coders[i], { detail: progress(outs[i]) || 'schreibt …' }); } });
+          await generateStream(t.tier, [sys(team), ...(only[0]?.role === 'user' ? only : history.slice(-1))], { ...common, maxTokens: 16000, onModel: (m) => run.setModel(m), onDelta: (v) => { outs[i] += v; if (outs[i].length % 1500 < v.length) set(coders[i], { detail: progress(outs[i]) || 'schreibt …' }); } });
           const p = Agent.parse(outs[i]); const mine = p.ops.filter(o => owner.get(o.path) === i); // nur die eigenen Dateien (sonst überschreiben sich Agenten gegenseitig)
           outs[i] = rebuild(outs[i], mine);
           set(coders[i], { status: mine.length ? 'done' : 'error', detail: mine.length ? `${mine.length} Datei${mine.length > 1 ? 'en' : ''}: ${mine.map(o => o.path).join(', ')}` : 'hat keine Datei geliefert' });
@@ -192,7 +233,7 @@ async function runAppAgent(run, ctx) {
   }
   // KI-Prüfer: passen die parallel geschriebenen Teile zusammen?
   async function reviewTeam() {
-    const rv = add({ id: 'review', role: 'reviewer', title: 'Prüfer', detail: 'prüft, ob alle Teile zusammenpassen' }); set(rv, { status: 'run' });
+    const rv = add({ id: 'review', role: 'reviewer', title: '🔎 Prüfer', tier: 'pro', detail: 'prüft, ob alle Teile zusammenpassen' }); set(rv, { status: 'run' });
     const listing = Object.keys(files).sort().map(n => `=== ${n} ===\n${String(files[n]).slice(0, 14000)}`).join('\n\n').slice(0, 60000);
     try {
       const txt = await generate('pro', [{ role: 'system', content: 'Du bist der Prüfer im Coden-Team. Mehrere Agenten haben parallel Dateien einer Web-App geschrieben. Finde NUR echte Fehler, durch die etwas nicht funktioniert: IDs/Klassen, die in HTML und JS nicht übereinstimmen, aufgerufene Funktionen/Variablen, die nirgends definiert sind, falsche Script-Reihenfolge, fehlende Dateien, offensichtliche Logikfehler (z. B. Knopf ohne Funktion). Keine Stil-Wünsche. Antworte NUR mit JSON: {"issues":["konkreter Fehler mit Datei und Name", …]} (leere Liste, wenn alles passt, höchstens 6).' }, { role: 'user', content: listing }], { ...common, maxTokens: 1500, effort: 'low' });
@@ -229,4 +270,4 @@ function withReply(text, p) {
   return text.replace(/\s+$/, '') + `\n\nFertig – ich habe ${list} ${p.ops.some(o => o.type === 'file') ? 'geschrieben bzw. angepasst' : 'angepasst'}. Schau dir die Vorschau an und sag mir, was ich noch ändern soll.`;
 }
 
-module.exports = { runAppAgent, historyFrom, parsePlan, _progress: progress };
+module.exports = { runAppAgent, historyFrom, parsePlan, tierFor, defaultTeam, _progress: progress };

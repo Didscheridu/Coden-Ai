@@ -172,7 +172,18 @@ function appsRouter(requireAuth) {
   r.delete('/:id', async (req, res) => {
     const a = await memberOf(req, res, req.params.id); if (!a) return;
     if (a.role !== 'owner') return bad(res, 403, 'Nur der Besitzer kann die App löschen.');
+    // Arbeitet gerade ein Agent an der App? Erst stoppen, damit er nichts mehr in die gelöschte App schreibt
+    const running = await getSql()`UPDATE ai_runs SET stop = true WHERE kind = 'app' AND ref = ${String(a.id)} AND status = 'running' RETURNING id`;
+    running.forEach(x => liveRuns.get(Number(x.id))?.ac.abort());
     await getSql()`DELETE FROM apps WHERE id = ${a.id}`;
+    res.json({ ok: true });
+  });
+  // Eine geteilte App verlassen (Mitglieder; der Besitzer löscht stattdessen)
+  r.post('/:id/leave', async (req, res) => {
+    const a = await memberOf(req, res, req.params.id); if (!a) return;
+    if (a.role === 'owner') return bad(res, 400, 'Du bist der Besitzer – lösche die App stattdessen.');
+    const gone = await getSql()`DELETE FROM app_members WHERE app_id = ${a.id} AND uid = ${req.user.uid} RETURNING uid`;
+    if (!gone.length) return bad(res, 400, 'Du siehst diese App über einen Server. Die Freigabe kann nur der Besitzer entfernen.');
     res.json({ ok: true });
   });
 
@@ -256,6 +267,7 @@ function appsRouter(requireAuth) {
     const ctx = {
       app: { id: Number(a.id), name: a.name, kind: a.kind, style: a.style, integrations: a.integrations || {} },
       files: a.files || {}, history: historyFrom(rows), tier, effort, mode, isOwner: req.user.isOwner, style: Styles.byId(a.style),
+      allowUltra: !(await locked(req, 'ultra')), // schwere Team-Aufgaben dürfen dann Ultra nutzen
       trigger: rows.length && rows[rows.length - 1].role === 'user' ? 'user' : 'tool',
       // Dateien speichern wie PUT /files (mit Versionsprüfung, damit gleichzeitige Änderungen nicht verloren gehen)
       async save(set, remove) {

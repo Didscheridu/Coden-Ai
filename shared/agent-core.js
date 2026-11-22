@@ -16,6 +16,48 @@ const GAME_KIT = `
   Highscore: Coden.game.best('key', punkte) speichert und liefert den Rekord. Screens: Coden.game.overlay('#menu').show()/.hide().
   Spiele-Qualität: Startbildschirm, Pause (Taste P / Knopf), Game Over mit Punkten und Rekord, Neustart, steigende Schwierigkeit, Partikel/Screen-Shake als Feedback, klare Farben, 60 FPS, kein Lag.`;
 
+// ---------- Spezial-Agenten mit eigenem "Kit" (Fachwissen, Regeln, Bausteine) ----------
+// Der Planer gibt jeder Team-Aufgabe einen dieser Agenten. Das Kit landet im Systemprompt des Sub-Agenten.
+const KITS = {
+    layout: { name: 'Layout-Designer', emoji: '🎨', for: 'HTML-Struktur, CSS, Farben, Typografie, responsives Layout (index.html, style.css)', kit: `
+- Mobile-first: erst Handy (360 px), dann @media (min-width: 768px) und (min-width: 1100px). Nie feste Breiten in px für Container, nutze max-width + margin-inline: auto, Grid/Flex mit gap.
+- Design-Tokens als CSS-Variablen in :root (--bg, --surface, --text, --muted, --accent, --radius, --shadow, Abstände 4/8/12/16/24/32/48). Höchstens 2 Schriftgrößen-Stufen pro Bereich, Zeilenhöhe 1.5, Kontrast mindestens 4.5:1.
+- Semantisches HTML (header, nav, main, section, footer, button statt div), alt-Texte, :focus-visible-Ringe, Touch-Ziele mindestens 44 px.
+- Schöne Details: weiche Schatten, abgerundete Ecken, Hover/Active-Zustände, transition .2s, dezente Verläufe. Keine Platzhalter-Optik.
+- Halte dich exakt an IDs/Klassen aus dem Vertrag, damit die Logik-Agenten sie finden.` },
+    components: { name: 'Komponenten-Agent', emoji: '🧩', for: 'UI-Bausteine: Formulare, Dialoge, Listen, Karten, Tabs, Animationen, Toasts', kit: `
+- Jede Komponente: Normal-, Hover-, Fokus-, Deaktiviert-, Lade-, Leer- und Fehlerzustand.
+- Formulare: label + input, Validierung beim Absenden mit klarer Fehlermeldung am Feld, Enter sendet ab.
+- Dialoge/Sheets mit Coden.ui (Coden.toast, Coden.sheet) oder <dialog>; Esc schließt, Fokus zurück.
+- Listen: Leerer Zustand mit Hinweis + Knopf. Animationen mit transform/opacity (nie top/left), prefers-reduced-motion beachten.` },
+    logic: { name: 'Logik-Entwickler', emoji: '⚙️', for: 'App-Zustand, Ereignisse, Berechnungen, Navigation, Speichern (app.js)', kit: `
+- Ein zentraler Zustand (const state = {...}), eine render()-Funktion pro Bereich, Änderungen nur über kleine Funktionen (addItem, toggle …), danach render().
+- Ereignisse per Delegation (container.addEventListener('click', e => { const b = e.target.closest('[data-action]') … })).
+- Speichern mit Coden.store.get/set (überlebt Neuladen), beim Start laden und Standardwerte setzen.
+- Alles defensiv: Elemente mit ?. prüfen, Eingaben trimmen und validieren, try/catch um JSON und Netzwerk.
+- Keine globalen Namen außer denen im Vertrag. Code am Ende von <body> laden (kein DOMContentLoaded nötig, aber erlaubt).` },
+    game: { name: 'Spiel-Entwickler', emoji: '🎮', for: 'Spielschleife, Steuerung, Physik, Kollision, Gegner, Level, Punkte (game.js)', kit: `
+- Nutze Coden.game: const g = Coden.game.create({ canvas: '#game', width: 960, height: 540 }); g.loop((dt) => { update(dt); draw(g.ctx); }).
+- Zustände: 'menu' | 'play' | 'pause' | 'over'. reset() setzt alles zurück. Punkte, Leben, Level, Rekord über Coden.game.best(key, score).
+- Bewegung immer mit dt (Pixel pro Sekunde), Kollision mit Coden.game.hit(a, b), Objekte in Arrays, tote Objekte filtern.
+- Steuerung: Coden.game.axis() + pressed('Space'); auf Handys Coden.game.touchControls({ joystick: true, buttons: [...] }) oder Coden.game.onSwipe.
+- "Juice": Partikel (Coden.game.particles), g.shake(), Coden.game.sfx('jump'|'coin'|'hit'|'boom'|'win'|'lose'), steigende Schwierigkeit.` },
+    data: { name: 'Daten-Agent', emoji: '🗄️', for: 'Datenmodell, Datenbank/API-Anbindung, Beispieldaten, Import/Export (data.js, *.json)', kit: `
+- Klares Datenmodell mit Feldern und Typen als Kommentar oben in der Datei; IDs mit crypto.randomUUID().
+- Datenbank nur über Coden.db (supabase/firebase/rest) mit öffentlichen Schlüsseln; ohne Datenbank: Coden.store als lokaler Speicher.
+- Asynchron mit async/await, Fehler abfangen und dem Nutzer freundlich zeigen, Ladezustand setzen. Nie geheime Schlüssel in den Code.
+- Realistische Beispieldaten (deutsch, 6–12 Einträge), damit die App sofort lebendig aussieht.` },
+    content: { name: 'Text-Agent', emoji: '✍️', for: 'Texte, Überschriften, Beschreibungen, Inhalte, Quizfragen, Level-Daten', kit: `
+- Echte, gut klingende deutsche Texte passend zur Zielgruppe – nie Lorem ipsum. Kurze Sätze, aktive Sprache, klare Handlungsaufforderungen.
+- Inhalte als Daten (Arrays/Objekte in einer eigenen .js- oder .json-Datei), damit Logik und Layout sie nur anzeigen.` },
+    art: { name: 'Grafik-Agent', emoji: '🖌️', for: 'SVG-Logos, Icons, Illustrationen, Hintergründe, Sprites als Code (*.svg, art.js)', kit: `
+- Grafiken als SVG-Dateien oder SVG-Strings mit viewBox, ohne feste width/height, Farben aus der Palette des Vertrags.
+- Einfache, klare Formen; für Spiele Sprites als Zeichenfunktionen (ctx-Pfade) oder kleine SVGs, die als Image geladen werden.
+- Keine externen Bilder nötig; Emojis sind ein guter Ersatz für Icons.` }
+};
+const KIT_IDS = Object.keys(KITS);
+const kitFor = (id) => KITS[id] || null;
+
 function teamBlock(t) {
     return `
 TEAM-MODUS – du bist ${t.role} in einem Team aus mehreren Coden-Agenten, die GLEICHZEITIG an derselben App arbeiten.
@@ -26,6 +68,7 @@ Alle Aufgaben im Team:
 ${(t.tasks || []).map((x, i) => `${i + 1}. ${x.title} → Dateien: ${(x.files || []).join(', ')}`).join('\n')}
 DEINE Aufgabe: ${t.task.title}
 ${t.task.goal || ''}
+${KITS[t.task.agent] ? `DU BIST DER ${KITS[t.task.agent].name.toUpperCase()} ${KITS[t.task.agent].emoji} – dein Kit (Regeln und Fachwissen):${KITS[t.task.agent].kit}` : ''}
 Du schreibst AUSSCHLIESSLICH diese Dateien: ${(t.task.files || []).join(', ')}. Andere Dateien schreiben die anderen Agenten – verlasse dich auf den Vertrag und erfinde keine weiteren Dateien.
 Antwort: höchstens 1 Satz, dann deine vollständigen <file>-Blöcke (oder <edit>-Blöcke für kleine Änderungen). Keine Werkzeuge, kein Plan.
 `;
@@ -245,5 +288,5 @@ function check(files, { syntax } = {}) {
     return [...new Set(issues)].slice(0, 12);
 }
 
-return { systemPrompt, parse, apply, condense, check, KIND_TEXT };
+return { systemPrompt, parse, apply, condense, check, KIND_TEXT, KITS, KIT_IDS, kitFor };
 });
