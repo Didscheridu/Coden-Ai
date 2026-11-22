@@ -58,6 +58,44 @@ const KITS = {
 const KIT_IDS = Object.keys(KITS);
 const kitFor = (id) => KITS[id] || null;
 
+// Werkzeuge, die der Server sofort ausführt (danach geht die Schleife weiter)
+const AUTO_TOOLS = ['list', 'read', 'search', 'check', 'fetch', 'web_search', 'memory', 'spawn', 'image'];
+
+// ---------- Main Agent: ein echter Coding-Agent (Schleife aus Denken → Werkzeug → Ergebnis), der Sub-Agenten starten kann ----------
+function mainBlock(m) {
+    const kits = KIT_IDS.map(id => `${id} (${KITS[id].emoji} ${KITS[id].name}: ${KITS[id].for})`).join('; ');
+    return `
+DU BIST DER MAIN AGENT – ein vollwertiger Coding-Agent wie Claude Code, Codex oder Gemini CLI. Der Nutzer spricht nur mit dir.
+Du arbeitest in SCHRITTEN: kurz denken → handeln (Code schreiben und/oder Werkzeuge benutzen) → Ergebnisse ansehen → weiter, bis die Aufgabe WIRKLICH fertig und geprüft ist (höchstens ${m.maxSteps} Schritte). Du schreibst selbst Code mit <file>/<edit>/<delete> – UND kannst Werkzeuge benutzen.
+
+ARBEITS-WERKZEUGE (werden sofort ausgeführt; die Ergebnisse bekommst du in der nächsten Nachricht als [Werkzeug-Ergebnisse], dann machst du weiter):
+- <tool name="list" pattern="*.js"/> → Dateien mit Zeilenzahl (pattern optional, * und ** erlaubt).
+- <tool name="read" path="app.js" start="40" end="120"/> → Datei mit Zeilennummern lesen (start/end optional; mehrere Dateien: path="a.js,ui.js").
+- <tool name="search" query="startGame"/> → alle Fundstellen in allen Dateien mit Datei:Zeile (wie grep; regex="true" für reguläre Ausdrücke).
+- <tool name="check"/> → prüft ALLE Dateien: Syntaxfehler, fehlende Dateien, getElementById ohne passendes Element.
+- <tool name="fetch" url="https://…"/> → Webseite oder Doku als Text lesen (z. B. API-Doku einer Bibliothek).
+- <tool name="web_search" query="…"/> → im Web suchen (Titel, Link, Ausschnitt) – für aktuelle Doku, Fehlermeldungen, Beispiele.
+- <tool name="memory">Notiz</tool> → dauerhafte Projektnotiz in CODEN.md (Konventionen, Architektur, Entscheidungen). Sie steht in jedem künftigen Prompt.
+${m.spawn ? `- <tool name="spawn">{"contract":"…","tasks":[{"title":"…","agent":"layout","level":"mittel","files":["index.html","style.css"],"goal":"…"}]}</tool> → startet SUB-AGENTEN, die parallel arbeiten (Details unten).
+` : ''}- <tool name="done"/> → du bist komplett fertig (schreib davor deine Abschlussnachricht).
+Plan sichtbar machen: <plan>- [x] erledigt\\n- [ ] offen</plan> – bei Aufgaben mit 3+ Schritten im ersten Schritt anlegen und in späteren Schritten aktualisiert neu ausgeben.
+${m.spawn ? `
+SUB-AGENTEN (spawn) – wie das Task-Werkzeug von Claude Code oder die Multi-Agenten von Codex:
+- Jeder Sub-Agent bekommt eine Aufgabe mit EIGENEN Dateien (jede Datei gehört genau einem), ein Spezial-Kit und ein passendes Modell (level leicht → Flash, mittel → gewähltes Modell, schwer → stärkstes Modell). Sie arbeiten gleichzeitig und kennen nur den Vertrag – schreibe den contract deshalb sehr genau (Element-IDs, Klassen, globale Funktionen mit Parametern, Datenformate, Script-Reihenfolge).
+- Spezial-Agenten (Feld agent): ${kits}.
+- Danach bekommst du ihre Ergebnisse plus automatische Prüfung. DU integrierst: lies die Dateien, gleiche IDs/Funktionen ab, behebe Fehler selbst (edit) und prüfe mit check.
+- Nutze spawn für neue Apps/Spiele und große Umbauten mit mehreren unabhängigen Teilen (2–5 Aufgaben). Kleine Änderungen machst du selbst – das ist schneller.
+${m.team ? '- DER NUTZER HAT DEN TEAM-MODUS GEWÄHLT: Wenn Code gebaut oder geändert werden muss, nutze in deinem ersten Arbeitsschritt spawn mit MINDESTENS 2 Sub-Agenten. Du selbst koordinierst, schreibst Verbindungs-Code und prüfst.\n' : ''}` : ''}
+ABLAUF EINES GUTEN AGENTEN
+1. Verstehen: Was genau will der Nutzer? Bei bestehenden Apps erst gezielt suchen/lesen (search → read), nicht raten.
+2. Planen: <plan> bei größeren Aufgaben.
+3. Umsetzen: selbst schreiben${m.spawn ? ' oder Sub-Agenten starten' : ''}. Kleine, gezielte <edit>s statt ganzer Dateien, wenn möglich.
+4. Prüfen: <tool name="check"/> nach Änderungen; Fehler selbst beheben.
+5. Abschluss: 1–3 Stichpunkte, was neu ist, plus ein Vorschlag für den nächsten Schritt, dann <tool name="done"/>.
+Regeln: Höchstens 4 Arbeits-Werkzeuge pro Schritt. Nach Werkzeug-Aufrufen endet dein Schritt – warte auf die Ergebnisse, erfinde sie nie. Benutzt du in einem Schritt kein Arbeits-Werkzeug, gilt die Aufgabe als fertig. Jeder Schritt beginnt mit einem kurzen Satz, was du gerade tust.
+`;
+}
+
 function teamBlock(t) {
     return `
 TEAM-MODUS – du bist ${t.role} in einem Team aus mehreren Coden-Agenten, die GLEICHZEITIG an derselben App arbeiten.
@@ -82,7 +120,7 @@ const KIND_TEXT = {
     game: 'Spiel (läuft im Browser auf PC, Tablet und Handy; Vollbild-Canvas oder DOM; Steuerung per Tastatur UND Touch; nutze Coden.game)'
 };
 
-function systemPrompt({ app, files, style, team }) {
+function systemPrompt({ app, files, style, team, main }) {
     const integ = app.integrations || {};
     const db = integ.database;
     const secrets = integ.secrets || {};
@@ -91,7 +129,7 @@ function systemPrompt({ app, files, style, team }) {
     for (const f of listFiles) {
         const c = files[f];
         if (c.length <= budget) { parts.push(`=== ${f} ===\n${c}`); budget -= c.length; }
-        else parts.push(`=== ${f} === (${c.length} Zeichen, zu groß zum Anzeigen – nur mit <edit> ändern oder komplett neu schreiben)`);
+        else parts.push(`=== ${f} === (${c.length} Zeichen, ${c.split('\n').length} Zeilen – nicht angezeigt${main ? ': lies sie mit <tool name="read" path="' + f + '"/> oder finde Stellen mit search' : ', nur mit <edit> ändern oder komplett neu schreiben'})`);
     }
     return `Du bist Coden, ein KI-Agent im Coden App-Builder. Du baust echte, sofort lauffähige Apps und Webseiten und änderst dafür selbst die Dateien.
 Projekt: "${app.name}" · Typ: ${KIND_TEXT[app.kind] || app.kind} · Stil: ${style ? `${style.name} (${style.desc}) – Farben/Schrift kommen automatisch als CSS-Variablen` : 'frei – wähle ein stimmiges Design über CSS-Variablen in style.css'}.
@@ -146,7 +184,7 @@ QUALITÄT
 - Sicherheit: niemals geheime Schlüssel (service_role, Passwörter, private API-Keys) in den Code.
 ${db ? `\nVERBUNDENE DATENBANK: ${db.provider}\n${Object.entries(db).filter(([k]) => k !== 'provider' && k !== 'label').map(([k, v]) => `- ${k}: ${v}`).join('\n')}` : ''}${Object.keys(secrets).length ? `\nEINGEGEBENE SCHLÜSSEL:\n${Object.entries(secrets).map(([k, v]) => `- ${k}: ${v}`).join('\n')}` : ''}
 
-${team ? teamBlock(team) : ''}
+${main ? mainBlock(main) : ''}${team ? teamBlock(team) : ''}${files['CODEN.md'] && !team ? `\nPROJEKT-GEDÄCHTNIS (CODEN.md – Konventionen und Entscheidungen, halte dich daran):\n${String(files['CODEN.md']).slice(0, 4000)}\n` : ''}
 AKTUELLE DATEIEN (${listFiles.length}):
 ${parts.join('\n\n')}`;
 }
@@ -159,7 +197,7 @@ function stripFence(s) {
     const m = t.match(/^\s*```[\w-]*\n([\s\S]*?)\n?```\s*$/); if (m) t = m[1];
     return t;
 }
-const BLOCK = /<file\s+([^>]*?)>([\s\S]*?)(<\/file>|$)|<edit\s+([^>]*?)>([\s\S]*?)(<\/edit>|$)|<delete\s+([^>]*?)\/?>(?:\s*<\/delete>)?|<tool\s+([^>]*?)\/>|<tool\s+([^>]*?)>([\s\S]*?)(<\/tool>|$)|<plan>([\s\S]*?)(<\/plan>|$)|<sql>([\s\S]*?)(<\/sql>|$)/gi;
+const BLOCK = /<file\s+([^>]*?)>([\s\S]*?)(<\/file>|$)|<edit\s+([^>]*?)>([\s\S]*?)(<\/edit>|$)|<delete\s+([^>]*?)\/?>(?:\s*<\/delete>)?|<tool\s+([^>]*?)\/>|<tool\s+([^>]*?)>([\s\S]*?)(<\/tool>|$)|<plan>([\s\S]*?)(<\/plan>|$)|<sql>([\s\S]*?)(<\/sql>|$)|<result\s+([^>]*?)>([\s\S]*?)(<\/result>|$)/gi;
 
 // Liefert die Reihenfolge aus Text und Blöcken (für die Anzeige) plus die Operationen
 function parse(text) {
@@ -181,18 +219,21 @@ function parse(text) {
             if (op.path) { ops.push(op); segs.push({ kind: 'op', op }); }
         } else if (m[8] !== undefined || m[9] !== undefined) {
             const a = m[8] !== undefined ? m[8] : m[9];
-            const t = { name: attrOf(a, 'name').toLowerCase(), reason: attrOf(a, 'reason'), options: attrOf(a, 'options').split('|').map(s => s.trim()).filter(Boolean), key: attrOf(a, 'key'), label: attrOf(a, 'label'), url: attrOf(a, 'url'), id: attrOf(a, 'id'), prompt: attrOf(a, 'prompt'), body: (m[10] || '').trim(), closed: m[8] !== undefined || !!m[11] };
+            const attrs = {}; String(a).replace(/([\w-]+)\s*=\s*"([^"]*)"/g, (x, k, v) => { attrs[k.toLowerCase()] = v; return x; });
+            const t = { attrs, name: attrOf(a, 'name').toLowerCase(), reason: attrOf(a, 'reason'), options: attrOf(a, 'options').split('|').map(s => s.trim()).filter(Boolean), key: attrOf(a, 'key'), label: attrOf(a, 'label'), url: attrOf(a, 'url'), id: attrOf(a, 'id'), prompt: attrOf(a, 'prompt'), body: (m[10] || '').trim(), closed: m[8] !== undefined || !!m[11] };
             if (t.name) { tools.push(t); segs.push({ kind: 'tool', tool: t }); }
         } else if (m[12] !== undefined) {
             plan = { items: m[12].split('\n').map(l => l.match(/^\s*[-*]\s*\[( |x|X)\]\s*(.+)$/)).filter(Boolean).map(x => ({ done: x[1].toLowerCase() === 'x', text: x[2].trim() })), closed: !!m[13] };
             segs.push({ kind: 'plan', plan });
         } else if (m[14] !== undefined) {
             const s = { code: stripFence(m[14]).trim(), closed: !!m[15] }; sql.push(s); segs.push({ kind: 'sql', sql: s });
+        } else if (m[16] !== undefined) {
+            segs.push({ kind: 'result', name: attrOf(m[16], 'name'), ok: attrOf(m[16], 'ok') !== '0', text: m[17].trim() }); // Ergebnis eines Werkzeugs (vom Server eingefügt)
         }
         last = BLOCK.lastIndex; if (m[0].length === 0) BLOCK.lastIndex++;
     }
     let rest = text.slice(last);
-    let half = rest.search(/<(file|edit|delete|tool|plan|sql)\b[^>]*$/i); if (half === -1) half = rest.search(/<[a-z]{0,6}$/i); if (half !== -1) rest = rest.slice(0, half);
+    let half = rest.search(/<(file|edit|delete|tool|plan|sql|result)\b[^>]*$/i); if (half === -1) half = rest.search(/<[a-z]{0,6}$/i); if (half !== -1) rest = rest.slice(0, half);
     if (rest) segs.push({ kind: 'text', text: rest });
     // Manche Modelle packen die Blöcke in ```-Zäune: leere Zaun-Reste aus dem Text entfernen
     for (const s of segs) if (s.kind === 'text') s.text = s.text.replace(/```[\w-]*\s*$/g, '').replace(/^\s*```/g, '');
@@ -288,5 +329,5 @@ function check(files, { syntax } = {}) {
     return [...new Set(issues)].slice(0, 12);
 }
 
-return { systemPrompt, parse, apply, condense, check, KIND_TEXT, KITS, KIT_IDS, kitFor };
+return { systemPrompt, parse, apply, condense, check, KIND_TEXT, KITS, KIT_IDS, kitFor, AUTO_TOOLS };
 });

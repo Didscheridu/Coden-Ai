@@ -63,13 +63,13 @@ function cleanHeaders(h) {
   return out;
 }
 
-function request(u, { method = 'POST', headers = {}, body }) {
+function request(u, { method = 'POST', headers = {}, body, redirects = false, maxBody = MAX_BODY, timeout = TIMEOUT }) {
   return new Promise((resolve, reject) => {
     const lib = u.protocol === 'http:' ? http : https;
-    const req = lib.request(u, { method, headers: { ...headers, ...(body ? { 'Content-Length': Buffer.byteLength(body) } : {}) }, lookup: guardedLookup, timeout: TIMEOUT }, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400) { res.resume(); return reject(httpErr(502, 'Der Server leitet weiter – das wird aus Sicherheitsgründen nicht verfolgt.')); }
+    const req = lib.request(u, { method, headers: { ...headers, ...(body ? { 'Content-Length': Buffer.byteLength(body) } : {}) }, lookup: guardedLookup, timeout }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400) { res.resume(); if (redirects) return resolve({ status: res.statusCode, headers: res.headers, text: '' }); return reject(httpErr(502, 'Der Server leitet weiter – das wird aus Sicherheitsgründen nicht verfolgt.')); }
       const chunks = []; let size = 0;
-      res.on('data', (c) => { size += c.length; if (size > MAX_BODY) { req.destroy(httpErr(502, 'Die Antwort ist zu groß.')); return; } chunks.push(c); });
+      res.on('data', (c) => { size += c.length; if (size > maxBody) { req.destroy(httpErr(502, 'Die Antwort ist zu groß.')); return; } chunks.push(c); });
       res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, text: Buffer.concat(chunks).toString('utf8') }));
       res.on('error', reject);
     });
@@ -135,4 +135,4 @@ function mcpRouter(requireAuth) {
   return r;
 }
 
-module.exports = { mcpRouter, mcpRequest, isPrivateIp, parseServerUrl };
+module.exports = { mcpRouter, mcpRequest, isPrivateIp, parseServerUrl, request };
