@@ -4,7 +4,7 @@ const nodemailer = require('nodemailer');
 const { getSql } = require('../server/db');
 const { requireAuth, requireOwner } = require('../server/auth');
 const { rateLimit } = require('../server/rateLimit');
-const { generate, generateStream, listModels } = require('../server/ai');
+const { generate, generateStream, listModels, probe, TEST_PROMPT } = require('../server/ai');
 const { buddyRouter } = require('../server/buddy');
 const { appsRouter, publicApiRouter, hostedRouter, baseUrl } = require('../server/apps');
 const { generateImage } = require('../server/images');
@@ -108,6 +108,36 @@ api.get('/models', requireAuth, (req, res) => {
   if (!req.user.isOwner) return res.status(403).json({ error: 'Nur der Owner.' });
   res.json({ models: listModels() });
 });
+// /model-test (nur Owner): alle Modelle mit demselben Prompt messen, Ergebnisse live als SSE
+const TEST_CONCURRENCY = 3, TEST_TIMEOUT_MS = 90_000;
+api.post('/models/test', requireAuth, rateLimit('model-test', 3, 600), async (req, res) => {
+  if (!req.user.isOwner) return res.status(403).json({ error: 'Nur der Owner.' });
+  const prompt = typeof req.body?.prompt === 'string' && req.body.prompt.trim() ? req.body.prompt.trim().slice(0, 4000) : TEST_PROMPT;
+  const all = listModels(); const want = Array.isArray(req.body?.keys) ? new Set(req.body.keys) : null;
+  const models = all.filter(m => !want || want.has(m.key));
+  const ac = new AbortController();
+  res.on('close', () => { if (!res.writableEnded) ac.abort(); });
+  res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+  const send = (o) => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(o)}\n\n`); };
+  send({ t: 'init', prompt, models: models.map(m => ({ key: m.key, id: m.id, provider: m.provider, providerName: m.providerName, ready: m.ready, limited: m.limited })) });
+  const queue = models.slice(); const messages = [{ role: 'user', content: prompt }];
+  const worker = async () => {
+    for (let m; (m = queue.shift()) && !ac.signal.aborted;) {
+      send({ t: 'start', key: m.key });
+      const one = new AbortController(); const stop = () => one.abort(); ac.signal.addEventListener('abort', stop);
+      const timer = setTimeout(stop, TEST_TIMEOUT_MS);
+      const r = await probe(m.key, messages, { signal: one.signal, onProgress: (p) => send({ t: 'p', key: m.key, ...p }) });
+      clearTimeout(timer); ac.signal.removeEventListener('abort', stop);
+      const { text, ...row } = r; send({ t: 'r', row, tail: text.slice(-1500), complete: /<\/html>/i.test(text), checks: checksOf(text) });
+    }
+  };
+  await Promise.all(Array.from({ length: TEST_CONCURRENCY }, worker));
+  send({ t: 'done' }); res.end();
+});
+// Einfache Qualitäts-Checks für den Standard-Prompt (Snake): wie viele Bausteine tauchen im Code auf?
+function checksOf(text) {
+  return [/<\/html>/i, /<canvas|getContext|<div|<table/i, /keydown|ArrowUp/i, /game ?over/i, /neustart|restart|reset|neu starten/i, /score|punkte/i].filter(r => r.test(text)).length;
+}
 const pinOf = (req) => (typeof req.body?.model === 'string' && req.user.isOwner ? req.body.model.slice(0, 120) : undefined);
 
 function validChat(body) {
