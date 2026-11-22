@@ -46,25 +46,25 @@ const CASCADES = {
   flash: [
     { provider: 'google', id: 'gemini-3.5-flash-lite' },
     { provider: 'groq', id: 'openai/gpt-oss-20b' },
-    ...nvidia(NVIDIA_FAST),
-    ...openrouter([...OPENROUTER_FREE].reverse())
+    ...openrouter([...OPENROUTER_FREE].reverse()),
+    ...nvidia(NVIDIA_FAST) // NVIDIA ist langsam: nur im Notfall
   ],
   // Thinking: zuerst die großen NVIDIA-Denkmodelle und ERNIE 5.5 Flash (alle gratis über OpenRouter), dann der Rest, dann Groq
   normal: [
-    ...nvidia(NVIDIA_STRONG),
     ...openrouter(THINKING_FIRST),
     ...openrouter(OPENROUTER_FREE.filter(m => !THINKING_FIRST.includes(m))),
     { provider: 'groq', id: 'qwen/qwen3.8-27b' },
     { provider: 'groq', id: 'openai/gpt-oss-20b' },
     { provider: 'groq', id: 'llama-3.3-70b-versatile' }, // bei Groq "Enterprise": kann ohne Vertrag fehlschlagen, dann springt die Kaskade weiter
+    ...nvidia(NVIDIA_STRONG), // NVIDIA ist langsam: nur im Notfall
     { provider: 'google', id: 'gemini-3.8-flash' }      // letzte Rettung, begrenzt
   ],
   // Pro: stärkste zuerst
   pro: [
     { provider: 'groq', id: 'openai/gpt-oss-120b' },
-    ...nvidia(NVIDIA_STRONG),
     { provider: 'groq', id: 'llama-3.3-70b-versatile' },
     ...openrouter(OPENROUTER_FREE),
+    ...nvidia(NVIDIA_STRONG), // NVIDIA ist langsam: nur im Notfall
     { provider: 'google', id: 'gemini-4-hydrogen' }     // letzte Rettung, begrenzt
   ]
 };
@@ -208,9 +208,10 @@ const keyOf = (m) => `${m.provider}:${m.id}`;
 function listModels() {
   const seen = new Map();
   for (const tier of ['pro', 'normal', 'flash']) for (const m of CASCADES[tier]) if (!seen.has(keyOf(m))) seen.set(keyOf(m), { key: keyOf(m), provider: m.provider, providerName: PROVIDER_NAMES[m.provider] || m.provider, id: m.id,
-    ready: m.provider === 'google' ? !!process.env.GOOGLE_API_KEY : !!process.env[OPENAI_COMPAT[m.provider]?.env], limited: !!QUOTAS[m.id] });
+    ready: m.provider === 'google' ? !!process.env.GOOGLE_API_KEY : providerReady(m.provider), limited: !!QUOTAS[m.id] });
   return [...seen.values()];
 }
+function providerReady(p) { const c = OPENAI_COMPAT[p]; return !!c && !!process.env[c.env]; }
 const findModel = (key) => listModels().find(m => m.key === key) || null;
 
 // ---------- Kaskade ----------
