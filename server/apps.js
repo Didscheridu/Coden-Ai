@@ -12,8 +12,10 @@ const { iconPng } = require('./icon');
 const Bundle = require('../shared/app-bundle');
 const Styles = require('../shared/app-styles');
 const apk = require('./apk');
+const { startRun, serveRun, _live: liveRuns } = require('./runs');
+const { runAppAgent, historyFrom } = require('./agents');
 
-const KINDS = ['web', 'ios', 'android', 'both'];
+const KINDS = ['web', 'ios', 'android', 'both', 'game'];
 const SLUG_RE = /^[a-z0-9]([a-z0-9-]{1,38}[a-z0-9])$/;
 const RESERVED = new Set(['api', 'admin', 'coden', 'www', 'app', 'apps', 'kit', 'shared', 'static', 'login', 'help', 'support', 'status', 'a', 'assets']);
 const FILE_RE = /^(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9_][A-Za-z0-9_.\-\/]{0,99}$/;
@@ -56,7 +58,7 @@ function bundleFor(app) {
   const key = `${app.id}:${app.version}`;
   if (cache.has(key)) return cache.get(key);
   const style = Styles.byId(app.style);
-  const platform = app.kind === 'both' ? null : app.kind;
+  const platform = app.kind === 'both' ? null : app.kind === 'game' ? 'web' : app.kind;
   const b = Bundle.build(app.files || {}, { kit: kit(), themeCss: Styles.themeCss(style), fontsHref: Styles.fontsHref(style), platform });
   cache.set(key, b); if (cache.size > 60) cache.delete(cache.keys().next().value);
   return b;
@@ -197,7 +199,7 @@ function appsRouter(requireAuth) {
     touch(a.id, req.user.uid);
     const after = toInt(req.query.after);
     const messages = after ? await loadMessages(a.id, req.user.uid, after) : [];
-    res.json({ version: a.version, name: a.name, published: a.published, apk: apk.publicState(a.apk), messages, members: await membersOf(a.id, req.user.uid) });
+    res.json({ version: a.version, name: a.name, published: a.published, apk: apk.publicState(a.apk), messages, members: await membersOf(a.id, req.user.uid), agentRun: await activeRun(a.id) });
   });
 
   async function loadMessages(appId, uid, after = 0, limit = 120) {
@@ -211,17 +213,86 @@ function appsRouter(requireAuth) {
     res.json({ messages: await loadMessages(a.id, req.user.uid, toInt(req.query.after)) });
   });
   // KI-Bild erzeugen und als URL zurückgeben (Coden baut sie dann in die App ein)
+  async function makeImage(a, uid, req, prompt) {
+    prompt = String(prompt || '').trim().slice(0, 1500);
+    if (prompt.length < 3) throw Object.assign(new Error('Beschreibe das Bild kurz.'), { status: 400 });
+    const [{ n }] = await getSql()`SELECT count(*)::int AS n FROM app_images WHERE app_id = ${a.id}`;
+    if (n >= LIMITS.images) throw Object.assign(new Error(`Höchstens ${LIMITS.images} Bilder pro App.`), { status: 400 });
+    const img = await generateImage(prompt);
+    const key = crypto.randomBytes(9).toString('hex');
+    await getSql()`INSERT INTO app_images (key, app_id, uid, prompt, mime, data) VALUES (${key}, ${a.id}, ${uid}, ${prompt}, ${img.mime}, ${img.data})`;
+    return { key, url: `${baseUrl(req)}/api/public/img/${key}` };
+  }
   r.post('/:id/images', rateLimit('apps-img', 12, 300), async (req, res) => {
     const a = await memberOf(req, res, req.params.id, true); if (!a) return;
-    const prompt = String(req.body?.prompt || '').trim().slice(0, 1500);
-    if (prompt.length < 3) return bad(res, 400, 'Beschreibe das Bild kurz.');
-    const [{ n }] = await getSql()`SELECT count(*)::int AS n FROM app_images WHERE app_id = ${a.id}`;
-    if (n >= LIMITS.images) return bad(res, 400, `Höchstens ${LIMITS.images} Bilder pro App.`);
-    let img;
-    try { img = await generateImage(prompt); } catch (e) { return bad(res, e.status || 502, e.message); }
-    const key = crypto.randomBytes(9).toString('hex');
-    await getSql()`INSERT INTO app_images (key, app_id, uid, prompt, mime, data) VALUES (${key}, ${a.id}, ${req.user.uid}, ${prompt}, ${img.mime}, ${img.data})`;
-    res.json({ key, url: `${baseUrl(req)}/api/public/img/${key}` });
+    try { res.json(await makeImage(a, req.user.uid, req, req.body?.prompt)); } catch (e) { bad(res, e.status || 502, e.message); }
+  });
+
+  // ---------- Coden-Agententeam (läuft als Hintergrund-Lauf auf dem Server) ----------
+  async function activeRun(appId) {
+    const [x] = await getSql()`SELECT id, updated_at FROM ai_runs WHERE kind = 'app' AND ref = ${String(appId)} AND status = 'running' ORDER BY id DESC LIMIT 1`;
+    if (!x) return null;
+    if (!liveRuns.has(Number(x.id)) && Date.now() - new Date(x.updated_at).getTime() > 120_000) { getSql()`UPDATE ai_runs SET status = 'error', error = 'Der Lauf wurde unterbrochen (Zeitlimit des Servers).' WHERE id = ${x.id} AND status = 'running'`.catch(() => {}); return null; }
+    return Number(x.id);
+  }
+  async function locked(req, tier) {
+    if (req.user.isOwner) return null;
+    const [row] = await getSql()`SELECT state FROM system_state WHERE id = 1`; const st = row?.state || {};
+    if (st.maintenance) return 'Wartungsarbeiten.';
+    if (tier === 'ultra' && st.locks?.ultra !== false) return 'Coden Ultra ist gesperrt (nur der Owner).';
+    if (tier === 'pro' && st.locks?.pro) return 'Coden Pro ist gesperrt.';
+    if (tier === 'normal' && st.locks?.thinking) return 'Coden Thinking ist gesperrt.';
+    return null;
+  }
+  r.post('/:id/agent', rateLimit('apps-agent', 30, 60), async (req, res) => {
+    const a = await memberOf(req, res, req.params.id, true); if (!a) return;
+    const tier = ['flash', 'normal', 'pro', 'ultra'].includes(req.body?.tier) ? req.body.tier : 'pro';
+    const why = await locked(req, tier); if (why) return bad(res, 403, why);
+    const busy = await activeRun(a.id); if (busy) return bad(res, 409, 'Coden arbeitet gerade schon an dieser App.', { runId: busy });
+    const effort = ['low', 'medium', 'high'].includes(req.body?.effort) ? req.body.effort : undefined;
+    const mode = ['auto', 'single', 'team'].includes(req.body?.mode) ? req.body.mode : 'auto';
+    const rows = await loadMessages(a.id, req.user.uid, 0, 40);
+    const sql = getSql(); const uid = req.user.uid; const appId = a.id;
+    const ctx = {
+      app: { id: Number(a.id), name: a.name, kind: a.kind, style: a.style, integrations: a.integrations || {} },
+      files: a.files || {}, history: historyFrom(rows), tier, effort, mode, isOwner: req.user.isOwner, style: Styles.byId(a.style),
+      trigger: rows.length && rows[rows.length - 1].role === 'user' ? 'user' : 'tool',
+      // Dateien speichern wie PUT /files (mit Versionsprüfung, damit gleichzeitige Änderungen nicht verloren gehen)
+      async save(set, remove) {
+        for (let attempt = 0; attempt < 5; attempt++) {
+          const [cur] = await sql`SELECT files, version FROM apps WHERE id = ${appId}`;
+          const files = { ...(cur.files || {}) }; for (const n of remove) delete files[n]; for (const [n, c] of Object.entries(set)) files[n] = c;
+          const err = checkFiles(files); if (err) throw new Error(err);
+          const ok = await sql`UPDATE apps SET files = ${JSON.stringify(files)}::jsonb, version = version + 1, updated_at = now() WHERE id = ${appId} AND version = ${cur.version} RETURNING version`;
+          if (ok.length) return files;
+        }
+        throw new Error('Dateien konnten nicht gespeichert werden (zu viele gleichzeitige Änderungen).');
+      },
+      async post(role, body, meta = {}) {
+        const m = JSON.stringify(meta).length > LIMITS.meta ? { ...meta, changed: (meta.changed || []).slice(0, 20), agents: undefined } : meta;
+        await sql`INSERT INTO app_messages (app_id, sender, role, body, meta) VALUES (${appId}, ${uid}, ${role}, ${String(body).slice(0, LIMITS.msg)}, ${JSON.stringify(m)}::jsonb)`;
+        sql`UPDATE apps SET updated_at = now() WHERE id = ${appId}`.catch(() => {});
+      },
+      image: async (prompt) => (await makeImage(a, uid, req, prompt)).url
+    };
+    const { run, done } = await startRun({ uid, isOwner: req.user.isOwner, kind: 'app', ref: String(a.id), meta: { tier, mode } }, (run) => runAppAgent(run, ctx));
+    await serveRun(res, run, done);
+  });
+  // Stand eines Agenten-Laufs dieser App (für alle Mitglieder, auch nach dem Neuladen)
+  r.get('/:id/agent', async (req, res) => {
+    const a = await memberOf(req, res, req.params.id); if (!a) return;
+    const id = toInt(req.query.run) || await activeRun(a.id);
+    if (!id) return res.json({ run: null });
+    const [x] = await getSql()`SELECT * FROM ai_runs WHERE id = ${id} AND kind = 'app' AND ref = ${String(a.id)}`;
+    if (!x) return res.json({ run: null });
+    const from = Math.max(0, parseInt(req.query.from, 10) || 0); const text = x.text || '';
+    res.json({ id: Number(x.id), status: x.status, from, len: text.length, text: text.slice(Math.min(from, text.length)), think: x.think || {}, agents: x.agents || [], model: req.user.isOwner ? x.model : undefined, error: x.error, meta: x.meta || {}, startedAt: iso(x.created_at), updatedAt: iso(x.updated_at) });
+  });
+  r.post('/:id/agent/stop', async (req, res) => {
+    const a = await memberOf(req, res, req.params.id, true); if (!a) return;
+    const rows = await getSql()`UPDATE ai_runs SET stop = true WHERE kind = 'app' AND ref = ${String(a.id)} AND status = 'running' RETURNING id`;
+    rows.forEach(x => liveRuns.get(Number(x.id))?.ac.abort());
+    res.json({ ok: true, stopped: rows.length });
   });
   r.post('/:id/messages', rateLimit('apps-msg', 90, 60), async (req, res) => {
     const a = await memberOf(req, res, req.params.id, true); if (!a) return;
@@ -395,7 +466,7 @@ function hostedRouter() {
     res.set('Content-Type', 'application/manifest+json; charset=utf-8').set('Cache-Control', 'public, max-age=300');
     res.send(JSON.stringify({
       id: base, name: a.name, short_name: a.name.slice(0, 12), start_url: base + (preview ? `?t=${encodeURIComponent(req.query.t)}` : ''), scope: base,
-      display: 'standalone', orientation: a.kind === 'web' ? 'any' : 'portrait', background_color: style ? style.v.bg.match(/^#/) ? style.v.bg : '#ffffff' : '#ffffff', theme_color: a.theme_color, lang: 'de',
+      display: 'standalone', orientation: a.kind === 'web' || a.kind === 'game' ? 'any' : 'portrait', background_color: style ? style.v.bg.match(/^#/) ? style.v.bg : '#ffffff' : '#ffffff', theme_color: a.theme_color, lang: 'de',
       icons: [{ src: base + 'icon-192.png', sizes: '192x192', type: 'image/png' }, { src: base + 'icon-512.png', sizes: '512x512', type: 'image/png' }, { src: base + 'icon-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }]
     }));
   });

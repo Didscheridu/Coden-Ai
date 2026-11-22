@@ -12,6 +12,8 @@ const crypto = require('crypto');
 const { mcpRouter } = require('../server/mcp');
 const CodenUpload = require('../shared/upload-check');
 const { wrapRouter } = require('../server/util');
+const { startRun, serveRun, runsRouter } = require('../server/runs');
+const { ensureSchema } = require('../server/schema');
 
 const app = express();
 app.disable('x-powered-by');
@@ -181,6 +183,22 @@ api.post('/chat/stream', requireAuth, rateLimit('chat', 20, 60), enforceSystemSt
   res.end();
 });
 
+// Hintergrund-Lauf: wie /chat/stream, aber die Antwort läuft auf dem Server zu Ende, auch wenn die Seite zu ist.
+// Der Client bekommt sofort die Lauf-ID ({t:'run'}) und kann sich später per /runs/:id wieder anhängen.
+api.post('/runs/chat', requireAuth, rateLimit('chat', 20, 60), enforceSystemState, async (req, res) => {
+  if (!validChat(req.body)) return res.status(400).json({ error: 'Ungültige Anfrage.' });
+  const ref = typeof req.body.ref === 'string' && req.body.ref ? req.body.ref.slice(0, 80) : 'chat';
+  const m = req.body.meta || {};
+  const meta = { title: String(m.title || '').slice(0, 120), userText: String(m.userText || '').slice(0, 4000), tier: req.body.tier };
+  await ensureSchema();
+  const { run, done } = await startRun({ uid: req.user.uid, isOwner: req.user.isOwner, kind: 'chat', ref, meta }, (run) =>
+    generateStream(req.body.tier, req.body.messages, {
+      isOwner: req.user.isOwner, signal: run.signal, maxTokens: maxTokensOf(req.body), effort: effortOf(req.body), pin: pinOf(req),
+      onModel: (mm) => run.setModel(mm), onThink: (k) => run.thinkStep(k), onDelta: (v) => run.delta(v)
+    }));
+  await serveRun(res, run, done);
+});
+
 // ---------- E-Mail (über das eigene Konto des Nutzers, nur Gmail/Outlook) ----------
 const SMTP = {
   gmail: { host: 'smtp.gmail.com', port: 465, secure: true },
@@ -228,11 +246,10 @@ api.post('/live-token', requireAuth, rateLimit('live', 5, 300), async (req, res)
 });
 
 // Tabellen sicherstellen (einmal pro Serverstart), bevor Funktionen mit Datenbank laufen
-const { ensureSchema } = require('../server/schema');
 const { projectsRouter } = require('../server/projects');
 const { serversRouter } = require('../server/servers');
 const needsDb = (req, res, next) => { ensureSchema().then(() => next(), next); };
-api.use('/buddy', needsDb); api.use('/servers', needsDb); api.use('/projects', needsDb); api.use('/apps', needsDb); api.use('/data', needsDb);
+api.use('/buddy', needsDb); api.use('/servers', needsDb); api.use('/projects', needsDb); api.use('/apps', needsDb); api.use('/data', needsDb); api.use('/runs', needsDb);
 app.use('/a', needsDb);
 // ---------- KI-Bilder für den normalen Chat (Cloudflare Flux) ----------
 api.post('/image', requireAuth, rateLimit('image', 10, 300), async (req, res) => {
@@ -251,6 +268,7 @@ api.use('/buddy', buddyRouter(requireAuth));
 api.use('/mcp', mcpRouter(requireAuth));
 api.use('/projects', projectsRouter(requireAuth));
 api.use('/servers', serversRouter(requireAuth));
+api.use('/runs', runsRouter(requireAuth));
 api.use('/apps', appsRouter(requireAuth));
 api.use('/public', publicApiRouter());
 app.use('/api', api);

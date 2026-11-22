@@ -1,11 +1,13 @@
 // js/apps/templates.js – Startgerüst je App-Typ. Sieht mit jedem Stil sofort gut aus; Coden baut darauf auf.
+import { gameFiles } from './games.js';
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 export const KINDS = {
     web: { label: 'Webseite', icon: 'language', desc: 'Läuft im Browser, mit eigener Coden-Adresse', devices: ['desktop', 'tablet', 'phone'] },
     ios: { label: 'iPhone-App', icon: 'phone_iphone', desc: 'Sieht aus und fühlt sich an wie eine iOS-App', devices: ['ios'] },
     android: { label: 'Android-App', icon: 'android', desc: 'Material-Look, als APK installierbar', devices: ['android'] },
-    both: { label: 'iPhone + Android', icon: 'devices', desc: 'Eine App, passt sich jedem Handy an', devices: ['ios', 'android'] }
+    both: { label: 'iPhone + Android', icon: 'devices', desc: 'Eine App, passt sich jedem Handy an', devices: ['ios', 'android'] },
+    game: { label: 'Spiel', icon: 'sports_esports', desc: 'Für PC und Handy, mit Touch-Steuerung und Sound', devices: ['desktop', 'landscape', 'phone'] }
 };
 
 function mobile(name) {
@@ -187,7 +189,7 @@ document.getElementById('contact-btn').addEventListener('click', (e) => {
     };
 }
 
-export function scaffold(kind, name) { return kind === 'web' ? web(name) : mobile(name); }
+export function scaffold(kind, name, template) { return kind === 'game' ? gameFiles(template || 'starter', name) : kind === 'web' ? web(name) : mobile(name); }
 
 // Aus einem HTML-Artefakt eine Webseite machen
 export function fromArtifact(title, html) {

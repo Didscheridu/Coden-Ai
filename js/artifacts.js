@@ -2,21 +2,18 @@
 // sie erscheinen als Karte im Chat und öffnen sich in einem Seitenfenster (Vorschau + Code).
 // HTML läuft in einer Sandbox (iframe ohne allow-same-origin, ohne Netzwerkzugriff) und kann nie an Login oder Daten.
 
-export const ARTIFACT_PROMPT = `
-ARTEFAKTE: Wenn der Nutzer etwas Eigenständiges möchte (Webseite, Spiel, Tool, Rechner, Diagramm, SVG-Grafik, längeres Dokument, größeres Code-Programm), packe es in einen Artefakt-Block, damit es in einem eigenen Fenster erscheint:
-<artifact type="html" title="Kurzer Titel">…vollständiger Inhalt…</artifact>
-Erlaubte type-Werte: html (komplette, selbstständige HTML-Seite mit CSS und JS in einer Datei, kein Netzwerkzugriff, kein localStorage, keine externen Bilder oder APIs; Bibliotheken nur von cdnjs.cloudflare.com, cdn.jsdelivr.net oder unpkg.com; Tastatursteuerung auf document hören, Buttons und Funktionen testweise gedanklich durchgehen), svg, markdown, code (dann zusätzlich language="python" o. Ä.).
-Regeln: Der Inhalt steht ROH im Block, NICHT zusätzlich in einem Markdown-Codeblock. Schreibe vor oder nach dem Block höchstens ein, zwei kurze Sätze. Für kurze Antworten, Erklärungen und kleine Code-Schnipsel nutze KEIN Artefakt, sondern normales Markdown. Wenn der Nutzer eine Änderung wünscht, gib das Artefakt mit dem gleichen Titel komplett neu aus.`;
+import { ARTIFACT_TYPES } from './system-prompt.js';
 
 const RE = /<artifact\s+([^>]*)>([\s\S]*?)(<\/artifact>|$)/g;
 const attr = (s, k) => (s.match(new RegExp(k + '\\s*=\\s*"([^"]*)"', 'i')) || [])[1] || '';
-const TYPES = ['html', 'svg', 'markdown', 'code'];
+const TYPES = ARTIFACT_TYPES;
+const ALIAS = { jsx: 'react', tsx: 'react', diagram: 'mermaid', graph: 'mermaid', csv: 'table', presentation: 'slides', md: 'markdown', py: 'python' };
 
 export function splitArtifacts(text) {
     const out = []; let last = 0; let m; RE.lastIndex = 0;
     while ((m = RE.exec(text)) !== null) {
         if (m.index > last) out.push({ kind: 'text', text: text.slice(last, m.index) });
-        let type = attr(m[1], 'type').toLowerCase(); if (!TYPES.includes(type)) type = 'code';
+        let type = attr(m[1], 'type').toLowerCase(); type = ALIAS[type] || type; if (!TYPES.includes(type)) type = 'code';
         out.push({ kind: 'artifact', type, title: (attr(m[1], 'title') || 'Artefakt').slice(0, 80), language: attr(m[1], 'language').slice(0, 20), body: m[2].replace(/^\n/, '').replace(/\n$/, ''), closed: !!m[3] });
         last = RE.lastIndex; if (m[0].length === 0) RE.lastIndex++;
     }
@@ -26,20 +23,86 @@ export function splitArtifacts(text) {
     return out;
 }
 
-const EXT = { html: 'html', svg: 'svg', markdown: 'md', code: 'txt' };
+const EXT = { html: 'html', svg: 'svg', markdown: 'md', code: 'txt', react: 'jsx', mermaid: 'mmd', chart: 'json', table: 'csv', slides: 'md', python: 'py' };
 const LANG_EXT = { python: 'py', javascript: 'js', typescript: 'ts', java: 'java', c: 'c', cpp: 'cpp', csharp: 'cs', go: 'go', rust: 'rs', php: 'php', ruby: 'rb', bash: 'sh', sql: 'sql', css: 'css', json: 'json', html: 'html', lua: 'lua', kotlin: 'kt', swift: 'swift' };
-const ICON = { html: 'web', svg: 'draw', markdown: 'article', code: 'code' };
-const CSP = "default-src 'none'; img-src data: blob: https:; media-src data: blob:; style-src 'unsafe-inline' https:; font-src https: data:; script-src 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; connect-src 'none'; form-action 'none'; base-uri 'none'";
+export const ARTIFACT_ICON = { html: 'web', svg: 'draw', markdown: 'article', code: 'code', react: 'deployed_code', mermaid: 'account_tree', chart: 'bar_chart', table: 'table_chart', slides: 'slideshow', python: 'terminal' };
+export const ARTIFACT_LABEL = { html: 'Webseite', svg: 'Grafik', markdown: 'Dokument', code: 'Code', react: 'React-App', mermaid: 'Diagramm', chart: 'Diagramm', table: 'Tabelle', slides: 'Präsentation', python: 'Python (ausführbar)' };
+const ICON = ARTIFACT_ICON;
+const LIVE = new Set(['html', 'svg', 'react', 'mermaid', 'chart', 'table', 'slides', 'python']); // brauchen ein iframe
+const CDN = "https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com";
+const cspFor = (type) => {
+    const extra = type === 'react' ? ' https://cdn.tailwindcss.com' : '';
+    const wasm = type === 'python' ? " 'wasm-unsafe-eval'" : '';
+    const connect = type === 'python' ? 'https://cdn.jsdelivr.net' : "'none'";
+    return `default-src 'none'; img-src data: blob: https:; media-src data: blob:; style-src 'unsafe-inline' https:; font-src https: data:; script-src 'unsafe-inline'${wasm} ${CDN}${extra}; connect-src ${connect}; worker-src blob:; form-action 'none'; base-uri 'none'`;
+};
 
 // Läuft ohne allow-same-origin: localStorage wirft sonst einen Fehler und bricht ganze Skripte ab -> Ersatz im Speicher
 const SHIM = `<script>(function(){function mk(){var d={};return{getItem:function(k){return k in d?d[k]:null},setItem:function(k,v){d[k]=String(v)},removeItem:function(k){delete d[k]},clear:function(){d={}},key:function(i){return Object.keys(d)[i]||null},get length(){return Object.keys(d).length}}}
 try{window.localStorage.getItem('x')}catch(e){try{Object.defineProperty(window,'localStorage',{value:mk()});Object.defineProperty(window,'sessionStorage',{value:mk()})}catch(_){}}
 window.addEventListener('load',function(){try{window.focus();document.body&&document.body.setAttribute('tabindex','-1');document.body&&document.body.focus()}catch(e){}});
 window.addEventListener('error',function(e){try{parent.postMessage({codenArtifactError:String(e.message)},'*')}catch(_){}})})();<\/script>`;
+const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const js = (v) => JSON.stringify(v).replace(/</g, '\\u003c'); // sicher in <script> einbetten
+const BASE_CSS = `*{box-sizing:border-box}html,body{margin:0}body{font:15px/1.5 Inter,system-ui,-apple-system,"Segoe UI",sans-serif;color:#1f2328;background:#fff}.err{margin:16px;padding:12px 14px;border-radius:10px;background:#fff1f0;color:#a8071a;font:13px ui-monospace,monospace;white-space:pre-wrap}`;
+const page = (type, head, body) => `<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${cspFor(type)}">${SHIM}<style>${BASE_CSS}</style>${head}</head><body>${body}</body></html>`;
+const showErr = `function __err(m){var d=document.createElement('div');d.className='err';d.textContent='⚠ '+m;document.body.prepend(d);try{parent.postMessage({codenArtifactError:String(m)},'*')}catch(_){}}`;
+
+// React: JSX mit Babel übersetzen, Komponente automatisch rendern (Hooks sind ohne import nutzbar)
+function reactDoc(src) {
+    let code = String(src).replace(/^\s*import\s[^;\n]*;?\s*$/gm, '');
+    let name = (code.match(/export\s+default\s+function\s+([A-Z]\w*)/) || [])[1] || (code.match(/export\s+default\s+([A-Z]\w*)\s*;?/) || [])[1];
+    code = code.replace(/export\s+default\s+function\s+([A-Z]\w*)/, 'function $1').replace(/export\s+default\s+([A-Z]\w*)\s*;?/, '').replace(/export\s+default\s+/, 'const __Default = ').replace(/^\s*export\s+/gm, '');
+    if (!name && /const __Default =/.test(code)) name = '__Default';
+    if (!name) name = /\bfunction\s+App\b|\b(const|let|var)\s+App\b/.test(code) ? 'App' : ((code.match(/\bfunction\s+([A-Z]\w*)/) || code.match(/\b(?:const|let)\s+([A-Z]\w*)\s*=/) || [])[1] || 'App');
+    return page('react', `<script src="https://unpkg.com/react@18/umd/react.production.min.js"><\/script><script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"><\/script><script src="https://unpkg.com/@babel/standalone@7/babel.min.js"><\/script><script src="https://cdn.tailwindcss.com"><\/script>`,
+        `<div id="root"></div><script>${showErr}(function(){try{var src=${js(code)};var out=Babel.transform('(function(){const {useState,useEffect,useRef,useMemo,useCallback,useReducer,useContext,createContext,Fragment,useLayoutEffect,useId}=React;\\n'+src+'\\n;ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(${name}));})()',{presets:['react']}).code;var s=document.createElement('script');s.textContent=out;document.body.appendChild(s)}catch(e){__err(e.message)}})()<\/script>`);
+}
+function mermaidDoc(src) {
+    return page('mermaid', `<style>body{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}.mermaid{width:100%;text-align:center}.mermaid svg{max-width:100%;height:auto}</style><script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"><\/script>`,
+        `<pre class="mermaid">${esc(src)}</pre><script>${showErr}try{mermaid.initialize({startOnLoad:false,theme:'default',securityLevel:'strict',fontFamily:'Inter,system-ui,sans-serif'});mermaid.run({querySelector:'.mermaid'}).catch(function(e){__err('Diagramm-Fehler: '+(e.message||e))})}catch(e){__err(e.message)}<\/script>`);
+}
+function chartDoc(src) {
+    return page('chart', `<style>body{padding:16px;height:100vh}#w{position:relative;height:calc(100vh - 32px)}</style><script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"><\/script>`,
+        `<div id="w"><canvas id="c"></canvas></div><script>${showErr}try{var cfg=JSON.parse(${js(src)});cfg.options=Object.assign({responsive:true,maintainAspectRatio:false},cfg.options||{});new Chart(document.getElementById('c'),cfg)}catch(e){__err('Diagramm-JSON fehlerhaft: '+e.message)}<\/script>`);
+}
+function tableDoc(src) {
+    return page('table', `<style>body{padding:14px}.bar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}input{flex:1;min-width:160px;padding:8px 12px;border:1px solid #d0d7de;border-radius:10px;font:inherit}button{padding:8px 12px;border:1px solid #d0d7de;background:#f6f8fa;border-radius:10px;cursor:pointer;font:inherit}.wrap{overflow:auto;border:1px solid #d0d7de;border-radius:12px;max-height:calc(100vh - 80px)}table{border-collapse:collapse;width:100%;font-size:14px}th,td{padding:8px 12px;border-bottom:1px solid #eaeef2;text-align:left;white-space:nowrap}th{position:sticky;top:0;background:#f6f8fa;cursor:pointer;user-select:none}th:hover{background:#eaeef2}tr:nth-child(even) td{background:#fbfcfd}td.n{text-align:right;font-variant-numeric:tabular-nums}small{color:#57606a}</style>`,
+        `<div class="bar"><input id="q" placeholder="Suchen …"><small id="cnt"></small></div><div class="wrap"><table id="t"></table></div><script>${showErr}(function(){var raw=${js(src)};function parse(s){var rows=[],row=[],f='',q=false,sep=(s.split('\\n')[0].split(';').length>s.split('\\n')[0].split(',').length)?';':',';for(var i=0;i<s.length;i++){var c=s[i];if(q){if(c=='"'&&s[i+1]=='"'){f+='"';i++}else if(c=='"')q=false;else f+=c}else if(c=='"')q=true;else if(c==sep){row.push(f);f=''}else if(c=='\\n'||c=='\\r'){if(c=='\\r'&&s[i+1]=='\\n')i++;row.push(f);f='';if(row.some(function(x){return x.trim()}))rows.push(row);row=[]}else f+=c}row.push(f);if(row.some(function(x){return x.trim()}))rows.push(row);return rows}
+var rows=parse(raw.trim());if(!rows.length){__err('Keine Daten');return}var head=rows.shift(),sort=-1,dir=1,t=document.getElementById('t'),q=document.getElementById('q');var num=function(v){var x=String(v).replace(/[ €$%]/g,'').replace(',','.');return x!==''&&!isNaN(x)?parseFloat(x):null};
+function draw(){var f=q.value.toLowerCase(),list=rows.filter(function(r){return !f||r.join(' ').toLowerCase().indexOf(f)>=0});if(sort>=0)list.sort(function(a,b){var x=num(a[sort]),y=num(b[sort]);return (x!==null&&y!==null?x-y:String(a[sort]||'').localeCompare(String(b[sort]||''),'de'))*dir});
+t.innerHTML='';var tr=document.createElement('tr');head.forEach(function(h,i){var th=document.createElement('th');th.textContent=h+(sort===i?(dir>0?' ▲':' ▼'):'');th.onclick=function(){dir=sort===i?-dir:1;sort=i;draw()};tr.appendChild(th)});var th0=document.createElement('thead');th0.appendChild(tr);t.appendChild(th0);var tb=document.createElement('tbody');list.forEach(function(r){var tr=document.createElement('tr');head.forEach(function(_,i){var td=document.createElement('td');td.textContent=r[i]==null?'':r[i];if(num(r[i])!==null)td.className='n';tr.appendChild(td)});tb.appendChild(tr)});t.appendChild(tb);document.getElementById('cnt').textContent=list.length+' von '+rows.length+' Zeilen'}
+q.oninput=draw;draw()})()<\/script>`);
+}
+function slidesDoc(src) {
+    return page('slides', `<style>html,body{height:100%;background:#0f1115;overflow:hidden}#stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}.slide{width:1280px;height:720px;background:linear-gradient(135deg,#ffffff,#f3f6fb);border-radius:18px;box-shadow:0 30px 80px rgba(0,0,0,.45);padding:64px 80px;display:none;flex-direction:column;justify-content:center;transform-origin:center;color:#16181d;overflow:hidden}.slide.on{display:flex;animation:in .35s ease}@keyframes in{from{opacity:0;transform:var(--s) translateY(10px)}to{opacity:1}}.slide h1{font-size:58px;line-height:1.1;margin:0 0 28px;background:linear-gradient(90deg,#3b5bdb,#9c36b5);-webkit-background-clip:text;background-clip:text;color:transparent}.slide h2{font-size:36px;margin:0 0 16px}.slide p,.slide li{font-size:28px;line-height:1.5}.slide ul{margin:0;padding-left:1.2em}.slide li{margin:6px 0}.slide img{max-height:360px;border-radius:12px}.slide code{background:#eef1f6;padding:2px 8px;border-radius:6px;font-size:.9em}.slide.first{justify-content:center;text-align:center}.slide.first h1{font-size:76px}.note{display:none}.nav{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);display:flex;gap:8px;align-items:center;background:rgba(255,255,255,.1);backdrop-filter:blur(8px);padding:6px 10px;border-radius:999px;color:#fff;font:13px Inter,system-ui,sans-serif}.nav button{background:rgba(255,255,255,.15);color:#fff;border:0;border-radius:999px;width:34px;height:34px;cursor:pointer;font-size:16px}.bar{position:fixed;top:0;left:0;height:3px;background:#5c7cfa;transition:width .3s}</style><script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"><\/script>`,
+        `<div class="bar" id="bar"></div><div id="stage"></div><div class="nav"><button id="p" aria-label="Zurück">‹</button><span id="n"></span><button id="x" aria-label="Weiter">›</button><button id="f" aria-label="Vollbild">⛶</button></div><script>${showErr}(function(){try{var parts=${js(src)}.split(/\\n-{3,}\\s*\\n/).map(function(s){return s.trim()}).filter(Boolean),st=document.getElementById('stage'),i=0;
+parts.forEach(function(md,k){var d=document.createElement('section');d.className='slide'+(k===0?' first':'');var note=md.match(/\\n(Notizen|Notes):([\\s\\S]*)$/i);if(note)md=md.slice(0,note.index);d.innerHTML=marked.parse(md);st.appendChild(d)});var sl=st.children;
+function fit(){var s=Math.min(innerWidth/1340,(innerHeight-70)/760);for(var k=0;k<sl.length;k++){sl[k].style.transform='scale('+s+')';sl[k].style.setProperty('--s','scale('+s+')')}}
+function go(n){i=Math.max(0,Math.min(sl.length-1,n));for(var k=0;k<sl.length;k++)sl[k].classList.toggle('on',k===i);document.getElementById('n').textContent=(i+1)+' / '+sl.length;document.getElementById('bar').style.width=((i+1)/sl.length*100)+'%'}
+document.getElementById('p').onclick=function(){go(i-1)};document.getElementById('x').onclick=function(){go(i+1)};document.getElementById('f').onclick=function(){try{document.documentElement.requestFullscreen()}catch(e){}};
+document.addEventListener('keydown',function(e){if(['ArrowRight','PageDown',' '].indexOf(e.key)>=0){e.preventDefault();go(i+1)}if(['ArrowLeft','PageUp'].indexOf(e.key)>=0){e.preventDefault();go(i-1)}});
+var tx=null;document.addEventListener('touchstart',function(e){tx=e.touches[0].clientX});document.addEventListener('touchend',function(e){if(tx===null)return;var d=e.changedTouches[0].clientX-tx;if(Math.abs(d)>40)go(i+(d<0?1:-1));tx=null});
+addEventListener('resize',fit);fit();go(0)}catch(e){__err(e.message)}})()<\/script>`);
+}
+function pythonDoc(src) {
+    return page('python', `<style>body{background:#0f1115;color:#e6edf3;font:14px/1.5 ui-monospace,Menlo,Consolas,monospace;padding:14px}.top{display:flex;gap:10px;align-items:center;margin-bottom:10px;font-family:Inter,system-ui,sans-serif}button{background:#2f81f7;color:#fff;border:0;border-radius:10px;padding:8px 16px;font:600 14px Inter,system-ui,sans-serif;cursor:pointer}button:disabled{opacity:.5}#st{color:#8b949e;font-size:13px}#out{white-space:pre-wrap;word-break:break-word}.e{color:#ff7b72}img{max-width:100%;background:#fff;border-radius:8px;margin:8px 0;display:block}</style><script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"><\/script>`,
+        `<div class="top"><button id="run">▶ Ausführen</button><span id="st">Python wird geladen …</span></div><div id="out"></div><script>${showErr}(function(){var src=${js(src)},out=document.getElementById('out'),st=document.getElementById('st'),btn=document.getElementById('run'),py=null;btn.disabled=true;
+function w(t,c){var s=document.createElement('span');if(c)s.className=c;s.textContent=t+'\\n';out.appendChild(s)}
+async function boot(){py=await loadPyodide({stdout:function(t){w(t)},stderr:function(t){w(t,'e')}});py.setStdin({stdin:function(){return prompt('Eingabe für input():')||''}});py.globals.set('_coden_img',function(b){var i=document.createElement('img');i.src='data:image/png;base64,'+b;out.appendChild(i)});st.textContent='Bereit';btn.disabled=false;run()}
+async function run(){out.innerHTML='';btn.disabled=true;st.textContent='Läuft …';var t0=performance.now();try{await py.loadPackagesFromImports(src);if(/matplotlib/.test(src))py.runPython("import matplotlib\\nmatplotlib.use('AGG')\\nimport matplotlib.pyplot as plt, io, base64\\ndef _cs(*a, **k):\\n    b=io.BytesIO(); plt.savefig(b, format='png', bbox_inches='tight'); b.seek(0); _coden_img(base64.b64encode(b.read()).decode()); plt.clf()\\nplt.show=_cs");await py.runPythonAsync(src);st.textContent='Fertig in '+Math.round(performance.now()-t0)+' ms'}catch(e){w(String(e.message||e).split('\\n').slice(-6).join('\\n'),'e');st.textContent='Fehler'}btn.disabled=false}
+btn.onclick=run;boot().catch(function(e){st.textContent='Python konnte nicht geladen werden: '+e.message})})()<\/script>`);
+}
 export function previewDoc(item) {
-    const meta = `<meta http-equiv="Content-Security-Policy" content="${CSP}">`;
+    const meta = `<meta http-equiv="Content-Security-Policy" content="${cspFor(item.type)}">`;
+    if (item.type === 'react') return reactDoc(item.body);
+    if (item.type === 'mermaid') return mermaidDoc(item.body);
+    if (item.type === 'chart') return chartDoc(item.body);
+    if (item.type === 'table') return tableDoc(item.body);
+    if (item.type === 'slides') return slidesDoc(item.body);
+    if (item.type === 'python') return pythonDoc(item.body);
     if (item.type === 'svg') return `<!doctype html><html><head><meta charset="utf-8">${meta}${SHIM}<style>html,body{margin:0;height:100%;display:flex;align-items:center;justify-content:center;background:#fff}svg{max-width:100%;max-height:100%}</style></head><body>${item.body}</body></html>`;
-    return item.body.includes('<head') ? item.body.replace(/<head([^>]*)>/i, `<head$1>${meta}${SHIM}`) : `<!doctype html><html><head><meta charset="utf-8">${meta}${SHIM}</head><body>${item.body}</body></html>`;
+    return item.body.includes('<head') ? item.body.replace(/<head([^>]*)>/i, `<head$1>${meta}${SHIM}`) : `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${meta}${SHIM}</head><body>${item.body}</body></html>`;
 }
 export const fileNameFor = (item) => (item.title.replace(/[^\w\-äöüÄÖÜß ]+/g, '').trim().replace(/\s+/g, '_') || 'artefakt') + '.' + (item.type === 'code' ? (LANG_EXT[item.language.toLowerCase()] || 'txt') : EXT[item.type]);
 
@@ -61,6 +124,17 @@ function build() {
       </div>
       <div class="ap-body"><div class="ap-preview"></div><pre class="ap-code" hidden><code></code></pre><div class="ap-writing" hidden><span class="dots"><i></i><i></i><i></i></span> Coden schreibt …</div></div>`;
     document.body.appendChild(panel);
+    // Breite per Ziehen am linken Rand ändern (wird gemerkt)
+    const grip = document.createElement('div'); grip.className = 'ap-grip'; grip.title = 'Breite ändern'; panel.prepend(grip);
+    const setW = (w) => { const px = Math.round(Math.max(340, Math.min(window.innerWidth - 360, w))); document.documentElement.style.setProperty('--ap-w', px + 'px'); return px; };
+    const saved = parseInt(localStorage.getItem('coden_ap_w'), 10); if (saved) setW(saved);
+    grip.addEventListener('pointerdown', (e) => {
+        e.preventDefault(); grip.setPointerCapture(e.pointerId); document.body.classList.add('ap-resizing');
+        const mv = (ev) => setW(window.innerWidth - ev.clientX);
+        const up = (ev) => { grip.removeEventListener('pointermove', mv); grip.removeEventListener('pointerup', up); document.body.classList.remove('ap-resizing'); try { localStorage.setItem('coden_ap_w', String(setW(window.innerWidth - ev.clientX))); } catch (_) {} };
+        grip.addEventListener('pointermove', mv); grip.addEventListener('pointerup', up);
+    });
+    grip.addEventListener('dblclick', () => { document.documentElement.style.removeProperty('--ap-w'); try { localStorage.removeItem('coden_ap_w'); } catch (_) {} });
     panel.addEventListener('click', async (e) => {
         const tab = e.target.closest('[data-tab]'); const act = e.target.closest('[data-act]');
         if (tab) setTab(tab.dataset.tab);
@@ -76,9 +150,11 @@ function build() {
     panel.querySelector('.ap-versions').addEventListener('change', (e) => { const list = versions.get(current.title) || []; const v = list[+e.target.value]; if (v) show(v, true); });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && panel.classList.contains('open')) Artifacts.close(); });
 }
+let pendingDraw = null; // Vorschau, die gezeichnet werden soll, sobald sie sichtbar ist (Mermaid/Chart brauchen echte Maße)
 function setTab(t) {
     panel.querySelectorAll('.ap-tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === t));
     panel.querySelector('.ap-preview').hidden = t !== 'preview'; panel.querySelector('.ap-code').hidden = t !== 'code';
+    if (t === 'preview' && pendingDraw) { const d = pendingDraw; pendingDraw = null; requestAnimationFrame(d); }
 }
 let renderTimer = null;
 function show(item, keepTab) {
@@ -99,12 +175,15 @@ function show(item, keepTab) {
         else if (item.type === 'code') { pv.className = 'ap-preview'; pv.replaceChildren(); const pre = document.createElement('pre'); const c = document.createElement('code'); c.textContent = item.body; pre.appendChild(c); pv.appendChild(pre); try { if (item.language && hljs.getLanguage(item.language)) { c.className = 'language-' + item.language; hljs.highlightElement(c); } } catch (_) {} }
         else {
             let f = pv.querySelector('iframe');
-            if (!f) { pv.className = 'ap-preview'; pv.replaceChildren(); f = document.createElement('iframe'); f.setAttribute('sandbox', 'allow-scripts allow-modals allow-forms allow-pointer-lock'); f.setAttribute('referrerpolicy', 'no-referrer'); pv.appendChild(f); }
+            if (!f) { pv.className = 'ap-preview'; pv.replaceChildren(); f = document.createElement('iframe'); f.setAttribute('sandbox', 'allow-scripts allow-modals allow-forms allow-pointer-lock'); f.setAttribute('referrerpolicy', 'no-referrer'); f.setAttribute('allow', 'fullscreen; autoplay'); pv.appendChild(f); }
             f.srcdoc = previewDoc(item); f.onload = () => { try { f.contentWindow.focus(); } catch (_) {} };
         }
     };
     // Während des Schreibens nur selten neu zeichnen (Skripte würden sonst dauernd neu starten); am Ende sofort
-    if (item.closed || item.type === 'markdown' || item.type === 'code') draw(); else renderTimer = setTimeout(draw, 700);
+    // Mermaid, Chart & Co. brauchen sichtbare Maße: erst zeichnen, wenn der Vorschau-Tab wirklich offen ist
+    const later = () => requestAnimationFrame(() => { if (current !== item) return; if (pv.hidden) pendingDraw = draw; else { pendingDraw = null; draw(); } });
+    if (item.closed || !LIVE.has(item.type)) { if (LIVE.has(item.type) && item.type !== 'html' && item.type !== 'svg') later(); else draw(); }
+    else if (item.type === 'html' || item.type === 'svg') renderTimer = setTimeout(draw, 700);
     panel.classList.add('open'); document.body.classList.add('artifact-open');
     if (!keepTab) { autoCode = !item.closed && item.type !== 'code'; setTab(item.type === 'code' || autoCode ? 'code' : 'preview'); }
     else if (item.closed && autoCode) { autoCode = false; setTab('preview'); } // fertig geschrieben: automatisch zur Vorschau
