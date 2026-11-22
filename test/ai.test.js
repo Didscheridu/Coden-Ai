@@ -36,21 +36,15 @@ const gem = (t) => `data: ${JSON.stringify({ candidates: [{ content: { parts: [{
   chk('pro: Gemini nirgends sonst', ai.CASCADES.pro.filter(m => m.id === 'gemini-4-hydrogen').length, 1);
   chk('alle 11 OpenRouter-Gratismodelle in "pro"', ai.CASCADES.pro.filter(m => m.provider === 'openrouter').length, 11);
 
-  // --- NVIDIA NIM ---
-  chk('NVIDIA: Kimi K3.1 Pro führt "normal" an', [ai.CASCADES.normal[0].provider, ai.CASCADES.normal[0].id], ['nvidia', 'moonshotai/kimi-k3.1-pro']);
-  chk('NVIDIA in allen drei Stufen', ['flash', 'normal', 'pro'].map(t => ai.CASCADES[t].some(m => m.provider === 'nvidia')), [true, true, true]);
-  process.env.NVIDIA_API_KEY = 'x'; mode = 'groqWorks'; log.length = 0;
-  chk('NVIDIA antwortet zuerst, wenn der Key gesetzt ist', [await ai.generate('normal', [{ role: 'user', content: 'hi' }], {}), log[0]], ['Groq ok', 'moonshotai/kimi-k3.1-pro']);
-  delete process.env.NVIDIA_API_KEY;
+  chk('NVIDIA NIM ist als Anbieter entfernt', [Object.values(ai.CASCADES).some(c => c.some(m => m.provider === 'nvidia')), ai.listModels().some(m => m.provider === 'nvidia')], [false, false]);
 
   // --- Coden Ultra ---
-  chk('Ultra: Gemini 4 Hydrogen und Kimi K3.1 Pro vorn', ai.CASCADES.ultra.slice(0, 2).map(m => m.id).join(), 'gemini-4-hydrogen,moonshotai/kimi-k3.1-pro');
-  chk('Ultra: Modelle stehen in der Modellliste', ai.listModels().some(m => m.id === 'mistralai/mistral-large-4-1t-a52b'), true);
-  chk('Ultra: nur starke Modelle (keine kleinen Flash/Lite)', ai.CASCADES.ultra.some(m => /lite|lightning|1\.7b|(?<!\d)20b/i.test(m.id)), false);
+  chk('Ultra: Gemini 4 Hydrogen und Nemotron Ultra vorn', ai.CASCADES.ultra.slice(0, 2).map(m => m.id).join(), 'gemini-4-hydrogen,nvidia/nemotron-3-ultra-550b-a55b:free');
+    chk('Ultra: nur starke Modelle (keine kleinen Flash/Lite)', ai.CASCADES.ultra.some(m => /lite|lightning|1\.7b|(?<!\d)20b/i.test(m.id)), false);
 
   // --- /modelle: gezielt ein Modell wählen ---
   const lm = ai.listModels();
-  chk('Modellliste: eindeutig, enthält NVIDIA + Groq + Google', [new Set(lm.map(m => m.key)).size === lm.length, ['nvidia', 'groq', 'openrouter', 'google'].every(p => lm.some(m => m.provider === p))], [true, true]);
+  chk('Modellliste: eindeutig, enthält Groq + OpenRouter + Google', [new Set(lm.map(m => m.key)).size === lm.length, ['groq', 'openrouter', 'google'].every(p => lm.some(m => m.provider === p))], [true, true]);
   chk('Modellliste: Gemini als knapp markiert', lm.find(m => m.id === 'gemini-4-hydrogen').limited, true);
   mode = 'groqWorks'; log.length = 0;
   const pr = await ai.generate('flash', [{ role: 'user', content: 'hi' }], { pin: 'groq:llama-3.3-70b-versatile' });

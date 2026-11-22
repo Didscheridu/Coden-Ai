@@ -79,7 +79,7 @@ const root = path.join(__dirname, '..');
     chk('Ultra: wieder gesperrt', (await U(user)).s, 403);
     chk('/models: Nutzer verboten', (await call('/models', null, user)).s, 403);
     const ml = await call('/models', null, admin);
-    chk('/models: Owner bekommt die Liste', `${ml.s} ${ml.j.models.some(m => m.provider === 'nvidia')} ${typeof ml.j.models[0].key}`, '200 true string');
+    chk('/models: Owner bekommt die Liste', `${ml.s} ${ml.j.models.some(m => m.provider === 'groq')} ${typeof ml.j.models[0].key}`, '200 true string');
     chk('Modell erzwingen: unbekanntes Modell → 400 (Owner)', (await call('/chat', { messages: [{ role: 'user', content: 'hi' }], tier: 'flash', model: 'groq:gibt-es-nicht' }, admin)).s, 400);
     chk('email: fremder SMTP-Host abgelehnt', (await call('/send-email', { provider: 'evil.com', email: 'a@b.de', password: 'p', to: 'c@d.de', text: 't' }, user)).s, 400);
     let last; for (let i = 0; i < 25; i++) last = await call('/chat', { messages: [{ role: 'user', content: 'hi' }], tier: 'gibtsnicht' }, user);
