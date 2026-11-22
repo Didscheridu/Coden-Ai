@@ -16,6 +16,11 @@ const OPENROUTER_FREE = [
   'nvidia/nemotron-3.5-lightning:free',              // klein und schnell
   'liquid/lfm-3-1.7b:free'                           // sehr klein
 ];
+// NVIDIA NIM (build.nvidia.com): gratis ohne Kreditkarte, ca. 40 Anfragen/Minute, große Modelle (Modell-IDs per /v1/models abgefragt, 22.11.2026).
+// Schlägt eines fehl (Limit, nicht freigeschaltet), springt die Kaskade zum nächsten.
+const nvidia = (ids) => ids.map(id => ({ provider: 'nvidia', id }));
+const NVIDIA_STRONG = ['moonshotai/kimi-k3.1-pro', 'mistralai/mistral-large-4-1t-a52b', 'nvidia/nemotron-3-ultra-550b-a55b'];
+const NVIDIA_FAST = ['z-ai/glm-5.3-flash', 'minimaxai/minimax-m3.1-flash', 'nvidia/nemotron-3.5-lightning-30b-a3b'];
 const openrouter = (ids) => ids.map(id => ({ provider: 'openrouter', id }));
 
 // Knappe Gemini-Modelle: nur als LETZTE Rettung (ganz hinten in der Kaskade) und mit Tageslimit.
@@ -41,10 +46,12 @@ const CASCADES = {
   flash: [
     { provider: 'google', id: 'gemini-3.5-flash-lite' },
     { provider: 'groq', id: 'openai/gpt-oss-20b' },
+    ...nvidia(NVIDIA_FAST),
     ...openrouter([...OPENROUTER_FREE].reverse())
   ],
   // Thinking: zuerst die großen NVIDIA-Denkmodelle und ERNIE 5.5 Flash (alle gratis über OpenRouter), dann der Rest, dann Groq
   normal: [
+    ...nvidia(NVIDIA_STRONG),
     ...openrouter(THINKING_FIRST),
     ...openrouter(OPENROUTER_FREE.filter(m => !THINKING_FIRST.includes(m))),
     { provider: 'groq', id: 'qwen/qwen3.8-27b' },
@@ -55,6 +62,7 @@ const CASCADES = {
   // Pro: stärkste zuerst
   pro: [
     { provider: 'groq', id: 'openai/gpt-oss-120b' },
+    ...nvidia(NVIDIA_STRONG),
     { provider: 'groq', id: 'llama-3.3-70b-versatile' },
     ...openrouter(OPENROUTER_FREE),
     { provider: 'google', id: 'gemini-4-hydrogen' }     // letzte Rettung, begrenzt
@@ -63,6 +71,7 @@ const CASCADES = {
 
 const OPENAI_COMPAT = {
   openrouter: { url: 'https://openrouter.ai/api/v1/chat/completions', env: 'OPENROUTER_API_KEY' },
+  nvidia: { url: 'https://integrate.api.nvidia.com/v1/chat/completions', env: 'NVIDIA_API_KEY' },
   groq: { url: 'https://api.groq.com/openai/v1/chat/completions', env: 'GROQ_API_KEY' },
 };
 
