@@ -8,6 +8,8 @@
 const vm = require('vm');
 const Agent = require('../shared/agent-core');
 const { generateStream } = require('./ai');
+const { Meter } = require('./usage');
+const Push = require('./push');
 
 const MAX_FIX = 2, MAX_TEAM = 5, TEAM_PARALLEL = 3, HISTORY = 18;
 
@@ -108,7 +110,8 @@ async function runAppAgent(run, ctx) {
   const style = ctx.style; let files = { ...ctx.files }; const history = ctx.history.slice();
   const legAc = new AbortController(); const legTimer = setTimeout(() => legAc.abort(), LEG_HARD_MS);
   const signal = AbortSignal.any ? AbortSignal.any([run.signal, legAc.signal]) : run.signal;
-  const common = { isOwner: ctx.isOwner, signal, effort: ctx.effort };
+  const meter = new Meter({ uid: ctx.uid, email: ctx.email, isOwner: ctx.isOwner }, ctx.tier); // Nutzungslimit
+  const common = { isOwner: ctx.isOwner, signal, effort: ctx.effort, meter };
   const spawnAllowed = ctx.mode !== 'single';
   const mainCfg = { maxSteps: MAX_TOTAL_STEPS, spawn: spawnAllowed, team: ctx.mode === 'team' && ctx.trigger === 'user' && !S.spawns };
   const sys = (team) => ({ role: 'system', content: Agent.systemPrompt({ app: ctx.app, files, style, team, main: team ? null : mainCfg }) });
@@ -148,6 +151,7 @@ async function runAppAgent(run, ctx) {
     }
     while (!finished && !waits) {
       if (run.signal.aborted) break;
+      if (meter.stop) { emit('\n\n⏸️ ' + meter.message()); break; } // Aufgabe lief sehr lange weit über das Limit
       if (stepsTotal >= MAX_TOTAL_STEPS) { emit('\n\n⏸️ Ich habe die maximale Anzahl Schritte für einen Auftrag erreicht. Schreib „weiter“, dann mache ich genau hier weiter.'); break; }
       if (stepsInLeg > 0 && (elapsed() > legStart() || stepsInLeg >= legSteps())) return await nextLeg();
       stepsInLeg++;
@@ -160,6 +164,7 @@ async function runAppAgent(run, ctx) {
           onDelta: (v) => { text += v; emit(v); if (text.length % 1500 < v.length) { const pr = progress(text); if (pr) set(main, { detail: pr }); } } });
       } catch (e) {
         if (run.signal.aborted) break;
+        if (e.limit) { emit('\n\n⏸️ ' + e.message); if (text.trim()) steps.push({ role: 'assistant', content: Agent.condense(text) || '…' }); break; }
         if (legAc.signal.aborted) { stepsTotal--; emit('\n\n_(Diese Etappe ist vorbei – der Schritt wird gleich wiederholt.)_'); return await nextLeg(); }
         if (!text.trim()) { if (stepsTotal === 1 && !steps.length) throw e; emit('⚠️ ' + e.message); break; }
       }
@@ -202,7 +207,7 @@ async function runAppAgent(run, ctx) {
       }
       flushResults(isDone ? '\n\nDu hattest "done" gesagt, aber es gibt noch offene Punkte – erledige sie und schließe dann ab.' : '');
     }
-  } finally { clearTimeout(legTimer); }
+  } finally { clearTimeout(legTimer); await meter.close(); }
 
   set(main, { status: 'done', detail: `${stepsTotal} Schritt${stepsTotal !== 1 ? 'e' : ''}${leg > 1 ? ' · ' + leg + ' Etappen' : ''}${changed.size ? ' · ' + changed.size + ' Datei' + (changed.size > 1 ? 'en' : '') : ''}${spawns ? ' · ' + agents.filter(a => a.parent && a.role === 'coder').length + ' Sub-Agenten' : ''}` });
   return finish();
@@ -213,6 +218,7 @@ async function runAppAgent(run, ctx) {
     if (reply !== out.text) { const suffix = reply.slice(out.text.replace(/\s+$/, '').length); if (suffix.trim()) emit(suffix); }
     await ctx.post('assistant', Agent.condense(out.text) || '…', { changed: [...changed.values()], model: run.model || undefined, agents: agents.map(a => ({ title: a.title, status: a.status, tier: a.tier ? TIER_NAME[a.tier] : undefined })).slice(0, 14), steps: stepsTotal, legs: leg });
     run.setExtra({ done: true, steps: stepsTotal, legs: leg });
+    if (run.subs.size === 0 && ctx.uid && !run.signal.aborted) await Push.notify(ctx.uid, { title: `Coden ist fertig: ${ctx.app?.name || 'App'}`, body: changed.size ? `${changed.size} Datei${changed.size > 1 ? 'en' : ''} geändert – tippe, um die App zu öffnen.` : Push.preview(out.text.replace(/<result[^>]*>[^<]*<\/result>/g, '').slice(-400)), url: `/#/apps/${ctx.app?.id || ''}`, tag: 'app-' + (ctx.app?.id || '') });
     return { files, summary: { steps: stepsTotal, legs: leg, changed: [...changed.keys()] } };
   }
   // Stand sichern und die nächste Etappe auf dem Server starten
@@ -278,7 +284,7 @@ async function runAppAgent(run, ctx) {
         const t = tasks[i]; set(subs[i], { status: 'run', detail: 'startet …' });
         const team = { role: `${Agent.kitFor(t.agent)?.name || 'Sub-Agent'} (Sub-Agent ${i + 1} von ${tasks.length}, beauftragt vom Main Agent)`, summary: plan.summary || 'Auftrag vom Main Agent', contract: plan.contract, tasks, task: t };
         try {
-          await generateStream(t.tier, [sys(team), brief], { ...common, maxTokens: 16000, onDelta: (v) => { outs[i] += v; if (outs[i].length % 1500 < v.length) set(subs[i], { detail: progress(outs[i]) || 'schreibt …' }); } });
+          await generateStream(t.tier, [sys(team), brief], { ...common, meter: meter.child(t.tier), maxTokens: 16000, onDelta: (v) => { outs[i] += v; if (outs[i].length % 1500 < v.length) set(subs[i], { detail: progress(outs[i]) || 'schreibt …' }); } });
           const pp = Agent.parse(outs[i]); const mine = pp.ops.filter(o => owner.get(o.path) === i);
           const foreign = pp.ops.filter(o => owner.get(o.path) !== i).map(o => o.path);
           notes[i] = pp.segs.filter(x => x.kind === 'text').map(x => x.text).join(' ').replace(/\s+/g, ' ').trim().slice(0, 300) + (foreign.length ? ` (fremde Dateien verworfen: ${foreign.join(', ')})` : '');

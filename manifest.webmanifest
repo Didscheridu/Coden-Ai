@@ -1,0 +1,14 @@
+{
+  "name": "Coden AI",
+  "short_name": "Coden",
+  "description": "Deutsche KI zum Chatten, Coden und Apps bauen.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#131314",
+  "theme_color": "#131314",
+  "lang": "de",
+  "icons": [
+    { "src": "/images/coden_logo.jpg", "sizes": "1024x1024", "type": "image/jpeg", "purpose": "any" }
+  ]
+}

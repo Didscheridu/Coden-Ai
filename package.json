@@ -12,7 +12,8 @@
     "express": "^4.21.2",
     "jose": "^5.10.0",
     "nodemailer": "^10.6.1",
-    "pg": "^8.23.1"
+    "pg": "^8.23.1",
+    "web-push": "^4.0.0"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.17"
@@ -20,6 +21,6 @@
   "scripts": {
     "db:migrate": "node --env-file-if-exists=.env.local --env-file-if-exists=.env db/migrate.js",
     "dev": "vercel dev",
-    "test": "node test/api.test.js && node test/ai.test.js && node test/buddy.test.js && node test/apps.test.js && node test/upload.test.js && node test/mcp.test.js && node test/projects.test.js && node test/servers.test.js && node test/selfmigrate.test.js && node test/runs.test.js && node test/agents.test.js"
+    "test": "node test/api.test.js && node test/ai.test.js && node test/buddy.test.js && node test/apps.test.js && node test/upload.test.js && node test/mcp.test.js && node test/projects.test.js && node test/servers.test.js && node test/selfmigrate.test.js && node test/runs.test.js && node test/agents.test.js && node test/usage.test.js"
   }
 }

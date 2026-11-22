@@ -164,3 +164,35 @@ body.ap-resizing iframe { pointer-events: none }
 .bl-result.r-leg, .bl-result.r-review, .bl-result.r-nudge { margin: 10px 0 4px; padding: 6px 10px; border-radius: 10px; color: var(--text-secondary); background: rgba(138, 180, 248, .07); border: 1px dashed rgba(138, 180, 248, .25) }
 .bl-result.r-review { background: rgba(109, 213, 140, .07); border-color: rgba(109, 213, 140, .3) } .bl-result.r-review .material-symbols-outlined { color: var(--accent-green) }
 .bl-result.r-nudge { color: var(--text-muted) } .bl-result.r-nudge .material-symbols-outlined { color: #fcc419 }
+
+/* ===== Einstellungen: Nutzung + Benachrichtigungen ===== */
+.settings-sec { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--border-color); }
+.settings-sec h4 { margin: 0 0 10px; font-weight: 500; font-size: 14px; color: var(--text-primary); }
+.settings-hint { margin: 0 0 10px; font-size: 12px; color: var(--text-muted); line-height: 1.45; }
+.usage-box { display: flex; flex-direction: column; gap: 14px; }
+.us-row { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.us-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.us-head b { font-weight: 500; color: var(--text-primary); }
+.us-head span { color: var(--text-secondary); }
+.us-track { height: 8px; border-radius: 99px; background: rgba(255, 255, 255, .1); overflow: hidden; }
+.us-track i { display: block; height: 100%; border-radius: inherit; background: var(--accent-blue); transition: width .5s ease; }
+.us-row.warn .us-track i { background: #f2b84b; }
+.us-row.full .us-track i { background: #f28b82; }
+.us-row small, .us-note { font-size: 12px; color: var(--text-muted); line-height: 1.4; overflow-wrap: anywhere; }
+.push-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.push-row .push-state { flex: 1 1 100%; font-size: 13px; color: var(--text-secondary); }
+.push-row button { padding: 7px 14px; font-size: 13px; }
+
+/* Hinweis über dem Eingabefeld (Nutzungslimit) */
+.usage-banner { display: flex; align-items: center; gap: 8px; max-width: 830px; width: 100%; margin: 0 auto 8px; padding: 8px 12px; border-radius: 12px;
+  background: rgba(242, 184, 75, .12); border: 1px solid rgba(242, 184, 75, .35); color: #f6d38a; font-size: 13px; line-height: 1.35; box-sizing: border-box; }
+.usage-banner.full { background: rgba(242, 139, 130, .12); border-color: rgba(242, 139, 130, .4); color: #f6aea8; }
+.usage-banner .material-symbols-outlined { font-size: 18px; flex: none; }
+.usage-banner .ub-text { min-width: 0; overflow-wrap: anywhere; }
+
+/* ===== Temporärer Chat ===== */
+#temp-chat-btn.on { color: var(--accent-blue); background: rgba(168, 199, 250, .14) }
+body.temp-chat .input-box { border-style: dashed !important; border-color: rgba(168, 199, 250, .45) !important }
+body.temp-chat .top-bar .brand::after { content: 'Temporär'; display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 999px; font: 600 11px var(--font-main); vertical-align: middle;
+  color: var(--accent-blue); border: 1px dashed rgba(168, 199, 250, .6) }
+body.temp-chat #export-chat-btn { display: none }

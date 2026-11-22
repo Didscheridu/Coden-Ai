@@ -4,6 +4,7 @@
 // wird per Abfrage weiterverfolgt. Beim nächsten Öffnen holt der Chat fertige Antworten selbst ab.
 import { apiFetch, apiJson } from './backend.js';
 import { getEffort } from './effort.js';
+import { enablePush } from './push.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -44,10 +45,10 @@ export async function watchRun(id, { onDelta, onThink, onModel, onAgents, onExtr
 
 // Startet einen Chat-Lauf. Gleiches Verhalten wie streamAiResponse (onDelta bekommt den GESAMTTEXT),
 // zusätzlich onRun(id) sobald der Server den Lauf angelegt hat.
-export async function runAiResponse(messages, tier, { ref, meta, onDelta, onModel, onThink, onRun, signal, maxTokens, model, effort } = {}) {
+export async function runAiResponse(messages, tier, { ref, meta, onDelta, onModel, onThink, onRun, onExtra, signal, maxTokens, model, effort } = {}) {
     const ac = new AbortController(); // nur die Verbindung – ein Abbruch hier stoppt NICHT den Lauf
     const res = await apiFetch('/runs/chat', { method: 'POST', signal: ac.signal, body: JSON.stringify({ messages, tier, ref, meta, ...(maxTokens ? { maxTokens } : {}), ...(model ? { model } : {}), effort: effort || getEffort() }) });
-    if (!res.ok) { let d = {}; try { d = await res.json(); } catch (_) {} const err = new Error(d.error || `HTTP ${res.status}`); err.code = d.code; throw err; }
+    if (!res.ok) { let d = {}; try { d = await res.json(); } catch (_) {} const err = new Error(d.error || `HTTP ${res.status}`); err.code = d.code; err.usage = d.usage; throw err; }
     let id = null, full = '', end = null, fail = null;
     const onAbort = () => { if (id) stopRun(id).catch(() => {}); };
     signal?.addEventListener('abort', onAbort);
@@ -58,17 +59,18 @@ export async function runAiResponse(messages, tier, { ref, meta, onDelta, onMode
             else if (ev.t === 'r') { full = ev.v; onDelta?.(full); }
             else if (ev.t === 'k') onThink?.({ h: ev.h, v: ev.v });
             else if (ev.t === 'm') onModel?.(ev.model);
+            else if (ev.t === 'x') onExtra?.(ev.x);
             else if (ev.t === 'done') end = ev.status || 'done';
             else if (ev.t === 'e') fail = ev;
         });
     } catch (_) { /* Verbindung weg – unten per Abfrage weiter */ }
     signal?.removeEventListener('abort', onAbort);
-    if (fail) { const err = new Error(fail.error || 'Fehler'); err.partial = !!fail.partial; err.text = full; err.runId = id; throw err; }
+    if (fail) { const err = new Error(fail.error || 'Fehler'); err.partial = !!fail.partial; err.code = fail.code; err.text = full; err.runId = id; throw err; }
     if (end) return full;
     if (signal?.aborted) return full;
     if (!id) { const err = new Error('Die Verbindung wurde unterbrochen.'); err.text = full; err.partial = !!full; throw err; }
     // Verbindung abgerissen, der Lauf arbeitet aber auf dem Server weiter -> per Abfrage dranbleiben
-    const r = await watchRun(id, { onDelta, onThink, onModel, signal, text: full });
+    const r = await watchRun(id, { onDelta, onThink, onModel, onExtra, signal, text: full });
     if (r.status === 'error') { const err = new Error(r.error || 'Fehler'); err.partial = !!r.text; err.text = r.text; err.runId = id; throw err; }
     await claimRun(id).catch(() => {}); // dieses Gerät hat die Antwort -> andere sollen sie nicht noch einmal einfügen
     return r.text;
@@ -92,4 +94,8 @@ export function notifyDone(title, body) {
     } catch (_) {}
 }
 export const canAskNotify = () => 'Notification' in window && Notification.permission === 'default';
-export async function askNotify() { try { return (await Notification.requestPermission()) === 'granted'; } catch (_) { return false; } }
+// Fragt nach Erlaubnis und meldet das Gerät für Push an (dann klappt es auch bei komplett geschlossener Seite)
+export async function askNotify() {
+    try { if (await enablePush()) return true; } catch (_) { /* Push nicht möglich – normale Benachrichtigung reicht */ }
+    try { return (await Notification.requestPermission()) === 'granted'; } catch (_) { return false; }
+}
