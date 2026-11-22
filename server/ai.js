@@ -22,13 +22,15 @@ const nvidia = (ids) => ids.map(id => ({ provider: 'nvidia', id }));
 const NVIDIA_STRONG = ['moonshotai/kimi-k3.1-pro', 'mistralai/mistral-large-4-1t-a52b', 'nvidia/nemotron-3-ultra-550b-a55b'];
 const NVIDIA_FAST = ['z-ai/glm-5.3-flash', 'minimaxai/minimax-m3.1-flash', 'nvidia/nemotron-3.5-lightning-30b-a3b'];
 // Weitere OpenAI-kompatible Anbieter (Modell-IDs laut Anbieter-Doku/-Modellliste, 22.11.2026):
-// Mistral (Gratis-Modus, gute Coding-Modelle Devstral/Codestral), Hugging Face Router (Gratis-Guthaben im Monat), SambaNova (Gratis-Tarif, knapp).
+// Nur Anbieter mit echtem Gratis-Zugang ohne Kreditkarte (geprüft 22.11.2026): Mistral (Gratis-Modus, Handy-Bestätigung, Devstral/Codestral),
+// Z.ai (GLM-Flash-Modelle dauerhaft gratis, stark im Coden), Cloudflare Workers AI (10.000 Neurons/Tag gratis, nutzt dieselben Keys wie die Bilder).
+// Hugging Face und SambaNova sind seit Herbst 2026 nicht mehr gratis und wurden deshalb wieder entfernt.
 const mistral = (ids) => ids.map(id => ({ provider: 'mistral', id }));
-const huggingface = (ids) => ids.map(id => ({ provider: 'huggingface', id }));
-const sambanova = (ids) => ids.map(id => ({ provider: 'sambanova', id }));
+const zai = (ids) => ids.map(id => ({ provider: 'zai', id }));
+const cloudflare = (ids) => ids.map(id => ({ provider: 'cloudflare', id }));
 const MISTRAL_CODE = ['devstral-medium-latest', 'codestral-latest', 'mistral-large-latest'];
-const HF_STRONG = ['deepseek-ai/DeepSeek-V4.1-Flash', 'moonshotai/Kimi-K3.1-Pro', 'zai-org/GLM-5.3', 'Qwen/Qwen3.8-27B'];
-const SAMBA = ['gpt-oss-120b', 'DeepSeek-V3.1', 'Meta-Llama-3.3-70B-Instruct'];
+const ZAI_FREE = ['glm-4.7-flash', 'glm-4.5-flash'];
+const CF_FREE = ['@cf/openai/gpt-oss-120b', '@cf/qwen/qwen3-30b-a3b-fp8', '@cf/openai/gpt-oss-20b'];
 const openrouter = (ids) => ids.map(id => ({ provider: 'openrouter', id }));
 
 // Knappe Gemini-Modelle: nur als LETZTE Rettung (ganz hinten in der Kaskade) und mit Tageslimit.
@@ -55,20 +57,21 @@ const CASCADES = {
     { provider: 'google', id: 'gemini-3.5-flash-lite' },
     { provider: 'groq', id: 'openai/gpt-oss-20b' },
     ...mistral(['devstral-small-latest']),
-    ...huggingface(['openai/gpt-oss-20b']),
+    ...zai(ZAI_FREE),
     ...openrouter([...OPENROUTER_FREE].reverse()),
+    ...cloudflare(['@cf/openai/gpt-oss-20b']),
     ...nvidia(NVIDIA_FAST) // NVIDIA ist langsam: nur im Notfall
   ],
   // Thinking: zuerst die großen NVIDIA-Denkmodelle und ERNIE 5.5 Flash (alle gratis über OpenRouter), dann der Rest, dann Groq
   normal: [
     ...mistral(MISTRAL_CODE),
     ...openrouter(THINKING_FIRST),
-    ...huggingface(HF_STRONG),
+    ...zai(ZAI_FREE),
     ...openrouter(OPENROUTER_FREE.filter(m => !THINKING_FIRST.includes(m))),
     { provider: 'groq', id: 'qwen/qwen3.8-27b' },
     { provider: 'groq', id: 'openai/gpt-oss-20b' },
     { provider: 'groq', id: 'llama-3.3-70b-versatile' }, // bei Groq "Enterprise": kann ohne Vertrag fehlschlagen, dann springt die Kaskade weiter
-    ...sambanova(SAMBA),
+    ...cloudflare(CF_FREE),
     ...nvidia(NVIDIA_STRONG), // NVIDIA ist langsam: nur im Notfall
     { provider: 'google', id: 'gemini-3.8-flash' }      // letzte Rettung, begrenzt
   ],
@@ -76,10 +79,10 @@ const CASCADES = {
   pro: [
     { provider: 'groq', id: 'openai/gpt-oss-120b' },
     ...mistral(MISTRAL_CODE),
-    ...huggingface(HF_STRONG),
+    ...zai(ZAI_FREE),
     { provider: 'groq', id: 'llama-3.3-70b-versatile' },
     ...openrouter(OPENROUTER_FREE),
-    ...sambanova(SAMBA),
+    ...cloudflare(CF_FREE),
     ...nvidia(NVIDIA_STRONG), // NVIDIA ist langsam: nur im Notfall
     { provider: 'google', id: 'gemini-4-hydrogen' }     // letzte Rettung, begrenzt
   ]
@@ -88,8 +91,8 @@ const CASCADES = {
 const OPENAI_COMPAT = {
   openrouter: { url: 'https://openrouter.ai/api/v1/chat/completions', env: 'OPENROUTER_API_KEY' },
   mistral: { url: 'https://api.mistral.ai/v1/chat/completions', env: 'MISTRAL_API_KEY' },
-  huggingface: { url: 'https://router.huggingface.co/v1/chat/completions', env: 'HF_TOKEN' },
-  sambanova: { url: 'https://api.sambanova.ai/v1/chat/completions', env: 'SAMBANOVA_API_KEY' },
+  zai: { url: 'https://api.z.ai/api/paas/v4/chat/completions', env: 'ZAI_API_KEY' },
+  cloudflare: { url: () => `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/ai/v1/chat/completions`, env: 'CLOUDFLARE_API_TOKEN', also: ['CLOUDFLARE_ACCOUNT_ID'] },
   nvidia: { url: 'https://integrate.api.nvidia.com/v1/chat/completions', env: 'NVIDIA_API_KEY' },
   groq: { url: 'https://api.groq.com/openai/v1/chat/completions', env: 'GROQ_API_KEY' },
 };
@@ -203,7 +206,8 @@ async function callModel(m, messages, { stream, onDelta, signal, maxTokens }) {
   const cfg = OPENAI_COMPAT[m.provider];
   const key = process.env[cfg.env];
   if (!key) throw new Error(`${cfg.env} fehlt`);
-  const r = await fetch(cfg.url, {
+  const miss = (cfg.also || []).find(k => !process.env[k]); if (miss) throw new Error(`${miss} fehlt`);
+  const r = await fetch(typeof cfg.url === 'function' ? cfg.url() : cfg.url, {
     method: 'POST', signal,
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'HTTP-Referer': 'https://coden-ai.vercel.app', 'X-Title': 'Coden AI' },
     body: JSON.stringify({ model: m.id, messages: toOpenAI(messages), max_tokens: maxTokens || 8192, temperature: 0.7, ...(m.provider === 'nvidia' && /kimi/.test(m.id) ? { reasoning_effort: 'low' } : {}), ...(stream ? { stream: true } : {}) })
@@ -222,14 +226,15 @@ async function callModel(m, messages, { stream, onDelta, signal, maxTokens }) {
 }
 
 // ---------- Modellliste (für den Befehl /modelle) ----------
-const PROVIDER_NAMES = { mistral: 'Mistral', huggingface: 'Hugging Face', sambanova: 'SambaNova', nvidia: 'NVIDIA', groq: 'Groq', openrouter: 'OpenRouter', google: 'Google' };
+const PROVIDER_NAMES = { mistral: 'Mistral', zai: 'Z.ai', cloudflare: 'Cloudflare', nvidia: 'NVIDIA', groq: 'Groq', openrouter: 'OpenRouter', google: 'Google' };
 const keyOf = (m) => `${m.provider}:${m.id}`;
 function listModels() {
   const seen = new Map();
   for (const tier of ['pro', 'normal', 'flash']) for (const m of CASCADES[tier]) if (!seen.has(keyOf(m))) seen.set(keyOf(m), { key: keyOf(m), provider: m.provider, providerName: PROVIDER_NAMES[m.provider] || m.provider, id: m.id,
-    ready: m.provider === 'google' ? !!process.env.GOOGLE_API_KEY : !!process.env[OPENAI_COMPAT[m.provider]?.env], limited: !!QUOTAS[m.id] });
+    ready: m.provider === 'google' ? !!process.env.GOOGLE_API_KEY : providerReady(m.provider), limited: !!QUOTAS[m.id] });
   return [...seen.values()];
 }
+function providerReady(p) { const c = OPENAI_COMPAT[p]; return !!c && !!process.env[c.env] && (c.also || []).every(k => !!process.env[k]); }
 const findModel = (key) => listModels().find(m => m.key === key) || null;
 
 // ---------- Kaskade ----------

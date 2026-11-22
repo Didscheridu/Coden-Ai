@@ -41,15 +41,21 @@ const gem = (t) => `data: ${JSON.stringify({ candidates: [{ content: { parts: [{
   for (const t of ['flash', 'normal', 'pro']) {
     const ps = idx(t); const firstNv = ps.indexOf('nvidia');
     chk(`${t}: NVIDIA steht hinter allen anderen Anbietern (außer Gemini-Reserve)`, ps.slice(firstNv).every(p => p === 'nvidia' || p === 'google'), true);
-    chk(`${t}: Mistral/Hugging Face vor NVIDIA`, ['mistral', 'huggingface'].every(p => ps.indexOf(p) > -1 && ps.indexOf(p) < firstNv), true);
+    chk(`${t}: Mistral/Z.ai vor NVIDIA`, ['mistral', 'zai'].every(p => ps.indexOf(p) > -1 && ps.indexOf(p) < firstNv), true);
   }
-  chk('pro: SambaNova vorhanden, vor NVIDIA', idx('pro').indexOf('sambanova') < idx('pro').indexOf('nvidia'), true);
+  chk('pro: Cloudflare vorhanden, vor NVIDIA', idx('pro').indexOf('cloudflare') > -1 && idx('pro').indexOf('cloudflare') < idx('pro').indexOf('nvidia'), true);
+  chk('Hugging Face und SambaNova sind nicht mehr dabei', ['huggingface', 'sambanova'].some(p => idx('pro').includes(p) || idx('normal').includes(p) || idx('flash').includes(p)), false);
   chk('normal beginnt mit Devstral (Coding-Modell)', ai.CASCADES.normal[0].id, 'devstral-medium-latest');
   const lm0 = ai.listModels();
-  chk('Modellliste enthält alle neuen Anbieter', ['mistral', 'huggingface', 'sambanova', 'nvidia'].every(p => lm0.some(m => m.provider === p)), true);
+  chk('Modellliste enthält alle neuen Anbieter', ['mistral', 'zai', 'cloudflare', 'nvidia'].every(p => lm0.some(m => m.provider === p)), true);
   process.env.MISTRAL_API_KEY = 'x'; mode = 'groqWorks'; log.length = 0;
   chk('Mistral antwortet in "normal" zuerst, wenn der Key gesetzt ist', [await ai.generate('normal', [{ role: 'user', content: 'hi' }], {}), log[0]].join('|'), 'Groq ok|devstral-medium-latest');
   delete process.env.MISTRAL_API_KEY;
+  // Cloudflare braucht Token UND Konto-ID
+  const cfReady = () => ai.listModels().find(m => m.provider === 'cloudflare').ready;
+  process.env.CLOUDFLARE_API_TOKEN = 'x'; const r1c = cfReady(); process.env.CLOUDFLARE_ACCOUNT_ID = 'abc'; const r2c = cfReady();
+  chk('Cloudflare: nur mit Token + Konto-ID bereit', [r1c, r2c].join(), 'false,true');
+  delete process.env.CLOUDFLARE_API_TOKEN; delete process.env.CLOUDFLARE_ACCOUNT_ID;
   process.env.NVIDIA_API_KEY = 'x'; mode = 'nvidiaOnly'; log.length = 0;
   chk('NVIDIA springt im Notfall ein', await ai.generate('flash', [{ role: 'user', content: 'hi' }], {}), 'NVIDIA ok');
   delete process.env.NVIDIA_API_KEY;
