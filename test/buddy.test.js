@@ -111,7 +111,7 @@ const { setup } = require('./helpers');
   const rs = await realFetch(base + '/chat/stream', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + T.anna }, body: JSON.stringify({ tier: 'flash', messages: [{ role: 'user', content: 'hi' }] }) });
   const text = await rs.text(); const events = text.split('\n\n').filter(x => x.startsWith('data: ')).map(x => JSON.parse(x.slice(6)));
   chk('Stream: Content-Type', rs.headers.get('content-type').startsWith('text/event-stream'), true);
-  chk('Stream: Ereignisse (3 Stücke, fertig; Modellname nur für Owner)', events.map(e => e.t), ['d', 'd', 'd', 'done']);
+  chk('Stream: Ereignisse (Fortschritt, 3 Stücke, fertig; Modellname nur für Owner)', events.map(e => e.t).filter(t => t !== 'k'), ['d', 'd', 'd', 'done']);
   chk('Stream: Text zusammengesetzt', events.filter(e => e.t === 'd').map(e => e.v).join(''), 'Hallo Stream');
   global.fetch = realFetch;
   await finish();
