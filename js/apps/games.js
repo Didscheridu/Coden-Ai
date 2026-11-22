@@ -77,7 +77,115 @@ g.loop((dt, t) => {
 
 function game(key, body, opt) { const f = frame(key, opt); return f.top + '\n' + body.trim() + '\n' + f.bottom; }
 
+
+// ---------- 3D-Rennspiel (Coden.three) ----------
+const racer3dHtml = (name) => `<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>${esc(name)}</title>
+  <link rel="stylesheet" href="coden-kit.css">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
+</head>
+<body class="game">
+  <canvas id="scene"></canvas>
+  <div class="hud3d">
+    <div class="box"><small>Platz</small><b id="pos">1/6</b></div>
+    <div class="box"><small>Runde</small><b id="lap">1/3</b></div>
+    <div class="box"><small>Zeit</small><b id="time">0:00.0</b></div>
+    <button id="pause" aria-label="Pause">❚❚</button>
+  </div>
+  <div class="speedo"><b id="kmh">0</b><small>km/h</small><i id="boost"></i></div>
+  <div id="count" class="count hidden">3</div>
+  <div id="menu" class="overlay">
+    <h1>${esc(name)}</h1>
+    <p>3 Runden gegen 5 Gegner. Pfeile/WASD fahren, Leertaste driften, Shift Boost. Goldene Münzen laden den Boost auf. Auf dem Handy: Joystick + Knöpfe.</p>
+    <button id="play" class="play">▶ Rennen starten</button>
+  </div>
+  <div id="over" class="overlay hidden">
+    <h2 id="over-title">Ziel!</h2>
+    <p id="final"></p>
+    <button id="again" class="play">↻ Nochmal</button>
+  </div>
+  <script src="coden-kit.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
+`;
+const racer3dCss = () => css('#ff4d4d', '#ffd43b', '#0b1020') + `
+#scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+.hud3d { position: fixed; top: calc(10px + env(safe-area-inset-top)); left: 10px; right: 10px; display: flex; gap: 8px; z-index: 5; pointer-events: none; }
+.hud3d .box { background: rgba(10, 14, 30, .55); backdrop-filter: blur(6px); border: 1px solid rgba(255, 255, 255, .15); border-radius: 12px; padding: 6px 12px; display: flex; flex-direction: column; min-width: 64px; }
+.hud3d small { font-size: 11px; opacity: .7; text-transform: uppercase; letter-spacing: .5px; } .hud3d b { font-size: 20px; font-variant-numeric: tabular-nums; }
+.hud3d button { margin-left: auto; pointer-events: auto; width: 44px; height: 44px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, .25); background: rgba(255, 255, 255, .12); color: #fff; cursor: pointer; }
+.speedo { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 5; text-align: right; pointer-events: none; text-shadow: 0 2px 12px rgba(0, 0, 0, .6); }
+.speedo b { font-size: clamp(36px, 7vw, 64px); font-variant-numeric: tabular-nums; display: block; line-height: 1; } .speedo small { opacity: .8; }
+.speedo i { display: block; height: 6px; margin-top: 6px; border-radius: 6px; background: linear-gradient(90deg, #ffd43b, #ff4d4d); width: 0; transition: width .2s; }
+.count { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; font: 900 clamp(80px, 20vw, 180px) system-ui; z-index: 8; pointer-events: none; text-shadow: 0 10px 40px rgba(0, 0, 0, .6); }
+@media (hover: none) { .speedo { bottom: auto; top: calc(70px + env(safe-area-inset-top)); } }
+`;
+const racer3dJs = () => `// 3D-Rennspiel mit Coden.three: Strecke, 6 Autos, KI-Gegner, Runden, Platzierung, Boost, Touch-Steuerung
+const $ = (id) => document.getElementById(id);
+const C3 = Coden.three, G = Coden.game;
+const LAPS = 3;
+const w = C3.world({ canvas: '#scene', fogFar: 650 });
+const trk = C3.track({ preset: 'circuit', width: 16 }); w.add(trk); trk.decorate(w, 0.6);
+for (let i = 0; i < 8; i++) w.add(C3.cloud({ x: G.rand(-300, 300), y: G.rand(70, 110), z: G.rand(-300, 300) }));
+const COLORS = [0xd62828, 0x1f6feb, 0x2fbf71, 0xf5a524, 0x8b5cf6, 0xf1f3f5];
+const TYPES = ['sport', 'muscle', 'sport', 'hatch', 'suv', 'sport'];
+const grid = trk.grid(6);
+const cars = grid.map((g, i) => { const c = C3.car({ type: TYPES[i], color: COLORS[i], number: i + 1 }); w.add(c); return c; });
+const player = C3.vehicle(cars[0], { maxSpeed: 48 });
+const rivals = cars.slice(1).map((c, i) => { const v = C3.vehicle(c, { maxSpeed: 39 + i * 1.6 }); return { v, ai: C3.driver(v, trk, { lane: i % 2 ? 1 : -1, skill: 0.86 + i * 0.025 }) }; });
+const racers = [{ v: player, human: true }, ...rivals].map((r, i) => ({ ...r, i, lap: 0, u: 0, last: 0, done: false }));
+const coins = trk.checkpoints(30).map((p) => { const c = C3.coin(); c.position.set(p.x + G.rand(-5, 5), 1.2, p.z + G.rand(-5, 5)); w.add(c); return c; });
+const steer = C3.input();
+const menu = G.overlay('#menu'), over = G.overlay('#over');
+let state = 'menu', time = 0, boost = 0, countdown = 0;
+w.follow(cars[0], { distance: 9, height: 3.4 }); w.sunFollow(cars[0]);
+
+function reset() {
+  racers.forEach((r, i) => { r.v.reset(grid[i].position, grid[i].rotationY); r.lap = 0; r.u = trk.nearest(r.v.object.position).u; r.last = r.u; r.done = false; });
+  coins.forEach(c => { c.visible = true; }); time = 0; boost = 0;
+}
+function start() { reset(); menu.hide(); over.hide(); state = 'count'; countdown = 3.99; G.sfx('click'); }
+function fmt(t) { const m = Math.floor(t / 60), s = t - m * 60; return m + ':' + (s < 10 ? '0' : '') + s.toFixed(1); }
+function progress(r) { const n = trk.nearest(r.v.object.position, r.u); if (r.last > 0.85 && n.u < 0.15) r.lap++; else if (r.last < 0.15 && n.u > 0.85) r.lap--; r.last = r.u = n.u; return n; }
+function finish() {
+  state = 'over'; const place = 1 + racers.filter(r => !r.human && r.lap + r.u > racers[0].lap + racers[0].u).length;
+  const key = 'best-time'; const best = Coden.store.get(key, 0); const nb = !best || time < best; if (nb) Coden.store.set(key, time);
+  $('over-title').textContent = place === 1 ? '🏆 Sieg!' : 'Platz ' + place;
+  $('final').textContent = 'Zeit ' + fmt(time) + (nb ? ' · neuer Rekord!' : ' · Rekord ' + fmt(best));
+  over.show(); G.sfx(place === 1 ? 'win' : 'lose');
+}
+w.loop((dt, t) => {
+  C3.animate(coins, t);
+  if (state === 'count') { countdown -= dt; const n = Math.ceil(countdown); $('count').classList.remove('hidden'); $('count').textContent = n > 0 ? n : 'LOS!'; if (countdown <= -0.6) { $('count').classList.add('hidden'); state = 'race'; } return; }
+  if (state !== 'race') { rivals.forEach(r => r.v.update(dt, state === 'menu' ? r.ai() : { y: 0 })); return; }
+  time += dt;
+  const input = steer(); input.boost = input.boost && boost > 0; if (input.boost) boost = Math.max(0, boost - dt);
+  player.update(dt, input);
+  rivals.forEach(r => r.v.update(dt, r.ai()));
+  racers.forEach(r => { const n = progress(r); if (!trk.onTrack(r.v.object.position, r.u)) r.v.velocity.multiplyScalar(1 - Math.min(1, 1.6 * dt)); });
+  coins.forEach(c => { if (c.visible && C3.near(c, cars[0], 3)) { c.visible = false; boost = Math.min(4, boost + 1.2); player.addBoost(1.2); G.sfx('coin'); } });
+  const me = racers[0]; const place = 1 + racers.filter(r => !r.human && r.lap + r.u > me.lap + me.u).length;
+  $('pos').textContent = place + '/' + racers.length; $('lap').textContent = Math.min(LAPS, me.lap + 1) + '/' + LAPS; $('time').textContent = fmt(time);
+  $('kmh').textContent = player.kmh; $('boost').style.width = (boost / 4 * 100) + '%';
+  if (me.lap >= LAPS) finish();
+});
+reset();
+$('play').onclick = start; $('again').onclick = start;
+$('pause').onclick = () => { if (state !== 'race') return; if (w.paused) { w.resume(); $('pause').textContent = '❚❚'; } else { w.pause(); $('pause').textContent = '▶'; } };
+addEventListener('keydown', (e) => { if (e.code === 'KeyP') $('pause').click(); if (e.code === 'Enter' && (state === 'menu' || state === 'over')) start(); });
+`;
+
 export const GAME_TEMPLATES = [
+    {
+        id: 'racer3d', name: '3D-Rennen', emoji: '🏎️', g: 'linear-gradient(135deg,#e03131,#f59f00)', desc: '3D-Rennspiel: Strecke, 5 KI-Gegner, Runden, Drift, Boost – mit Coden.three.',
+        hint: '', files: (name) => ({ 'index.html': racer3dHtml(name), 'style.css': racer3dCss(), 'game.js': racer3dJs() })
+    },
     {
         id: 'starter', name: 'Leeres Spiel', emoji: '✨', g: 'linear-gradient(135deg,#4c6ef5,#15aabf)', desc: 'Startpunkt: Figur sammelt Sterne – Coden baut daraus dein Spiel.',
         hint: 'Sammle die Sterne! Steuerung: Pfeiltasten / WASD oder Joystick.',
@@ -311,6 +419,7 @@ reset();`, { bg: '#2b1d5c', touch: '' })
 
 // Dateien einer Vorlage
 export function gameFiles(id, name) {
-    const t = GAME_TEMPLATES.find(x => x.id === id) || GAME_TEMPLATES[0];
+    const t = GAME_TEMPLATES.find(x => x.id === id) || GAME_TEMPLATES.find(x => x.id === 'starter');
+    if (t.files) return t.files(name || t.name);
     return { 'index.html': html(name || t.name, t.hint), 'style.css': css(t.a, t.b), 'game.js': t.code() };
 }

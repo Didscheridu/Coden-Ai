@@ -7,11 +7,11 @@
 //   Automatische Prüfung (Syntax, fehlende Dateien/Elemente) nach Änderungen – Fehler gehen zurück an den Main Agent.
 const vm = require('vm');
 const Agent = require('../shared/agent-core');
-const { generateStream } = require('./ai');
+const { generateStream, CONTINUE } = require('./ai');
 const { Meter } = require('./usage');
 const Push = require('./push');
 
-const MAX_FIX = 2, MAX_TEAM = 5, TEAM_PARALLEL = 3, HISTORY = 18;
+const MAX_FIX = 2, MAX_TEAM = 8, TEAM_PARALLEL = 8, HISTORY = 18; // alle Sub-Agenten eines Auftrags laufen gleichzeitig
 
 // Modell je nach Schwierigkeit: leicht -> Flash (schnell), mittel -> das gewählte Modell, schwer -> das stärkste erlaubte
 const RANK = { flash: 1, normal: 2, pro: 3, ultra: 4 };
@@ -59,6 +59,7 @@ function parsePlan(text, files) {
 // Ohne Angabe: Agent an den Dateien erkennen
 function guessAgent(t) {
   const f = (t.files || []).join(' ') + ' ' + (t.title || '');
+  if (/\b3d\b|three|szene|scene|game3d/i.test(f)) return 'three';
   if (/game|spiel|level|physik/i.test(f)) return 'game';
   if (/\.(html?|css)\b|layout|design/i.test(f)) return 'layout';
   if (/\.svg\b|grafik|icon|logo|art/i.test(f)) return 'art';
@@ -94,6 +95,19 @@ const legSteps = () => Number(process.env.CODEN_LEG_STEPS) || Infinity; // nur f
 const LEG_HARD_MS = 262_000;    // spätestens dann wird ein laufender Schritt abgebrochen (und in der nächsten Etappe wiederholt)
 const MAX_LEGS = 10, MAX_TOTAL_STEPS = 40, MAX_NUDGES = 3;
 const HEAVY = ['spawn', 'image', 'fetch', 'web_search'];
+const SPAWN_MIN_MS = () => { const n = parseInt(process.env.CODEN_SPAWN_MIN_MS, 10); return Number.isFinite(n) ? n : 150_000; }; // so viel Zeit brauchen Sub-Agenten mindestens – sonst in die nächste Etappe
+const SUB_RESERVE_MS = () => { const n = parseInt(process.env.CODEN_SUB_RESERVE_MS, 10); return Number.isFinite(n) ? n : 30_000; }; // vor Etappen-Ende Sub-Agenten anhalten und Stand sichern
+// Mehrere spawn-Aufrufe in einem Schritt zu EINEM Auftrag zusammenfassen (alle Sub-Agenten gleichzeitig statt nacheinander)
+function mergeSpawns(tools) {
+  const sp = tools.filter(t => t.name === 'spawn'); if (sp.length < 2) return tools;
+  const parts = sp.map(t => { const m = String(t.body || '').match(/\{[\s\S]*\}/); try { return m ? JSON.parse(m[0]) : null; } catch (_) { return null; } }).filter(Boolean);
+  if (!parts.length) return tools;
+  const merged = { summary: parts.map(p => p.summary).filter(Boolean).join(' · ').slice(0, 300), contract: [...new Set(parts.map(p => p.contract).filter(Boolean))].join('\n'),
+    tasks: parts.flatMap(p => Array.isArray(p.tasks) ? p.tasks : []) };
+  const first = tools.indexOf(sp[0]);
+  const out = tools.filter(t => t.name !== 'spawn'); out.splice(Math.min(first, out.length), 0, { ...sp[0], body: JSON.stringify(merged) });
+  return out;
+}
 // Hat das Modell nur angekündigt, statt zu handeln? (häufigster Grund, warum Agenten "einfach aufhören")
 const INTENT = /\b(let me|i will|i'll|i'm going to|i am going to|now i|next,? i|i need to|lass mich|ich werde|ich muss|ich (mache|baue|schreibe|füge|behebe|ändere|prüfe|repariere|ergänze|passe|verschiebe|kümmere)[^.!?\n]{0,30}\b(jetzt|nun|als nächstes|gleich|noch)|jetzt (behebe|baue|schreibe|füge|ändere|prüfe|repariere|ergänze|kümmere|passe)|als nächstes|im nächsten schritt)\b/i;
 const tailText = (p) => { let k = -1; p.segs.forEach((x, i) => { if (x.kind !== 'text') k = i; }); return p.segs.slice(k + 1).filter(x => x.kind === 'text').map(x => x.text).join(' ').trim().slice(-500); };
@@ -133,9 +147,10 @@ async function runAppAgent(run, ctx) {
     steps.push({ role: 'user', content: '[Werkzeug-Ergebnisse]\n\n' + results.map(r => r.text).join('\n\n') + extra });
     results.length = 0;
   };
+  let subResume = S.subResume || null;               // Sub-Agenten, die in der nächsten Etappe weiterschreiben
   const runTools = async (auto) => {
     for (const t of auto.filter(x => x.name !== 'image')) {
-      if (signal.aborted) break;
+      if (signal.aborted || subResume) break;
       set(main, { detail: `${TOOL_VERB[t.name] || t.name} ${t.attrs.path || t.attrs.query || t.attrs.url || ''}`.trim() });
       results.push({ name: t.name, ...(await execTool(t)) });
     }
@@ -145,9 +160,14 @@ async function runAppAgent(run, ctx) {
 
   try {
     // Werkzeuge, die am Ende der letzten Etappe keine Zeit mehr hatten (z. B. spawn), zuerst ausführen
+    if (subResume && !pending?.length) pending = [{ name: 'spawn_resume', attrs: {} }];
     if (pending?.length) {
       const tools = pending.map(t => ({ ...t, attrs: t.attrs || {} })); pending = null;
-      await runTools(tools); flushResults();
+      if (tools.some(t => t.name === 'spawn_resume')) { const r = subResume; subResume = null; results.push({ name: 'spawn', ...(await spawn(null, r)) }); }
+      const rest = tools.filter(t => t.name !== 'spawn_resume');
+      if (!subResume && rest.length) await runTools(rest);
+      if (subResume) { flushResults(); return await nextLeg([{ name: 'spawn_resume', attrs: {} }]); }
+      flushResults();
     }
     while (!finished && !waits) {
       if (run.signal.aborted) break;
@@ -178,9 +198,12 @@ async function runAppAgent(run, ctx) {
 
       // 2) Werkzeuge ausführen (schwere Werkzeuge bei knapper Zeit in die nächste Etappe verschieben)
       waits = p.tools.some(t => WAIT_TOOLS.includes(t.name));
-      const auto = p.tools.filter(t => Agent.AUTO_TOOLS.includes(t.name)).slice(0, MAX_TOOLS_PER_STEP);
-      if (auto.some(t => HEAVY.includes(t.name)) && timeLeft() < 120_000 && leg < MAX_LEGS) { flushResults(); return await nextLeg(auto); }
+      const auto = mergeSpawns(p.tools.filter(t => Agent.AUTO_TOOLS.includes(t.name))).slice(0, MAX_TOOLS_PER_STEP);
+      // Sub-Agenten brauchen eine frische Etappe: lieber jetzt neu starten, als sie mittendrin abzubrechen
+      const needs = auto.some(t => t.name === 'spawn') ? SPAWN_MIN_MS() : auto.some(t => HEAVY.includes(t.name)) ? 120_000 : 0;
+      if (needs && timeLeft() < needs && leg < MAX_LEGS) { flushResults(); return await nextLeg(auto); }
       await runTools(auto);
+      if (subResume) { flushResults(); return await nextLeg([{ name: 'spawn_resume', attrs: {} }]); }
       if (waits) break;
 
       // 3) Fertig? Nur wenn nichts mehr offen ist – sonst nachhaken, prüfen, abnehmen
@@ -230,7 +253,7 @@ async function runAppAgent(run, ctx) {
     }
     set(main, { status: 'run', detail: `Etappe ${leg} fertig – startet Etappe ${leg + 1} …` });
     const keepSteps = steps.slice(-30).map(m => ({ role: m.role, content: String(m.content).slice(0, 12000) }));
-    const state = { leg, agents: agents.map(a => ({ ...a })), steps: keepSteps, changed: [...changed.entries()], dirty: dirtySinceCheck, fixes, spawns, imgRounds, stepsTotal, nudges, reviewed,
+    const state = { leg, subResume, agents: agents.map(a => ({ ...a })), steps: keepSteps, changed: [...changed.entries()], dirty: dirtySinceCheck, fixes, spawns, imgRounds, stepsTotal, nudges, reviewed,
       pending: deferred ? deferred.map(t => ({ name: t.name, attrs: t.attrs, body: t.body, id: t.id, prompt: t.prompt })) : null };
     const ok = await ctx.continueLeg(state).catch((e) => { console.warn('[agent] Etappe konnte nicht starten:', e.message); return false; });
     if (!ok) { ctx.continueLeg = null; return nextLeg(deferred); }
@@ -262,48 +285,75 @@ async function runAppAgent(run, ctx) {
     return { ok: ok.length > 0, summary: ok.length ? `${ok.length} Bild${ok.length > 1 ? 'er' : ''} erstellt` : 'Bilder gehen gerade nicht', text: `[Bilder]\n${done.map(o => o.url ? `- ${o.id}: ${o.url}` : `- ${o.id}: FEHLGESCHLAGEN (${o.error})`).join('\n')}\n${ok.length ? 'Baue sie jetzt mit diesen URLs ein.' : 'Nimm stattdessen SVGs, Emojis oder Unsplash-Bilder.'}` };
   }
   // ---------- Sub-Agenten (spawn) ----------
-  async function spawn(body) {
-    if (!spawnAllowed) return { ok: false, summary: 'Solo-Modus: keine Sub-Agenten', text: 'Im Solo-Modus gibt es keine Sub-Agenten – erledige die Aufgabe selbst.' };
-    if (spawns >= MAX_SPAWNS) return { ok: false, summary: 'Sub-Agenten-Limit erreicht', text: `Höchstens ${MAX_SPAWNS} spawn-Aufrufe pro Lauf – mach den Rest selbst.` };
-    if (timeLeft() < 90_000) return { ok: false, summary: 'zu wenig Zeit für Sub-Agenten', text: 'Für Sub-Agenten reicht die Zeit in diesem Lauf nicht mehr – mach es selbst oder kleiner.' };
-    const plan = parsePlan(body, files);
-    if (!plan || !plan.tasks.length) return { ok: false, summary: 'ungültiger spawn-Auftrag', text: 'spawn braucht gültiges JSON: {"contract":"…","tasks":[{"title":"…","agent":"logic","level":"mittel","files":["app.js"],"goal":"…"}]} – jede Datei nur in einer Aufgabe.' };
-    spawns++;
-    const n = spawns; const tasks = plan.tasks;
-    tasks.forEach(t => { t.tier = tierFor(t.level, ctx.tier, ctx.allowUltra); });
-    const subs = tasks.map((t, i) => { const k = Agent.kitFor(t.agent); return add({ id: `sub${n}-${i + 1}`, role: 'coder', parent: 'main', kit: t.agent, tier: t.tier, level: t.level, title: `${k ? k.emoji + ' ' + k.name : 'Sub-Agent ' + (i + 1)}: ${t.title}`, detail: t.files.join(', ') }); });
-    set(main, { detail: `wartet auf ${tasks.length} Sub-Agenten …` });
+  // spawn: neue Sub-Agenten starten – oder (resume) Sub-Agenten aus der letzten Etappe weiterschreiben lassen
+  async function spawn(body, resume) {
+    let plan, n, done = [];
+    if (resume) { plan = resume.plan; n = resume.n; }
+    else {
+      if (!spawnAllowed) return { ok: false, summary: 'Solo-Modus: keine Sub-Agenten', text: 'Im Solo-Modus gibt es keine Sub-Agenten – erledige die Aufgabe selbst.' };
+      if (spawns >= MAX_SPAWNS) return { ok: false, summary: 'Sub-Agenten-Limit erreicht', text: `Höchstens ${MAX_SPAWNS} spawn-Aufrufe pro Lauf – mach den Rest selbst.` };
+      plan = parsePlan(body, files);
+      if (!plan || !plan.tasks.length) return { ok: false, summary: 'ungültiger spawn-Auftrag', text: 'spawn braucht gültiges JSON: {"contract":"…","tasks":[{"title":"…","agent":"logic","level":"mittel","files":["app.js"],"goal":"…"}]} – jede Datei nur in einer Aufgabe.' };
+      spawns++; n = spawns;
+      plan.tasks.forEach(t => { t.tier = tierFor(t.level, ctx.tier, ctx.allowUltra); });
+    }
+    const tasks = plan.tasks;
+    const subs = tasks.map((t, i) => {
+      const id = `sub${n}-${i + 1}`; const old = agents.find(a => a.id === id); if (old) return old;
+      const k = Agent.kitFor(t.agent); return add({ id, role: 'coder', parent: 'main', kit: t.agent, tier: t.tier, level: t.level, title: `${k ? k.emoji + ' ' + k.name : 'Sub-Agent ' + (i + 1)}: ${t.title}`, detail: t.files.join(', ') });
+    });
     const owner = new Map(); tasks.forEach((t, i) => t.files.forEach(f => owner.set(f, i)));
-    const outs = new Array(tasks.length).fill(''); const notes = new Array(tasks.length).fill('');
-    const queue = tasks.map((t, i) => i);
+    const raw = tasks.map((t, i) => (resume?.raw?.[i] ?? ''));           // bisher geschriebener Text je Sub-Agent
+    const notes = tasks.map((t, i) => resume?.notes?.[i] || '');
+    const todo = tasks.map((t, i) => i).filter(i => !resume || resume.open.includes(i));
+    if (resume) done = resume.done || [];
+    set(main, { detail: resume ? `${todo.length} Sub-Agent${todo.length > 1 ? 'en schreiben' : ' schreibt'} weiter …` : `wartet auf ${tasks.length} Sub-Agenten (alle gleichzeitig) …` });
     const lastUser = [...history].reverse().find(m => m.role === 'user');
-    const brief = { role: 'user', content: `${lastUser ? 'Wunsch des Nutzers: ' + lastUser.content.slice(0, 4000) + '\n\n' : ''}Auftrag vom Main Agent: ${plan.summary || 'siehe Aufgaben'}. Erledige jetzt DEINE Aufgabe.` };
-    const worker = async () => {
-      for (let i; (i = queue.shift()) !== undefined;) {
+    const brief = { role: 'user', content: `${lastUser ? 'Wunsch des Nutzers: ' + lastUser.content.slice(0, 4000) + '\n\n' : ''}Auftrag vom Main Agent: ${plan.summary || 'siehe Aufgaben'}. Erledige jetzt DEINE Aufgabe vollständig.` };
+    // Vor dem Etappen-Ende anhalten und den Stand sichern (statt abzubrechen); in der nächsten Etappe geht es nahtlos weiter
+    const subAc = new AbortController(); let cut = false;
+    const subMin = parseInt(process.env.CODEN_SUB_MIN_MS, 10) || 5_000;
+    const cutTimer = setTimeout(() => { if (leg < MAX_LEGS) { cut = true; subAc.abort(); } }, Math.max(subMin, timeLeft() - SUB_RESERVE_MS()));
+    const subSignal = AbortSignal.any([signal, subAc.signal]);
+    const paused = [], readyOps = [];
+    await Promise.all(todo.map(async (i) => {
+      const t = tasks[i]; set(subs[i], { status: 'run', detail: raw[i] ? 'schreibt weiter …' : 'startet …' });
+      const team = { role: `${Agent.kitFor(t.agent)?.name || 'Sub-Agent'} (Sub-Agent ${i + 1} von ${tasks.length}, beauftragt vom Main Agent)`, summary: plan.summary || 'Auftrag vom Main Agent', contract: plan.contract, tasks, task: t };
+      const msgs = raw[i] ? [sys(team), brief, { role: 'assistant', content: raw[i] }, { role: 'user', content: CONTINUE }] : [sys(team), brief];
+      try {
+        await generateStream(t.tier, msgs, { ...common, signal: subSignal, meter: meter.child(t.tier), maxTokens: 16000, onDelta: (v) => { raw[i] += v; if (raw[i].length % 1500 < v.length) set(subs[i], { detail: progress(raw[i]) || 'schreibt …' }); } });
+        finishSub(i);
+      } catch (e) {
         if (run.signal.aborted) return;
-        const t = tasks[i]; set(subs[i], { status: 'run', detail: 'startet …' });
-        const team = { role: `${Agent.kitFor(t.agent)?.name || 'Sub-Agent'} (Sub-Agent ${i + 1} von ${tasks.length}, beauftragt vom Main Agent)`, summary: plan.summary || 'Auftrag vom Main Agent', contract: plan.contract, tasks, task: t };
-        try {
-          await generateStream(t.tier, [sys(team), brief], { ...common, meter: meter.child(t.tier), maxTokens: 16000, onDelta: (v) => { outs[i] += v; if (outs[i].length % 1500 < v.length) set(subs[i], { detail: progress(outs[i]) || 'schreibt …' }); } });
-          const pp = Agent.parse(outs[i]); const mine = pp.ops.filter(o => owner.get(o.path) === i);
-          const foreign = pp.ops.filter(o => owner.get(o.path) !== i).map(o => o.path);
-          notes[i] = pp.segs.filter(x => x.kind === 'text').map(x => x.text).join(' ').replace(/\s+/g, ' ').trim().slice(0, 300) + (foreign.length ? ` (fremde Dateien verworfen: ${foreign.join(', ')})` : '');
-          outs[i] = mine;
-          set(subs[i], { status: mine.length ? 'done' : 'error', detail: mine.length ? `${mine.length} Datei${mine.length > 1 ? 'en' : ''}: ${mine.map(o => o.path).join(', ')}` : 'hat keine Datei geliefert' });
-        } catch (e) { outs[i] = []; if (run.signal.aborted) return; notes[i] = 'Fehler: ' + e.message; set(subs[i], { status: 'error', detail: e.message.slice(0, 120) }); }
+        if (cut && raw[i].trim()) { paused.push(i); set(subs[i], { status: 'wait', detail: `pausiert bei ${progress(raw[i]) || 'Schreiben'} – macht in der nächsten Etappe weiter` }); return; }
+        if (cut) { paused.push(i); set(subs[i], { status: 'wait', detail: 'startet in der nächsten Etappe' }); return; }
+        notes[i] = 'Fehler: ' + e.message; done.push({ i, paths: [] }); set(subs[i], { status: 'error', detail: e.message.slice(0, 120) });
       }
-    };
-    await Promise.all(Array.from({ length: Math.min(TEAM_PARALLEL, queue.length) }, worker));
-    const ops = outs.flat().filter(Boolean);
-    const r = Agent.apply(files, ops);
+    }));
+    clearTimeout(cutTimer);
+    function finishSub(i) {
+      const pp = Agent.parse(raw[i]); const mine = pp.ops.filter(o => owner.get(o.path) === i);
+      const foreign = pp.ops.filter(o => owner.get(o.path) !== i).map(o => o.path);
+      notes[i] = pp.segs.filter(x => x.kind === 'text').map(x => x.text).join(' ').replace(/\s+/g, ' ').trim().slice(0, 300) + (foreign.length ? ` (fremde Dateien verworfen: ${foreign.join(', ')})` : '');
+      readyOps.push(...mine); done.push({ i, paths: mine.map(o => o.path) });
+      set(subs[i], { status: mine.length ? 'done' : 'error', detail: mine.length ? `${mine.length} Datei${mine.length > 1 ? 'en' : ''}: ${mine.map(o => o.path).join(', ')}` : 'hat keine Datei geliefert' });
+    }
+    // Fertige Ergebnisse sofort speichern (auch wenn andere Sub-Agenten noch weiterschreiben)
+    const r = Agent.apply(files, readyOps.splice(0));
     if (Object.keys(r.set).length || r.remove.length) { files = await ctx.save(r.set, r.remove); r.changed.forEach(c => changed.set(c.path, c)); dirtySinceCheck = true; }
+    if (paused.length && !run.signal.aborted) {
+      subResume = { plan, n, open: paused, raw: raw.map((x, i) => paused.includes(i) ? x.slice(-60000) : ''), notes, done };
+      return { ok: true, summary: `${done.filter(d => d.paths.length).length}/${tasks.length} Sub-Agenten fertig · ${paused.length} schreiben in der nächsten Etappe weiter`, text: '[Sub-Agenten] Ein Teil ist fertig, der Rest schreibt in der nächsten Etappe weiter.' };
+    }
     const c = Tools.check(files); dirtySinceCheck = false;
     set(main, { detail: 'prüft die Ergebnisse der Sub-Agenten' });
     const okN = subs.filter(x => x.status === 'done').length;
-    const report = tasks.map((t, i) => `${subs[i].status === 'done' ? '✅' : '⚠️'} ${subs[i].title} [${TIER_NAME[t.tier]}] → ${(Array.isArray(outs[i]) ? outs[i].map(o => o.path).join(', ') : '') || 'nichts geliefert'}${notes[i] ? '\n   Notiz: ' + notes[i] : ''}`).join('\n');
+    const pathsOf = (i) => (done.find(d => d.i === i)?.paths || []).join(', ');
+    const report = tasks.map((t, i) => `${subs[i].status === 'done' ? '✅' : '⚠️'} ${subs[i].title} [${TIER_NAME[t.tier]}] → ${pathsOf(i) || 'nichts geliefert'}${notes[i] ? '\n   Notiz: ' + notes[i] : ''}`).join('\n');
     return { ok: okN === tasks.length && !c.issues.length, summary: `${okN}/${tasks.length} Sub-Agenten fertig · ${c.summary}`,
       text: `[Sub-Agenten] ${okN} von ${tasks.length} fertig:\n${report}${r.problems.length ? '\nNicht angewendet: ' + r.problems.join('; ') : ''}\n\n${c.text}\n\nJetzt bist DU dran: lies die neuen Dateien (read/search), prüfe, ob alles zum Vertrag passt, schreibe fehlende Verbindungen selbst und behebe Fehler. Ausgefallene Aufgaben erledigst du selbst.` };
   }
+
 }
 
 // Fortschritt eines schreibenden Agenten: welche Datei, wie viele Zeilen

@@ -4,7 +4,7 @@ const http = require('http');
 const { setup } = require('./helpers');
 (async () => {
   process.env.GROQ_API_KEY = 'test'; process.env.OPENROUTER_API_KEY = 'test'; process.env.GOOGLE_API_KEY = 'test';
-  const realFetch = global.fetch; const seen = { main: [], subs: [], kits: [], results: [] }; let delay = 0;
+  const realFetch = global.fetch; const seen = { main: [], subs: [], kits: [], results: [], conts: [], active: 0, maxActive: 0 }; let delay = 0;
   const sse = (text) => { const enc = new TextEncoder(); return new Response(new ReadableStream({ async start(c) { for (const part of text.match(/[\s\S]{1,40}/g) || []) { if (delay) await new Promise(r => setTimeout(r, delay)); c.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: part } }] })}\n\n`)); } c.enqueue(enc.encode('data: [DONE]\n\n')); c.close(); } }), { status: 200, headers: { 'Content-Type': 'text/event-stream' } }); };
   const SPAWN = JSON.stringify({ contract: 'index.html hat <canvas id="game"> und #start; game.js startet das Spiel.', tasks: [{ title: 'Aufbau & Design', agent: 'layout', level: 'leicht', files: ['index.html', 'style.css'], goal: 'HTML und CSS' }, { title: 'Spiellogik', agent: 'game', level: 'schwer', files: ['game.js'], goal: 'Schleife' }] });
   const MAIN = {
@@ -17,13 +17,25 @@ const { setup } = require('./helpers');
     merk: ['Ich merke mir das.\n<tool name="memory">Spielfeld ist immer 960x540, Farben aus style.css</tool>', 'Gemerkt!'],
     solo: ['Ich versuche Sub-Agenten.\n<tool name="spawn">' + SPAWN + '</tool>', 'Dann mache ich es selbst. Fertig.'],
     ankuendigung: ['Ich sehe das Problem: die Initialisierung ist falsch. Let me fix the initialization order.', 'Hier die Korrektur.\n<file path="init.js">\nwindow.bereit = true;\n</file>\nBehoben – die App startet jetzt richtig.'],
+    rennen: ['Ich teile das Rennspiel auf.\n' + ['A', 'B', 'C'].map(t => '<tool name="spawn">' + JSON.stringify({ contract: 'Jede Datei setzt ihre window-Variablen.', tasks: [{ title: 'Teil ' + t, agent: 'game', level: 'leicht', files: [t.toLowerCase() + '.js'], goal: 'Teil ' + t }] }) + '</tool>').join('\n'),
+      'Alle Teile sind da und passen zusammen. Fertig!\n<tool name="done"/>'],
     etappen: ['Schritt eins: Grundgerüst.\n<file path="etappe.js">\nwindow.e = 1;\n</file>\n<tool name="check"/>', 'Schritt zwei: erweitert.\n<file path="etappe.js">\nwindow.e = 2;\n</file>\n<tool name="check"/>', 'Alles fertig und geprüft.\n<tool name="done"/>']
   };
   global.fetch = async (url, opts = {}) => {
     if (String(url).startsWith('http://127.0.0.1')) return realFetch(url, opts);
     const body = JSON.parse(opts.body); const sys = body.messages[0].content;
     if (/TEAM-MODUS – du bist/.test(sys)) {
-      const task = sys.match(/DEINE Aufgabe: (.*)/)[1]; seen.subs.push(task); seen.kits.push(((sys.match(/DU BIST DER ([^\n–]+)/) || [])[1] || '-').trim());
+      const task = sys.match(/DEINE Aufgabe: (.*)/)[1];
+      const teil = (task.match(/Teil ([ABC])/) || [])[1];
+      if (teil) { // Rennspiel-Test: lange Dateien, die über eine Etappe hinausgehen; Fortsetzung schreibt nahtlos weiter
+        const x = teil.toLowerCase(); const full = `Teil ${teil}.\n<file path="${x}.js">\n` + Array.from({ length: 30 }, (_, k) => `window.${x}${k} = ${k};`).join('\n') + '\n</file>';
+        const msgs = body.messages; const cont = /abgeschnitten/.test(msgs[msgs.length - 1].content);
+        const before = cont ? msgs[msgs.length - 2].content : '';
+        if (cont) seen.conts.push(teil);
+        seen.active++; seen.maxActive = Math.max(seen.maxActive, seen.active);
+        const res = sse(full.slice(before.length)); const rd = res.body.getReader();
+        return new Response(new ReadableStream({ async pull(c) { const { value, done } = await rd.read(); if (opts.signal?.aborted) { seen.active--; c.error(Object.assign(new Error('abgebrochen'), { name: 'AbortError' })); return; } if (done) { seen.active--; c.close(); } else c.enqueue(value); }, cancel() { seen.active--; } }), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+      } seen.subs.push(task); seen.kits.push(((sys.match(/DU BIST DER ([^\n–]+)/) || [])[1] || '-').trim());
       if (/Aufbau/.test(task)) return sse('Ich baue den Aufbau.\n<file path="index.html">\n<!doctype html><html><head><link rel="stylesheet" href="coden-kit.css"><link rel="stylesheet" href="style.css"></head><body><canvas id="game"></canvas><button id="start">Start</button><script src="coden-kit.js"></script><script src="game.js"></script></body></html>\n</file>\n<file path="style.css">\nbody{margin:0}\n</file>\n<file path="app.js">\n// darf ich nicht\n</file>');
       return sse('Logik kommt.\n<file path="game.js">\ndocument.getElementById("start").onclick = () => {};\nif (true) {\n</file>');
     }
@@ -31,7 +43,7 @@ const { setup } = require('./helpers');
       seen.main.push(sys);
       const users = body.messages.filter(m => m.role === 'user'); const results = users.filter(m => /^\[Werkzeug-Ergebnisse\]/.test(m.content)).length;
       const wish = [...body.messages].reverse().find(m => m.role === 'user' && !/^\[Werkzeug-Ergebnisse\]/.test(m.content)).content;
-      const key = /Weltraum/.test(wish) ? 'team' : /dunkel/.test(wish) ? 'dunkel' : /Hilfsdatei/.test(wish) ? 'kaputt' : /merk/.test(wish) ? 'merk' : /Repariere/.test(wish) ? 'ankuendigung' : /Etappen/.test(wish) ? 'etappen' : 'solo';
+      const key = /Weltraum/.test(wish) ? 'team' : /dunkel/.test(wish) ? 'dunkel' : /Hilfsdatei/.test(wish) ? 'kaputt' : /merk/.test(wish) ? 'merk' : /Repariere/.test(wish) ? 'ankuendigung' : /Etappen/.test(wish) ? 'etappen' : /Rennspiel/.test(wish) ? 'rennen' : 'solo';
       seen.results.push(users[users.length - 1].content);
       return sse(MAIN[key][Math.min(results, MAIN[key].length - 1)]);
     }
@@ -114,6 +126,32 @@ const { setup } = require('./helpers');
   const mE = await lastAi(app.id);
   chk('Etappen: genau eine Antwort mit Meta', `${mE.meta.legs} ${mE.meta.steps} ${/Alles fertig und geprüft/.test(mE.body)}`, '4 4 true');
   chk('Etappen-Schlüssel ist verbraucht (kein zweites Fortsetzen)', (await realFetch(`${base}/apps/${app.id}/agent/continue`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Coden-Leg': 'x'.repeat(48) }, body: JSON.stringify({ run: runE }) })).status, 403);
+
+  // --- Viele spawn-Aufrufe: ein gemeinsamer Auftrag, alle Sub-Agenten gleichzeitig; zu wenig Zeit -> nächste Etappe;
+  //     Sub-Agenten, die bis zum Etappen-Ende nicht fertig sind, schreiben in der nächsten Etappe nahtlos weiter ---
+  Object.assign(process.env, { CODEN_SPAWN_MIN_MS: '999999999', CODEN_SUB_RESERVE_MS: '999999999', CODEN_SUB_MIN_MS: '250' });
+  delay = 40; seen.main = []; seen.subs = []; seen.conts = []; seen.maxActive = 0;
+  await say(app.id, 'Bau mir ein 3D-Rennspiel');
+  const r1 = await agent(app.id, { tier: 'pro', mode: 'team' });
+  const runR = r1.evs[0].id; let stR;
+  for (let i = 0; i < 120; i++) { stR = (await G(`/apps/${app.id}/agent?run=${runR}`, anna)).j; if (stR.status !== 'running') break; await new Promise(r => setTimeout(r, 150)); }
+  delay = 0; for (const k of ['CODEN_SPAWN_MIN_MS', 'CODEN_SUB_RESERVE_MS', 'CODEN_SUB_MIN_MS']) delete process.env[k];
+  chk('Rennspiel: Lauf fertig', stR.status, 'done');
+  chk('Rennspiel: 3 spawn-Aufrufe → EIN Auftrag, nie „zu wenig Zeit“', `${(stR.text.match(/<result name="spawn"/g) || []).length > 0} ${/zu wenig Zeit|Sub-Agenten-Limit/.test(stR.text)}`, 'true false');
+  chk('Rennspiel: alle 3 Sub-Agenten liefen gleichzeitig', seen.maxActive, 3);
+  chk('Rennspiel: Sub-Agenten wurden pausiert und schrieben weiter (nicht abgebrochen)', seen.conts.length >= 3 && /schreiben in der nächsten Etappe weiter/.test(stR.text), true);
+  const fR = (await G('/apps/' + app.id, anna)).j.files;
+  const full = (x) => Array.from({ length: 30 }, (_, k) => `window.${x}${k} = ${k};`).join('\n');
+  chk('Rennspiel: alle Dateien vollständig und ohne Lücke/Doppelung', ['a', 'b', 'c'].map(x => fR[x + '.js'] === full(x)).join(','), 'true,true,true');
+  chk('Rennspiel: Endbericht 3/3', /3\/3 Sub-Agenten fertig/.test(stR.text), true);
+  const agR = stR.agents.filter(a => a.parent);
+  chk('Rennspiel: 3 Sub-Agenten im Baum, alle fertig', agR.map(a => a.status).join(','), 'done,done,done');
+
+  // --- 3D-Kit: Spezial-Agent three kennt Coden.three, Spiele bekommen die 3D-Doku ---
+  const AC = require('../shared/agent-core');
+  chk('3D: Spezial-Agent three mit Kit', `${AC.KIT_IDS.includes('three')} ${/Coden\.three\.car\(/.test(AC.kitFor('three').kit)} ${/three@0\.149\.0/.test(AC.kitFor('three').kit)}`, 'true true true');
+  chk('3D: Spiel-Prompt enthält 3D-Kit, Web-Prompt nur Hinweis', `${/Coden\.three\.track/.test(AC.systemPrompt({ app: { name: 'x', kind: 'game' }, files: {}, main: { maxSteps: 40, spawn: true } }))} ${/Coden\.three\.track/.test(AC.systemPrompt({ app: { name: 'x', kind: 'web' }, files: {}, main: { maxSteps: 40, spawn: true } }))}`, 'true false');
+  chk('3D: Web-App mit three.js bekommt das 3D-Kit', /Coden\.three\.track/.test(AC.systemPrompt({ app: { name: 'x', kind: 'web' }, files: { 'app.js': 'const s = new THREE.Scene();' }, main: { maxSteps: 40, spawn: true } })), true);
 
   // --- Gedächtnis CODEN.md ---
   seen.main = []; await say(app.id, 'Bitte merk dir das Spielfeld');

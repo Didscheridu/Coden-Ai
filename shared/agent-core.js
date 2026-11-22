@@ -16,6 +16,18 @@ const GAME_KIT = `
   Highscore: Coden.game.best('key', punkte) speichert und liefert den Rekord. Screens: Coden.game.overlay('#menu').show()/.hide().
   Spiele-Qualität: Startbildschirm, Pause (Taste P / Knopf), Game Over mit Punkten und Rekord, Neustart, steigende Schwierigkeit, Partikel/Screen-Shake als Feedback, klare Farben, 60 FPS, kein Lag.`;
 
+const THREE_KIT = `
+- 3D (Coden.three, schon im Kit – baut fertige, schöne 3D-Modelle; du musst KEINE Modelle aus einzelnen Würfeln zusammenbasteln):
+  three.js im <head> oder VOR deinen Skripten einbinden: <script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script> (genau diese Version, klassisches Skript, KEIN import/type="module"; danach gibt es die globale Variable THREE). Sicherheitsnetz: Coden.three.ready(() => { …ganzes Spiel… }) lädt three.js notfalls nach.
+  Welt: const w = Coden.three.world({ canvas: '#scene' (optional, sonst Vollbild), skyTop, skyBottom, fogFar: 500, ground: true, groundColor, shadows: true }) → w.scene, w.camera, w.renderer, w.sun, w.add(obj), w.remove(obj), w.loop((dt, t) => …), w.pause()/resume(), w.follow(obj, { distance: 9, height: 3.6, lookAhead: 6 }) (Verfolger-Kamera), w.orbit({ distance: 30 }) (Drehen/Zoomen per Maus/Touch), w.sunFollow(obj) (Schatten folgen dem Spieler).
+  Modelle (Meter, vorne = -Z, alles mit Schatten): Coden.three.car({ type: 'sport'|'muscle'|'suv'|'hatch'|'truck'|'police'|'taxi'|'kart'|'f1', color: 0xd62828, number: 7 }), tree({ type: 'pine'|'round'|'palm'|'autumn', height }), rock({ size }), cloud({ x, y, z }), building({ width, depth, height, night }), house({ color, roof }), lamp(), cone(), barrier({ length }), coin() (dreht sich mit Coden.three.animate(liste, t)), checkpoint({ radius, color }), character({ color, skin }) + Coden.three.walk(figur, t, speed).
+  Strecken & Welten: const trk = Coden.three.track({ preset: 'circuit'|'oval'|'figure8'|'city', width: 16 } oder { points: [[x,z], …] }); w.add(trk); trk.decorate(w, 0.6) (Bäume/Lampen am Rand); trk.grid(6) → Startplätze [{ position, rotationY }]; trk.nearest(pos, hint) → { u (Fortschritt 0..1), dist }; trk.onTrack(pos); trk.pointAt(u); trk.checkpoints(8); trk.length.
+  Stadt: const c = Coden.three.city({ blocks: 5, night: false }); w.add(c); c.spawn() → { position, rotationY }; c.boxes (Gebäude für Kollision); c.onRoad(pos). Gelände: const g = Coden.three.terrain({ size: 600, height: 20, flatRadius: 40 }); w.add(g); g.heightAt(x, z). Wasser: Coden.three.water({ level: -2 }). Straße: Coden.three.road({ length, width, lanes }).
+  Fahren: const v = Coden.three.vehicle(auto, { maxSpeed: 46, accel: 16, solids: c.boxes, heightAt: g.heightAt, onCrash }); const steuer = Coden.three.input(); w.loop(dt => v.update(dt, steuer())); v.kmh, v.drifting, v.addBoost(2), v.reset(pos, rotY). Eingabe: Pfeile/WASD, Leertaste = Handbremse/Drift, Shift = Boost, auf Handys automatisch Joystick + Knöpfe.
+  Gegner: const ki = Coden.three.driver(vGegner, trk, { lane: 1, skill: 0.9 }); im loop vGegner.update(dt, ki()). Treffer: Coden.three.collide(a, b), Coden.three.near(a, b, radius).
+  Eigene Formen: Coden.three.box(w, h, d, farbe), roundBox(w, h, d, radius, farbe), mat(farbe, { metal, rough, glow }), group(...teile), canvasTexture(w, h, (ctx) => …). Für eigene Meshes immer MeshStandardMaterial + castShadow.
+  3D-Qualität: Startmenü + HUD als HTML über der Leinwand (position: fixed), Tachometer (v.kmh), Runden/Zeit/Platz, Minimap optional, 60 FPS (keine neuen Objekte pro Frame, Gegner ≤ 8), Kamera folgt weich, Touch-Steuerung auf dem Handy.`;
+
 // ---------- Spezial-Agenten mit eigenem "Kit" (Fachwissen, Regeln, Bausteine) ----------
 // Der Planer gibt jeder Team-Aufgabe einen dieser Agenten. Das Kit landet im Systemprompt des Sub-Agenten.
 const KITS = {
@@ -42,6 +54,11 @@ const KITS = {
 - Bewegung immer mit dt (Pixel pro Sekunde), Kollision mit Coden.game.hit(a, b), Objekte in Arrays, tote Objekte filtern.
 - Steuerung: Coden.game.axis() + pressed('Space'); auf Handys Coden.game.touchControls({ joystick: true, buttons: [...] }) oder Coden.game.onSwipe.
 - "Juice": Partikel (Coden.game.particles), g.shake(), Coden.game.sfx('jump'|'coin'|'hit'|'boom'|'win'|'lose'), steigende Schwierigkeit.` },
+    three: { name: '3D-Entwickler', emoji: '🧊', for: '3D-Spiele und 3D-Szenen mit three.js: Welt, Modelle, Kamera, Licht, Fahrphysik (game3d.js, scene.js)', kit: `
+- Baue mit Coden.three (siehe 3D-KIT unten): world() für Renderer/Licht/Himmel/Schatten, fertige Modelle (car, tree, building, character …), track()/city()/terrain() für ganze Welten, vehicle() + input() für die Steuerung, driver() für KI-Gegner.
+- three.js 0.149.0 als klassisches Skript (window.THREE), nie import/type="module". Alles mit dt animieren, nichts pro Frame neu erzeugen (Vektoren/Materialien wiederverwenden).
+- Erst eine vollständig spielbare Version (Welt + Spieler + Steuerung + Kamera + Ziel), dann Details (Partikel, Sound mit Coden.game.sfx, Effekte).
+- Mehr Details = schöner: Deko (Bäume, Lampen, Wolken), Farben passend, Licht/Schatten an, Nebel für Tiefe.` + THREE_KIT },
     data: { name: 'Daten-Agent', emoji: '🗄️', for: 'Datenmodell, Datenbank/API-Anbindung, Beispieldaten, Import/Export (data.js, *.json)', kit: `
 - Klares Datenmodell mit Feldern und Typen als Kommentar oben in der Datei; IDs mit crypto.randomUUID().
 - Datenbank nur über Coden.db (supabase/firebase/rest) mit öffentlichen Schlüsseln; ohne Datenbank: Coden.store als lokaler Speicher.
@@ -56,6 +73,7 @@ const KITS = {
 - Keine externen Bilder nötig; Emojis sind ein guter Ersatz für Icons.` }
 };
 const KIT_IDS = Object.keys(KITS);
+const is3d = (files) => Object.entries(files || {}).some(([n, c]) => /\.(html?|js)$/.test(n) && /three(\.min)?\.js|THREE\.|Coden\.three/.test(String(c)));
 const kitFor = (id) => KITS[id] || null;
 
 // Werkzeuge, die der Server sofort ausführt (danach geht die Schleife weiter)
@@ -177,7 +195,7 @@ CODEN-KIT (ist schon eingebunden: <link rel="stylesheet" href="coden-kit.css"> u
 - Sheets: <div class="sheet" id="s1">…</div>, öffnen per data-open-sheet="s1" oder Coden.sheet.open('s1'), schließen per data-close-sheet oder Coden.sheet.close().
 - Coden.toast('Gespeichert'), Coden.haptic(), Coden.esc(text) (Nutzertext IMMER escapen, wenn du innerHTML nutzt), Coden.uid(), Coden.fmt.date/time/money/num, Coden.platform.
 - Farben: var(--c-bg) --c-surface --c-surface-2 --c-text --c-muted --c-primary --c-on-primary --c-accent --c-border --c-gradient, Form: --radius --radius-sm --shadow, Schrift: --font --font-head. Nutze sie statt fester Farben.
-- Datenbank: const sb = await Coden.db.supabase(URL, ANON_KEY); · const fb = await Coden.db.firebase(config); · await Coden.db.rest(basisUrl, '/pfad', { method, body, headers }).${app.kind === 'game' ? GAME_KIT : ''}
+- Datenbank: const sb = await Coden.db.supabase(URL, ANON_KEY); · const fb = await Coden.db.firebase(config); · await Coden.db.rest(basisUrl, '/pfad', { method, body, headers }).${app.kind === 'game' ? GAME_KIT : ''}${app.kind === 'game' || is3d(files) ? THREE_KIT : '\n- 3D gewünscht? Coden.three im Kit baut fertige 3D-Welten (Autos, Gebäude, Figuren, Strecken, Gelände, Fahrphysik) mit three.js 0.149.0 – gib 3D-Aufgaben dem Spezial-Agenten three, der kennt alle Funktionen.'}
 
 WERKZEUGE – schreibe das Werkzeug ans ENDE deiner Antwort und höre dann auf. Die Antwort des Nutzers kommt als nächste Nachricht:
 - <tool name="database" reason="wofür"/> → der Nutzer wählt eine Datenbank (Supabase, Firebase, Appwrite, PocketBase …) und gibt die Zugangsdaten ein. Nimm das, sobald Daten zwischen Geräten oder Nutzern geteilt werden (Login, Online-Speicher, Chat, gemeinsame Highscores …). Nicht nochmal fragen, wenn unten schon eine Datenbank verbunden ist.
