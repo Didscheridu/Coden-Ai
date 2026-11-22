@@ -22,6 +22,7 @@ const gem = (t) => `data: ${JSON.stringify({ candidates: [{ content: { parts: [{
     if (mode === 'groqWorks') return new Response(JSON.stringify({ choices: [{ message: { content: 'Groq ok' } }] }), { status: 200 });
     if (mode === 'streamThink') return sseResponse([oa('Hal'), oa('lo <thi'), oa('nk>geheim</th'), oa('ink>Welt'), 'data: [DONE]\n\n']);
     if (mode === 'streamFallback') { if (body.model === 'openai/gpt-oss-120b') return new Response('{}', { status: 500 }); if (body.model === 'llama-3.3-70b-versatile') return sseResponse([': ping\n\n', 'data: [DONE]\n\n']); return sseResponse([oa('Zweites Modell')]); }
+    if (mode === 'streamReason') return sseResponse([`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: '**Frage lesen**\nIch lese. ' } }] })}\n\n`, `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: '\n**Antwort planen**\nJetzt plane ich.' } }] })}\n\n`, oa('Fertig'), 'data: [DONE]\n\n']);
     if (mode === 'streamMidError') return sseResponse([oa('Teil1 '), oa('Teil2'), oa('Teil3')], { failAfter: 2 });
     if (mode === 'streamGoogle') return sseResponse([gem('Ge'), gem('mini')]);
   };
@@ -90,6 +91,14 @@ const gem = (t) => `data: ${JSON.stringify({ candidates: [{ content: { parts: [{
   await ai.generateStream('flash', [{ role: 'user', content: 'hi' }], { isOwner: false, onDelta: (v) => deltas.push(v), onModel: (m) => { model = m.id; } });
   chk('Streaming: <think> über Stückgrenzen herausgefiltert', deltas.join(''), 'Hallo Welt');
   chk('Streaming: Modellname gemeldet', typeof model, 'string');
+  mode = 'streamReason'; deltas = []; const ks = [];
+  await ai.generateStream('flash', [{ role: 'user', content: 'hi' }], { onDelta: (v) => deltas.push(v), onThink: (k) => ks.push(k) });
+  chk('Denken: reasoning_content landet nie im Antworttext', deltas.join(''), 'Fertig');
+  chk('Denken: nur aktuelle Überschrift, kein altes Denken', [ks.length > 0, ks[ks.length - 1].h, /Jetzt plane/.test(ks[ks.length - 1].v), /Ich lese/.test(ks[ks.length - 1].v)], [true, 'Antwort planen', true, false]);
+  const tk = []; const T = new ai.ThinkTracker((x) => tk.push(x), { every: 0, now: (() => { let n = 0; return () => n++; })() });
+  T.push('ohne Überschrift, einfach Text'); chk('Denken: ohne Überschrift → „Überlege …“', tk[0].h, 'Überlege …');
+  const tf = []; const F = new ai.ThinkFilter((x) => tf.push(x)); F.push('<think>abc defghijkl</think>ok'); F.flush();
+  chk('Denken: <think>-Inhalt geht an Denk-Callback', tf.join(''), 'abc defghijkl');
 
   mode = 'streamFallback'; deltas = [];
   await ai.generateStream('pro', [{ role: 'user', content: 'hi' }], { isOwner: false, onDelta: (v) => deltas.push(v) });

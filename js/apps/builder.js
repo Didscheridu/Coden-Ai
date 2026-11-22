@@ -4,6 +4,7 @@ import { streamAiResponse } from '../api.js';
 import { Router } from '../router.js';
 import { toast } from '../toast.js';
 import { h, icon, md, sleep, copy } from './dom.js';
+import { createThinkPanel } from '../think-panel.js';
 import { systemPrompt, parse, apply, condense } from './agent.js';
 import { ghExport } from './github.js';
 import { KINDS } from './templates.js';
@@ -374,13 +375,13 @@ export function mountBuilder(host, appId) {
         setBusy(true);
         const el = h('div', { class: 'bl-msg ai streaming' }, h('div', { class: 'bl-aava' }, h('img', { src: './images/coden_logo.jpg', alt: '' })));
         const body = h('div', { class: 'bl-abody' }); el.append(body); log.append(el); scrollLog(true);
-        body.replaceChildren(h('div', { class: 'bl-thinking' }, h('span', { class: 'typing-dots' }, h('i'), h('i'), h('i')), h('span', { text: 'Coden denkt nach …' })));
+        const panel = createThinkPanel(); body.replaceChildren(panel.el);
         const ac = new AbortController(); st.abort = ac;
         let text = '', model = '', raf = 0;
         let lastPaint = 0;
         const paint = () => { raf = 0; lastPaint = Date.now(); fillAssistant(body, text); scrollLog(); };
         try {
-            text = await streamAiResponse(buildContext(), st.tier, { signal: ac.signal, maxTokens: 16000, onModel: (m) => { model = m; }, onDelta: (t) => { text = t; if (!raf) raf = setTimeout(paint, Math.max(0, 120 - (Date.now() - lastPaint))); } });
+            text = await streamAiResponse(buildContext(), st.tier, { signal: ac.signal, maxTokens: 16000, onModel: (m) => { model = m; panel.model(m); }, onThink: (k) => panel.think(k), onDelta: (t) => { text = t; if (!raf) raf = setTimeout(paint, Math.max(0, 120 - (Date.now() - lastPaint))); } });
         } catch (e) {
             text = e.text || text;
             if (!text.trim()) { clearTimeout(raf); el.remove(); setBusy(false); st.abort = null; log.append(h('div', { class: 'bl-event err' }, icon('error'), h('span', { text: 'Coden konnte nicht antworten: ' + e.message }), h('button', { class: 'bl-btn sm', onclick: (ev) => { ev.currentTarget.parentNode.remove(); runAgent(); } }, icon('refresh'), ' Nochmal'))); scrollLog(true); return; }

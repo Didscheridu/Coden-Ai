@@ -1,5 +1,6 @@
 // js/ui.js
 import { splitArtifacts, Artifacts } from './artifacts.js';
+import { createThinkPanel } from './think-panel.js';
 
 const AI_PROFILE_PIC_SRC = './images/coden_logo.jpg';
 
@@ -140,11 +141,12 @@ export const UI = {
         const { row, content, chatContainer } = UI._newRow(false);
         const key = 'm' + (++UI._msgCounter);
         row.classList.add('streaming');
-        content.innerHTML = '<span class="typing-dots"><i></i><i></i><i></i></span>';
+        const panel = createThinkPanel(); content.replaceChildren(panel.el);
         let latest = '', raf = 0, started = false;
         const stick = () => chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 140;
         const paint = () => { raf = 0; const follow = stick(); UI.renderRich(content, latest, key); if (follow) chatContainer.scrollTop = chatContainer.scrollHeight; };
         return {
+            think: (k) => panel.think(k), model: (n) => panel.model(n),
             update(text) { latest = text; if (!started && text.trim()) started = true; if (started && !raf) raf = requestAnimationFrame(paint); },
             finish(text) { cancelAnimationFrame(raf); raf = 0; latest = text; row.classList.remove('streaming'); if (!text.trim()) { row.remove(); return; } UI.renderRich(content, text, key); chatContainer.scrollTop = chatContainer.scrollHeight; },
             fail(msg) { cancelAnimationFrame(raf); raf = 0; row.classList.remove('streaming'); const note = document.createElement('div'); note.className = 'stream-error'; note.textContent = msg; if (!latest.trim()) content.replaceChildren(note); else content.appendChild(note); },

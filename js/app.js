@@ -1132,7 +1132,7 @@ BILDER: Wünscht der Nutzer ein Bild (Foto, Bild, Illustration, Wallpaper, Gemä
         const live = UI.createStreamingMessage();
         aiResponse = '';
         try {
-            aiResponse = await streamAiResponse(context, currentSelectedModel, { signal: ac.signal, model: pinnedModel?.key, onDelta: (t) => { aiResponse = t; live.update(hideImageTags(t)); } });
+            aiResponse = await streamAiResponse(context, currentSelectedModel, { signal: ac.signal, model: pinnedModel?.key, onThink: (k) => live.think(k), onModel: (m) => live.model(m), onDelta: (t) => { aiResponse = t; live.update(hideImageTags(t)); } });
             // KI-Bilder: Befehle aus dem Text nehmen, Bilder erzeugen und als echte Bilder anhängen
             const wanted = [...aiResponse.matchAll(IMAGE_TAG)].map(m => (m[1].match(/prompt\s*=\s*"([^"]*)"/i) || [])[1]).filter(Boolean).slice(0, 2);
             const call = parseCall(aiResponse);

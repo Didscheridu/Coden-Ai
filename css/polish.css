@@ -116,3 +116,14 @@ html { scroll-behavior: smooth; }
 .ma-btn:hover { background: rgba(255, 255, 255, .08); color: #fff } .ma-btn.on { color: #8ab4f8 }
 #mic-btn.recording { color: #ff4d4d; animation: mic-pulse 1s infinite alternate } @keyframes mic-pulse { to { opacity: .45 } }
 .top-bar .tb-right { display: flex; align-items: center; gap: 10px }
+
+/* Denk-Anzeige: nur die aktuelle Überschrift, aufklappbar */
+.think-panel { font-size: 13px; color: var(--text-muted); max-width: 100% }
+.think-panel summary { display: flex; align-items: center; gap: 8px; cursor: default; list-style: none; padding: 4px 0; min-width: 0 }
+.think-panel summary::-webkit-details-marker { display: none }
+.think-panel.has-body summary { cursor: pointer }
+.think-head { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; animation: thinkfade .35s ease }
+.think-model { flex: none; font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--bg-surface, rgba(255,255,255,.06)); border: 1px solid var(--border-color, rgba(255,255,255,.12)); font-family: ui-monospace, monospace }
+.think-chev { font-size: 18px; transition: transform .2s; display: none } .think-panel.has-body .think-chev { display: inline-block } .think-panel[open] .think-chev { transform: rotate(180deg) }
+.think-body { margin: 4px 0 6px 4px; padding-left: 10px; border-left: 2px solid rgba(138, 180, 248, .35); font-size: 12px; line-height: 1.5; max-height: 110px; overflow: hidden; opacity: .85 }
+@keyframes thinkfade { from { opacity: 0; transform: translateY(3px) } to { opacity: 1; transform: none } }
