@@ -42,6 +42,11 @@ const gem = (t) => `data: ${JSON.stringify({ candidates: [{ content: { parts: [{
   chk('NVIDIA antwortet zuerst, wenn der Key gesetzt ist', [await ai.generate('normal', [{ role: 'user', content: 'hi' }], {}), log[0]], ['Groq ok', 'moonshotai/kimi-k3.1-pro']);
   delete process.env.NVIDIA_API_KEY;
 
+  // --- Coden Ultra ---
+  chk('Ultra: Gemini 4 Hydrogen und Kimi K3.1 Pro vorn', ai.CASCADES.ultra.slice(0, 2).map(m => m.id).join(), 'gemini-4-hydrogen,moonshotai/kimi-k3.1-pro');
+  chk('Ultra: Modelle stehen in der Modellliste', ai.listModels().some(m => m.id === 'mistralai/mistral-large-4-1t-a52b'), true);
+  chk('Ultra: nur starke Modelle (keine kleinen Flash/Lite)', ai.CASCADES.ultra.some(m => /lite|lightning|1\.7b|(?<!\d)20b/i.test(m.id)), false);
+
   // --- /modelle: gezielt ein Modell wählen ---
   const lm = ai.listModels();
   chk('Modellliste: eindeutig, enthält NVIDIA + Groq + Google', [new Set(lm.map(m => m.key)).size === lm.length, ['nvidia', 'groq', 'openrouter', 'google'].every(p => lm.some(m => m.provider === p))], [true, true]);

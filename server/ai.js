@@ -41,7 +41,19 @@ const THINKING_FIRST = [
   'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'
 ];
 
+// Coden Ultra: nur die besten der besten, Qualität vor Tempo (deshalb steht hier auch NVIDIA vorn).
+// Standardmäßig gesperrt, nur der Owner darf (siehe api/index.js).
+const ULTRA = [
+  { provider: 'google', id: 'gemini-4-hydrogen' },      // knapp: zählt ins Tageskontingent
+  ...nvidia(['moonshotai/kimi-k3.1-pro', 'mistralai/mistral-large-4-1t-a52b']),
+  ...openrouter(['nvidia/nemotron-3-ultra-550b-a55b:free']),
+  ...nvidia(['nvidia/nemotron-3-ultra-550b-a55b']),
+  { provider: 'groq', id: 'openai/gpt-oss-120b' },
+  { provider: 'google', id: 'gemini-3.8-flash' }
+];
+
 const CASCADES = {
+  ultra: ULTRA,
   // Schnell: kleine Modelle zuerst
   flash: [
     { provider: 'google', id: 'gemini-3.5-flash-lite' },
@@ -207,7 +219,7 @@ const PROVIDER_NAMES = { nvidia: 'NVIDIA', groq: 'Groq', openrouter: 'OpenRouter
 const keyOf = (m) => `${m.provider}:${m.id}`;
 function listModels() {
   const seen = new Map();
-  for (const tier of ['pro', 'normal', 'flash']) for (const m of CASCADES[tier]) if (!seen.has(keyOf(m))) seen.set(keyOf(m), { key: keyOf(m), provider: m.provider, providerName: PROVIDER_NAMES[m.provider] || m.provider, id: m.id,
+  for (const tier of ['ultra', 'pro', 'normal', 'flash']) for (const m of CASCADES[tier]) if (!seen.has(keyOf(m))) seen.set(keyOf(m), { key: keyOf(m), provider: m.provider, providerName: PROVIDER_NAMES[m.provider] || m.provider, id: m.id,
     ready: m.provider === 'google' ? !!process.env.GOOGLE_API_KEY : !!process.env[OPENAI_COMPAT[m.provider]?.env], limited: !!QUOTAS[m.id] });
   return [...seen.values()];
 }

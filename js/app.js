@@ -57,7 +57,7 @@ let appInitialized = false;
 let pendingAttachments = []; // Speichert unsere angehängten Dateien temporär
 
 let isOwner = false;
-let globalLockedModels = { pro: false, thinking: false }; 
+let globalLockedModels = { pro: false, thinking: false, ultra: true }; // Ultra ist standardmäßig gesperrt
 let currentSelectedModel = 'flash';
 let pinnedModel = null; // { key, label, keep } – per /modelle gewählt; gilt für die nächste Anfrage (oder dauerhaft bei „bleiben“)
 let modelList = [];
@@ -209,11 +209,15 @@ async function pollSystemState() {
                 
                 // Modell-Sperren
                 if (data.locks) {
-                    globalLockedModels = data.locks;
+                    globalLockedModels = { ultra: true, ...data.locks };
                     const pOpt = document.getElementById('pro-mode-option'); 
                     const tOpt = document.getElementById('thinking-mode-option');
                     if (pOpt) pOpt.classList.toggle('disabled', data.locks.pro);
                     if (tOpt) tOpt.classList.toggle('disabled', data.locks.thinking);
+                }
+                {
+                    const uOpt = document.getElementById('ultra-mode-option');
+                    if (uOpt) uOpt.classList.toggle('disabled', !isOwner && globalLockedModels.ultra !== false);
                 }
                 
                 // Modell-Zwang
@@ -354,13 +358,13 @@ function initApp() {
 // 🚀 6. OWNER COMMANDS (Vollständig!)
 // ==========================================
 const commands = [
-    { name: "/lock", opts: ["pro", "thinking"], desc: "Sperrt Modell GLOBAL" },
-    { name: "/unlock", opts: ["pro", "thinking"], desc: "Entsperrt Modell GLOBAL" },
+    { name: "/lock", opts: ["pro", "thinking", "ultra"], desc: "Sperrt Modell GLOBAL" },
+    { name: "/unlock", opts: ["pro", "thinking", "ultra"], desc: "Entsperrt Modell GLOBAL" },
     { name: "/broadcast", opts: ["<nachricht>"], desc: "Pop-Up an ALLE User" },
     { name: "/maintenance", opts: ["on", "off"], desc: "Sperrt App komplett" },
     { name: "/forceupdate", desc: "Erzwingt Reload bei Usern" },
     { name: "/modelle", opts: ["<nummer>", "auto"], desc: "Liste aller Modelle; nächste Anfrage geht an das gewählte" },
-    { name: "/model", opts: ["flash", "normal", "pro"], desc: "Ändert Modell GLOBAL" },
+    { name: "/model", opts: ["flash", "normal", "pro", "ultra"], desc: "Ändert Modell GLOBAL" },
     { name: "/theme", opts: ["normal", "matrix"], desc: "Ändert Design GLOBAL" },
     { name: "/font", opts: ["12", "15", "18", "22"], desc: "Ändert Schriftgröße GLOBAL" },
     { name: "/clearall", desc: "Leert Chats bei ALLEN Usern" },
@@ -608,6 +612,7 @@ if (modelSelectorBtn && modelDropdownMenu) {
             
             if (!isOwner) {
                 if (selectedId === 'pro-mode-option' && globalLockedModels.pro) return toast('Coden Pro ist gerade vom Admin gesperrt.', { type: 'warn' });
+                if (selectedId === 'ultra-mode-option' && globalLockedModels.ultra !== false) return toast('Coden Ultra ist gesperrt und nur für den Owner.', { type: 'warn' });
                 if (selectedId === 'thinking-mode-option' && globalLockedModels.thinking) return toast('Coden Thinking ist gerade vom Admin gesperrt.', { type: 'warn' });
             }
             
@@ -1063,6 +1068,7 @@ async function handleSend() {
 
     if (!isOwner) {
         if (currentSelectedModel === 'pro' && globalLockedModels.pro) return UI.appendMessage("❌ Coden Pro ist gesperrt.", false);
+        if (currentSelectedModel === 'ultra' && !isOwner && globalLockedModels.ultra !== false) return UI.appendMessage("❌ Coden Ultra ist gesperrt (nur der Owner).", false);
         if (currentSelectedModel === 'normal' && globalLockedModels.thinking) return UI.appendMessage("❌ Coden Thinking ist gesperrt.", false);
     }
 

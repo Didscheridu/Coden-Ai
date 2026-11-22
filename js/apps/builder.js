@@ -2,6 +2,7 @@
 import { apiJson } from '../backend.js';
 import { streamAiResponse } from '../api.js';
 import { Router } from '../router.js';
+import { auth } from '../auth.js';
 import { toast } from '../toast.js';
 import { h, icon, md, sleep, copy } from './dom.js';
 import { systemPrompt, parse, apply, condense } from './agent.js';
@@ -12,7 +13,7 @@ import { modal, confirmBox, promptBox, phoneTest, publish, invite } from './dial
 
 const S = () => window.CodenStyles; const B = () => window.CodenBundle;
 let kitP; const getKit = () => kitP || (kitP = Promise.all(['kit/coden-kit.css', 'kit/coden-kit.js'].map(u => fetch(u).then(r => r.text()))).then(([css, js]) => ({ css, js })));
-const TIERS = [{ id: 'pro', label: 'Pro', tip: 'Stärkste Modelle – am besten für Apps' }, { id: 'normal', label: 'Thinking', tip: 'Denkt länger nach' }, { id: 'flash', label: 'Flash', tip: 'Am schnellsten, für kleine Änderungen' }];
+const TIERS = [{ id: 'ultra', label: 'Ultra', tip: 'Nur die allerbesten Modelle (nur Owner)' }, { id: 'pro', label: 'Pro', tip: 'Stärkste Modelle – am besten für Apps' }, { id: 'normal', label: 'Thinking', tip: 'Denkt länger nach' }, { id: 'flash', label: 'Flash', tip: 'Am schnellsten, für kleine Änderungen' }];
 const DEVICES = { ios: { w: 393, h: 852, label: 'iPhone', icon: 'phone_iphone' }, android: { w: 412, h: 915, label: 'Android', icon: 'android' }, desktop: { w: 0, h: 0, label: 'Desktop', icon: 'desktop_windows' }, tablet: { w: 834, h: 1112, label: 'Tablet', icon: 'tablet_mac' }, phone: { w: 390, h: 844, label: 'Handy', icon: 'smartphone' } };
 const FILE_ICON = (n) => /\.html?$/.test(n) ? 'html' : /\.css$/.test(n) ? 'css' : /\.js$/.test(n) ? 'javascript' : /\.json$/.test(n) ? 'data_object' : /\.svg$/.test(n) ? 'image' : 'description';
 const MAX_AUTOFIX = 2;
@@ -105,7 +106,7 @@ export function mountBuilder(host, appId) {
         people.classList.toggle('hidden', st.members.length < 2);
     }
     function drawTiers() {
-        tierBox.replaceChildren(...TIERS.map(t => h('button', { class: 'bl-tier' + (st.tier === t.id ? ' active' : ''), title: t.tip, text: t.label, onclick: () => { st.tier = t.id; localStorage.setItem('coden_app_tier', t.id); drawTiers(); } })));
+        tierBox.replaceChildren(...TIERS.filter(t => t.id !== 'ultra' || auth.currentUser?.isOwner).map(t => h('button', { class: 'bl-tier' + (st.tier === t.id ? ' active' : ''), title: t.tip, text: t.label, onclick: () => { st.tier = t.id; localStorage.setItem('coden_app_tier', t.id); drawTiers(); } })));
     }
     function drawDevices() {
         const list = KINDS[st.app.kind].devices; deviceBtns.classList.toggle('hidden', list.length < 2 || st.view !== 'preview');

@@ -67,13 +67,13 @@ api.post('/admin/command', requireAuth, requireOwner, async (req, res) => {
   let patch;
   switch (cmd) {
     case 'lock': case 'unlock': {
-      if (!['pro', 'thinking'].includes(param)) return res.status(400).json({ error: 'Nutze pro oder thinking.' });
+      if (!['pro', 'thinking', 'ultra'].includes(param)) return res.status(400).json({ error: 'Nutze pro, thinking oder ultra.' });
       patch = { locks: { [param]: cmd === 'lock' } }; break;
     }
     case 'broadcast': patch = { broadcast: { message: String(param || '').slice(0, 500), time: now } }; break;
     case 'forceupdate': patch = { forceUpdate: now }; break;
     case 'maintenance': patch = { maintenance: param === 'on' }; break;
-    case 'model': patch = { globalModel: ['flash', 'normal', 'pro'].includes(param) ? param : null }; break;
+    case 'model': patch = { globalModel: ['flash', 'normal', 'pro', 'ultra'].includes(param) ? param : null }; break;
     case 'theme': patch = { theme: String(param || '').slice(0, 30) }; break;
     case 'font': { const n = parseInt(param, 10); if (!(n >= 10 && n <= 30)) return res.status(400).json({ error: 'Größe 10-30.' }); patch = { fontSize: n }; break; }
     case 'clearall': patch = { globalClear: now }; break;
@@ -96,6 +96,7 @@ async function enforceSystemState(req, res, next) {
   const st = rows[0]?.state || {};
   if (st.maintenance) return res.status(503).json({ error: 'Wartungsarbeiten.' });
   const tier = req.body?.tier;
+  if (tier === 'ultra' && st.locks?.ultra !== false) return res.status(403).json({ error: 'Coden Ultra ist gesperrt (nur der Owner).' }); // standardmäßig gesperrt
   if (tier === 'pro' && st.locks?.pro) return res.status(403).json({ error: 'Coden Pro ist gesperrt.' });
   if (tier === 'normal' && st.locks?.thinking) return res.status(403).json({ error: 'Coden Thinking ist gesperrt.' });
   next();
