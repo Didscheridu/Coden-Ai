@@ -1,5 +1,6 @@
 // js/api.js – die Modell-Kaskade und alle Keys liegen im Backend
 import { apiJson, apiFetch } from './backend.js';
+import { getEffort } from './effort.js';
 
 // Ohne Streaming (Titel, E-Mail-Entwurf)
 export async function generateAiResponse(messages, tier) {
@@ -9,8 +10,8 @@ export async function generateAiResponse(messages, tier) {
 
 // Live-Streaming per Server-Sent Events. onDelta(text) liefert den bisherigen GESAMTTEXT.
 // Gibt den fertigen Text zurück; bei Abbruch (signal) den bisherigen Text. Fehler nach Teilausgabe tragen e.partial.
-export async function streamAiResponse(messages, tier, { onDelta, onModel, onThink, signal, maxTokens, model } = {}) {
-    const res = await apiFetch('/chat/stream', { method: 'POST', body: JSON.stringify({ messages, tier, ...(maxTokens ? { maxTokens } : {}), ...(model ? { model } : {}) }), signal });
+export async function streamAiResponse(messages, tier, { onDelta, onModel, onThink, signal, maxTokens, model, effort } = {}) {
+    const res = await apiFetch('/chat/stream', { method: 'POST', body: JSON.stringify({ messages, tier, ...(maxTokens ? { maxTokens } : {}), ...(model ? { model } : {}), effort: effort || getEffort() }), signal });
     if (!res.ok) {
         let d = {}; try { d = await res.json(); } catch (_) {}
         const err = new Error(d.error || `HTTP ${res.status}`); err.code = d.code; throw err;
@@ -38,6 +39,6 @@ export async function streamAiResponse(messages, tier, { onDelta, onModel, onThi
         if (e.text === undefined) e.text = full;
         throw e;
     }
-    if (!done && !signal?.aborted && !full) throw new Error('Die Verbindung wurde unterbrochen.');
+    if (!done && !signal?.aborted) { const err = new Error('Die Verbindung wurde unterbrochen.'); err.text = full; err.partial = !!full; throw err; }
     return full;
 }

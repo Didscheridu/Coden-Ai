@@ -105,7 +105,7 @@ function toOpenAI(messages) {
   });
 }
 
-function toGemini(modelId, messages) {
+function toGemini(modelId, messages, maxTokens) {
   const contents = []; let system = null;
   for (const m of messages) {
     if (m.role === 'system') { system = m.content; continue; }
@@ -116,13 +116,16 @@ function toGemini(modelId, messages) {
     }
     contents.push({ role: m.role === 'assistant' ? 'model' : 'user', parts });
   }
-  const body = { contents };
+  const body = { contents, generationConfig: { maxOutputTokens: maxTokens || DEFAULT_MAX } };
   if (system) {
     if (modelId.includes('gemma') && contents.length) contents[0].parts[0].text = `${system}\n\n---\n\n${contents[0].parts[0].text}`;
     else body.systemInstruction = { parts: [{ text: system }] };
   }
   return body;
 }
+
+const DEFAULT_MAX = 16384; // pro Aufruf; wird die Antwort trotzdem abgeschnitten, setzt run() automatisch fort
+const EFFORTS = ['low', 'medium', 'high'];
 
 // Filtert <think>…</think> auch dann, wenn die Tags über Stream-Stücke verteilt ankommen
 class ThinkFilter {
@@ -189,18 +192,27 @@ async function failFrom(r) {
   throw new Error(msg);
 }
 
+// Denkaufwand (niedrig/mittel/hoch): nur dort mitschicken, wo der Anbieter es versteht
+function effortParams(m, effort) {
+  if (!EFFORTS.includes(effort)) return {};
+  if (m.provider === 'openrouter') return { reasoning: { effort } };
+  if (m.provider === 'groq' && /gpt-oss/.test(m.id)) return { reasoning_effort: effort };
+  return {};
+}
+const CONTINUE = 'Deine letzte Antwort wurde mitten im Satz oder Code abgeschnitten. Mach nahtlos genau an der Stelle weiter, an der du aufgehört hast. Keine Wiederholung, keine Einleitung, kein Hinweis auf die Unterbrechung.';
+
 // ---------- Ein Modell aufrufen (stream=true: Stücke an onDelta) ----------
-async function callModel(m, messages, { stream, onDelta, onThink, signal, maxTokens }) {
+async function callModel(m, messages, { stream, onDelta, onThink, signal, maxTokens, effort, info = {} }) {
   if (m.provider === 'google') {
     const key = process.env.GOOGLE_API_KEY;
     if (!key) throw new Error('GOOGLE_API_KEY fehlt');
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${m.id}:${stream ? 'streamGenerateContent?alt=sse' : 'generateContent'}`;
-    const r = await fetch(url, { method: 'POST', signal, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(toGemini(m.id, messages)) });
+    const r = await fetch(url, { method: 'POST', signal, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(toGemini(m.id, messages, maxTokens)) });
     if (!r.ok) await failFrom(r);
     const textOf = (d) => (d.candidates?.[0]?.content?.parts || []).filter(p => p.text && !p.thought).map(p => p.text).join('');
-    if (!stream) return textOf(await r.json());
+    if (!stream) { const d = await r.json(); if (d.candidates?.[0]?.finishReason === 'MAX_TOKENS') info.truncated = true; return textOf(d); }
     let full = '';
-    for await (const raw of sseData(r)) { let d; try { d = JSON.parse(raw); } catch (e) { continue; } const th = (d.candidates?.[0]?.content?.parts || []).filter(p => p.text && p.thought).map(p => p.text).join(''); if (th) onThink?.(th); const t = textOf(d); if (t) { full += t; onDelta(t); } }
+    for await (const raw of sseData(r)) { let d; try { d = JSON.parse(raw); } catch (e) { continue; } if (d.candidates?.[0]?.finishReason === 'MAX_TOKENS') info.truncated = true; const th = (d.candidates?.[0]?.content?.parts || []).filter(p => p.text && p.thought).map(p => p.text).join(''); if (th) onThink?.(th); const t = textOf(d); if (t) { full += t; onDelta(t); } }
     return full;
   }
   const cfg = OPENAI_COMPAT[m.provider];
@@ -209,15 +221,16 @@ async function callModel(m, messages, { stream, onDelta, onThink, signal, maxTok
   const r = await fetch(cfg.url, {
     method: 'POST', signal,
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'HTTP-Referer': 'https://coden-ai.vercel.app', 'X-Title': 'Coden AI' },
-    body: JSON.stringify({ model: m.id, messages: toOpenAI(messages), max_tokens: maxTokens || 8192, temperature: 0.7, ...(stream ? { stream: true } : {}) })
+    body: JSON.stringify({ model: m.id, messages: toOpenAI(messages), max_tokens: maxTokens || DEFAULT_MAX, temperature: 0.7, ...effortParams(m, effort), ...(stream ? { stream: true } : {}) })
   });
   if (!r.ok) await failFrom(r);
-  if (!stream) { const d = await r.json(); if (d.error) throw new Error(d.error.message); return d.choices?.[0]?.message?.content || ''; }
+  if (!stream) { const d = await r.json(); if (d.error) throw new Error(d.error.message); if (d.choices?.[0]?.finish_reason === 'length') info.truncated = true; return d.choices?.[0]?.message?.content || ''; }
   let full = '';
   for await (const raw of sseData(r)) {
     if (raw === '[DONE]') break;
     let d; try { d = JSON.parse(raw); } catch (e) { continue; }
     if (d.error) throw new Error(d.error.message || 'Stream-Fehler');
+    if (d.choices?.[0]?.finish_reason === 'length') info.truncated = true;
     const dl = d.choices?.[0]?.delta || {};
     const th = dl.reasoning_content || dl.reasoning; // Denk-Teile: nur als Überschrift an den Nutzer, nie als Antworttext
     if (th && typeof th === 'string') onThink?.(th);
@@ -241,7 +254,7 @@ const findModel = (key) => listModels().find(m => m.key === key) || null;
 // ---------- Kaskade ----------
 // Probiert die Modelle der Stufe der Reihe nach. Fällt eines aus (oder liefert nichts), kommt das nächste.
 // Beim Streamen ist Wechsel nur möglich, solange noch nichts an den Nutzer geschickt wurde.
-async function run(tier, messages, { isOwner = false, stream = false, onDelta = () => {}, onModel = () => {}, onThink, signal, maxTokens, pin } = {}) {
+async function run(tier, messages, { isOwner = false, stream = false, onDelta = () => {}, onModel = () => {}, onThink, signal, maxTokens, effort, pin } = {}) {
   let cascade = CASCADES[tier];
   if (pin) { // ein bestimmtes Modell erzwingen (nur Owner, kein Ausweichen auf andere)
     const m = findModel(pin);
@@ -265,7 +278,14 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
       tried++;
       const filter = new ThinkFilter(tracker ? (t) => tracker.push(t) : undefined);
       const emit = (t) => { const v = filter.push(t); if (v) { if (!sent) { sent = true; clearTimeout(slow); onModel(m); } onDelta(v); } };
-      const full = await callModel(m, messages, { stream, onDelta: emit, onThink: tracker ? (t) => tracker.push(t) : undefined, signal, maxTokens }).catch((e) => { if (sent) e.partial = true; throw e; });
+      const info = {};
+      const call = (msgs) => callModel(m, msgs, { stream, onDelta: emit, onThink: tracker ? (t) => tracker.push(t) : undefined, signal, maxTokens, effort, info }).catch((e) => { if (sent) e.partial = true; throw e; });
+      let full = await call(messages);
+      // Antwort wurde vom Token-Limit abgeschnitten (z. B. langer Code): nahtlos weiterschreiben lassen
+      for (let n = 0; info.truncated && n < 3 && full.trim(); n++) {
+        info.truncated = false;
+        full += await call([...messages, { role: 'assistant', content: full.replace(/<think>[\s\S]*?<\/think>\s*/gi, '') }, { role: 'user', content: CONTINUE }]);
+      }
       if (stream) {
         const rest = filter.flush(); if (rest) { if (!sent) { sent = true; onModel(m); } onDelta(rest); }
         if (!sent) throw new Error('Leere Antwort');
@@ -292,4 +312,4 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
 const generate = async (tier, messages, opts = {}) => (await run(tier, messages, opts)).text;
 const generateStream = (tier, messages, opts) => run(tier, messages, { ...opts, stream: true });
 
-module.exports = { listModels, generate, generateStream, CASCADES, QUOTAS, ThinkFilter, ThinkTracker };
+module.exports = { listModels, generate, generateStream, CASCADES, QUOTAS, ThinkFilter, ThinkTracker, EFFORTS };
