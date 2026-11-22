@@ -16,11 +16,6 @@ const OPENROUTER_FREE = [
   'nvidia/nemotron-3.5-lightning:free',              // klein und schnell
   'liquid/lfm-3-1.7b:free'                           // sehr klein
 ];
-// NVIDIA NIM (build.nvidia.com): gratis ohne Kreditkarte, ca. 40 Anfragen/Minute, große Modelle (Modell-IDs per /v1/models abgefragt, 22.11.2026).
-// Schlägt eines fehl (Limit, nicht freigeschaltet), springt die Kaskade zum nächsten.
-const nvidia = (ids) => ids.map(id => ({ provider: 'nvidia', id }));
-const NVIDIA_STRONG = ['moonshotai/kimi-k3.1-pro', 'mistralai/mistral-large-4-1t-a52b', 'nvidia/nemotron-3-ultra-550b-a55b'];
-const NVIDIA_FAST = ['z-ai/glm-5.3-flash', 'minimaxai/minimax-m3.1-flash', 'nvidia/nemotron-3.5-lightning-30b-a3b'];
 const openrouter = (ids) => ids.map(id => ({ provider: 'openrouter', id }));
 
 // Knappe Gemini-Modelle: nur als LETZTE Rettung (ganz hinten in der Kaskade) und mit Tageslimit.
@@ -41,13 +36,11 @@ const THINKING_FIRST = [
   'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'
 ];
 
-// Coden Ultra: nur die besten der besten, Qualität vor Tempo (deshalb steht hier auch NVIDIA vorn).
+// Coden Ultra: nur die besten der besten, Qualität vor Tempo.
 // Standardmäßig gesperrt, nur der Owner darf (siehe api/index.js).
 const ULTRA = [
   { provider: 'google', id: 'gemini-4-hydrogen' },      // knapp: zählt ins Tageskontingent
-  ...nvidia(['moonshotai/kimi-k3.1-pro', 'mistralai/mistral-large-4-1t-a52b']),
-  ...openrouter(['nvidia/nemotron-3-ultra-550b-a55b:free']),
-  ...nvidia(['nvidia/nemotron-3-ultra-550b-a55b']),
+  ...openrouter(['nvidia/nemotron-3-ultra-550b-a55b:free', 'nvidia/nemotron-3.5-super-vl:free', 'baidu/ernie-5.5-flash-preview:free', 'particle-ai/particle-1:free']),
   { provider: 'groq', id: 'openai/gpt-oss-120b' },
   { provider: 'google', id: 'gemini-3.8-flash' }
 ];
@@ -58,12 +51,10 @@ const CASCADES = {
   flash: [
     { provider: 'google', id: 'gemini-3.5-flash-lite' },
     { provider: 'groq', id: 'openai/gpt-oss-20b' },
-    ...nvidia(NVIDIA_FAST),
     ...openrouter([...OPENROUTER_FREE].reverse())
   ],
-  // Thinking: zuerst die großen NVIDIA-Denkmodelle und ERNIE 5.5 Flash (alle gratis über OpenRouter), dann der Rest, dann Groq
+  // Thinking: zuerst die großen Denkmodelle (Nemotron) und ERNIE 5.5 Flash (alle gratis über OpenRouter), dann der Rest, dann Groq
   normal: [
-    ...nvidia(NVIDIA_STRONG),
     ...openrouter(THINKING_FIRST),
     ...openrouter(OPENROUTER_FREE.filter(m => !THINKING_FIRST.includes(m))),
     { provider: 'groq', id: 'qwen/qwen3.8-27b' },
@@ -74,7 +65,6 @@ const CASCADES = {
   // Pro: stärkste zuerst
   pro: [
     { provider: 'groq', id: 'openai/gpt-oss-120b' },
-    ...nvidia(NVIDIA_STRONG),
     { provider: 'groq', id: 'llama-3.3-70b-versatile' },
     ...openrouter(OPENROUTER_FREE),
     { provider: 'google', id: 'gemini-4-hydrogen' }     // letzte Rettung, begrenzt
@@ -83,7 +73,6 @@ const CASCADES = {
 
 const OPENAI_COMPAT = {
   openrouter: { url: 'https://openrouter.ai/api/v1/chat/completions', env: 'OPENROUTER_API_KEY' },
-  nvidia: { url: 'https://integrate.api.nvidia.com/v1/chat/completions', env: 'NVIDIA_API_KEY' },
   groq: { url: 'https://api.groq.com/openai/v1/chat/completions', env: 'GROQ_API_KEY' },
 };
 
@@ -220,7 +209,7 @@ async function callModel(m, messages, { stream, onDelta, onThink, signal, maxTok
   const r = await fetch(cfg.url, {
     method: 'POST', signal,
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'HTTP-Referer': 'https://coden-ai.vercel.app', 'X-Title': 'Coden AI' },
-    body: JSON.stringify({ model: m.id, messages: toOpenAI(messages), max_tokens: maxTokens || 8192, temperature: 0.7, ...(m.provider === 'nvidia' && /kimi/.test(m.id) ? { reasoning_effort: 'low' } : {}), ...(stream ? { stream: true } : {}) })
+    body: JSON.stringify({ model: m.id, messages: toOpenAI(messages), max_tokens: maxTokens || 8192, temperature: 0.7, ...(stream ? { stream: true } : {}) })
   });
   if (!r.ok) await failFrom(r);
   if (!stream) { const d = await r.json(); if (d.error) throw new Error(d.error.message); return d.choices?.[0]?.message?.content || ''; }
@@ -239,7 +228,7 @@ async function callModel(m, messages, { stream, onDelta, onThink, signal, maxTok
 }
 
 // ---------- Modellliste (für den Befehl /modelle) ----------
-const PROVIDER_NAMES = { nvidia: 'NVIDIA', groq: 'Groq', openrouter: 'OpenRouter', google: 'Google' };
+const PROVIDER_NAMES = { groq: 'Groq', openrouter: 'OpenRouter', google: 'Google' };
 const keyOf = (m) => `${m.provider}:${m.id}`;
 function listModels() {
   const seen = new Map();
