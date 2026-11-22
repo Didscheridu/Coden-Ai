@@ -1,0 +1,90 @@
+/* css/responsive.css – kleine Bildschirme (Handys ab 320 px): nichts ragt aus dem Bildschirm, kein Knopf wird
+   abgeschnitten, Texte brechen um statt zu verschwinden. Wird nach allen anderen Stylesheets geladen. */
+
+/* ---------- Grundregeln: nichts verbreitert die Seite ---------- */
+html, body { max-width: 100%; overflow-x: hidden }
+.main-content, .chat-scroll-area, .view-host, .message-row .content, .answer, .md { min-width: 0 }
+.md, .answer, .stream-error, .followup, .choice, .callout { overflow-wrap: anywhere }
+.md pre, .md code, .md table { overflow-wrap: normal }
+.md img, .md video, .md iframe, .answer img { max-width: 100% }
+.followup span:last-child, .choice { min-width: 0 }
+
+/* ---------- Eingabefeld: alle Knöpfe bleiben im Kasten ---------- */
+.input-footer { gap: 6px; min-width: 0 }
+.input-footer .left-tools { min-width: 0; flex: 0 1 auto }
+.input-footer .right-tools { min-width: 0; flex: 0 0 auto }
+.input-footer .icon-btn { flex: none }
+#current-model-text { white-space: nowrap }
+#model-selector-btn { white-space: nowrap; min-width: 0 }
+
+@media (max-width: 600px) {
+  .input-box { padding: 8px 8px 6px }
+  #live-status-indicator { display: none }                            /* nur noch das Symbol */
+  #live-call-btn { padding: 0 !important; width: 36px; height: 36px; justify-content: center; gap: 0 !important; border-radius: 50% !important }
+  .ml-brand { display: none }                                         /* „Flash“ statt „Coden Flash“ */
+  .input-footer .icon-btn { width: 36px; height: 36px; padding: 0 }
+  .input-footer .icon-btn .material-symbols-outlined { font-size: 22px }
+  #model-selector-btn { padding: 4px 4px 4px 8px; gap: 0; font-size: 13.5px }
+  .input-box.is-streaming #mic-btn { display: none }                  /* beim Antworten Platz für Stopp + Senden */
+  .top-bar #user-email-display { display: none }
+  .top-bar { gap: 8px }
+  .top-bar .brand { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+  .model-dropdown-menu { max-width: calc(100vw - 24px) }
+  .usage-banner { margin-bottom: 6px; font-size: 12.5px }
+
+  /* Nachrichten: Werkzeugleiste unter die Antwort statt daneben (sonst wird „Nachgedacht“ zu „K…“) */
+  .message-row.ai-message { flex-wrap: wrap }
+  .message-row.ai-message .ma-bar { flex-basis: 100%; margin-top: 0 }
+  .message-row.user-message .content { max-width: calc(100% - 44px) }
+  .think-panel summary { flex-wrap: wrap; row-gap: 2px }
+  .think-model { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+
+  /* Hinweis-Leiste (Cookies) über die ganze Breite statt schmaler Kasten */
+  html #cookie-banner { left: 10px; right: 10px; bottom: max(10px, env(safe-area-inset-bottom)); transform: none; max-width: none; padding: 12px 14px; gap: 10px; justify-content: space-between; flex-wrap: nowrap }
+  html #cookie-banner p { min-width: 0; font-size: 12.5px; line-height: 1.4 }
+
+  /* Fenster (Einstellungen, Bestätigen …): volle Breite, Inhalt scrollt, Knöpfe bleiben sichtbar */
+  .modal-content { width: calc(100vw - 20px) !important; max-width: none !important; margin: 10px !important; box-sizing: border-box; max-height: calc(100dvh - 20px) !important }
+  .modal-footer { flex-wrap: wrap; gap: 8px }
+  .modal-footer > button { flex: 1 1 auto }
+  .confirm-buttons { flex-wrap: wrap }
+  .confirm-buttons > button { flex: 1 1 120px }
+}
+
+@media (max-width: 360px) {
+  .input-footer .left-tools, .input-footer .right-tools { gap: 0 !important }
+  .input-footer .icon-btn, #live-call-btn { width: 34px !important; height: 34px !important }
+  #model-selector-btn .material-symbols-outlined { display: none }   /* Pfeil weg, Name bleibt */
+  #model-selector-btn { padding: 4px 6px }
+  .chat-scroll-area { padding: 12px 10px }
+  .brand #owner-badge { display: none !important }
+}
+
+/* ---------- App-Builder: Kopfzeile auf dem Handy (Name wird gekürzt statt überdeckt) ---------- */
+@media (max-width: 600px) {
+  .bl-head { gap: 4px; padding: 8px 8px; min-height: 54px }
+  .bl-head > .grow { display: none }
+  .bl-title { flex: 1 1 0; min-width: 0 }
+  .bl-name { width: 100%; max-width: none !important; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  .bl-head .bl-btn { flex: none; padding-left: 9px; padding-right: 9px }
+  .bl-head .bl-ibtn { width: 36px; height: 36px }
+  .bl-crow { flex-wrap: wrap; row-gap: 6px }
+}
+@media (max-width: 360px) {
+  .bl-head .bl-btn:not(.primary) { display: none }   /* Einladen + Handy-Test bleiben im ⋮-Menü bzw. in der Vorschau */
+}
+
+/* Vorschau-Leiste im Builder: bei schmaler Vorschau nur Symbole, notfalls zweite Zeile */
+.bl-stage { container-type: inline-size; min-width: 0 }
+.bl-toolbar { flex-wrap: wrap; row-gap: 6px; min-width: 0 }
+@container (max-width: 560px) {
+  .bl-toolbar .bl-seg button > span:not(.material-symbols-outlined) { display: none }
+  .bl-toolbar .bl-seg button { padding-left: 8px; padding-right: 8px }
+}
+
+/* Meldungen (Toasts) auf dem Handy: volle Breite, über dem Eingabefeld statt darauf */
+@media (max-width: 600px) {
+  .toasts { left: 10px !important; right: 10px !important; transform: none !important; bottom: calc(118px + env(safe-area-inset-bottom)) !important; align-items: stretch }
+  .toast { max-width: none; width: 100%; box-sizing: border-box }
+  .toast > span:not(.material-symbols-outlined) { flex: 1; min-width: 0 }
+}

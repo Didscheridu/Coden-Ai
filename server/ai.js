@@ -245,7 +245,13 @@ const findModel = (key) => listModels().find(m => m.key === key) || null;
 // ---------- Kaskade ----------
 // Probiert die Modelle der Stufe der Reihe nach. Fällt eines aus (oder liefert nichts), kommt das nächste.
 // Beim Streamen ist Wechsel nur möglich, solange noch nichts an den Nutzer geschickt wurde.
-async function run(tier, messages, { isOwner = false, stream = false, onDelta = () => {}, onModel = () => {}, onThink, signal, maxTokens, effort, pin } = {}) {
+// meter (optional): zählt den Verbrauch für die Nutzungslimits mit; meter.stop = true hält eine zu lange Aufgabe an
+const charsOf = (msgs) => msgs.reduce((n, m) => n + String(m.content || '').length + (m.images?.length || 0) * 3000, 0);
+async function run(tier, messages, { isOwner = false, stream = false, onDelta = () => {}, onModel = () => {}, onThink, signal: outer, maxTokens, effort, pin, meter } = {}) {
+  const stopper = new AbortController(); // bricht den Anbieter-Aufruf ab, wenn das Nutzungslimit überschritten wird
+  const signal = outer ? AbortSignal.any([outer, stopper.signal]) : stopper.signal;
+  const limitHit = () => { stopper.abort(); const e = new Error(meter.message()); e.limit = true; e.status = 429; return e; };
+  if (meter?.stop) throw limitHit();
   let cascade = CASCADES[tier];
   if (pin) { // ein bestimmtes Modell erzwingen (nur Owner, kein Ausweichen auf andere)
     const m = findModel(pin);
@@ -268,9 +274,19 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
       }
       tried++;
       const filter = new ThinkFilter(tracker ? (t) => tracker.push(t) : undefined);
-      const emit = (t) => { const v = filter.push(t); if (v) { if (!sent) { sent = true; clearTimeout(slow); onModel(m); } onDelta(v); } };
+      const emit = (t) => {
+        meter?.add(t.length);
+        const v = filter.push(t); if (v) { if (!sent) { sent = true; clearTimeout(slow); onModel(m); } onDelta(v); }
+        if (meter?.stop) { const e = limitHit(); if (sent) e.partial = true; throw e; }
+      };
+      const thinkIn = (t) => { meter?.add(String(t).length); if (tracker) tracker.push(t); };
       const info = {};
-      const call = (msgs) => callModel(m, msgs, { stream, onDelta: emit, onThink: tracker ? (t) => tracker.push(t) : undefined, signal, maxTokens, effort, info }).catch((e) => { if (sent) e.partial = true; throw e; });
+      const call = async (msgs) => {
+        let got = false;
+        try { const r = await callModel(m, msgs, { stream, onDelta: (t) => { got = true; emit(t); }, onThink: (t) => { got = true; thinkIn(t); }, signal, maxTokens, effort, info }); got = true; if (!stream) meter?.add(r.length); return r; }
+        catch (e) { if (e.limit) throw e; if (signal.aborted && meter?.stop) { const le = limitHit(); if (sent) le.partial = true; throw le; } if (sent) e.partial = true; throw e; }
+        finally { if (got) meter?.add(charsOf(msgs), { input: true }); } // Eingabe nur zählen, wenn das Modell wirklich gearbeitet hat
+      };
       let full = await call(messages);
       // Antwort wurde vom Token-Limit abgeschnitten (z. B. langer Code): nahtlos weiterschreiben lassen
       for (let n = 0; info.truncated && n < 3 && full.trim(); n++) {
@@ -288,7 +304,8 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
       return { text: clean, model: m };
     } catch (e) {
       clearTimeout(slow);
-      if (e.partial) throw e; // schon Text beim Nutzer: nicht mehr wechseln
+      if (e.partial || e.limit) throw e; // schon Text beim Nutzer (oder Limit erreicht): nicht mehr wechseln
+      if (outer?.aborted) throw e;
       console.warn(`[ai] ${m.provider}/${m.id} fehlgeschlagen:`, e.message);
       last = e;
     }
@@ -324,4 +341,4 @@ async function probe(key, messages, { signal, onProgress = () => {}, maxTokens =
 const generate = async (tier, messages, opts = {}) => (await run(tier, messages, opts)).text;
 const generateStream = (tier, messages, opts) => run(tier, messages, { ...opts, stream: true });
 
-module.exports = { probe, TEST_PROMPT, listModels, generate, generateStream, CASCADES, QUOTAS, ThinkFilter, ThinkTracker, EFFORTS };
+module.exports = { CONTINUE, probe, TEST_PROMPT, listModels, generate, generateStream, CASCADES, QUOTAS, ThinkFilter, ThinkTracker, EFFORTS };

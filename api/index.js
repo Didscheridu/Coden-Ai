@@ -7,13 +7,18 @@ const { rateLimit } = require('../server/rateLimit');
 const { generate, generateStream, listModels, probe, TEST_PROMPT } = require('../server/ai');
 const { buddyRouter } = require('../server/buddy');
 const { appsRouter, publicApiRouter, hostedRouter, baseUrl } = require('../server/apps');
-const { generateImage } = require('../server/images');
 const crypto = require('crypto');
 const { mcpRouter } = require('../server/mcp');
 const CodenUpload = require('../shared/upload-check');
 const { wrapRouter } = require('../server/util');
 const { startRun, serveRun, runsRouter } = require('../server/runs');
 const { ensureSchema } = require('../server/schema');
+const { chatJob, continueHandler, makeChatImage } = require('../server/chat-run');
+const { pushRouter } = require('../server/push');
+const { Meter, limitGate, usageRouter } = require('../server/usage');
+const meterFor = (req) => new Meter(req.user, req.body?.tier);
+// Limit-Prüfung braucht die Tabelle: vorher sicherstellen
+const gate = (req, res, next) => ensureSchema().then(() => limitGate(req, res, next), next);
 
 const app = express();
 app.disable('x-powered-by');
@@ -153,51 +158,57 @@ function validChat(body) {
 const effortOf = (b) => (['low', 'medium', 'high'].includes(b?.effort) ? b.effort : undefined);
 const maxTokensOf = (b) => { const n = parseInt(b?.maxTokens, 10); return Number.isFinite(n) ? Math.max(1024, Math.min(n, 16384)) : undefined; };
 
-api.post('/chat', requireAuth, rateLimit('chat', 20, 60), enforceSystemState, async (req, res) => {
+api.post('/chat', requireAuth, rateLimit('chat', 20, 60), enforceSystemState, gate, async (req, res) => {
   if (!validChat(req.body)) return res.status(400).json({ error: 'Ungültige Anfrage.' });
+  const meter = meterFor(req);
   try {
-    res.json({ content: await generate(req.body.tier, req.body.messages, { isOwner: req.user.isOwner, maxTokens: maxTokensOf(req.body), effort: effortOf(req.body), pin: pinOf(req) }) });
+    res.json({ content: await generate(req.body.tier, req.body.messages, { isOwner: req.user.isOwner, maxTokens: maxTokensOf(req.body), effort: effortOf(req.body), pin: pinOf(req), meter }) });
   } catch (e) {
-    res.status(e.status || 502).json({ error: e.message });
-  }
+    res.status(e.status || 502).json({ error: e.message, ...(e.limit ? { code: 'limit' } : {}) });
+  } finally { meter.close(); }
 });
 
 // Live-Streaming (Server-Sent Events): Text kommt Stück für Stück an
-api.post('/chat/stream', requireAuth, rateLimit('chat', 20, 60), enforceSystemState, async (req, res) => {
+api.post('/chat/stream', requireAuth, rateLimit('chat', 20, 60), enforceSystemState, gate, async (req, res) => {
   if (!validChat(req.body)) return res.status(400).json({ error: 'Ungültige Anfrage.' });
   const ac = new AbortController();
   res.on('close', () => { if (!res.writableEnded) ac.abort(); }); // Nutzer hat abgebrochen -> Anbieter nicht weiter belasten
   res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
   const send = (o) => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(o)}\n\n`); };
+  const meter = meterFor(req);
   try {
     await generateStream(req.body.tier, req.body.messages, {
-      isOwner: req.user.isOwner, signal: ac.signal, maxTokens: maxTokensOf(req.body), effort: effortOf(req.body), pin: pinOf(req),
+      isOwner: req.user.isOwner, signal: ac.signal, maxTokens: maxTokensOf(req.body), effort: effortOf(req.body), pin: pinOf(req), meter,
       onModel: (m) => { if (req.user.isOwner) send({ t: 'm', model: m.id }); }, // Modellname sieht nur der Owner
       onThink: (k) => send({ t: 'k', h: k.h, v: k.v }),
       onDelta: (v) => send({ t: 'd', v })
     });
     send({ t: 'done' });
   } catch (e) {
-    send({ t: 'e', error: ac.signal.aborted ? 'abgebrochen' : e.message, partial: !!e.partial });
-  }
+    send({ t: 'e', error: ac.signal.aborted ? 'abgebrochen' : e.message, partial: !!e.partial, ...(e.limit ? { code: 'limit' } : {}) });
+  } finally { meter.close(); }
   res.end();
 });
 
 // Hintergrund-Lauf: wie /chat/stream, aber die Antwort läuft auf dem Server zu Ende, auch wenn die Seite zu ist.
 // Der Client bekommt sofort die Lauf-ID ({t:'run'}) und kann sich später per /runs/:id wieder anhängen.
-api.post('/runs/chat', requireAuth, rateLimit('chat', 20, 60), enforceSystemState, async (req, res) => {
+api.post('/runs/chat', requireAuth, rateLimit('chat', 20, 60), enforceSystemState, gate, async (req, res) => {
   if (!validChat(req.body)) return res.status(400).json({ error: 'Ungültige Anfrage.' });
   const ref = typeof req.body.ref === 'string' && req.body.ref ? req.body.ref.slice(0, 80) : 'chat';
   const m = req.body.meta || {};
-  const meta = { title: String(m.title || '').slice(0, 120), userText: String(m.userText || '').slice(0, 4000), tier: req.body.tier };
+  const meta = { title: String(m.title || '').slice(0, 120), userText: String(m.userText || '').slice(0, 4000), tier: req.body.tier, ...(m.temp ? { temp: true } : {}) };
   await ensureSchema();
-  const { run, done } = await startRun({ uid: req.user.uid, isOwner: req.user.isOwner, kind: 'chat', ref, meta }, (run) =>
-    generateStream(req.body.tier, req.body.messages, {
-      isOwner: req.user.isOwner, signal: run.signal, maxTokens: maxTokensOf(req.body), effort: effortOf(req.body), pin: pinOf(req),
-      onModel: (mm) => run.setModel(mm), onThink: (k) => run.thinkStep(k), onDelta: (v) => run.delta(v)
-    }));
+  const state = {
+    user: { uid: req.user.uid, email: req.user.email, isOwner: req.user.isOwner }, tier: req.body.tier, messages: req.body.messages, title: meta.title,
+    opts: { maxTokens: maxTokensOf(req.body), effort: effortOf(req.body), pin: pinOf(req) },
+    base: baseUrl(req), self: selfUrl(req), leg: 1
+  };
+  const { run, done } = await startRun({ uid: req.user.uid, isOwner: req.user.isOwner, kind: 'chat', ref, meta }, (run) => chatJob(run, state));
   await serveRun(res, run, done);
 });
+// Nächste Etappe eines langen Chat-Laufs (ruft der Server selbst auf, mit Einmal-Schlüssel statt Login)
+api.post('/runs/:id/continue', (req, res, next) => ensureSchema().then(() => continueHandler(req, res)).catch(next));
+const selfUrl = (req) => `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.headers.host}`.replace(/\/$/, '');
 
 // ---------- E-Mail (über das eigene Konto des Nutzers, nur Gmail/Outlook) ----------
 const SMTP = {
@@ -249,19 +260,12 @@ api.post('/live-token', requireAuth, rateLimit('live', 5, 300), async (req, res)
 const { projectsRouter } = require('../server/projects');
 const { serversRouter } = require('../server/servers');
 const needsDb = (req, res, next) => { ensureSchema().then(() => next(), next); };
-api.use('/buddy', needsDb); api.use('/servers', needsDb); api.use('/projects', needsDb); api.use('/apps', needsDb); api.use('/data', needsDb); api.use('/runs', needsDb);
+api.use('/buddy', needsDb); api.use('/servers', needsDb); api.use('/projects', needsDb); api.use('/apps', needsDb); api.use('/data', needsDb); api.use('/runs', needsDb); api.use('/usage', needsDb); api.use('/push', needsDb);
 app.use('/a', needsDb);
 // ---------- KI-Bilder für den normalen Chat (Cloudflare Flux) ----------
 api.post('/image', requireAuth, rateLimit('image', 10, 300), async (req, res) => {
-  const prompt = String(req.body?.prompt || '').trim().slice(0, 1500);
-  if (prompt.length < 3) return res.status(400).json({ error: 'Beschreibe das Bild kurz.' });
-  const [{ n }] = await getSql()`SELECT count(*)::int AS n FROM app_images WHERE uid = ${req.user.uid}`;
-  if (n >= 300 && !req.user.isOwner) return res.status(400).json({ error: 'Du hast das Bild-Limit erreicht (300).' });
-  let img;
-  try { img = await generateImage(prompt); } catch (e) { return res.status(e.status || 502).json({ error: e.message }); }
-  const key = crypto.randomBytes(9).toString('hex');
-  await getSql()`INSERT INTO app_images (key, uid, prompt, mime, data) VALUES (${key}, ${req.user.uid}, ${prompt}, ${img.mime}, ${img.data})`;
-  res.json({ key, url: `${baseUrl(req)}/api/public/img/${key}` });
+  try { res.json(await makeChatImage(req.user, req.body?.prompt, baseUrl(req))); }
+  catch (e) { res.status(e.status || 502).json({ error: e.message }); }
 });
 
 api.use('/buddy', buddyRouter(requireAuth));
@@ -269,6 +273,8 @@ api.use('/mcp', mcpRouter(requireAuth));
 api.use('/projects', projectsRouter(requireAuth));
 api.use('/servers', serversRouter(requireAuth));
 api.use('/runs', runsRouter(requireAuth));
+api.use('/usage', usageRouter(requireAuth, requireOwner));
+api.use('/push', pushRouter(requireAuth));
 api.use('/apps', appsRouter(requireAuth));
 api.use('/public', publicApiRouter());
 app.use('/api', api);

@@ -236,6 +236,7 @@ export const UI = {
     },
 
     renderSidebar: (sessions, activeSessionId) => {
+        sessions = sessions.filter(s => !s.temp); // temporäre Chats tauchen nicht im Verlauf auf
         const list = document.querySelector('.sidebar-scroll-area');
         if (!list) return;
         const collapsed = (() => { try { return JSON.parse(localStorage.getItem('coden_sb_collapsed') || '{}'); } catch (_) { return {}; } })();

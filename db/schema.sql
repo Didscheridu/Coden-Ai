@@ -243,3 +243,29 @@ CREATE INDEX IF NOT EXISTS ai_runs_ref ON ai_runs (kind, ref, created_at DESC);
 -- ===== Neuer App-Typ "game" (Spiele) =====
 ALTER TABLE apps DROP CONSTRAINT IF EXISTS apps_kind_check;
 ALTER TABLE apps ADD CONSTRAINT apps_kind_check CHECK (kind IN ('web','ios','android','both','game'));
+
+-- ===== Nutzungslimits: 5-Stunden-Fenster + Wochenfenster, gefüllt mit Tokens =====
+CREATE TABLE IF NOT EXISTS usage_limits (
+  uid        TEXT PRIMARY KEY,
+  email      TEXT,
+  s_start    TIMESTAMPTZ,                  -- Beginn des aktuellen 5-Stunden-Fensters
+  s_tokens   BIGINT NOT NULL DEFAULT 0,
+  w_start    TIMESTAMPTZ,                  -- Beginn des aktuellen Wochenfensters
+  w_tokens   BIGINT NOT NULL DEFAULT 0,
+  total      BIGINT NOT NULL DEFAULT 0,    -- Verbrauch insgesamt (nur zur Statistik)
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS usage_limits_email ON usage_limits (lower(email));
+
+-- ===== Push-Benachrichtigungen (Coden ist fertig, auch wenn die Seite zu ist) =====
+CREATE TABLE IF NOT EXISTS push_subs (
+  endpoint   TEXT PRIMARY KEY,
+  uid        TEXT NOT NULL,
+  keys       JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS push_subs_uid ON push_subs (uid);
+CREATE TABLE IF NOT EXISTS app_secrets (
+  name  TEXT PRIMARY KEY,
+  value JSONB NOT NULL
+);

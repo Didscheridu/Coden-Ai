@@ -14,7 +14,8 @@ export const Storage = {
     },
 
     saveSessions: (sessions) => {
-        localStorage.setItem('coden_sessions', JSON.stringify(sessions));
+        // Temporäre Chats (wie bei ChatGPT/Claude/Gemini) werden nie gespeichert oder synchronisiert
+        localStorage.setItem('coden_sessions', JSON.stringify(sessions.filter(s => !s.temp)));
         Storage.syncToCloud();
     },
 

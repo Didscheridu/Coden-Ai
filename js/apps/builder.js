@@ -535,7 +535,10 @@ export function mountBuilder(host, appId) {
         const out = (e) => { if (!menu.contains(e.target)) close(); };
         const item = (ic, label, fn, danger) => h('button', { class: 'bl-mi' + (danger ? ' danger' : ''), onclick: () => { close(); fn(); } }, icon(ic), h('span', { text: label }));
         const owner = st.app.role === 'owner';
+        const narrow = window.innerWidth <= 360; // dort sind „Einladen“ und „Auf dem Handy testen“ aus der Kopfzeile ausgeblendet
         const menu = h('div', { class: 'bl-menu' },
+            narrow ? item('group_add', 'Einladen', openInvite) : null,
+            narrow ? item('qr_code_2', 'Auf dem Handy testen', openPhone) : null,
             item('palette', 'Stil ändern', changeStyle),
             item('swap_horiz', 'App-Typ ändern', changeKind),
             item('download', 'Als ZIP herunterladen', downloadZip),

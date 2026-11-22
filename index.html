@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
     <title>Coden AI</title>
     <link rel="icon" href="./images/coden_logo.jpg" type="image/jpeg">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="apple-touch-icon" href="/images/coden_logo.jpg">
+    <meta name="theme-color" content="#131314">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Coden">
     
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -37,6 +42,7 @@
     <link rel="stylesheet" href="css/apps.css">
     <link rel="stylesheet" href="css/mobile.css">
     <link rel="stylesheet" href="css/v3.css">
+    <link rel="stylesheet" href="css/responsive.css">
 
     <style>
         .sidebar.collapsed { display: none; }
@@ -175,7 +181,7 @@
                 <div style="display: flex; align-items: center;">
                     <div class="brand">Coden AI <button type="button" id="chat-project-chip" class="hidden"></button><span id="owner-badge" style="display:none; background:#ff4444; color:white; font-size:10px; padding:2px 6px; border-radius:4px; margin-left:8px; vertical-align:middle;">OWNER</span></div>
                 </div>
-                <div class="tb-right"><button class="icon-btn" id="export-chat-btn" title="Chat als Datei speichern" aria-label="Chat exportieren"><span class="material-symbols-outlined">download</span></button><div id="user-email-display" style="font-size: 13px; color: var(--text-muted);"></div></div>
+                <div class="tb-right"><button class="icon-btn" id="temp-chat-btn" title="Temporärer Chat (wird nicht gespeichert)" aria-label="Temporärer Chat" aria-pressed="false"><span class="material-symbols-outlined">history_toggle_off</span></button><button class="icon-btn" id="export-chat-btn" title="Chat als Datei speichern" aria-label="Chat exportieren"><span class="material-symbols-outlined">download</span></button><div id="user-email-display" style="font-size: 13px; color: var(--text-muted);"></div></div>
             </header>
 
             <div class="chat-scroll-area" id="chat-container">
@@ -260,6 +266,17 @@
                 <input type="text" id="user-name-input" class="settings-input" placeholder="Dein Name" style="margin-bottom: 24px;">
                 <label style="margin-top: 24px; display: block;">🔠 Chat Schriftgröße: <span id="font-size-display">15</span>px</label>
                 <input type="range" id="font-size-slider" min="12" max="22" value="15" class="settings-slider">
+
+                <div class="settings-sec">
+                    <h4>📊 Nutzung</h4>
+                    <div id="usage-box" class="usage-box"></div>
+                </div>
+
+                <div class="settings-sec">
+                    <h4>🔔 Benachrichtigungen</h4>
+                    <p class="settings-hint">Coden meldet sich auf diesem Gerät, wenn eine Antwort oder App fertig ist – auch wenn die Seite komplett geschlossen ist. Auf dem iPhone: Coden zuerst über „Teilen → Zum Home-Bildschirm“ installieren.</p>
+                    <div id="push-row" class="push-row"></div>
+                </div>
                 
                 <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border-color);">
                     <h4 style="margin-bottom: 8px; font-weight: 500; font-size: 14px; color: var(--text-primary);">🎯 Persönliche Anweisungen</h4>
