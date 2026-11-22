@@ -1,12 +1,52 @@
 // js/ui.js
-import { splitArtifacts, Artifacts } from './artifacts.js';
-import { createThinkPanel } from './think-panel.js';
+import { splitArtifacts, Artifacts, ARTIFACT_ICON, ARTIFACT_LABEL } from './artifacts.js';
+import { createThinkPanel, thinkSummary } from './think-panel.js';
+import { splitSuggestions } from './system-prompt.js';
 
 const AI_PROFILE_PIC_SRC = './images/coden_logo.jpg';
 
 // Markdown -> HTML, danach von DOMPurify bereinigt (Schutz vor XSS)
+// Formeln ($…$ und $$…$$) vor marked schützen und danach mit KaTeX zeichnen (Code bleibt unberührt)
+const escHtml = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function protectMath(text) {
+    const math = [];
+    const out = String(text).split(/(```[\s\S]*?(?:```|$)|`[^`\n]*`)/g).map((part, i) => {
+        if (i % 2) return part;
+        return part
+            .replace(/\$\$([\s\S]+?)\$\$/g, (m, f) => { math.push({ f, d: true }); return `@@MATH${math.length - 1}@@`; })
+            .replace(/\\\[([\s\S]+?)\\\]/g, (m, f) => { math.push({ f, d: true }); return `@@MATH${math.length - 1}@@`; })
+            .replace(/(^|[^\\$\w])\$(?=\S)([^$\n]{1,300}?\S)\$(?!\d)/g, (m, pre, f) => { math.push({ f, d: false }); return `${pre}@@MATH${math.length - 1}@@`; })
+            .replace(/\\\(([^\n]+?)\\\)/g, (m, f) => { math.push({ f, d: false }); return `@@MATH${math.length - 1}@@`; });
+    }).join('');
+    return { out, math };
+}
+function renderMath(html, math) {
+    if (!math.length) return html;
+    return html.replace(/@@MATH(\d+)@@/g, (m, i) => {
+        const x = math[+i]; if (!x) return m;
+        try { if (window.katex) return window.katex.renderToString(x.f, { displayMode: x.d, throwOnError: false, output: 'html' }); } catch (_) {}
+        return `<code>${escHtml(x.f)}</code>`;
+    });
+}
 function safeMarkdown(text) {
-    return DOMPurify.sanitize(marked.parse(text), { ADD_ATTR: ['download', 'target'] });
+    const { out, math } = protectMath(text);
+    return renderMath(DOMPurify.sanitize(marked.parse(out), { ADD_ATTR: ['download', 'target'] }), math);
+}
+// > [!TIP] … wird zu einem farbigen Hinweis-Kasten
+const CALLOUT = { NOTE: ['info', 'Hinweis'], TIP: ['lightbulb', 'Tipp'], WARNING: ['warning', 'Achtung'], IMPORTANT: ['priority_high', 'Wichtig'], CAUTION: ['error', 'Vorsicht'] };
+function enhance(root) {
+    root.querySelectorAll('blockquote').forEach(q => {
+        const p = q.firstElementChild; const m = p && p.innerHTML.match(/^\s*\[!(NOTE|TIP|WARNING|IMPORTANT|CAUTION)\]\s*(<br>)?/i); if (!m) return;
+        const k = m[1].toUpperCase(); p.innerHTML = p.innerHTML.slice(m[0].length); if (!p.textContent.trim() && !p.children.length) p.remove();
+        const head = document.createElement('div'); head.className = 'callout-head'; head.innerHTML = '<span class="material-symbols-outlined"></span><b></b>'; head.firstChild.textContent = CALLOUT[k][0]; head.lastChild.textContent = CALLOUT[k][1];
+        q.classList.add('callout', 'callout-' + k.toLowerCase()); q.prepend(head);
+    });
+    root.querySelectorAll('.choices[data-choices]').forEach(box => {
+        let list = []; try { list = JSON.parse(decodeURIComponent(box.dataset.choices)); } catch (_) {}
+        box.removeAttribute('data-choices');
+        list.forEach(c => { const b = document.createElement('button'); b.type = 'button'; b.className = 'choice'; b.textContent = c; b.addEventListener('click', () => { box.querySelectorAll('.choice').forEach(x => { x.disabled = true; }); b.classList.add('picked'); document.dispatchEvent(new CustomEvent('codenFollowup', { detail: c })); }); box.append(b); });
+    });
+    root.querySelectorAll('table').forEach(t => { if (!t.parentElement.classList.contains('table-wrap')) { const w = document.createElement('div'); w.className = 'table-wrap'; t.replaceWith(w); w.append(t); } });
 }
 
 const customRenderer = new marked.Renderer();
@@ -88,19 +128,19 @@ export const UI = {
     },
 
     renderRich: (content, text, msgKey) => {
-        const frag = document.createDocumentFragment(); let n = 0;
-        for (const seg of splitArtifacts(text)) {
+        const frag = document.createDocumentFragment(); let n = 0; const items = [];
+        for (const seg of splitArtifacts(splitSuggestions(text).text)) {
             if (seg.kind === 'text') {
                 if (!seg.text.trim()) continue;
-                const d = document.createElement('div'); d.className = 'md'; d.innerHTML = safeMarkdown(seg.text); frag.appendChild(d);
+                const d = document.createElement('div'); d.className = 'md'; d.innerHTML = safeMarkdown(seg.text); enhance(d); frag.appendChild(d);
             } else {
-                const item = { ...seg, key: msgKey + ':' + (n++) };
+                const item = { ...seg, key: msgKey + ':' + (n++) }; items.push(item);
                 const ver = Artifacts.register(item);
                 const card = document.createElement('button'); card.type = 'button'; card.className = 'artifact-card' + (item.closed ? '' : ' writing'); card._item = item;
-                const ic = document.createElement('span'); ic.className = 'material-symbols-outlined ac-icon'; ic.textContent = { html: 'web', svg: 'draw', markdown: 'article', code: 'code' }[item.type];
+                const ic = document.createElement('span'); ic.className = 'material-symbols-outlined ac-icon'; ic.textContent = ARTIFACT_ICON[item.type] || 'code';
                 const tx = document.createElement('span'); tx.className = 'ac-text';
                 const t = document.createElement('b'); t.textContent = item.title;
-                const sub = document.createElement('small'); sub.textContent = (item.closed ? ({ html: 'Webseite', svg: 'Grafik', markdown: 'Dokument', code: item.language || 'Code' }[item.type]) + (ver > 1 ? ' · Version ' + ver : '') + ' · zum Öffnen klicken' : 'Coden schreibt …');
+                const sub = document.createElement('small'); sub.textContent = (item.closed ? (item.type === 'code' ? (item.language || 'Code') : (ARTIFACT_LABEL[item.type] || 'Artefakt')) + (ver > 1 ? ' · Version ' + ver : '') + ' · zum Öffnen klicken' : 'Coden schreibt …');
                 tx.append(t, sub); card.append(ic, tx);
                 frag.appendChild(card);
             }
@@ -108,6 +148,7 @@ export const UI = {
         content.replaceChildren(frag);
         content.querySelectorAll('.md img').forEach(UI._imageTools);
         content.querySelectorAll('pre code:not(.hljs)').forEach(b => { try { hljs.highlightElement(b); } catch (_) {} });
+        return items;
     },
 
     _newRow: (isUser) => {
@@ -128,29 +169,52 @@ export const UI = {
     },
 
     _msgCounter: 0,
+    busySessions: new Set(),
 
-    appendMessage: (text, isUser, animate = false) => {
-        const { content, chatContainer } = UI._newRow(isUser);
+    appendMessage: (text, isUser, animate = false, extra = {}) => {
+        const { content, row } = UI._newRow(isUser);
         if (isUser) { content.innerHTML = safeMarkdown(text); }
-        else { UI.renderRich(content, text, 'm' + (++UI._msgCounter)); }
+        else {
+            const think = thinkSummary(extra.think); const answer = document.createElement('div'); answer.className = 'answer';
+            if (think) content.append(think); content.append(answer);
+            UI.renderRich(answer, text, 'm' + (++UI._msgCounter));
+            if (extra.last) UI.addSuggestions(row, text);
+        }
         UI.scrollToBottom(true);
+        return row;
     },
 
-    // Live-Streaming: update(fullText) wird oft aufgerufen, gezeichnet wird höchstens einmal pro Bildschirm-Frame
-    createStreamingMessage: () => {
+    // Vorschläge für die nächste Frage (wie bei Perplexity): nur unter der letzten Antwort
+    addSuggestions: (row, text) => {
+        document.querySelectorAll('.followups').forEach(f => f.remove());
+        const { items } = splitSuggestions(text); if (!items.length) return;
+        const box = document.createElement('div'); box.className = 'followups';
+        items.forEach(q => { const b = document.createElement('button'); b.type = 'button'; b.className = 'followup'; b.innerHTML = '<span class="material-symbols-outlined">subdirectory_arrow_right</span><span></span>'; b.lastChild.textContent = q; b.addEventListener('click', () => document.dispatchEvent(new CustomEvent('codenFollowup', { detail: q }))); box.append(b); });
+        row.querySelector('.content')?.append(box);
+    },
+
+    // Live-Streaming: update(fullText) wird oft aufgerufen, gezeichnet wird höchstens einmal pro Bildschirm-Frame.
+    // Oben die Denk-Anzeige (bleibt nach der Antwort als "Hat 12 s nachgedacht" stehen), darunter die Antwort.
+    createStreamingMessage: ({ startedAt } = {}) => {
         const { row, content, chatContainer } = UI._newRow(false);
         const key = 'm' + (++UI._msgCounter);
         row.classList.add('streaming');
-        const panel = createThinkPanel(); content.replaceChildren(panel.el);
-        let latest = '', raf = 0, started = false;
+        const panel = createThinkPanel({ startedAt }); const answer = document.createElement('div'); answer.className = 'answer';
+        content.replaceChildren(panel.el, answer);
+        let latest = '', raf = 0, started = false, info = null; const opened = new Set();
         const stick = () => chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 140;
-        const paint = () => { raf = 0; const follow = stick(); UI.renderRich(content, latest, key); if (follow) chatContainer.scrollTop = chatContainer.scrollHeight; };
+        // Neues Artefakt im Text? -> Fenster sofort öffnen und live mitschreiben lassen (wie bei Claude); auf dem Handy nur die Karte
+        const autoOpen = (items) => { const it = items[items.length - 1]; if (!it || opened.has(it.key) || window.innerWidth < 900 || !row.isConnected) return; opened.add(it.key); Artifacts.open(it); };
+        const paint = () => { raf = 0; const follow = stick(); autoOpen(UI.renderRich(answer, latest, key)); if (follow) chatContainer.scrollTop = chatContainer.scrollHeight; };
+        const end = () => { if (!info) { info = panel.done(); if (!(info.secs >= 2 || info.steps.length)) panel.remove(); } return info; };
         return {
+            row, attached: () => row.isConnected,
             think: (k) => panel.think(k), model: (n) => panel.model(n),
-            update(text) { latest = text; if (!started && text.trim()) started = true; if (started && !raf) raf = requestAnimationFrame(paint); },
-            finish(text) { cancelAnimationFrame(raf); raf = 0; latest = text; row.classList.remove('streaming'); if (!text.trim()) { row.remove(); return; } UI.renderRich(content, text, key); chatContainer.scrollTop = chatContainer.scrollHeight; },
-            fail(msg) { cancelAnimationFrame(raf); raf = 0; row.classList.remove('streaming'); const note = document.createElement('div'); note.className = 'stream-error'; note.textContent = msg; if (!latest.trim()) content.replaceChildren(note); else content.appendChild(note); },
-            remove() { cancelAnimationFrame(raf); row.remove(); }
+            update(text) { latest = text; if (!started && text.trim()) { started = true; end(); } if (started && !raf) raf = requestAnimationFrame(paint); },
+            finish(text) { cancelAnimationFrame(raf); raf = 0; latest = text; row.classList.remove('streaming'); const i = end(); if (!text.trim()) { row.remove(); return i; } UI.renderRich(answer, text, key); UI.addSuggestions(row, text); if (stick()) chatContainer.scrollTop = chatContainer.scrollHeight; return i; },
+            fail(msg) { cancelAnimationFrame(raf); raf = 0; row.classList.remove('streaming'); end(); const note = document.createElement('div'); note.className = 'stream-error'; note.textContent = msg; answer.appendChild(note); },
+            info: () => info,
+            remove() { cancelAnimationFrame(raf); panel.remove(); row.remove(); }
         };
     },
 
@@ -182,8 +246,9 @@ export const UI = {
             head.addEventListener('click', () => { wrap.classList.toggle('closed'); collapsed[key] = wrap.classList.contains('closed'); try { localStorage.setItem('coden_sb_collapsed', JSON.stringify(collapsed)); } catch (_) {} });
             const body = document.createElement('div'); body.className = 'sb-body';
             items.forEach(sess => {
-                const row = document.createElement('div'); row.className = 'sb-chat' + (sess.id === activeSessionId ? ' active' : '');
-                const ic = Object.assign(document.createElement('span'), { className: 'material-symbols-outlined', textContent: sess.pinned ? 'keep' : 'chat_bubble' });
+                const busy = UI.busySessions?.has(sess.id);
+                const row = document.createElement('div'); row.className = 'sb-chat' + (sess.id === activeSessionId ? ' active' : '') + (sess.unread ? ' unread' : '') + (busy ? ' busy' : '');
+                const ic = Object.assign(document.createElement('span'), { className: 'material-symbols-outlined' + (busy ? ' sb-spin' : ''), textContent: busy ? 'progress_activity' : sess.pinned ? 'keep' : 'chat_bubble' });
                 const title = document.createElement('span'); title.className = 'session-title'; title.textContent = sess.title; // Titel stammen von der KI: nur textContent
                 const act = document.createElement('span'); act.className = 'sb-actions';
                 const pin = Object.assign(document.createElement('button'), { className: 'sb-act', title: sess.pinned ? 'Lösen' : 'Anheften', type: 'button' }); pin.innerHTML = '<span class="material-symbols-outlined">' + (sess.pinned ? 'keep_off' : 'keep') + '</span>';

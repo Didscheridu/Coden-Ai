@@ -16,11 +16,21 @@ Das Backend braucht keinen Firebase-Schlüssel: Es prüft die Login-Tokens über
 - E-Mail-Passwörter und eigene Keys werden nie in der Datenbank gespeichert.
 - Live-Call nutzt kurzlebige Einmal-Tokens statt des echten Google-Keys.
 
-## Neu: Streaming, Artefakte, Code Buddy
+## Neu: Hintergrund-Läufe, Agententeam, Spiele, neuer Systemprompt
+
+- **Hintergrund-Läufe** (`server/runs.js`, Tabelle `ai_runs`): Chat-Antworten (`POST /api/runs/chat`) und der App-Agent (`POST /api/apps/:id/agent`) laufen auf dem Server zu Ende – auch wenn die Seite geschlossen, der Chat gewechselt oder das Handy gesperrt wird (`waitUntil` von `@vercel/functions`). Der Stand wird alle 0,7 s gespeichert. Beim Öffnen (und alle 30 s, beim Zurückkehren in den Tab) holt Coden laufende und fertige Antworten ab (`GET /api/runs`, `/runs/:id`, `/runs/:id/claim`, `/runs/:id/stop`). Nur ein Gerät übernimmt eine fertige Antwort, es gibt keine doppelten Nachrichten. Mehrere Chats können gleichzeitig arbeiten.
+- **Denk-Anzeige wie bei Claude/ChatGPT**: Timer („Denkt nach · 12 s“ → „Hat 34 s nachgedacht“), Liste der Denk-Schritte, Hinweis „du kannst die Seite schließen“, Knopf „Benachrichtigen“ (Browser-Benachrichtigung + ✓ im Tab-Titel, wenn Coden fertig ist), Lade-Symbol und Ungelesen-Punkt in der Seitenleiste.
+- **Systemprompt** (`js/system-prompt.js`): ein Element-Katalog für alle Modelle – genau welcher Block welches Element erzeugt (Markdown, Tabellen, Formeln mit KaTeX, Hinweis-Kästen `> [!TIP]`, aufklappbare Details, Artefakte, KI-Bilder, Rückfragen mit Antwort-Knöpfen `<choices>`, Folgefragen `<suggestions>`) plus Qualitätsregeln.
+- **Neue Artefakttypen**: `react` (JSX + Hooks + Tailwind), `mermaid` (Abläufe, Mindmaps, Zeitleisten …), `chart` (Chart.js-JSON), `table` (CSV → sortierbare, durchsuchbare Tabelle), `slides` (Präsentation aus Markdown), `python` (läuft im Browser über Pyodide, inkl. matplotlib). Das Artefakt-Fenster öffnet sich beim Schreiben automatisch und lässt sich in der Breite ziehen (Doppelklick = Standard).
+- **Agententeam im App-Builder** (`server/agents.js`, `shared/agent-core.js`): Planer → bis zu 4 parallele Coder mit gemeinsamem „Vertrag“ (IDs, Funktionen) → Prüfer (Syntax, fehlende Dateien/Elemente, KI-Prüfung ob die Teile zusammenpassen) → Fixer (max. 2 Runden) → Bild-Agent. Modus im Builder: Auto / Team / Solo. Die Übersicht zeigt live, welcher Sub-Agent woran arbeitet – auch nach dem Neuladen und für eingeladene Mitbauer.
+- **Spiele**: neuer App-Typ „Spiel“ mit 8 fertigen Vorlagen (Leeres Spiel, Jump & Run, Weltraum-Shooter, Breakout, Flatter-Vogel, Snake, 2048, Memory) und `Coden.game` im Kit: Spielschleife mit Skalierung, Tastatur/Maus/Touch-Joystick, Wischgesten, Sound ohne Dateien, Partikel, Screen-Shake, Rekorde.
+- **Layout**: Chat-Spalte mit festen Rändern statt Prozent, flüssige Schriftgröße, echte Handy-Höhe (`dvh`, Safe Areas), Seitenleiste auf dem Handy zu und per Tipp daneben schließbar, Artefakte auf dem Handy als Vollbild-Blatt.
+- Nach dem Update legt das Backend `ai_runs` und den neuen App-Typ selbst an (`db/schema.sql`, idempotent).
+
+## Streaming, Artefakte, Code Buddy
 
 - **Live-Streaming**: `POST /api/chat/stream` (Server-Sent Events). Die Antwort erscheint beim Schreiben; der Senden-Button wird währenddessen zu „Stopp".
 - **Artefakte**: Coden packt Webseiten, SVGs, Dokumente und größeren Code in `<artifact …>`-Blöcke. Sie öffnen sich rechts (Vorschau/Code, Kopieren, Download, Vollbild, Versionen). HTML läuft in einer Sandbox ohne Netzwerk und ohne Zugriff auf Login oder Daten.
-- **Kontingent**: `gemini-4-hydrogen` und `gemini-3.8-flash` stehen ganz hinten in der Kaskade (letzte Rettung). Pro Tag (Pacific-Zeit) maximal 20 Aufrufe, davon 10 für alle Nutzer, die übrigen 10 nur für den Owner. Einstellbar über `GEMINI_*`-Variablen (siehe `.env.example`).
 - **Code Buddy**: Profil mit @Handle, Freundschaftsanfragen, Direktnachrichten und gemeinsame Projekte (Dateien mit Versionsprüfung, Projekt-Chat). Alle Rechte werden im Backend geprüft (`server/buddy.js`). Nach dem Update einmal `npm run db:migrate` ausführen.
 - Tests: `npm test` (Backend, Kontingent, Streaming, Code Buddy gegen echtes Postgres in WASM).
 

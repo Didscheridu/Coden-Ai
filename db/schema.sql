@@ -218,3 +218,28 @@ CREATE INDEX IF NOT EXISTS dm_ai_for ON dm_messages (ai_for, created_at) WHERE a
 CREATE INDEX IF NOT EXISTS server_ai_for ON server_messages (ai_for, created_at) WHERE ai_for IS NOT NULL;
 ALTER TABLE app_members DROP CONSTRAINT IF EXISTS app_members_role_check;
 ALTER TABLE app_members ADD CONSTRAINT app_members_role_check CHECK (role IN ('owner','editor','viewer'));
+
+-- ===== Hintergrund-Läufe: KI arbeitet auf dem Server weiter, auch wenn die Seite zu ist =====
+CREATE TABLE IF NOT EXISTS ai_runs (
+  id         BIGSERIAL PRIMARY KEY,
+  uid        TEXT NOT NULL,
+  kind       TEXT NOT NULL,                       -- chat | app
+  ref        TEXT NOT NULL,                       -- Chat-ID oder App-ID
+  status     TEXT NOT NULL DEFAULT 'running',     -- running | done | error | stopped
+  text       TEXT NOT NULL DEFAULT '',
+  think      JSONB NOT NULL DEFAULT '{}'::jsonb,  -- aktueller Denk-Schritt + bisherige Schritte
+  agents     JSONB NOT NULL DEFAULT '[]'::jsonb,  -- Sub-Agenten (App-Builder)
+  model      TEXT,
+  error      TEXT,
+  meta       JSONB NOT NULL DEFAULT '{}'::jsonb,
+  stop       BOOLEAN NOT NULL DEFAULT false,
+  claimed    BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ai_runs_uid ON ai_runs (uid, created_at DESC);
+CREATE INDEX IF NOT EXISTS ai_runs_ref ON ai_runs (kind, ref, created_at DESC);
+
+-- ===== Neuer App-Typ "game" (Spiele) =====
+ALTER TABLE apps DROP CONSTRAINT IF EXISTS apps_kind_check;
+ALTER TABLE apps ADD CONSTRAINT apps_kind_check CHECK (kind IN ('web','ios','android','both','game'));

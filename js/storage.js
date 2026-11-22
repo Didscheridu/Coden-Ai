@@ -44,6 +44,13 @@ export const Storage = {
         }, 1500);
     },
 
+    // sofort hochladen (z. B. direkt nach dem Senden, damit andere Geräte die Frage sehen)
+    syncNow: () => {
+        if (!auth.currentUser) return;
+        clearTimeout(syncTimer);
+        apiJson('/data', { method: 'PUT', body: JSON.stringify({ sessions: Storage.getSessions(), settings: Storage.getSettings() }) }).catch((e) => console.error('Cloud Sync Error:', e));
+    },
+
     loadFromCloud: async () => {
         if (!auth.currentUser) return false;
         try {

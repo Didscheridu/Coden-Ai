@@ -1,0 +1,133 @@
+/* css/v3.css – neues Layout & Skalierung, Denk-Anzeige, Vorschläge, Hinweis-Kästen, Artefakt-Fenster, Agenten.
+   Wird zuletzt geladen und überschreibt ältere Regeln gezielt. */
+:root {
+  --col: 800px;                                  /* Breite der Chat-Spalte */
+  --gutter: clamp(12px, 3vw, 28px);              /* Rand, wächst mit dem Bildschirm */
+  --ap-w: min(46vw, 820px);                      /* Breite des Artefakt-Fensters (per Ziehen änderbar) */
+  --chat-font-size: clamp(14.5px, .25vw + 13.6px, 16px);
+  --radius-lg: 18px;
+}
+
+/* ---------- Chat-Spalte: zentriert, mit festen Rändern statt Prozent ---------- */
+.chat-scroll-area { padding: 20px max(var(--gutter), calc((100% - var(--col)) / 2)); scroll-padding-bottom: 120px; overscroll-behavior: contain }
+.input-section { padding: 10px max(var(--gutter), calc((100% - var(--col)) / 2)) max(18px, env(safe-area-inset-bottom)) }
+.message-row .content { font-size: var(--chat-font-size) }
+.ai-message .content { max-width: 100%; flex: 1 }
+.message-row.user-message .content { max-width: min(80%, 640px) }
+.md img, .answer img { max-width: 100%; height: auto }
+.md pre, .answer pre { max-width: 100%; overflow-x: auto }
+.table-wrap { overflow-x: auto; margin: 10px 0; border: 1px solid var(--border-color); border-radius: 12px }
+.table-wrap table { border-collapse: collapse; width: 100%; font-size: .94em }
+.table-wrap th, .table-wrap td { padding: 8px 12px; border-bottom: 1px solid rgba(255, 255, 255, .07); text-align: left; vertical-align: top }
+.table-wrap th { background: rgba(255, 255, 255, .04); font-weight: 600; white-space: nowrap }
+.table-wrap tr:last-child td { border-bottom: 0 }
+.katex-display { overflow-x: auto; overflow-y: hidden; padding: 4px 0 }
+@media (min-width: 1600px) { :root { --col: 880px } }
+
+/* Artefakt-Fenster: Breite per Variable, ziehbarer Rand, Chat rückt passend zur Seite */
+.artifact-panel { width: var(--ap-w) }
+body.artifact-open .main-content { margin-right: var(--ap-w) }
+body.ap-resizing, body.ap-resizing * { cursor: col-resize !important; user-select: none }
+body.ap-resizing .artifact-panel, body.ap-resizing .main-content { transition: none !important }
+body.ap-resizing iframe { pointer-events: none }
+.ap-grip { position: absolute; left: -5px; top: 0; bottom: 0; width: 10px; cursor: col-resize; z-index: 2 }
+.ap-grip::after { content: ''; position: absolute; left: 4px; top: 50%; width: 3px; height: 44px; margin-top: -22px; border-radius: 3px; background: rgba(255, 255, 255, .18); opacity: 0; transition: opacity .2s }
+.ap-grip:hover::after, body.ap-resizing .ap-grip::after { opacity: 1 }
+.artifact-panel.full { width: 100vw } body.artifact-open .artifact-panel.full ~ .main-content { margin-right: 0 }
+@media (max-width: 900px) {
+  .artifact-panel { width: 100vw !important; height: 100dvh; top: auto; border-left: 0; border-radius: 18px 18px 0 0; transform: translateY(105%) }
+  .artifact-panel.open { transform: none } .ap-grip { display: none }
+  body.artifact-open .main-content { margin-right: 0 }
+  .ap-head { padding: 8px 10px; flex-wrap: wrap } .ap-toapp-t { display: none }
+}
+
+/* ---------- Mobile: echte Bildschirmhöhe, sichere Ränder ---------- */
+@media (max-width: 768px) {
+  .sidebar { height: 100dvh }
+  .input-section { padding: 8px 10px max(12px, env(safe-area-inset-bottom)) !important }
+  .chat-scroll-area { padding: 14px 12px }
+  .message-row { gap: 10px; margin-bottom: 20px }
+  .message-row .avatar { flex-basis: 30px; width: 30px; height: 30px }
+  .ai-message .avatar { display: none }
+  .top-bar { padding: 10px 12px }
+}
+
+/* ---------- Denk-Anzeige (Timer, Schritte, Hintergrund-Hinweis) ---------- */
+.think-panel { margin: 0 0 6px; border-radius: 12px }
+.think-panel summary { cursor: pointer; gap: 8px; padding: 6px 0; user-select: none }
+.think-panel:not(.live) .typing-dots { display: none }
+.think-panel:not(.live) summary::before { content: 'psychology'; font-family: 'Material Symbols Outlined'; font-size: 18px; color: var(--accent-blue); opacity: .9 }
+.think-panel.live .think-head { background: linear-gradient(90deg, var(--text-muted) 0%, var(--text-primary) 45%, var(--text-muted) 90%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 2.2s linear infinite }
+@keyframes shimmer { from { background-position: 200% 0 } to { background-position: -200% 0 } }
+.think-time { flex: none; font-variant-numeric: tabular-nums; color: var(--text-muted); font-size: 12px }
+.think-chev { display: inline-block !important; opacity: .7 }
+.think-panel:not(.has-steps):not(.has-body) .think-chev { display: none !important }
+.think-steps { list-style: none; margin: 2px 0 6px 6px; padding: 0 0 0 12px; border-left: 2px solid rgba(138, 180, 248, .25); display: none }
+.think-panel[open] .think-steps { display: block }
+.think-steps li { position: relative; font-size: 12.5px; line-height: 1.45; padding: 3px 0; color: var(--text-secondary) }
+.think-steps li::before { content: 'check_circle'; font-family: 'Material Symbols Outlined'; font-size: 14px; position: absolute; left: -20px; top: 3px; background: var(--bg-main); color: var(--accent-green) }
+.think-steps li.now { color: var(--text-primary) } .think-steps li.now::before { content: 'radio_button_checked'; color: var(--accent-blue); animation: pulse 1.4s ease-in-out infinite }
+.think-body { display: none } .think-panel[open] .think-body { display: block }
+.think-note { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0 2px; padding: 8px 10px; border-radius: 10px; background: rgba(138, 180, 248, .08); border: 1px solid rgba(138, 180, 248, .18); font-size: 12.5px; color: var(--text-secondary); animation: thinkfade .4s ease }
+.think-note[hidden] { display: none } .think-note > .material-symbols-outlined { font-size: 18px; color: var(--accent-blue) }
+.think-notify { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; border: 1px solid rgba(138, 180, 248, .4); background: transparent; color: var(--accent-blue); border-radius: 999px; padding: 4px 10px; font: 600 12px var(--font-main); cursor: pointer }
+.think-notify:hover { background: rgba(138, 180, 248, .12) } .think-notify .material-symbols-outlined { font-size: 16px }
+
+/* ---------- Vorschläge & Antwort-Knöpfe ---------- */
+.followups { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; animation: thinkfade .4s ease }
+.followup { display: flex; align-items: center; gap: 8px; width: fit-content; max-width: 100%; text-align: left; background: transparent; border: 1px solid var(--border-color); color: var(--text-secondary); border-radius: 12px; padding: 7px 12px; font: 13.5px var(--font-main); cursor: pointer; transition: border-color .15s, color .15s, background .15s }
+.followup:hover { border-color: var(--accent-blue); color: var(--text-primary); background: rgba(138, 180, 248, .06) }
+.followup .material-symbols-outlined { font-size: 17px; color: var(--accent-blue) }
+.choices { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 }
+.choice { background: var(--bg-surface); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 999px; padding: 8px 16px; font: 500 14px var(--font-main); cursor: pointer; transition: transform .15s, border-color .15s, background .15s }
+.choice:hover:not(:disabled) { border-color: var(--accent-blue); transform: translateY(-1px) }
+.choice:disabled { opacity: .45; cursor: default } .choice.picked { opacity: 1; background: var(--accent-blue); color: #0b1d3a; border-color: var(--accent-blue) }
+
+/* ---------- Hinweis-Kästen (> [!TIP]) ---------- */
+.md blockquote.callout { border-left: 3px solid var(--c, #a8c7fa); background: color-mix(in srgb, var(--c, #a8c7fa) 9%, transparent); border-radius: 0 12px 12px 0; padding: 10px 14px; margin: 12px 0; color: var(--text-primary) }
+.callout-head { display: flex; align-items: center; gap: 6px; font-weight: 600; color: var(--c); margin-bottom: 4px } .callout-head .material-symbols-outlined { font-size: 18px }
+.callout-note { --c: #a8c7fa } .callout-tip { --c: #6dd58c } .callout-warning { --c: #fdd663 } .callout-important { --c: #c58af9 } .callout-caution { --c: #f28b82 }
+.md details { border: 1px solid var(--border-color); border-radius: 12px; padding: 8px 12px; margin: 10px 0 } .md details summary { cursor: pointer; font-weight: 600 }
+
+/* ---------- Seitenleiste: Chat arbeitet / neue Antwort ---------- */
+.sb-chat.busy .material-symbols-outlined:first-child { color: var(--accent-blue); opacity: 1 }
+.sb-spin { animation: spin 1s linear infinite } @keyframes spin { to { transform: rotate(360deg) } }
+.sb-chat.unread .session-title { color: var(--text-primary); font-weight: 600 }
+.sb-chat.unread::after { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--accent-blue); flex: none }
+
+/* ---------- App-Builder: Agenten-Team ---------- */
+.ag-team { margin: 4px 0 10px; border: 1px solid var(--border-color); border-radius: 14px; overflow: hidden; background: rgba(255, 255, 255, .02) }
+.ag-team-h { display: flex; align-items: center; gap: 8px; padding: 9px 12px; font-size: 13px; font-weight: 600; border-bottom: 1px solid var(--border-color) }
+.ag-team-h .material-symbols-outlined { font-size: 18px; color: var(--accent-blue) } .ag-team-h small { margin-left: auto; color: var(--text-muted); font-weight: 400; font-variant-numeric: tabular-nums }
+.ag-row { display: grid; grid-template-columns: 26px 1fr auto; gap: 8px; align-items: center; padding: 7px 12px; font-size: 13px; border-bottom: 1px solid rgba(255, 255, 255, .04) }
+.ag-row:last-child { border-bottom: 0 }
+.ag-ic { width: 26px; height: 26px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; background: rgba(138, 180, 248, .12); color: var(--accent-blue) } .ag-ic .material-symbols-outlined { font-size: 16px }
+.ag-row.done .ag-ic { background: rgba(109, 213, 140, .14); color: var(--accent-green) } .ag-row.error .ag-ic { background: rgba(242, 139, 130, .14); color: #f28b82 }
+.ag-row.wait { opacity: .55 }
+.ag-t b { font-weight: 600 } .ag-t small { display: block; color: var(--text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100% }
+.ag-st { color: var(--text-muted); font-size: 12px; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap }
+.ag-row.run .ag-st::before { content: ''; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--accent-blue); border-right-color: transparent; animation: spin .8s linear infinite }
+.bl-bg-note { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--text-muted); padding: 2px 4px 8px } .bl-bg-note .material-symbols-outlined { font-size: 16px; color: var(--accent-blue) }
+
+/* Spiele-Vorlagen im Assistenten */
+.gm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; margin-top: 8px }
+.gm-card { position: relative; text-align: left; border: 1px solid var(--border-color); background: var(--bg-surface); border-radius: 16px; padding: 0; overflow: hidden; cursor: pointer; color: var(--text-primary); font: inherit; transition: transform .2s var(--ease, ease), border-color .2s, box-shadow .2s }
+.gm-card:hover, .gm-card.active { transform: translateY(-3px); border-color: var(--accent-blue); box-shadow: 0 12px 30px rgba(0, 0, 0, .35) }
+.gm-card.active { outline: 2px solid var(--accent-blue) }
+.gm-art { height: 92px; display: flex; align-items: center; justify-content: center; font-size: 44px; background: var(--g, linear-gradient(135deg, #3b5bdb, #9c36b5)) }
+.gm-card b { display: block; padding: 10px 12px 0; font-size: 14px } .gm-card small { display: block; padding: 2px 12px 12px; color: var(--text-muted); font-size: 12px; line-height: 1.4 }
+
+/* Assistent: Spiel-Kachel, Agenten-Modus im Builder */
+.ka.game { right: 4px; bottom: -8px; font-size: 64px; filter: drop-shadow(0 8px 18px rgba(0, 0, 0, .4)) }
+.bl-mode { background: var(--bg-surface); color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 999px; padding: 4px 8px; font: 500 12px var(--font-main); cursor: pointer; max-width: 110px }
+.bl-mode:hover { color: var(--text-primary); border-color: var(--accent-blue) }
+.table-wrap table, .table-wrap th, .table-wrap td { border-left: 0 !important; border-right: 0 !important; border-top: 0 !important }
+/* Builder-Eingabe: Stufen, Denkaufwand und Modus umbrechen statt abzuschneiden */
+.bl-crow { flex-wrap: wrap; row-gap: 6px }
+.bl-tiers { flex-wrap: wrap; row-gap: 4px; max-width: 100%; align-items: center; gap: 2px }
+.bl-tiers .effort-seg { margin-left: 4px }
+.bl-tiers .bl-mode { margin-left: 4px }
+
+@media (max-width: 768px) {
+  body:has(.sidebar:not(.collapsed)) .main-content::after { content: ''; position: fixed; inset: 0; background: rgba(0, 0, 0, .5); z-index: 9998; animation: fade .2s both }
+}

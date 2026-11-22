@@ -5,6 +5,7 @@ import { Router } from '../router.js';
 import { toast } from '../toast.js';
 import { h, icon, timeAgo, copy } from './dom.js';
 import { KINDS, scaffold, fromArtifact } from './templates.js';
+import { GAME_TEMPLATES } from './games.js';
 import { mountBuilder, stylePreview, loadStyleFonts } from './builder.js';
 
 const S = () => window.CodenStyles;
@@ -20,8 +21,8 @@ export const AppsView = {
 };
 
 // Neue App direkt anlegen (z. B. aus einem Artefakt) und öffnen
-export async function createApp({ name, kind, style = '', files, prompt }) {
-    const r = await apiJson('/apps', { method: 'POST', body: JSON.stringify({ name, kind, style, files: files || scaffold(kind, name) }) });
+export async function createApp({ name, kind, style = '', files, prompt, template }) {
+    const r = await apiJson('/apps', { method: 'POST', body: JSON.stringify({ name, kind, style, files: files || scaffold(kind, name, template) }) });
     if (prompt) sessionStorage.setItem('coden_app_prompt_' + r.app.id, prompt);
     Router.go('apps/' + r.app.id);
     return r.app;
@@ -46,9 +47,9 @@ async function gallery(host) {
         filters, grid);
     host.append(page);
     grid.append(...Array.from({ length: 3 }, () => h('div', { class: 'ap-card skeleton' })));
-    const drawFilters = () => filters.replaceChildren(...[['all', 'Alle'], ['web', 'Webseiten'], ['mobile', 'Handy-Apps'], ['shared', 'Geteilt'], ['live', 'Online']].map(([k, l]) =>
+    const drawFilters = () => filters.replaceChildren(...[['all', 'Alle'], ['web', 'Webseiten'], ['mobile', 'Handy-Apps'], ['game', 'Spiele'], ['shared', 'Geteilt'], ['live', 'Online']].map(([k, l]) =>
         h('button', { class: 'ap-chip' + (filter === k ? ' active' : ''), onclick: () => { filter = k; localStorage.setItem('coden_apps_filter', k); drawFilters(); draw(); } }, l, h('span', { text: String(count(k)) }))));
-    const match = (a, k) => k === 'all' || (k === 'web' && a.kind === 'web') || (k === 'mobile' && a.kind !== 'web') || (k === 'shared' && (a.members > 1 || a.role !== 'owner')) || (k === 'live' && a.published);
+    const match = (a, k) => k === 'all' || (k === 'web' && a.kind === 'web') || (k === 'mobile' && !['web', 'game'].includes(a.kind)) || (k === 'game' && a.kind === 'game') || (k === 'shared' && (a.members > 1 || a.role !== 'owner')) || (k === 'live' && a.published);
     const count = (k) => all.filter(a => match(a, k)).length;
     const draw = () => {
         const list = all.filter(a => match(a, filter));
@@ -56,7 +57,7 @@ async function gallery(host) {
             grid.replaceChildren(h('div', { class: 'ap-empty wide' }, h('div', { class: 'ap-empty-art' }, icon('phone_iphone'), icon('language'), icon('android')),
                 h('h2', { text: 'Deine erste App wartet' }), h('p', { text: 'Wähle, ob es eine Webseite oder eine Handy-App wird, such dir einen Stil aus und beschreibe deine Idee. Coden baut sie live vor deinen Augen.' }),
                 h('button', { class: 'ap-new', onclick: () => Router.go('apps/neu') }, icon('add'), 'App erstellen'),
-                h('div', { class: 'ap-examples' }, [['Habit-Tracker', 'both', 'Ein Habit-Tracker mit täglichen Zielen, Serien und schönen Statistiken'], ['Café-Webseite', 'web', 'Eine Webseite für ein gemütliches Café mit Speisekarte, Öffnungszeiten und Karte'], ['Quiz-App', 'android', 'Eine Quiz-App mit Kategorien, Punkten und Bestenliste']].map(([n, k, p]) =>
+                h('div', { class: 'ap-examples' }, [['Habit-Tracker', 'both', 'Ein Habit-Tracker mit täglichen Zielen, Serien und schönen Statistiken'], ['Café-Webseite', 'web', 'Eine Webseite für ein gemütliches Café mit Speisekarte, Öffnungszeiten und Karte'], ['Quiz-App', 'android', 'Eine Quiz-App mit Kategorien, Punkten und Bestenliste'], ['Jump & Run', 'game', 'Ein Jump & Run mit Leveln, Münzen und Gegnern']].map(([n, k, p]) =>
                     h('button', { class: 'ap-example', onclick: () => { sessionStorage.setItem('coden_wizard', JSON.stringify({ name: n, kind: k, idea: p })); Router.go('apps/neu'); } }, icon(KINDS[k].icon), h('b', { text: n }), h('small', { text: KINDS[k].label }))))));
             filters.classList.add('hidden'); return;
         }
@@ -64,7 +65,7 @@ async function gallery(host) {
         grid.replaceChildren(h('button', { class: 'ap-card add', onclick: () => Router.go('apps/neu') }, icon('add'), h('b', { text: 'Neue App' })), ...(list.length ? list.map(card) : [h('p', { class: 'ap-none', text: 'Keine Apps in dieser Auswahl.' })]));
     };
     const card = (a) => {
-        const mobile = a.kind !== 'web';
+        const mobile = !['web', 'game'].includes(a.kind);
         const thumb = h('div', { class: 'ap-thumb' + (mobile ? ' mobile' : '') }, h('iframe', { src: a.testUrl + '&thumb=1', loading: 'lazy', tabindex: '-1', title: '', 'aria-hidden': 'true' }));
         return h('div', { class: 'ap-card', tabindex: '0', role: 'link', onclick: () => Router.go('apps/' + a.id), onkeydown: (e) => { if (e.key === 'Enter') Router.go('apps/' + a.id); } },
             thumb,
@@ -84,19 +85,23 @@ async function gallery(host) {
 function wizard(host) {
     loadStyleFonts();
     const pre = (() => { try { return JSON.parse(sessionStorage.getItem('coden_wizard') || 'null'); } catch (_) { return null; } })(); sessionStorage.removeItem('coden_wizard');
-    const st = { step: pre?.kind ? 1 : 0, kind: pre?.kind || null, style: null, name: pre?.name || '', idea: pre?.idea || '' };
+    const st = { step: pre?.kind ? 1 : 0, kind: pre?.kind || null, style: null, template: pre?.template || null, name: pre?.name || '', idea: pre?.idea || '' };
     const body = h('div', { class: 'wz-body' }); const dots = h('div', { class: 'wz-steps' });
     const page = h('div', { class: 'ap-page wz' },
         h('div', { class: 'wz-top' }, h('button', { class: 'bl-ibtn', title: 'Abbrechen', onclick: () => Router.go('apps') }, icon('close')), dots, h('span', { class: 'grow' })), body);
     host.append(page);
-    const STEPS = ['Typ', 'Stil', 'Idee'];
     const draw = () => {
+        const STEPS = ['Typ', st.kind === 'game' ? 'Vorlage' : 'Stil', 'Idee'];
         dots.replaceChildren(...STEPS.map((l, i) => h('button', { class: 'wz-step' + (i === st.step ? ' active' : '') + (i < st.step ? ' done' : ''), disabled: i > st.step || (i > 0 && !st.kind), onclick: () => { st.step = i; draw(); } }, h('i', { text: i < st.step ? '✓' : String(i + 1) }), l)));
         body.replaceChildren(); body.classList.remove('anim'); void body.offsetWidth; body.classList.add('anim');
         if (st.step === 0) {
             body.append(h('h1', { text: 'Was möchtest du bauen?' }), h('p', { class: 'wz-sub', text: 'Den Typ kannst du später noch ändern.' }),
                 h('div', { class: 'ap-kinds' }, Object.entries(KINDS).map(([k, v]) => h('button', { class: 'ap-kind' + (st.kind === k ? ' active' : ''), onclick: () => { st.kind = k; st.step = 1; draw(); } },
                     h('span', { class: 'ap-kic' }, icon(v.icon)), h('b', { text: v.label }), h('small', { text: v.desc }), kindArt(k)))));
+        } else if (st.step === 1 && st.kind === 'game') {
+            body.append(h('h1', { text: 'Mit welchem Spiel startest du?' }), h('p', { class: 'wz-sub', text: 'Jede Vorlage ist sofort spielbar (Tastatur, Maus und Touch). Danach baut Coden sie nach deinen Ideen um.' }),
+                h('div', { class: 'gm-grid' }, GAME_TEMPLATES.map(t => h('button', { class: 'gm-card' + (st.template === t.id ? ' active' : ''), onclick: () => { st.template = t.id; st.style = ''; if (!st.name || GAME_TEMPLATES.some(x => x.name === st.name)) st.name = t.id === 'starter' ? '' : t.name; st.step = 2; draw(); } },
+                    h('div', { class: 'gm-art', style: { background: t.g }, text: t.emoji }), h('b', { text: t.name }), h('small', { text: t.desc })))));
         } else if (st.step === 1) {
             const styles = [{ id: '', name: 'Coden entscheidet', desc: 'Coden wählt ein passendes Design' }, ...S().STYLES];
             body.append(h('h1', { text: 'Such dir einen Stil aus' }), h('p', { class: 'wz-sub' }, 'Farben, Schrift und Formen. Optional – du kannst ihn jederzeit wechseln. ', h('button', { class: 'wz-link', text: 'Überspringen', onclick: () => { st.style = ''; st.step = 2; draw(); } })),
@@ -110,14 +115,15 @@ function wizard(host) {
                 st.name = name.value.trim(); st.idea = idea.value.trim();
                 if (!st.name) { err.textContent = 'Gib deiner App einen Namen.'; name.focus(); return; }
                 create.disabled = true; create.replaceChildren(h('span', { class: 'cd-spin' }), 'Wird erstellt …');
-                try { await createApp({ name: st.name, kind: st.kind, style: st.style || '', prompt: st.idea || '' }); }
+                try { await createApp({ name: st.name, kind: st.kind, style: st.style || '', prompt: st.idea || '', template: st.template }); }
                 catch (e) { err.textContent = e.message; create.disabled = false; create.replaceChildren(icon('auto_awesome'), 'App erstellen'); }
             } }, icon('auto_awesome'), 'App erstellen');
             name.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); idea.focus(); } });
             idea.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) create.click(); });
-            const examples = st.kind === 'web' ? ['Webseite für mein Café mit Speisekarte und Öffnungszeiten', 'Mein Portfolio mit Projekten und Kontaktformular', 'Landingpage für ein Produkt mit Preisen und FAQ'] : ['To-do-App mit Kategorien und Fälligkeitsdaten', 'Habit-Tracker mit Serien und Statistiken', 'Rezept-App mit Favoriten und Einkaufsliste', 'Budget-App mit Ausgaben nach Kategorie'];
-            body.append(h('h1', { text: 'Wie heißt deine App?' }),
-                h('div', { class: 'wz-summary' }, h('span', { class: 'bl-badge' }, icon(KINDS[st.kind].icon), KINDS[st.kind].label), h('span', { class: 'bl-badge' }, icon('palette'), style ? style.name : 'Coden entscheidet')),
+            const examples = st.kind === 'game' ? ['Mach daraus ein Weltraum-Abenteuer mit Bossgegnern', 'Füge Level, Power-ups und eine Bestenliste hinzu', 'Pixel-Art-Stil mit Retro-Musik', 'Zwei Spieler an einer Tastatur'] : st.kind === 'web' ? ['Webseite für mein Café mit Speisekarte und Öffnungszeiten', 'Mein Portfolio mit Projekten und Kontaktformular', 'Landingpage für ein Produkt mit Preisen und FAQ'] : ['To-do-App mit Kategorien und Fälligkeitsdaten', 'Habit-Tracker mit Serien und Statistiken', 'Rezept-App mit Favoriten und Einkaufsliste', 'Budget-App mit Ausgaben nach Kategorie'];
+            const tpl = GAME_TEMPLATES.find(t => t.id === st.template);
+            body.append(h('h1', { text: st.kind === 'game' ? 'Wie heißt dein Spiel?' : 'Wie heißt deine App?' }),
+                h('div', { class: 'wz-summary' }, h('span', { class: 'bl-badge' }, icon(KINDS[st.kind].icon), KINDS[st.kind].label), st.kind === 'game' ? h('span', { class: 'bl-badge' }, icon('extension'), tpl ? tpl.emoji + ' ' + tpl.name : 'Leeres Spiel') : h('span', { class: 'bl-badge' }, icon('palette'), style ? style.name : 'Coden entscheidet')),
                 h('label', { class: 'cd-label', text: 'Name' }), name, h('label', { class: 'cd-label', text: 'Idee' }), idea,
                 h('div', { class: 'wz-ex' }, examples.map(t => h('button', { class: 'ap-chip', text: t, onclick: () => { idea.value = t; idea.focus(); } }))), err,
                 h('div', { class: 'wz-foot' }, h('button', { class: 'bl-btn', onclick: () => { st.name = name.value; st.idea = idea.value; st.step = 1; draw(); } }, icon('arrow_back'), 'Zurück'), h('span', { class: 'grow' }), create),
@@ -130,6 +136,7 @@ function wizard(host) {
 
 // Kleine Illustration je Typ
 function kindArt(k) {
+    if (k === 'game') return h('div', { class: 'ka game' }, h('span', { text: '🎮' }));
     if (k === 'web') return h('div', { class: 'ka web' }, h('i'), h('i'), h('i'));
     if (k === 'both') return h('div', { class: 'ka both' }, h('div', { class: 'ka-ph ios' }), h('div', { class: 'ka-ph android' }));
     return h('div', { class: 'ka' }, h('div', { class: 'ka-ph ' + k }));

@@ -1,13 +1,13 @@
 // js/apps/builder.js – der App-Builder: links Chat mit dem Coden-Agenten, rechts Live-Vorschau (Handy-/Browser-Rahmen) und Code.
-import { apiJson } from '../backend.js';
-import { streamAiResponse } from '../api.js';
+import { apiJson, apiFetch } from '../backend.js';
+import { notifyDone } from '../runs.js';
 import { Router } from '../router.js';
 import { auth } from '../auth.js';
 import { toast } from '../toast.js';
 import { h, icon, md, sleep, copy } from './dom.js';
 import { getEffort, setEffort, bindEffortButtons } from '../effort.js';
 import { createThinkPanel } from '../think-panel.js';
-import { systemPrompt, parse, apply, condense } from './agent.js';
+import { parse } from './agent.js';
 import { ghExport } from './github.js';
 import { KINDS } from './templates.js';
 import { databaseCard, askCard, secretCard, publishCard } from './tools.js';
@@ -16,13 +16,13 @@ import { modal, confirmBox, promptBox, phoneTest, publish, invite } from './dial
 const S = () => window.CodenStyles; const B = () => window.CodenBundle;
 let kitP; const getKit = () => kitP || (kitP = Promise.all(['kit/coden-kit.css', 'kit/coden-kit.js'].map(u => fetch(u).then(r => r.text()))).then(([css, js]) => ({ css, js })));
 const TIERS = [{ id: 'ultra', label: 'Ultra', tip: 'Nur die allerbesten Modelle (nur Owner)' }, { id: 'pro', label: 'Pro', tip: 'Stärkste Modelle – am besten für Apps' }, { id: 'normal', label: 'Thinking', tip: 'Denkt länger nach' }, { id: 'flash', label: 'Flash', tip: 'Am schnellsten, für kleine Änderungen' }];
-const DEVICES = { ios: { w: 393, h: 852, label: 'iPhone', icon: 'phone_iphone' }, android: { w: 412, h: 915, label: 'Android', icon: 'android' }, desktop: { w: 0, h: 0, label: 'Desktop', icon: 'desktop_windows' }, tablet: { w: 834, h: 1112, label: 'Tablet', icon: 'tablet_mac' }, phone: { w: 390, h: 844, label: 'Handy', icon: 'smartphone' } };
+const DEVICES = { ios: { w: 393, h: 852, label: 'iPhone', icon: 'phone_iphone' }, android: { w: 412, h: 915, label: 'Android', icon: 'android' }, desktop: { w: 0, h: 0, label: 'Desktop', icon: 'desktop_windows' }, tablet: { w: 834, h: 1112, label: 'Tablet', icon: 'tablet_mac' }, phone: { w: 390, h: 844, label: 'Handy', icon: 'smartphone' }, landscape: { w: 844, h: 390, label: 'Handy quer', icon: 'stay_current_landscape' } };
 const FILE_ICON = (n) => /\.html?$/.test(n) ? 'html' : /\.css$/.test(n) ? 'css' : /\.js$/.test(n) ? 'javascript' : /\.json$/.test(n) ? 'data_object' : /\.svg$/.test(n) ? 'image' : 'description';
 const MAX_AUTOFIX = 2;
 
 export function mountBuilder(host, appId) {
     const st = { id: appId, app: null, files: {}, members: [], messages: [], seen: new Set(), lastId: 0, version: 0, running: false, abort: null, autoFix: 0, imgRounds: 0,
-        tier: localStorage.getItem('coden_app_tier') || 'pro', device: null, page: 'index.html', view: 'preview', pane: 'chat', logs: [], renderErrors: [], codeFile: null, dirty: false, alive: true, timers: [], live: null };
+        tier: localStorage.getItem('coden_app_tier') || 'pro', mode: localStorage.getItem('coden_agent_mode') || 'auto', runId: null, liveEl: null, device: null, page: 'index.html', view: 'preview', pane: 'chat', logs: [], renderErrors: [], codeFile: null, dirty: false, alive: true, timers: [], live: null };
     const ns = `codenprev:${appId}:`;
 
     // ---------- Gerüst ----------
@@ -111,8 +111,10 @@ export function mountBuilder(host, appId) {
         const box = h('span', { class: 'effort-seg bl-effort', title: 'Denkaufwand' }, ...[['low', 'Niedrig'], ['medium', 'Mittel'], ['high', 'Hoch']].map(([v, l]) => h('button', { type: 'button', 'data-effort': v, text: l })));
         bindEffortButtons(box); return box;
     }
+    const MODES = [['auto', 'smart_toy', 'Auto', 'Coden entscheidet: kleine Änderungen allein, große Aufgaben im Team'], ['team', 'groups', 'Team', 'Planer + mehrere Coder parallel + Prüfer – für neue Apps und große Umbauten'], ['single', 'bolt', 'Solo', 'Ein Agent, am schnellsten für kleine Änderungen']];
     function drawTiers() {
-        tierBox.replaceChildren(...TIERS.filter(t => t.id !== 'ultra' || auth.currentUser?.isOwner).map(t => h('button', { class: 'bl-tier' + (st.tier === t.id ? ' active' : ''), title: t.tip, text: t.label, onclick: () => { st.tier = t.id; localStorage.setItem('coden_app_tier', t.id); drawTiers(); } })), drawEffort());
+        const mode = h('select', { class: 'bl-mode', title: 'Agenten-Modus', onchange: (e) => { st.mode = e.target.value; localStorage.setItem('coden_agent_mode', st.mode); } }, ...MODES.map(([v, , l, tip]) => h('option', { value: v, text: (v === 'team' ? '👥 ' : v === 'single' ? '⚡ ' : '🤖 ') + l, title: tip, selected: st.mode === v })));
+        tierBox.replaceChildren(...TIERS.filter(t => t.id !== 'ultra' || auth.currentUser?.isOwner).map(t => h('button', { class: 'bl-tier' + (st.tier === t.id ? ' active' : ''), title: t.tip, text: t.label, onclick: () => { st.tier = t.id; localStorage.setItem('coden_app_tier', t.id); drawTiers(); } })), drawEffort(), mode);
     }
     function drawDevices() {
         const list = KINDS[st.app.kind].devices; deviceBtns.classList.toggle('hidden', list.length < 2 || st.view !== 'preview');
@@ -141,7 +143,7 @@ export function mountBuilder(host, appId) {
     async function doRender() {
         if (!st.app || st.view !== 'preview') return;
         const kit = await getKit(); const style = S().byId(st.app.style);
-        const platform = st.app.kind === 'web' ? 'web' : st.device === 'android' ? 'android' : 'ios';
+        const platform = st.app.kind === 'web' || st.app.kind === 'game' ? 'web' : st.device === 'android' ? 'android' : 'ios';
         const b = B().build(st.files, { kit, themeCss: S().themeCss(style), fontsHref: S().fontsHref(style), platform });
         if (!b.pages[st.page]) st.page = b.entry;
         const pages = Object.keys(b.pages); pageSel.replaceChildren(...pages.map(p => h('option', { value: p, text: p, selected: p === st.page }))); pageSel.classList.toggle('hidden', pages.length < 2);
@@ -259,7 +261,7 @@ export function mountBuilder(host, appId) {
 
     function welcome() {
         const kind = KINDS[st.app?.kind || 'web'];
-        const ideas = st.app?.kind === 'web' ? ['Eine Webseite für mein Café mit Speisekarte und Öffnungszeiten', 'Ein Portfolio mit meinen Projekten und Kontaktformular', 'Eine Landingpage für meine App mit Preisen'] : ['Eine To-do-App mit Kategorien und Erinnerungen', 'Ein Habit-Tracker mit Statistiken', 'Eine Rezept-App mit Favoriten und Einkaufsliste'];
+        const ideas = st.app?.kind === 'game' ? ['Füge Level mit steigender Schwierigkeit und einen Bossgegner hinzu', 'Mach Power-ups: Schild, Doppelsprung, Magnet', 'Gestalte alles im Pixel-Art-Stil mit Retro-Sound'] : st.app?.kind === 'web' ? ['Eine Webseite für mein Café mit Speisekarte und Öffnungszeiten', 'Ein Portfolio mit meinen Projekten und Kontaktformular', 'Eine Landingpage für meine App mit Preisen'] : ['Eine To-do-App mit Kategorien und Erinnerungen', 'Ein Habit-Tracker mit Statistiken', 'Eine Rezept-App mit Favoriten und Einkaufsliste'];
         return h('div', { class: 'bl-welcome' }, h('div', { class: 'bl-wicon' }, icon(kind.icon)), h('h3', { text: 'Was soll ' + (st.app?.name || 'deine App') + ' können?' }),
             h('p', { text: 'Coden baut die App direkt hier – du siehst rechts jede Änderung live. Je genauer du beschreibst, desto besser.' }),
             h('div', { class: 'bl-ideas' }, ideas.map(t => h('button', { class: 'bl-idea', onclick: () => { input.value = t; autoGrow(); input.focus(); } }, icon('lightbulb'), h('span', { text: t })))));
@@ -271,7 +273,7 @@ export function mountBuilder(host, appId) {
     function addMessage(m) {
         if (st.seen.has(m.id)) return; st.seen.add(m.id); st.lastId = Math.max(st.lastId, m.id); st.messages.push(m);
         log.querySelector('.bl-welcome')?.remove();
-        log.append(renderMessage(m)); scrollLog(m.mine);
+        const node = renderMessage(m); if (st.liveEl?.isConnected) log.insertBefore(node, st.liveEl); else log.append(node); scrollLog(m.mine);
         if (m.role === 'tool' && m.meta?.toolFor) { const el = log.querySelector(`[data-mid="${m.meta.toolFor.split(':')[0]}"]`); if (el) el.replaceWith(renderMessage(st.messages.find(x => x.id === +m.meta.toolFor.split(':')[0]))); }
     }
     function who(m) { return m.mine ? null : (m.handle ? '@' + m.handle : 'Mitglied'); }
@@ -346,97 +348,123 @@ export function mountBuilder(host, appId) {
         } catch (e) { toast(e.message, { type: 'error' }); }
     }
 
-    // ---------- Agent ----------
-    function buildContext() {
-        const hist = st.messages.filter(m => m.role === 'user' || m.role === 'assistant' || m.role === 'tool').slice(-18);
-        const out = [];
-        for (const m of hist) {
-            const role = m.role === 'assistant' ? 'assistant' : 'user';
-            let content = m.role === 'user' && !m.mine && m.handle ? `@${m.handle} schreibt: ${m.body}` : m.body;
-            // Frühere Datei-Blöcke sind gekürzt – als Kommentar markieren, damit das Modell sie nicht nachahmt statt echte Blöcke zu schreiben
-            if (role === 'assistant') content = content.replace(/\[Datei (geschrieben|geändert|gelöscht): ([^\]]+)\]/g, '<!-- (frühere Antwort: Datei $2 $1, Inhalt hier gekürzt) -->').replace(/\(Geänderte Dateien:[^)]*\)/g, '');
-            if (out.length && out[out.length - 1].role === role) out[out.length - 1].content += '\n\n' + content; else out.push({ role, content });
-        }
-        while (out.length && out[0].role !== 'user') out.shift();
-        if (!out.length) out.push({ role: 'user', content: 'Mach weiter.' });
-        return [{ role: 'system', content: systemPrompt({ app: st.app, files: st.files, style: S().byId(st.app.style) }) }, ...out.map(m => ({ ...m, content: m.content.slice(0, 90000) }))];
-    }
-
+    // ---------- Agent (läuft auf dem Server – baut weiter, auch wenn die Seite zu ist) ----------
     function setBusy(on) { st.running = on; stopBtn.classList.toggle('hidden', !on); sendBtn.classList.toggle('hidden', on); root.classList.toggle('busy', on); }
-    stopBtn.addEventListener('click', () => st.abort?.abort());
+    const stopAgent = () => apiJson(`/apps/${appId}/agent/stop`, { method: 'POST', body: '{}' }).catch(() => {}); // stoppt den Lauf auf dem Server (für alle)
+    stopBtn.addEventListener('click', stopAgent);
 
-
-    function withReply(text, p, aborted) {
-        const segs = p.segs; let lastOp = -1; segs.forEach((x, i) => { if (x.kind === 'op') lastOp = i; });
-        const hasText = (a) => segs.slice(a).some(x => x.kind === 'text' && x.text.replace(/\[Datei [^\]]*\]/g, '').trim().length > 2);
-        if (p.tools.length || aborted) return text;
-        if (lastOp < 0) return hasText(0) ? text : text + (text.trim() ? '\n\n' : '') + 'Ich habe gerade nichts geändert. Sag mir gern genauer, was ich bauen oder anpassen soll.';
-        if (hasText(lastOp + 1)) return text;
-        const names = [...new Set(p.ops.map(o => o.path))]; const list = names.slice(0, 4).join(', ') + (names.length > 4 ? ` und ${names.length - 4} weitere` : '');
-        return text.replace(/\s+$/, '') + `\n\nFertig – ich habe ${list} ${p.ops.some(o => o.type === 'file') ? 'geschrieben bzw. angepasst' : 'angepasst'}. Schau dir die Vorschau an und sag mir, was ich noch ändern soll.`;
+    // Live-Ansicht eines Agenten-Laufs: Denk-Anzeige, Team-Übersicht (Sub-Agenten) und der Text der aktuellen Runde
+    function liveView(startedAt) {
+        const el = h('div', { class: 'bl-msg ai streaming' }, h('div', { class: 'bl-aava' }, h('img', { src: './images/coden_logo.jpg', alt: '' })));
+        const col = h('div', { class: 'bl-abody' }); el.append(col);
+        const panel = createThinkPanel({ startedAt: startedAt || Date.now(), label: 'Coden arbeitet …' });
+        const team = h('div', { class: 'ag-team hidden' }); const body = h('div');
+        col.append(panel.el, team, body); log.append(el); st.liveEl = el; scrollLog(true);
+        let text = '', raf = 0, lastPaint = 0, t0 = Date.parse(startedAt) || Date.now(), tick = null;
+        const paint = () => { raf = 0; lastPaint = Date.now(); fillAssistant(body, text); scrollLog(); };
+        const ROLE_IC = { planner: 'account_tree', coder: 'code', reviewer: 'fact_check', fixer: 'build', designer: 'image' };
+        const ST = { wait: 'wartet', run: 'arbeitet', done: 'fertig', error: 'Problem' };
+        const drawTeam = (list) => {
+            if (!list?.length) return; team.classList.remove('hidden');
+            const doneN = list.filter(a => a.status === 'done').length;
+            const head = h('div', { class: 'ag-team-h' }, icon('groups'), h('span', { text: list.length > 2 ? 'Coden-Agententeam' : 'Coden-Agent' }), h('small', { class: 'ag-clock', text: `${doneN}/${list.length} · ${Math.round((Date.now() - t0) / 1000)} s` }));
+            team.replaceChildren(head, ...list.map(a => h('div', { class: 'ag-row ' + a.status }, h('span', { class: 'ag-ic' }, icon(a.status === 'done' ? 'check' : a.status === 'error' ? 'priority_high' : ROLE_IC[a.role] || 'smart_toy')),
+                h('div', { class: 'ag-t' }, h('b', { text: a.title }), a.detail ? h('small', { text: a.detail }) : null), h('span', { class: 'ag-st', text: ST[a.status] || '' }))));
+        };
+        let agents = [], thinkGone = false;
+        tick = setInterval(() => { const c = team.querySelector('.ag-clock'); if (c) c.textContent = `${agents.filter(a => a.status === 'done').length}/${agents.length} · ${Math.round((Date.now() - t0) / 1000)} s`; }, 1000);
+        return {
+            text: () => text,
+            set(t) { text = t; if (text.trim() && !thinkGone && agents.length < 2) panel.done(); if (!raf) raf = setTimeout(paint, Math.max(0, 120 - (Date.now() - lastPaint))); },
+            think: (k) => { if (!thinkGone) panel.think(k); }, model: (m) => { if (!thinkGone) panel.model(m); },
+            // Im Team zeigt die Agenten-Übersicht den Fortschritt -> die Denk-Anzeige des Planers wird nicht mehr gebraucht
+            agents(list) { agents = list || []; if (agents.length >= 2 && !thinkGone) { thinkGone = true; panel.remove(); } drawTeam(agents); },
+            remove() { clearTimeout(raf); clearInterval(tick); panel.remove(); el.remove(); if (st.liveEl === el) st.liveEl = null; }
+        };
     }
-
-    async function runAgent() {
+    async function readSse(res, on) {
+        const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
+        for (;;) { const { value, done } = await reader.read(); if (done) break; buf += dec.decode(value, { stream: true });
+            let i; while ((i = buf.indexOf('\n\n')) !== -1) { const line = buf.slice(0, i); buf = buf.slice(i + 2); if (line.startsWith('data: ')) { try { on(JSON.parse(line.slice(6))); } catch (_) {} } } }
+    }
+    // Einem laufenden Lauf per Abfrage folgen (nach Neuladen, anderem Gerät oder abgerissener Verbindung)
+    async function follow(runId, view, from = 0) {
+        let text = view.text(), sig = '', wait = 800;
+        for (;;) {
+            if (!st.alive) return 'gone';
+            let r; try { r = await apiJson(`/apps/${appId}/agent?run=${runId}&from=${text.length}`); wait = document.hidden ? 2500 : 900; } catch (_) { await sleep(wait = Math.min(wait * 1.6, 8000)); continue; }
+            if (!r.id) return 'gone';
+            if (r.from === text.length && r.len >= text.length) { if (r.text) { text += r.text; view.set(text); } }
+            else { text = (await apiJson(`/apps/${appId}/agent?run=${runId}`)).text || ''; view.set(text); }
+            if (r.think?.h) view.think({ h: r.think.h, v: r.think.v, steps: r.think.steps });
+            if (r.model) view.model(r.model);
+            const s2 = JSON.stringify(r.agents || []); if (s2 !== sig) { sig = s2; view.agents(r.agents); }
+            pollNow();
+            if (r.status !== 'running') return r.status;
+            await sleep(wait);
+        }
+    }
+    async function runAgent({ attach } = {}) {
         if (st.running || !st.alive) return;
         setBusy(true);
-        const el = h('div', { class: 'bl-msg ai streaming' }, h('div', { class: 'bl-aava' }, h('img', { src: './images/coden_logo.jpg', alt: '' })));
-        const body = h('div', { class: 'bl-abody' }); el.append(body); log.append(el); scrollLog(true);
-        const panel = createThinkPanel(); body.replaceChildren(panel.el);
         const ac = new AbortController(); st.abort = ac;
-        let text = '', model = '', raf = 0;
-        let lastPaint = 0;
-        const paint = () => { raf = 0; lastPaint = Date.now(); fillAssistant(body, text); scrollLog(); };
+        let view = null, runId = attach?.id || null, status = null, err = null;
         try {
-            text = await streamAiResponse(buildContext(), st.tier, { signal: ac.signal, maxTokens: 16000, onModel: (m) => { model = m; panel.model(m); }, onThink: (k) => panel.think(k), onDelta: (t) => { text = t; if (!raf) raf = setTimeout(paint, Math.max(0, 120 - (Date.now() - lastPaint))); } });
-        } catch (e) {
-            text = e.text || text;
-            if (!text.trim()) { clearTimeout(raf); el.remove(); setBusy(false); st.abort = null; log.append(h('div', { class: 'bl-event err' }, icon('error'), h('span', { text: 'Coden konnte nicht antworten: ' + e.message }), h('button', { class: 'bl-btn sm', onclick: (ev) => { ev.currentTarget.parentNode.remove(); runAgent(); } }, icon('refresh'), ' Nochmal'))); scrollLog(true); return; }
-        }
-        clearTimeout(raf);
-        const aborted = ac.signal.aborted; st.abort = null;
-        if (!text.trim()) { el.remove(); setBusy(false); return; }
-        let p = parse(text);
-        // Coden antwortet immer auch mit Text: fehlt eine Erklärung, schreiben wir eine kurze Zusammenfassung dazu
-        text = withReply(text, p, aborted); p = parse(text);
-        const res = apply(st.files, p.ops);
-        let saveErr = null;
-        if (Object.keys(res.set).length || res.remove.length) {
-            try { await saveFiles(res.set, res.remove); st.files = res.files; }
-            catch (e) { saveErr = e.message; }
-        }
-        const meta = { changed: res.changed, model: model || undefined, problems: res.problems.length || undefined, aborted: aborted || undefined, auto: st.autoFix > 0 || undefined };
-        let saved;
-        try { saved = await postMessage('assistant', condense(text) || '…', meta); }
-        catch (e) { saved = { id: -Date.now(), role: 'assistant', body: condense(text), meta, mine: true }; }
-        el.remove(); addMessage(saved); setBusy(false);
-        if (saveErr) { toast('Speichern fehlgeschlagen: ' + saveErr, { type: 'error' }); return; }
-        if (res.changed.length) { if (st.view === 'code') drawCode(); await render(true); }
-        if (aborted) { log.append(h('div', { class: 'bl-event' }, icon('stop_circle'), h('span', { text: 'Gestoppt. Fertige Dateien wurden übernommen.' }))); return; }
-        const imgTools = p.tools.filter(t => t.name === 'image' && t.prompt).slice(0, 3);
-        if (imgTools.length && st.imgRounds < 2 && st.alive) {
-            st.imgRounds++;
-            const note = h('div', { class: 'bl-event' }, h('span', { class: 'cd-spin' }), h('span', { text: `Coden erstellt ${imgTools.length} Bild${imgTools.length > 1 ? 'er' : ''} …` })); log.append(note); scrollLog(true);
-            const out = await Promise.all(imgTools.map(async (t) => { try { const r = await apiJson(`/apps/${appId}/images`, { method: 'POST', body: JSON.stringify({ prompt: t.prompt }) }); return { id: t.id || 'bild', url: r.url }; } catch (e) { return { id: t.id || 'bild', error: e.message }; } }));
-            note.remove();
-            const ok = out.filter(o => o.url);
-            const msg = `[Bilder] ${out.map(o => o.url ? `- ${o.id}: ${o.url}` : `- ${o.id}: FEHLGESCHLAGEN (${o.error})`).join('\n')}\n${ok.length ? 'Baue die Bilder jetzt mit diesen URLs ein (<img src="…" alt="…">).' : 'Bilder gehen gerade nicht – nimm Unsplash-Bilder, SVGs oder Emojis und erwähne es kurz.'}`;
-            try { addMessage(await postMessage('tool', msg, { display: ok.length ? `${ok.length} Bild${ok.length > 1 ? 'er' : ''} erstellt` : 'Bilder konnten nicht erstellt werden', auto: true })); } catch (_) { return; }
-            return runAgent();
-        }
-        const waitsForUser = p.tools.some(t => ['database', 'ask', 'secret'].includes(t.name));
-        if (waitsForUser) { st.autoFix = 0; return; }
-        // Selbstprüfung: Probleme beim Anwenden oder Fehler in der Vorschau -> Coden korrigiert sich selbst (begrenzt)
-        let issues = res.problems.slice();
-        if (!p.ops.length && !p.tools.length && /\[Datei (geschrieben|geändert|gelöscht)|\(Geänderte Dateien|<!-- \(frühere Antwort/.test(text)) issues.push('Du hast nur Dateinamen genannt, aber keinen einzigen <file>- oder <edit>-Block geschrieben – dadurch wurde NICHTS geändert. Gib die Änderungen jetzt als echte Blöcke aus.');
-        if (res.changed.length && st.view === 'preview') { const seq = renderSeq; await sleep(2200); if (seq === renderSeq) issues = issues.concat([...new Set(st.renderErrors)].slice(0, 8).map(e => 'Fehler in der Vorschau: ' + e)); }
-        if (issues.length && st.autoFix < MAX_AUTOFIX && st.alive) {
+            if (attach) { view = liveView(attach.startedAt); status = await follow(runId, view); }
+            else {
+                view = liveView();
+                const res = await apiFetch(`/apps/${appId}/agent`, { method: 'POST', signal: ac.signal, body: JSON.stringify({ tier: st.tier, effort: getEffort(), mode: st.mode }) });
+                if (res.status === 409) { const d = await res.json().catch(() => ({})); if (d.runId) { runId = d.runId; status = await follow(runId, view); } else throw new Error(d.error || 'Coden arbeitet schon.'); }
+                else if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'HTTP ' + res.status); }
+                else {
+                    let text = '';
+                    try {
+                        await readSse(res, (ev) => {
+                            if (ev.t === 'run') { runId = ev.id; st.runId = runId; }
+                            else if (ev.t === 'd') { text += ev.v; view.set(text); }
+                            else if (ev.t === 'r') { text = ev.v; view.set(text); pollNow(); }
+                            else if (ev.t === 'k') view.think({ h: ev.h, v: ev.v });
+                            else if (ev.t === 'm') view.model(ev.model);
+                            else if (ev.t === 'a') view.agents(ev.agents);
+                            else if (ev.t === 'done') status = ev.status || 'done';
+                            else if (ev.t === 'e') { status = 'error'; err = ev.error; }
+                        });
+                    } catch (_) { /* Verbindung weg */ }
+                    if (!status && runId && st.alive) status = await follow(runId, view); // Server arbeitet weiter -> dranbleiben
+                }
+            }
+        } catch (e) { err = e.message; status = 'error'; }
+        view?.remove(); st.abort = null; st.runId = null;
+        await refresh();
+        setBusy(false);
+        if (!st.alive) return;
+        if (status === 'error') { log.append(h('div', { class: 'bl-event err' }, icon('error'), h('span', { text: 'Coden konnte nicht weiterbauen: ' + (err || 'unbekannter Fehler') }), h('button', { class: 'bl-btn sm', onclick: (ev) => { ev.currentTarget.parentNode.remove(); runAgent(); } }, icon('refresh'), ' Nochmal'))); scrollLog(true); return; }
+        if (status === 'stopped') { log.append(h('div', { class: 'bl-event' }, icon('stop_circle'), h('span', { text: 'Gestoppt. Fertige Dateien wurden übernommen.' }))); return; }
+        notifyDone(st.app?.name ? `${st.app.name}: Coden ist fertig` : 'Coden ist fertig', 'Deine App wurde aktualisiert.');
+        // Laufzeitfehler kann nur die echte Vorschau finden -> Coden korrigiert sich selbst (begrenzt)
+        const lastAi = [...st.messages].reverse().find(m => m.role === 'assistant');
+        const waits = /<tool\s+name="(database|ask|secret)"/.test(lastAi?.body || '');
+        if (waits || !lastAi?.meta?.changed?.length || st.view !== 'preview') { st.autoFix = 0; return; }
+        const seq = renderSeq; await sleep(2200);
+        const errs = seq === renderSeq ? [...new Set(st.renderErrors)].slice(0, 8) : [];
+        if (errs.length && st.autoFix < MAX_AUTOFIX && st.alive) {
             st.autoFix++;
-            try { addMessage(await postMessage('tool', `[Automatische Prüfung] Nach deiner letzten Antwort gibt es diese Probleme:\n${issues.map(i => '- ' + i).join('\n')}\nBehebe sie jetzt (nur die nötigen Änderungen).`, { display: `Coden hat die App geprüft: ${issues.length} Problem${issues.length > 1 ? 'e' : ''} gefunden – wird behoben …`, auto: true })); } catch (_) { return; }
+            try { addMessage(await postMessage('tool', `[Automatische Prüfung] In der Vorschau gibt es diese Fehler:\n${errs.map(e => '- Fehler in der Vorschau: ' + e).join('\n')}\nBehebe sie jetzt (nur die nötigen Änderungen).`, { display: `Coden hat die Vorschau geprüft: ${errs.length} Fehler – wird behoben …`, auto: true })); } catch (_) { return; }
             return runAgent();
         }
-        if (issues.length) log.append(h('div', { class: 'bl-event err' }, icon('warning'), h('span', { text: 'Es gibt noch Fehler. Öffne die Konsole oder sag Coden, was nicht klappt.' })));
+        if (errs.length) log.append(h('div', { class: 'bl-event err' }, icon('warning'), h('span', { text: 'Es gibt noch Fehler. Öffne die Konsole oder sag Coden, was nicht klappt.' })));
         st.autoFix = 0;
     }
+    // Nach einem Lauf: neue Nachrichten und Dateien holen
+    async function refresh() {
+        try {
+            const r = await apiJson(`/apps/${appId}/messages?after=${st.lastId}`); r.messages.forEach(addMessage);
+            const full = await apiJson('/apps/' + appId); setApp(full.app);
+            const changed = JSON.stringify(full.files) !== JSON.stringify(st.files); st.files = full.files; st.version = full.app.version;
+            if (changed) { if (st.view === 'code' && !st.dirty) drawCode(); await render(true); }
+        } catch (_) {}
+    }
+    let pollSoon = 0; const pollNow = () => { const n = Date.now(); if (n - pollSoon > 1500) { pollSoon = n; pollOnce(); } };
 
     async function runUser(text) {
         if (st.running) { toast('Coden arbeitet noch – kurz warten oder stoppen.', { type: 'warn' }); return; }
@@ -452,21 +480,25 @@ export function mountBuilder(host, appId) {
     sendBtn.addEventListener('click', send);
 
     // ---------- Zusammenarbeit (Abfrage alle 3 s) ----------
+    async function pollOnce() {
+        if (!st.app) return;
+        try {
+            const r = await apiJson(`/apps/${appId}/poll?after=${st.lastId}`);
+            st.members = r.members; drawPeople();
+            r.messages.forEach(m => { if (!st.seen.has(m.id)) addMessage(m); });
+            if (r.published !== st.app.published || r.name !== st.app.name) setApp({ ...st.app, published: r.published, name: r.name });
+            if (r.version > st.version) {
+                const full = await apiJson('/apps/' + appId); st.version = full.app.version; setApp(full.app);
+                const changed = JSON.stringify(full.files) !== JSON.stringify(st.files); st.files = full.files;
+                if (changed) { if (st.view === 'code' && !st.dirty) drawCode(); else if (st.view === 'code') codeStatus.textContent = '⚠ Jemand hat Dateien geändert – speichern überschreibt'; render(); }
+            }
+            // Ein Agent arbeitet (von einem anderen Gerät oder Mitglied gestartet)? -> live mit anschauen
+            if (r.agentRun && !st.running && st.alive) { const x = await apiJson(`/apps/${appId}/agent?run=${r.agentRun}`); if (x.status === 'running') runAgent({ attach: x }); }
+        } catch (_) {}
+    }
     async function poll() {
         if (!st.alive) return;
-        if (!document.hidden && st.app) {
-            try {
-                const r = await apiJson(`/apps/${appId}/poll?after=${st.lastId}`);
-                st.members = r.members; drawPeople();
-                r.messages.forEach(m => { if (!st.seen.has(m.id)) addMessage(m); });
-                if (r.published !== st.app.published || r.name !== st.app.name) setApp({ ...st.app, published: r.published, name: r.name });
-                if (r.version > st.version && !st.running) {
-                    const full = await apiJson('/apps/' + appId); st.version = full.app.version; setApp(full.app);
-                    const changed = JSON.stringify(full.files) !== JSON.stringify(st.files); st.files = full.files;
-                    if (changed) { if (st.view === 'code' && !st.dirty) drawCode(); else if (st.view === 'code') codeStatus.textContent = '⚠ Jemand hat Dateien geändert – speichern überschreibt'; render(); }
-                }
-            } catch (_) {}
-        }
+        if (!document.hidden) await pollOnce();
         st.timers.push(setTimeout(poll, 3000));
     }
 
@@ -523,16 +555,16 @@ export function mountBuilder(host, appId) {
     }
     async function downloadHtml() {
         const kit = await getKit(); const style = S().byId(st.app.style);
-        const b = B().build(st.files, { kit, themeCss: S().themeCss(style), fontsHref: S().fontsHref(style), platform: st.app.kind === 'both' ? null : st.app.kind });
+        const b = B().build(st.files, { kit, themeCss: S().themeCss(style), fontsHref: S().fontsHref(style), platform: st.app.kind === 'both' ? null : st.app.kind === 'game' ? 'web' : st.app.kind });
         dl(new Blob([B().withStore(b.pages[b.entry], {})], { type: 'text/html' }), (st.app.slug || 'app') + '.html');
     }
     const dl = (blob, name) => { const u = URL.createObjectURL(blob); const a = h('a', { href: u, download: name }); document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 2000); };
 
-    const onKey = (e) => { if (e.key === 'Escape' && st.running && document.activeElement === input) st.abort?.abort(); };
+    const onKey = (e) => { if (e.key === 'Escape' && st.running && document.activeElement === input) stopAgent(); };
     document.addEventListener('keydown', onKey);
     return {
         unmount() {
-            st.alive = false; st.abort?.abort(); st.timers.forEach(clearTimeout); clearTimeout(renderTimer); ro.disconnect();
+            st.alive = false; st.abort?.abort(); // trennt nur die Verbindung – der Agent baut auf dem Server weiter st.timers.forEach(clearTimeout); clearTimeout(renderTimer); ro.disconnect();
             window.removeEventListener('message', onMsg); document.removeEventListener('keydown', onKey); document.title = 'Coden AI';
             if (st.dirty && st.codeFile) saveFiles({ [st.codeFile]: editor.value }, []).catch(() => {});
             document.querySelectorAll('.cd-overlay, .bl-menu').forEach(x => x.remove());
