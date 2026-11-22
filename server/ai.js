@@ -260,25 +260,34 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
     cascade = [m];
   }
   if (!cascade) throw Object.assign(new Error('Unbekannter Modus.'), { status: 400 });
-  let last;
+  let last, tried = 0;
   for (const m of cascade) {
     if (signal?.aborted) throw new Error('abgebrochen');
+    let slow = null;
     try {
       if (QUOTAS[m.id] && !(await reserveQuota(m.id, isOwner))) { last = new Error(`${m.id}: Tageslimit erreicht`); continue; }
       let sent = false;
       const tracker = onThink && stream ? new ThinkTracker(onThink) : null;
+      // Fortschritt auch dann zeigen, wenn das Modell sein Denken nicht preisgibt: echter Stand statt stummer Wartepunkte
+      if (tracker) {
+        onThink({ h: tried === 0 ? 'Anfrage läuft …' : 'Anderes Modell wird versucht …', v: tried ? 'Das vorherige Modell war überlastet oder nicht erreichbar.' : '' });
+        slow = setTimeout(() => { if (!sent && !tracker.text) onThink({ h: 'Modell antwortet langsam …', v: 'Große Modelle brauchen manchmal etwas länger, bevor die ersten Worte kommen.' }); }, 6000);
+      }
+      tried++;
       const filter = new ThinkFilter(tracker ? (t) => tracker.push(t) : undefined);
-      const emit = (t) => { const v = filter.push(t); if (v) { if (!sent) { sent = true; onModel(m); } onDelta(v); } };
+      const emit = (t) => { const v = filter.push(t); if (v) { if (!sent) { sent = true; clearTimeout(slow); onModel(m); } onDelta(v); } };
       const full = await callModel(m, messages, { stream, onDelta: emit, onThink: tracker ? (t) => tracker.push(t) : undefined, signal, maxTokens }).catch((e) => { if (sent) e.partial = true; throw e; });
       if (stream) {
         const rest = filter.flush(); if (rest) { if (!sent) { sent = true; onModel(m); } onDelta(rest); }
         if (!sent) throw new Error('Leere Antwort');
+        clearTimeout(slow);
         return { model: m };
       }
       const clean = full.replace(/<think>[\s\S]*?<\/think>\n*/gi, '').trim();
       if (!clean) throw new Error('Leere Antwort (Modell hat nur nachgedacht).');
       return { text: clean, model: m };
     } catch (e) {
+      clearTimeout(slow);
       if (e.partial) throw e; // schon Text beim Nutzer: nicht mehr wechseln
       console.warn(`[ai] ${m.provider}/${m.id} fehlgeschlagen:`, e.message);
       last = e;

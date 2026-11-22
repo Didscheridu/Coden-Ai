@@ -100,6 +100,9 @@ const gem = (t) => `data: ${JSON.stringify({ candidates: [{ content: { parts: [{
   await ai.generateStream('flash', [{ role: 'user', content: 'hi' }], { onDelta: (v) => deltas.push(v), onThink: (k) => ks.push(k) });
   chk('Denken: reasoning_content landet nie im Antworttext', deltas.join(''), 'Fertig');
   chk('Denken: nur aktuelle Überschrift, kein altes Denken', [ks.length > 0, ks[ks.length - 1].h, /Jetzt plane/.test(ks[ks.length - 1].v), /Ich lese/.test(ks[ks.length - 1].v)], [true, 'Antwort planen', true, false]);
+  mode = 'streamFallback'; deltas = []; const st2 = [];
+  await ai.generateStream('flash', [{ role: 'user', content: 'hi' }], { onDelta: (v) => deltas.push(v), onThink: (k) => st2.push(k.h) });
+  chk('Denken: auch ohne Denk-Ausgabe kommt Fortschritt (Start + Modellwechsel)', [st2[0], st2.includes('Anderes Modell wird versucht …')], ['Anfrage läuft …', true]);
   const tk = []; const T = new ai.ThinkTracker((x) => tk.push(x), { every: 0, now: (() => { let n = 0; return () => n++; })() });
   T.push('ohne Überschrift, einfach Text'); chk('Denken: ohne Überschrift → „Überlege …“', tk[0].h, 'Überlege …');
   const tf = []; const F = new ai.ThinkFilter((x) => tf.push(x)); F.push('<think>abc defghijkl</think>ok'); F.flush();
