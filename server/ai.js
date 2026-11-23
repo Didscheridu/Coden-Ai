@@ -1,5 +1,6 @@
 // KI-Anbieter. Alle Keys kommen ausschließlich aus Umgebungsvariablen.
 const { getSql } = require('./db');
+const byok = require('./byok');
 
 // Alle Gratis-Modelle von OpenRouter (Stand 21.11.2026, per OpenRouter-MCP abgefragt, Preis 0 $ rein/raus).
 // Reihenfolge = Stärke (Artificial-Analysis-Index, soweit vorhanden), stärkstes zuerst.
@@ -68,6 +69,7 @@ const CASCADES = {
 const OPENAI_COMPAT = {
   openrouter: { url: 'https://openrouter.ai/api/v1/chat/completions', env: 'OPENROUTER_API_KEY' },
   groq: { url: 'https://api.groq.com/openai/v1/chat/completions', env: 'GROQ_API_KEY' },
+  openai: { url: 'https://api.openai.com/v1/chat/completions', env: null }, // nur mit eigenem Key (Bring your own Key)
 };
 
 // ---------- Tageskontingent ----------
@@ -99,7 +101,7 @@ function toOpenAI(messages) {
   });
 }
 
-function toGemini(modelId, messages, maxTokens) {
+function toGemini(modelId, messages, maxTokens, level) {
   const contents = []; let system = null;
   for (const m of messages) {
     if (m.role === 'system') { system = m.content; continue; }
@@ -111,11 +113,26 @@ function toGemini(modelId, messages, maxTokens) {
     contents.push({ role: m.role === 'assistant' ? 'model' : 'user', parts });
   }
   const body = { contents, generationConfig: { maxOutputTokens: maxTokens || DEFAULT_MAX } };
+  if (level) body.generationConfig.thinkingConfig = { thinkingLevel: level, includeThoughts: true }; // Denkstufe eines eigenen Modells
   if (system) {
     if (modelId.includes('gemma') && contents.length) contents[0].parts[0].text = `${system}\n\n---\n\n${contents[0].parts[0].text}`;
     else body.systemInstruction = { parts: [{ text: system }] };
   }
   return body;
+}
+
+// Anthropic: System-Text liegt außerhalb der Nachrichten, Bilder sind eigene Blöcke
+function toAnthropic(messages) {
+  const system = messages.filter(m => m.role === 'system').map(m => m.content).filter(Boolean).join('\n\n');
+  const out = [];
+  for (const m of messages) {
+    if (m.role === 'system') continue;
+    const text = m.content || (m.images?.length ? 'Beschreibe dieses Bild.' : '(leer)');
+    if (!m.images?.length) { out.push({ role: m.role, content: text }); continue; }
+    const parts = m.images.map(img => ({ type: 'image', source: { type: 'base64', media_type: img.substring(img.indexOf(':') + 1, img.indexOf(';')), data: img.substring(img.indexOf(',') + 1) } }));
+    out.push({ role: m.role, content: [...parts, { type: 'text', text }] });
+  }
+  return { system, messages: out };
 }
 
 const DEFAULT_MAX = 16384; // pro Aufruf; wird die Antwort trotzdem abgeschnitten, setzt run() automatisch fort
@@ -195,13 +212,44 @@ function effortParams(m, effort) {
 }
 const CONTINUE = 'Deine letzte Antwort wurde mitten im Satz oder Code abgeschnitten. Mach nahtlos genau an der Stelle weiter, an der du aufgehört hast. Keine Wiederholung, keine Einleitung, kein Hinweis auf die Unterbrechung.';
 
+// ---------- Anthropic (nur mit eigenem Key) ----------
+async function callAnthropic(m, messages, { stream, onDelta, onThink, signal, maxTokens, effort, info }) {
+  if (!m.apiKey) throw new Error('ANTHROPIC_API_KEY fehlt');
+  const { system, messages: msgs } = toAnthropic(messages);
+  const level = m.own ? effort : null;
+  const send = (lvl) => fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST', signal,
+    headers: { 'x-api-key': m.apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: m.id, max_tokens: maxTokens || DEFAULT_MAX, messages: msgs, ...(system ? { system } : {}),
+      ...(lvl ? { thinking: { type: 'adaptive' }, output_config: { effort: lvl } } : {}), ...(stream ? { stream: true } : {}) })
+  });
+  let r = await send(level);
+  if (!r.ok && level && r.status === 400) r = await send(null); // ältere Modelle kennen die Stufe nicht
+  if (!r.ok) await failFrom(r);
+  if (!stream) { const d = await r.json(); if (d.stop_reason === 'max_tokens') info.truncated = true; return (d.content || []).filter(b => b.type === 'text').map(b => b.text).join(''); }
+  let full = '';
+  for await (const raw of sseData(r)) {
+    let d; try { d = JSON.parse(raw); } catch (e) { continue; }
+    if (d.type === 'error') throw new Error(d.error?.message || 'Stream-Fehler');
+    if (d.type === 'content_block_delta') {
+      const dl = d.delta || {};
+      if (dl.type === 'thinking_delta' && dl.thinking) onThink?.(dl.thinking);
+      else if (dl.type === 'text_delta' && dl.text) { full += dl.text; onDelta(dl.text); }
+    } else if (d.type === 'message_delta' && d.delta?.stop_reason === 'max_tokens') info.truncated = true;
+  }
+  return full;
+}
+
 // ---------- Ein Modell aufrufen (stream=true: Stücke an onDelta) ----------
 async function callModel(m, messages, { stream, onDelta, onThink, signal, maxTokens, effort, info = {} }) {
   if (m.provider === 'google') {
-    const key = process.env.GOOGLE_API_KEY;
+    const key = m.apiKey || process.env.GOOGLE_API_KEY;
     if (!key) throw new Error('GOOGLE_API_KEY fehlt');
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${m.id}:${stream ? 'streamGenerateContent?alt=sse' : 'generateContent'}`;
-    const r = await fetch(url, { method: 'POST', signal, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(toGemini(m.id, messages, maxTokens)) });
+    const level = m.own ? effort : null; // Denkstufe nur bei eigenen Modellen; kennt das Modell sie nicht, noch einmal ohne
+    const send = (lvl) => fetch(url, { method: 'POST', signal, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(toGemini(m.id, messages, maxTokens, lvl)) });
+    let r = await send(level);
+    if (!r.ok && level && r.status === 400) r = await send(null);
     if (!r.ok) await failFrom(r);
     const textOf = (d) => (d.candidates?.[0]?.content?.parts || []).filter(p => p.text && !p.thought).map(p => p.text).join('');
     if (!stream) { const d = await r.json(); if (d.candidates?.[0]?.finishReason === 'MAX_TOKENS') info.truncated = true; return textOf(d); }
@@ -209,14 +257,24 @@ async function callModel(m, messages, { stream, onDelta, onThink, signal, maxTok
     for await (const raw of sseData(r)) { let d; try { d = JSON.parse(raw); } catch (e) { continue; } if (d.candidates?.[0]?.finishReason === 'MAX_TOKENS') info.truncated = true; const th = (d.candidates?.[0]?.content?.parts || []).filter(p => p.text && p.thought).map(p => p.text).join(''); if (th) onThink?.(th); const t = textOf(d); if (t) { full += t; onDelta(t); } }
     return full;
   }
+  if (m.provider === 'anthropic') return callAnthropic(m, messages, { stream, onDelta, onThink, signal, maxTokens, effort, info });
   const cfg = OPENAI_COMPAT[m.provider];
-  const key = process.env[cfg.env];
+  const key = m.apiKey || (cfg.env && process.env[cfg.env]);
   if (!key) throw new Error(`${cfg.env} fehlt`);
-  const r = await fetch(cfg.url, {
+  const level = m.own ? effort : null;
+  const send = (lvl) => fetch(cfg.url, {
     method: 'POST', signal,
-    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'HTTP-Referer': 'https://coden-ai.vercel.app', 'X-Title': 'Coden AI' },
-    body: JSON.stringify({ model: m.id, messages: toOpenAI(messages), max_tokens: maxTokens || DEFAULT_MAX, temperature: 0.7, ...effortParams(m, effort), ...(stream ? { stream: true } : {}) })
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', ...(m.provider === 'openai' ? {} : { 'HTTP-Referer': 'https://coden-ai.vercel.app', 'X-Title': 'Coden AI' }) },
+    body: JSON.stringify({
+      model: m.id, messages: toOpenAI(messages),
+      // OpenAI: Denkmodelle verlangen max_completion_tokens und kennen keine temperature
+      ...(m.provider === 'openai' ? { max_completion_tokens: maxTokens || DEFAULT_MAX } : { max_tokens: maxTokens || DEFAULT_MAX, temperature: 0.7 }),
+      ...(m.own ? (lvl ? (m.provider === 'openai' ? { reasoning_effort: lvl } : { reasoning: { effort: lvl } }) : {}) : effortParams(m, effort)),
+      ...(stream ? { stream: true } : {})
+    })
   });
+  let r = await send(level);
+  if (!r.ok && level && r.status === 400) r = await send(null); // Modell kennt keine Denkstufe: ohne noch einmal
   if (!r.ok) await failFrom(r);
   if (!stream) { const d = await r.json(); if (d.error) throw new Error(d.error.message); if (d.choices?.[0]?.finish_reason === 'length') info.truncated = true; return d.choices?.[0]?.message?.content || ''; }
   let full = '';
@@ -235,7 +293,7 @@ async function callModel(m, messages, { stream, onDelta, onThink, signal, maxTok
 }
 
 // ---------- Modellliste (für den Befehl /modelle) ----------
-const PROVIDER_NAMES = { groq: 'Groq', openrouter: 'OpenRouter', google: 'Google' };
+const PROVIDER_NAMES = { groq: 'Groq', openrouter: 'OpenRouter', google: 'Google', openai: 'OpenAI', anthropic: 'Anthropic' };
 const keyOf = (m) => `${m.provider}:${m.id}`;
 function listModels() {
   const seen = new Map();
@@ -250,12 +308,20 @@ const findModel = (key) => listModels().find(m => m.key === key) || null;
 // Beim Streamen ist Wechsel nur möglich, solange noch nichts an den Nutzer geschickt wurde.
 // meter (optional): zählt den Verbrauch für die Nutzungslimits mit; meter.stop = true hält eine zu lange Aufgabe an
 const charsOf = (msgs) => msgs.reduce((n, m) => n + String(m.content || '').length + (m.images?.length || 0) * 3000, 0);
-async function run(tier, messages, { isOwner = false, stream = false, onDelta = () => {}, onModel = () => {}, onThink, signal: outer, maxTokens, effort, pin, meter } = {}) {
+async function run(tier, messages, { isOwner = false, stream = false, onDelta = () => {}, onModel = () => {}, onThink, signal: outer, maxTokens, effort, pin, meter, uid } = {}) {
+  // Eigenes Modell (Bring your own Key): Modell und Key erst hier aus der Datenbank holen, nie im Lauf-Zustand speichern.
+  // Es zählt nicht gegen die Coden-Limits (der Nutzer zahlt über seinen Key) und weicht nie auf andere Modelle aus.
+  let own = null;
+  if (byok.isByok(tier)) {
+    if (!uid) throw Object.assign(new Error('Nicht eingeloggt.'), { status: 401 });
+    own = await byok.resolve(uid, tier); meter = null; pin = undefined;
+    effort = own.levels.includes(effort) ? effort : (own.levels.includes(own.defaultLevel) ? own.defaultLevel : own.levels[0]);
+  }
   const stopper = new AbortController(); // bricht den Anbieter-Aufruf ab, wenn das Nutzungslimit überschritten wird
   const signal = outer ? AbortSignal.any([outer, stopper.signal]) : stopper.signal;
   const limitHit = () => { stopper.abort(); const e = new Error(meter.message()); e.limit = true; e.status = 429; return e; };
   if (meter?.stop) throw limitHit();
-  let cascade = CASCADES[tier];
+  let cascade = own ? [{ provider: own.provider, id: own.id, apiKey: own.apiKey, own: true, label: own.label }] : CASCADES[tier];
   if (pin) { // ein bestimmtes Modell erzwingen (nur Owner, kein Ausweichen auf andere)
     const m = findModel(pin);
     if (!m) throw Object.assign(new Error('Unbekanntes Modell.'), { status: 400 });
@@ -313,9 +379,9 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
       last = e;
     }
   }
-  if (pin) { // gezielt gewähltes Modell: genaue Ursache nennen statt „überlastet“
-    const m = cascade[0]; const hint = /401|403|unauthor|invalid.*key|api key/i.test(last?.message || '') ? ` – der API-Key von ${PROVIDER_NAMES[m.provider] || m.provider} wird abgelehnt (in Vercel prüfen, danach neu deployen)` : '';
-    throw new Error(`${m.id} (${PROVIDER_NAMES[m.provider] || m.provider}): ${last?.message}${hint}`);
+  if (pin || own) { // gezielt gewähltes Modell: genaue Ursache nennen statt „überlastet“
+    const m = cascade[0]; const hint = /401|403|unauthor|invalid.*key|api key|permission/i.test(last?.message || '') ? ` – der API-Key von ${PROVIDER_NAMES[m.provider] || m.provider} wird abgelehnt (${own ? 'Einstellungen → Eigene Modelle' : 'in Vercel prüfen, danach neu deployen'})` : '';
+    throw new Error(`${own ? own.label : m.id} (${PROVIDER_NAMES[m.provider] || m.provider}): ${last?.message}${hint}`);
   }
   throw new Error(`Alle Server sind überlastet. Letzter Fehler: ${last?.message}`);
 }

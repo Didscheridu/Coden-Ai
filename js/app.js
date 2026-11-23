@@ -3,6 +3,7 @@ import './dom-safe.js';
 import { CONFIG } from './config.js';
 import { generateAiResponse } from './api.js';
 import { bindEffortButtons } from './effort.js';
+import { initByok, loadByok, clearByok, openByokSettings, syncEffortRow, byokEffort, isByokTier } from './byok.js';
 import { runModelTest } from './model-test.js';
 import { Artifacts } from './artifacts.js';
 import { buildChatPrompt } from './system-prompt.js';
@@ -195,11 +196,13 @@ if (auth) {
 
                 if (!appInitialized) initApp(); 
                 initGlobalSync(); 
+                loadByok();
             } else {
                 if (loginScreen) loginScreen.classList.remove('hidden'); 
                 if (appContainer) appContainer.classList.add('hidden');
                 appInitialized = false; 
                 isOwner = false;
+                clearByok();
             }
         } catch (err) { 
             showError("Fehler beim Laden deines Profils."); 
@@ -666,7 +669,18 @@ if (modelSelectorBtn && modelDropdownMenu) {
             setModelLabel(option.querySelector('.name').textContent);
             currentSelectedModel = option.getAttribute('data-model');
             modelDropdownMenu.classList.add('hidden');
+            syncEffortRow(currentSelectedModel);
         });
+    });
+    // Eigene Modelle (Bring your own Key) stehen dynamisch im Menü
+    const pickByok = (tier, label) => {
+        document.querySelectorAll('.model-option').forEach(o => o.classList.toggle('active', o.getAttribute('data-model') === tier));
+        setModelLabel(label); currentSelectedModel = tier; modelDropdownMenu.classList.add('hidden'); syncEffortRow(tier);
+    };
+    initByok({
+        getTier: () => currentSelectedModel,
+        select: pickByok,
+        fallback: () => pickByok('flash', document.querySelector('.model-option[data-model="flash"] .name')?.textContent || 'Coden Flash')
     });
 }
 
@@ -747,6 +761,7 @@ if (document.getElementById('open-settings-btn')) {
         settingsModal.classList.remove('hidden'); 
         renderUsage(document.getElementById('usage-box'));
         drawPushToggle();
+        openByokSettings(document.getElementById('byok-box'));
     });
 }
 
@@ -1351,7 +1366,7 @@ async function handleSend() {
         aiResponse = '';
         let extra = {};
         try {
-            aiResponse = await runAiResponse(context, currentSelectedModel, { ref: sessionAtSend.id, meta: { title: sessionAtSend.title, userText: text.slice(0, 2000), temp: !!sessionAtSend.temp }, signal: ac.signal, model: pinnedModel?.key, onExtra: (x) => { extra = { ...extra, ...x }; }, onThink: (k) => live.think(k), onModel: (m) => live.model(m), onDelta: (t) => { aiResponse = t; live.update(hideImageTags(t)); } });
+            aiResponse = await runAiResponse(context, currentSelectedModel, { ref: sessionAtSend.id, meta: { title: sessionAtSend.title, userText: text.slice(0, 2000), temp: !!sessionAtSend.temp }, signal: ac.signal, model: pinnedModel?.key, effort: isByokTier(currentSelectedModel) ? byokEffort(currentSelectedModel) : undefined, onExtra: (x) => { extra = { ...extra, ...x }; }, onThink: (k) => live.think(k), onModel: (m) => live.model(m), onDelta: (t) => { aiResponse = t; live.update(hideImageTags(t)); } });
             const done = await processAnswer(aiResponse, (t) => live.update(t), { ...extra, temp: !!sessionAtSend.temp });
             const call = done.call; aiResponse = done.text;
             lastThink = live.finish(aiResponse);

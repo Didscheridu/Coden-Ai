@@ -1,0 +1,19 @@
+/* Bring your own Key: Einstellungen + Modellmenü */
+.byok-menu-head { padding: 8px 12px 2px; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); border-top: 1px solid var(--border-color); margin-top: 4px; }
+.byok-option .byok-prov { margin-left: auto; font-size: 11px; color: var(--text-muted); }
+.byok-option .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px; }
+.byok-card, .byok-model { border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.byok-head, .byok-mhead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.byok-mhead .icon-btn { margin-left: auto; }
+.byok-chip { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--bg-surface); color: var(--text-muted); }
+.byok-chip.ok { color: var(--accent-green); }
+.byok-link { margin-left: auto; font-size: 12px; color: var(--accent-blue); text-decoration: none; }
+.byok-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.byok-row .settings-input { flex: 1 1 180px; min-width: 0; }
+.byok-add { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px dashed var(--border-color); }
+.byok-sub { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
+.byok-prov { font-size: 12px; color: var(--text-muted); }
+.byok-levels { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.byok-lvl { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; cursor: pointer; }
+.byok-mine { margin-top: 14px; }
+#byok-effort-row .effort-seg { flex-wrap: wrap; border-radius: 14px; }
