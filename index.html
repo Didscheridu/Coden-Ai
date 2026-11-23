@@ -44,6 +44,7 @@
     <link rel="stylesheet" href="css/v3.css">
     <link rel="stylesheet" href="css/byok.css">
     <link rel="stylesheet" href="css/settings-v2.css">
+    <link rel="stylesheet" href="css/assistants.css">
     <link rel="stylesheet" href="css/responsive.css">
 
     <style>
@@ -195,10 +196,12 @@
             <div class="input-section">
                 <div class="input-box" style="position: relative;">
                     <div id="command-popup" class="command-popup hidden"></div>
+                    <div id="assistant-popup" class="assistant-popup hidden" role="menu" aria-label="Assistent wählen"></div>
                     <textarea id="main-input" rows="1" placeholder="Prompt eingeben... (Tippe '/' für Befehle)"></textarea>
                     <div class="input-footer">
                         <div class="left-tools">
                             <button class="icon-btn" id="attachment-btn"><span class="material-symbols-outlined">add</span></button>
+                            <button type="button" class="icon-btn" id="assistant-btn" title="Assistent wählen" aria-label="Assistent wählen" aria-haspopup="true"><span class="material-symbols-outlined">smart_toy</span></button>
                             <input type="file" id="file-upload-input" multiple style="display: none;">
                             <button id="live-call-btn" class="icon-btn" title="Live Sprach-Modus" style="display: flex; align-items: center; gap: 6px; border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 6px 14px; background: rgba(0,0,0,0.2); cursor: pointer; transition: all 0.3s;">
                                 <span class="material-symbols-outlined" style="font-size: 18px; color: #ff4444;">graphic_eq</span>
@@ -271,6 +274,7 @@
                 <nav class="st-nav" id="st-nav" aria-label="Einstellungen">
                     <button type="button" data-st="general" class="active"><span class="material-symbols-outlined">person</span><span>Allgemein</span></button>
                     <button type="button" data-st="personal"><span class="material-symbols-outlined">psychology</span><span>Persönlich</span></button>
+                    <button type="button" data-st="assistants"><span class="material-symbols-outlined">smart_toy</span><span>Assistenten</span></button>
                     <button type="button" data-st="models"><span class="material-symbols-outlined">key</span><span>Modelle &amp; Keys</span></button>
                     <button type="button" data-st="notify"><span class="material-symbols-outlined">notifications</span><span>Benachrichtigungen</span></button>
                     <button type="button" data-st="mail"><span class="material-symbols-outlined">mail</span><span>E-Mail</span></button>
@@ -292,8 +296,12 @@
                         <textarea id="custom-instructions" class="settings-input" rows="3" maxlength="1500" placeholder="Wie soll Coden mit dir arbeiten?" style="resize: vertical;"></textarea>
                         <h4 style="margin-top: 26px;">Gedächtnis</h4>
                         <label class="st-check"><input type="checkbox" id="memory-on"> Coden darf sich Dinge über mich merken</label>
-                        <textarea id="memory-notes" class="settings-input" rows="5" placeholder="Eine Sache pro Zeile, zum Beispiel: Ich lerne Python." style="resize: vertical;"></textarea>
-                        <p class="settings-hint">Hier kannst du alles lesen, ändern und löschen. Coden fügt neue Dinge nur hinzu, wenn du es sagst („merk dir …“).</p>
+                        <div id="memory-ui" class="mem-ui"></div>
+                    </section>
+                    <section class="st-pane hidden" data-pane="assistants">
+                        <h4>Eigene Assistenten</h4>
+                        <p class="settings-hint">Ein Assistent ist eine Rolle mit eigenen Anweisungen. Du wählst ihn pro Chat über den Roboter-Knopf neben dem Eingabefeld.</p>
+                        <div id="assistants-ui"></div>
                     </section>
                     <section class="st-pane hidden" data-pane="models">
                         <h4>Modelle &amp; Keys</h4>
@@ -394,6 +402,7 @@
     <script src="shared/app-styles.js"></script>
     <script src="shared/app-bundle.js"></script>
     <script src="shared/agent-core.js"></script>
+    <script src="shared/assist-core.js"></script>
     <script src="shared/upload-check.js"></script>
     <script src="js/vendor/qrcode.js"></script>
     <script type="module" src="js/app.js"></script>

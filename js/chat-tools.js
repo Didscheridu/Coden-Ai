@@ -4,37 +4,47 @@
 import { Storage } from './storage.js';
 
 // ---------- Persönliche Anweisungen + Gedächtnis ----------
-const MEM_MAX = 30, MEM_LEN = 200, INSTR_MAX = 1500;
+// Die Logik (Einträge, Projekt-Trennung, Doppelte, Grenzen) steckt in shared/assist-core.js und ist dort getestet.
+const INSTR_MAX = 1500;
+const A = () => window.CodenAssist;
 const clean = (t, n) => String(t || '').replace(/[\u0000-\u0008\u000B-\u001F]/g, '').replace(/<\/?[a-z_]+[^>]*>/gi, '').trim().slice(0, n);
 export const Personal = {
     instructions: () => clean(Storage.getSettings().instructions, INSTR_MAX),
-    memory: () => (Array.isArray(Storage.getSettings().memory) ? Storage.getSettings().memory : []).map(m => clean(m, MEM_LEN)).filter(Boolean).slice(0, MEM_MAX),
     memoryOn: () => Storage.getSettings().memoryOn !== false,
-    save({ instructions, memoryText, memoryOn }, s) {
+    // Alle Einträge (alle Projekte) für die Liste in den Einstellungen
+    items: () => A().memoryItems(Storage.getSettings()),
+    memory: (projectId) => A().memoryFor(A().memoryItems(Storage.getSettings()), projectId),
+    save({ instructions, memoryOn }, s) {
         s.instructions = clean(instructions, INSTR_MAX);
-        s.memory = String(memoryText || '').split('\n').map(l => clean(l, MEM_LEN)).filter(Boolean).slice(0, MEM_MAX);
         s.memoryOn = memoryOn !== false; return s;
     },
-    prompt() {
-        const ins = this.instructions(), mem = this.memoryOn() ? this.memory() : [];
+    // Liste speichern (und das alte Feld als Spiegel für ältere Geräte mitschreiben)
+    _write(items) {
+        const s = Storage.getSettings(); s.memoryItems = items; s.memory = A().legacyMirror(items);
+        Storage.saveSettings(s); return items;
+    },
+    add(text, projectId = null) { const r = A().addMemory(this.items(), text, { p: projectId }); if (r.added) this._write(r.items); return r; },
+    remove(id) { return this._write(A().removeMemory(this.items(), id)); },
+    edit(id, text) { return this._write(A().editMemory(this.items(), id, text)); },
+    clear(projectId) { return this._write(this.items().filter(m => projectId === undefined ? false : (projectId === null ? !!m.p : m.p !== projectId))); },
+    prompt(projectId = null, projectName = '') {
+        const ins = this.instructions();
         let out = '';
         if (ins) out += `\nPERSÖNLICHE ANWEISUNGEN DES NUTZERS (vom Nutzer selbst in den Einstellungen geschrieben, befolge sie):\n${ins}\n`;
-        if (this.memoryOn()) {
-            out += `\nGEDÄCHTNIS (Fakten über den Nutzer, die er dir mitgeteilt hat):\n${mem.length ? mem.map(m => '- ' + m).join('\n') : '(noch leer)'}\nWenn der Nutzer dir etwas über sich sagt, das du dir dauerhaft merken sollst (oder er "merk dir" sagt), schreibe ans Ende deiner Antwort <remember>kurzer Satz</remember>. Merke dir nie Passwörter, Zahlungsdaten oder Gesundheitsdaten.\n`;
-        }
+        if (this.memoryOn()) out += A().memoryPrompt(this.items(), projectId, { project: projectName });
         return out;
     },
-    // <remember>…</remember> aus einer Antwort lesen und speichern. Gibt die gemerkten Sätze zurück.
-    take(text) {
+    // <remember>…</remember> aus einer Antwort lesen und speichern. In einem Projekt-Chat bleiben neue Einträge im Projekt.
+    // Gibt die neu gemerkten Einträge zurück (mit id, damit man sie rückgängig machen kann).
+    take(text, projectId = null) {
         if (!this.memoryOn()) return [];
-        const found = [...String(text || '').matchAll(/<remember>([\s\S]*?)<\/remember>/gi)].map(m => clean(m[1], MEM_LEN)).filter(x => x.length >= 3).slice(0, 3);
-        if (!found.length) return [];
-        const s = Storage.getSettings(); const mem = Array.isArray(s.memory) ? s.memory.slice() : []; const added = [];
-        for (const f of found) if (mem.length < MEM_MAX && !mem.some(x => x.toLowerCase() === f.toLowerCase())) { mem.push(f); added.push(f); }
-        if (added.length) { s.memory = mem; Storage.saveSettings(s); }
+        let items = this.items(); const added = [];
+        for (const t of A().extractRemember(text)) { const r = A().addMemory(items, t, { p: projectId }); if (r.added) { items = r.items; added.push(r.added); } }
+        if (added.length) this._write(items);
         return added;
     },
-    hide: (t) => String(t || '').replace(/<remember>[\s\S]*?<\/remember>/gi, '').replace(/<remember>[\s\S]*$/i, '')
+    undo(ids) { return this._write(this.items().filter(m => !ids.includes(m.id))); },
+    hide: (t) => A().stripRemember(t)
 };
 
 // ---------- Chat-Export ----------
