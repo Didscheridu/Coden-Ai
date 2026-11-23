@@ -269,3 +269,25 @@ CREATE TABLE IF NOT EXISTS app_secrets (
   name  TEXT PRIMARY KEY,
   value JSONB NOT NULL
 );
+
+-- ===== Bring your own Key: eigene API-Keys (verschlüsselt) und eigene Modelle =====
+CREATE TABLE IF NOT EXISTS user_provider_keys (
+  uid        TEXT NOT NULL,
+  provider   TEXT NOT NULL,
+  key_enc    TEXT NOT NULL,                 -- AES-256-GCM, nie im Klartext
+  hint       TEXT,                          -- letzte 4 Zeichen zur Anzeige
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (uid, provider)
+);
+CREATE TABLE IF NOT EXISTS user_models (
+  id            SERIAL PRIMARY KEY,
+  uid           TEXT NOT NULL,
+  provider      TEXT NOT NULL,              -- google | openai | anthropic | openrouter
+  model_id      TEXT NOT NULL,              -- ID beim Anbieter
+  label         TEXT NOT NULL,              -- Name im Auswahlmenü
+  levels        JSONB NOT NULL DEFAULT '[]'::jsonb,   -- erlaubte Denkstufen
+  default_level TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (uid, provider, model_id)
+);
+CREATE INDEX IF NOT EXISTS user_models_uid ON user_models (uid);

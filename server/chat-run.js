@@ -53,7 +53,7 @@ async function chatJob(run, state) {
     : messages;
   try {
     await generateStream(tier, msgs, {
-      ...opts, isOwner: user.isOwner, meter, signal: AbortSignal.any([run.signal, legAc.signal]),
+      ...opts, isOwner: user.isOwner, uid: user.uid, meter, signal: AbortSignal.any([run.signal, legAc.signal]),
       onModel: (m) => run.setModel(m), onThink: (k) => run.thinkStep(k), onDelta: (v) => run.delta(v)
     });
   } catch (e) {

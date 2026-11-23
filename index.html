@@ -42,6 +42,7 @@
     <link rel="stylesheet" href="css/apps.css">
     <link rel="stylesheet" href="css/mobile.css">
     <link rel="stylesheet" href="css/v3.css">
+    <link rel="stylesheet" href="css/byok.css">
     <link rel="stylesheet" href="css/responsive.css">
 
     <style>
@@ -222,6 +223,11 @@
                                     <div class="model-option disabled" data-model="ultra" id="ultra-mode-option" title="Nur die besten Modelle – standardmäßig nur für den Owner">
                                         <span class="material-symbols-outlined">diamond</span> <span class="name">Coden Ultra</span>
                                     </div>
+                                    <div id="byok-models"></div>
+                                    <div class="effort-row hidden" id="byok-effort-row" title="Denkstufe dieses Modells">
+                                        <span class="effort-label"><span class="material-symbols-outlined">psychology</span> Denkstufe</span>
+                                        <span class="effort-seg"></span>
+                                    </div>
                                     <div class="effort-row" title="Wie lange und gründlich die KI nachdenkt (bei Modellen, die das unterstützen)">
                                         <span class="effort-label"><span class="material-symbols-outlined">psychology</span> Denkaufwand</span>
                                         <span class="effort-seg"><button type="button" data-effort="low">Niedrig</button><button type="button" data-effort="medium">Mittel</button><button type="button" data-effort="high">Hoch</button></span>
@@ -270,6 +276,11 @@
                 <div class="settings-sec">
                     <h4>📊 Nutzung</h4>
                     <div id="usage-box" class="usage-box"></div>
+                </div>
+
+                <div class="settings-sec">
+                    <h4>🔑 Eigene Modelle (Bring your own Key)</h4>
+                    <div id="byok-box"></div>
                 </div>
 
                 <div class="settings-sec">

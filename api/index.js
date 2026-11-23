@@ -15,10 +15,12 @@ const { startRun, serveRun, runsRouter } = require('../server/runs');
 const { ensureSchema } = require('../server/schema');
 const { chatJob, continueHandler, makeChatImage } = require('../server/chat-run');
 const { pushRouter } = require('../server/push');
+const byok = require('../server/byok');
 const { Meter, limitGate, usageRouter } = require('../server/usage');
 const meterFor = (req) => new Meter(req.user, req.body?.tier);
 // Limit-Prüfung braucht die Tabelle: vorher sicherstellen
-const gate = (req, res, next) => ensureSchema().then(() => limitGate(req, res, next), next);
+// Eigene Modelle (Bring your own Key) laufen über den Key des Nutzers und zählen nicht gegen die Coden-Limits
+const gate = (req, res, next) => (byok.isByok(req.body?.tier) ? next() : ensureSchema().then(() => limitGate(req, res, next), next));
 
 // Ein einzelner vergessener Fehler (z. B. in einem Hintergrund-Lauf) darf nie die ganze Funktion abstürzen lassen:
 // sonst antwortet Vercel allen gleichzeitigen Anfragen nur noch mit „HTTP 500“.
@@ -169,14 +171,14 @@ function validChat(body) {
 }
 
 // Der App-Agent darf längere Antworten schreiben (ganze Dateien), normale Chats bleiben bei 8192
-const effortOf = (b) => (['low', 'medium', 'high'].includes(b?.effort) ? b.effort : undefined);
+const effortOf = (b) => (byok.LEVELS.includes(b?.effort) ? b.effort : undefined); // eigene Modelle kennen mehr Stufen; die Coden-Modelle ignorieren alles außer low/medium/high
 const maxTokensOf = (b) => { const n = parseInt(b?.maxTokens, 10); return Number.isFinite(n) ? Math.max(1024, Math.min(n, 16384)) : undefined; };
 
 api.post('/chat', requireAuth, rateLimit('chat', 20, 60), enforceSystemState, gate, async (req, res) => {
   if (!validChat(req.body)) return res.status(400).json({ error: 'Ungültige Anfrage.' });
   const meter = meterFor(req);
   try {
-    res.json({ content: await generate(req.body.tier, req.body.messages, { isOwner: req.user.isOwner, maxTokens: maxTokensOf(req.body), effort: effortOf(req.body), pin: pinOf(req), meter }) });
+    res.json({ content: await generate(req.body.tier, req.body.messages, { isOwner: req.user.isOwner, uid: req.user.uid, maxTokens: maxTokensOf(req.body), effort: effortOf(req.body), pin: pinOf(req), meter }) });
   } catch (e) {
     res.status(e.status || 502).json({ error: e.message, ...(e.limit ? { code: 'limit' } : {}) });
   } finally { meter.close(); }
@@ -192,8 +194,8 @@ api.post('/chat/stream', requireAuth, rateLimit('chat', 20, 60), enforceSystemSt
   const meter = meterFor(req);
   try {
     await generateStream(req.body.tier, req.body.messages, {
-      isOwner: req.user.isOwner, signal: ac.signal, maxTokens: maxTokensOf(req.body), effort: effortOf(req.body), pin: pinOf(req), meter,
-      onModel: (m) => { if (req.user.isOwner) send({ t: 'm', model: m.id }); }, // Modellname sieht nur der Owner
+      isOwner: req.user.isOwner, uid: req.user.uid, signal: ac.signal, maxTokens: maxTokensOf(req.body), effort: effortOf(req.body), pin: pinOf(req), meter,
+      onModel: (m) => { if (req.user.isOwner || m.own) send({ t: 'm', model: m.id }); }, // Modellname sieht nur der Owner (und wer ein eigenes Modell gewählt hat)
       onThink: (k) => send({ t: 'k', h: k.h, v: k.v }),
       onDelta: (v) => send({ t: 'd', v })
     });
@@ -274,7 +276,7 @@ api.post('/live-token', requireAuth, rateLimit('live', 5, 300), async (req, res)
 const { projectsRouter } = require('../server/projects');
 const { serversRouter } = require('../server/servers');
 const needsDb = (req, res, next) => { ensureSchema().then(() => next(), next); };
-api.use('/buddy', needsDb); api.use('/servers', needsDb); api.use('/projects', needsDb); api.use('/apps', needsDb); api.use('/data', needsDb); api.use('/runs', needsDb); api.use('/usage', needsDb); api.use('/push', needsDb);
+api.use('/byok', needsDb); api.use('/buddy', needsDb); api.use('/servers', needsDb); api.use('/projects', needsDb); api.use('/apps', needsDb); api.use('/data', needsDb); api.use('/runs', needsDb); api.use('/usage', needsDb); api.use('/push', needsDb);
 app.use('/a', needsDb);
 // ---------- KI-Bilder für den normalen Chat (Cloudflare Flux) ----------
 api.post('/image', requireAuth, rateLimit('image', 10, 300), async (req, res) => {
@@ -282,6 +284,7 @@ api.post('/image', requireAuth, rateLimit('image', 10, 300), async (req, res) =>
   catch (e) { res.status(e.status || 502).json({ error: e.message }); }
 });
 
+api.use('/byok', byok.byokRouter(requireAuth));
 api.use('/buddy', buddyRouter(requireAuth));
 api.use('/mcp', mcpRouter(requireAuth));
 api.use('/projects', projectsRouter(requireAuth));
