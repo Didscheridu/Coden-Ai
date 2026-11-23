@@ -273,4 +273,4 @@ function byokRouter(requireAuth) {
   return r;
 }
 
-module.exports = { byokRouter, resolve, resolveChain, levelFor, freeOfQuota, owns, labels, getAgentConfig, setAgentConfig, isByok, isChain, isOwnTier, PROVIDERS, BUILTIN, LEVELS, DEFAULT_LEVELS };
+module.exports = { keyOf, encrypt, hintOf, byokRouter, resolve, resolveChain, levelFor, freeOfQuota, owns, labels, getAgentConfig, setAgentConfig, isByok, isChain, isOwnTier, PROVIDERS, BUILTIN, LEVELS, DEFAULT_LEVELS };

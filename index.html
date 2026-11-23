@@ -45,6 +45,7 @@
     <link rel="stylesheet" href="css/byok.css">
     <link rel="stylesheet" href="css/settings-v2.css">
     <link rel="stylesheet" href="css/assistants.css">
+    <link rel="stylesheet" href="css/research.css">
     <link rel="stylesheet" href="css/responsive.css">
 
     <style>
@@ -167,6 +168,7 @@
                 <a href="#/verbindungen" class="sb-item" id="open-mcp-btn" data-route="verbindungen"><span class="material-symbols-outlined">hub</span><span class="sb-label">Verbindungen</span></a>
                 <a href="#/buddy" class="sb-item" id="open-buddy-btn" data-route="buddy"><span class="material-symbols-outlined">diversity_3</span><span class="sb-label">Code Buddy</span><span class="bd-nav-badge" style="display:none"></span></a>
                 <a href="#/projekte" class="sb-item" id="open-projects-btn" data-route="projekte"><span class="material-symbols-outlined">folder_open</span><span class="sb-label">Projekte</span></a>
+                <a href="#" class="sb-item" id="open-tasks-btn"><span class="material-symbols-outlined">task_alt</span><span class="sb-label">Aufgaben</span><span class="bd-nav-badge" id="tasks-nav-badge" style="display:none"></span></a>
             </nav>
             <div class="sidebar-scroll-area"></div>
             <div class="sidebar-footer">
@@ -202,6 +204,7 @@
                         <div class="left-tools">
                             <button class="icon-btn" id="attachment-btn"><span class="material-symbols-outlined">add</span></button>
                             <button type="button" class="icon-btn" id="assistant-btn" title="Assistent wählen" aria-label="Assistent wählen" aria-haspopup="true"><span class="material-symbols-outlined">smart_toy</span></button>
+                            <button type="button" class="icon-btn" id="research-btn" title="Deep Research: Coden recherchiert im Web und schreibt einen Bericht mit Quellen" aria-label="Deep Research" aria-pressed="false"><span class="material-symbols-outlined">travel_explore</span></button>
                             <input type="file" id="file-upload-input" multiple style="display: none;">
                             <button id="live-call-btn" class="icon-btn" title="Live Sprach-Modus" style="display: flex; align-items: center; gap: 6px; border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 6px 14px; background: rgba(0,0,0,0.2); cursor: pointer; transition: all 0.3s;">
                                 <span class="material-symbols-outlined" style="font-size: 18px; color: #ff4444;">graphic_eq</span>
@@ -275,6 +278,8 @@
                     <button type="button" data-st="general" class="active"><span class="material-symbols-outlined">person</span><span>Allgemein</span></button>
                     <button type="button" data-st="personal"><span class="material-symbols-outlined">psychology</span><span>Persönlich</span></button>
                     <button type="button" data-st="assistants"><span class="material-symbols-outlined">smart_toy</span><span>Assistenten</span></button>
+                    <button type="button" data-st="research"><span class="material-symbols-outlined">travel_explore</span><span>Recherche</span></button>
+                    <button type="button" data-st="tasks"><span class="material-symbols-outlined">task_alt</span><span>Aufgaben</span><span class="tk-tab-badge" id="tasks-tab-badge" style="display:none"></span></button>
                     <button type="button" data-st="models"><span class="material-symbols-outlined">key</span><span>Modelle &amp; Keys</span></button>
                     <button type="button" data-st="notify"><span class="material-symbols-outlined">notifications</span><span>Benachrichtigungen</span></button>
                     <button type="button" data-st="mail"><span class="material-symbols-outlined">mail</span><span>E-Mail</span></button>
@@ -302,6 +307,16 @@
                         <h4>Eigene Assistenten</h4>
                         <p class="settings-hint">Ein Assistent ist eine Rolle mit eigenen Anweisungen. Du wählst ihn pro Chat über den Roboter-Knopf neben dem Eingabefeld.</p>
                         <div id="assistants-ui"></div>
+                    </section>
+                    <section class="st-pane hidden" data-pane="research">
+                        <h4>Deep Research</h4>
+                        <p class="settings-hint">Tippe am Eingabefeld auf das Lupen-Symbol, dann plant Coden mehrere Suchen, liest die besten Seiten und schreibt einen Bericht mit Quellen. Das läuft im Hintergrund, auch wenn du die App schließt.</p>
+                        <div id="research-ui"></div>
+                    </section>
+                    <section class="st-pane hidden" data-pane="tasks">
+                        <h4>Aufgaben &amp; Zeitpläne</h4>
+                        <p class="settings-hint">Coden erledigt etwas zu festen Zeiten, zum Beispiel jeden Morgen eine Zusammenfassung. Das Ergebnis liegt hier, und du bekommst eine Benachrichtigung, wenn du sie unter „Benachrichtigungen“ eingeschaltet hast.</p>
+                        <div id="tasks-ui"></div>
                     </section>
                     <section class="st-pane hidden" data-pane="models">
                         <h4>Modelle &amp; Keys</h4>
@@ -403,6 +418,7 @@
     <script src="shared/app-bundle.js"></script>
     <script src="shared/agent-core.js"></script>
     <script src="shared/assist-core.js"></script>
+    <script src="shared/tasks-core.js"></script>
     <script src="shared/upload-check.js"></script>
     <script src="js/vendor/qrcode.js"></script>
     <script type="module" src="js/app.js"></script>

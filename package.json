@@ -21,6 +21,6 @@
   "scripts": {
     "db:migrate": "node --env-file-if-exists=.env.local --env-file-if-exists=.env db/migrate.js",
     "dev": "vercel dev",
-    "test": "node test/api.test.js && node test/ai.test.js && node test/buddy.test.js && node test/apps.test.js && node test/upload.test.js && node test/mcp.test.js && node test/projects.test.js && node test/servers.test.js && node test/selfmigrate.test.js && node test/runs.test.js && node test/agents.test.js && node test/usage.test.js && node test/byok.test.js && node test/byok-agents.test.js && node test/assist.test.js && node test/deps.test.js"
+    "test": "node test/api.test.js && node test/ai.test.js && node test/buddy.test.js && node test/apps.test.js && node test/upload.test.js && node test/mcp.test.js && node test/projects.test.js && node test/servers.test.js && node test/selfmigrate.test.js && node test/runs.test.js && node test/agents.test.js && node test/usage.test.js && node test/byok.test.js && node test/byok-agents.test.js && node test/assist.test.js && node test/research-core.test.js && node test/research.test.js && node test/deps.test.js"
   }
 }
