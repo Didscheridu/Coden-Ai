@@ -31,11 +31,13 @@ const THINKING_FIRST = [
 
 // Coden Ultra: nur die besten der besten, Qualität vor Tempo.
 // Standardmäßig gesperrt, nur der Owner darf (siehe api/index.js).
+// Auf Wunsch von Kayden (22.11.): Nemotron 3.5 Super VL zuerst – neuer, klüger (AA-Index 13,6), besser bei Webseiten/UI,
+// längere Antworten (131k), versteht Bilder. Nemotron 3 Ultra führt dafür jetzt Coden Pro an.
 const ULTRA = [
-  ...openrouter(['nvidia/nemotron-3-ultra-550b-a55b:free']),   // größtes Modell (550B), liefert die längsten Antworten
+  ...openrouter(['nvidia/nemotron-3.5-super-vl:free']),
   { provider: 'groq', id: 'qwen/qwen3.8-27b' },
   { provider: 'groq', id: 'openai/gpt-oss-120b' },
-  ...openrouter(['nvidia/nemotron-3.5-super-vl:free', 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'])
+  ...openrouter(['nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'])
 ];
 
 const CASCADES = {
@@ -54,11 +56,12 @@ const CASCADES = {
     { provider: 'groq', id: 'openai/gpt-oss-20b' },
     { provider: 'groq', id: 'openai/gpt-oss-120b' }
   ],
-  // Pro: stärkste zuerst
+  // Pro: Nemotron 3 Ultra (550B, stark bei Spielen) zuerst, dann die schnellen Groq-Modelle, dann die übrigen Gratismodelle
   pro: [
+    ...openrouter(['nvidia/nemotron-3-ultra-550b-a55b:free']),
     { provider: 'groq', id: 'openai/gpt-oss-120b' },
     { provider: 'groq', id: 'qwen/qwen3.8-27b' },
-    ...openrouter(OPENROUTER_FREE)
+    ...openrouter(OPENROUTER_FREE.filter(m => m !== 'nvidia/nemotron-3-ultra-550b-a55b:free'))
   ]
 };
 

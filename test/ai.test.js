@@ -50,7 +50,8 @@ const gem = (t) => `data: ${JSON.stringify({ candidates: [{ content: { parts: [{
   chk('NVIDIA NIM ist als Anbieter entfernt', [Object.values(ai.CASCADES).some(c => c.some(m => m.provider === 'nvidia')), ai.listModels().some(m => m.provider === 'nvidia')], [false, false]);
 
   // --- Coden Ultra ---
-  chk('Ultra: Nemotron Ultra und Qwen 3.8 vorn', ai.CASCADES.ultra.slice(0, 2).map(m => m.id).join(), 'nvidia/nemotron-3-ultra-550b-a55b:free,qwen/qwen3.8-27b');
+  chk('Ultra: Nemotron 3.5 Super VL und Qwen 3.8 vorn', ai.CASCADES.ultra.slice(0, 2).map(m => m.id).join(), 'nvidia/nemotron-3.5-super-vl:free,qwen/qwen3.8-27b');
+  chk('Pro: Nemotron 3 Ultra zuerst, kein Modell doppelt', `${ai.CASCADES.pro[0].id} ${new Set(ai.CASCADES.pro.map(m => m.id)).size === ai.CASCADES.pro.length}`, 'nvidia/nemotron-3-ultra-550b-a55b:free true');
     chk('Ultra: nur starke Modelle (keine kleinen Flash/Lite)', ai.CASCADES.ultra.some(m => /lite|lightning|1\.7b|(?<!\d)20b/i.test(m.id)), false);
 
   // --- /modelle: gezielt ein Modell wählen ---
