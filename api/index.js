@@ -20,7 +20,9 @@ const { Meter, limitGate, usageRouter } = require('../server/usage');
 const meterFor = (req) => new Meter(req.user, req.body?.tier);
 // Limit-Prüfung braucht die Tabelle: vorher sicherstellen
 // Eigene Modelle (Bring your own Key) laufen über den Key des Nutzers und zählen nicht gegen die Coden-Limits
-const gate = (req, res, next) => (byok.isByok(req.body?.tier) ? next() : ensureSchema().then(() => limitGate(req, res, next), next));
+const gate = (req, res, next) => (byok.isByok(req.body?.tier) ? next() : ensureSchema()
+  .then(() => (byok.isChain(req.body?.tier) ? byok.freeOfQuota(req.user.uid, req.body.tier) : false))
+  .then((free) => (free ? next() : limitGate(req, res, next)), next));
 
 // Ein einzelner vergessener Fehler (z. B. in einem Hintergrund-Lauf) darf nie die ganze Funktion abstürzen lassen:
 // sonst antwortet Vercel allen gleichzeitigen Anfragen nur noch mit „HTTP 500“.

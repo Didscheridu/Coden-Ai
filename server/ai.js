@@ -216,7 +216,7 @@ const CONTINUE = 'Deine letzte Antwort wurde mitten im Satz oder Code abgeschnit
 async function callAnthropic(m, messages, { stream, onDelta, onThink, signal, maxTokens, effort, info }) {
   if (!m.apiKey) throw new Error('ANTHROPIC_API_KEY fehlt');
   const { system, messages: msgs } = toAnthropic(messages);
-  const level = m.own ? effort : null;
+  const level = m.own ? m.level : null;
   const send = (lvl) => fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST', signal,
     headers: { 'x-api-key': m.apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
@@ -246,7 +246,7 @@ async function callModel(m, messages, { stream, onDelta, onThink, signal, maxTok
     const key = m.apiKey || process.env.GOOGLE_API_KEY;
     if (!key) throw new Error('GOOGLE_API_KEY fehlt');
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${m.id}:${stream ? 'streamGenerateContent?alt=sse' : 'generateContent'}`;
-    const level = m.own ? effort : null; // Denkstufe nur bei eigenen Modellen; kennt das Modell sie nicht, noch einmal ohne
+    const level = m.own ? m.level : null; // Denkstufe nur bei eigenen Modellen; kennt das Modell sie nicht, noch einmal ohne
     const send = (lvl) => fetch(url, { method: 'POST', signal, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(toGemini(m.id, messages, maxTokens, lvl)) });
     let r = await send(level);
     if (!r.ok && level && r.status === 400) r = await send(null);
@@ -261,7 +261,7 @@ async function callModel(m, messages, { stream, onDelta, onThink, signal, maxTok
   const cfg = OPENAI_COMPAT[m.provider];
   const key = m.apiKey || (cfg.env && process.env[cfg.env]);
   if (!key) throw new Error(`${cfg.env} fehlt`);
-  const level = m.own ? effort : null;
+  const level = m.own ? m.level : null;
   const send = (lvl) => fetch(cfg.url, {
     method: 'POST', signal,
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', ...(m.provider === 'openai' ? {} : { 'HTTP-Referer': 'https://coden-ai.vercel.app', 'X-Title': 'Coden AI' }) },
@@ -309,19 +309,24 @@ const findModel = (key) => listModels().find(m => m.key === key) || null;
 // meter (optional): zählt den Verbrauch für die Nutzungslimits mit; meter.stop = true hält eine zu lange Aufgabe an
 const charsOf = (msgs) => msgs.reduce((n, m) => n + String(m.content || '').length + (m.images?.length || 0) * 3000, 0);
 async function run(tier, messages, { isOwner = false, stream = false, onDelta = () => {}, onModel = () => {}, onThink, signal: outer, maxTokens, effort, pin, meter, uid } = {}) {
-  // Eigenes Modell (Bring your own Key): Modell und Key erst hier aus der Datenbank holen, nie im Lauf-Zustand speichern.
-  // Es zählt nicht gegen die Coden-Limits (der Nutzer zahlt über seinen Key) und weicht nie auf andere Modelle aus.
-  let own = null;
+  // Eigenes Modell oder eigene Kette (Bring your own Key): Modelle und Keys erst hier aus der Datenbank holen,
+  // nie im Lauf-Zustand speichern. Über den eigenen Key laufende Aufrufe zählen nicht gegen die Coden-Limits.
+  let own = null, chain = null, entries = null;
+  const entryOf = (o) => ({ provider: o.provider, id: o.id, apiKey: o.apiKey, own: true, label: o.label, level: byok.levelFor(o, effort) });
   if (byok.isByok(tier)) {
     if (!uid) throw Object.assign(new Error('Nicht eingeloggt.'), { status: 401 });
-    own = await byok.resolve(uid, tier); meter = null; pin = undefined;
-    effort = own.levels.includes(effort) ? effort : (own.levels.includes(own.defaultLevel) ? own.defaultLevel : own.levels[0]);
+    own = await byok.resolve(uid, tier); meter = null; pin = undefined; entries = [entryOf(own)];
+  } else if (byok.isChain(tier)) {
+    if (!uid) throw Object.assign(new Error('Nicht eingeloggt.'), { status: 401 });
+    chain = await byok.resolveChain(uid, tier, { isOwner }); pin = undefined;
+    entries = chain.members.flatMap(m => (m.kind === 'own' ? [entryOf(m)] : CASCADES[m.tier]));
+    if (chain.ownOnly) meter = null;
   }
   const stopper = new AbortController(); // bricht den Anbieter-Aufruf ab, wenn das Nutzungslimit überschritten wird
   const signal = outer ? AbortSignal.any([outer, stopper.signal]) : stopper.signal;
   const limitHit = () => { stopper.abort(); const e = new Error(meter.message()); e.limit = true; e.status = 429; return e; };
   if (meter?.stop) throw limitHit();
-  let cascade = own ? [{ provider: own.provider, id: own.id, apiKey: own.apiKey, own: true, label: own.label }] : CASCADES[tier];
+  let cascade = entries || CASCADES[tier];
   if (pin) { // ein bestimmtes Modell erzwingen (nur Owner, kein Ausweichen auf andere)
     const m = findModel(pin);
     if (!m) throw Object.assign(new Error('Unbekanntes Modell.'), { status: 400 });
@@ -334,6 +339,7 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
     let slow = null;
     try {
       if (QUOTAS[m.id] && !(await reserveQuota(m.id, isOwner))) { last = new Error(`${m.id}: Tageslimit erreicht`); continue; }
+      const mt = m.own ? null : meter; // eigene Modelle zählen nicht gegen die Coden-Limits (auch nicht in gemischten Ketten)
       let sent = false;
       const tracker = onThink && stream ? new ThinkTracker(onThink) : null;
       // Fortschritt auch dann zeigen, wenn das Modell sein Denken nicht preisgibt: echter Stand statt stummer Wartepunkte
@@ -344,17 +350,17 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
       tried++;
       const filter = new ThinkFilter(tracker ? (t) => tracker.push(t) : undefined);
       const emit = (t) => {
-        meter?.add(t.length);
+        mt?.add(t.length);
         const v = filter.push(t); if (v) { if (!sent) { sent = true; clearTimeout(slow); onModel(m); } onDelta(v); }
-        if (meter?.stop) { const e = limitHit(); if (sent) e.partial = true; throw e; }
+        if (mt?.stop) { const e = limitHit(); if (sent) e.partial = true; throw e; }
       };
-      const thinkIn = (t) => { meter?.add(String(t).length); if (tracker) tracker.push(t); };
+      const thinkIn = (t) => { mt?.add(String(t).length); if (tracker) tracker.push(t); };
       const info = {};
       const call = async (msgs) => {
         let got = false;
-        try { const r = await callModel(m, msgs, { stream, onDelta: (t) => { got = true; emit(t); }, onThink: (t) => { got = true; thinkIn(t); }, signal, maxTokens, effort, info }); got = true; if (!stream) meter?.add(r.length); return r; }
-        catch (e) { if (e.limit) throw e; if (signal.aborted && meter?.stop) { const le = limitHit(); if (sent) le.partial = true; throw le; } if (sent) e.partial = true; throw e; }
-        finally { if (got) meter?.add(charsOf(msgs), { input: true }); } // Eingabe nur zählen, wenn das Modell wirklich gearbeitet hat
+        try { const r = await callModel(m, msgs, { stream, onDelta: (t) => { got = true; emit(t); }, onThink: (t) => { got = true; thinkIn(t); }, signal, maxTokens, effort, info }); got = true; if (!stream) mt?.add(r.length); return r; }
+        catch (e) { if (e.limit) throw e; if (signal.aborted && mt?.stop) { const le = limitHit(); if (sent) le.partial = true; throw le; } if (sent) e.partial = true; throw e; }
+        finally { if (got) mt?.add(charsOf(msgs), { input: true }); } // Eingabe nur zählen, wenn das Modell wirklich gearbeitet hat
       };
       let full = await call(messages);
       // Antwort wurde vom Token-Limit abgeschnitten (z. B. langer Code): nahtlos weiterschreiben lassen
@@ -383,6 +389,7 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
     const m = cascade[0]; const hint = /401|403|unauthor|invalid.*key|api key|permission/i.test(last?.message || '') ? ` – der API-Key von ${PROVIDER_NAMES[m.provider] || m.provider} wird abgelehnt (${own ? 'Einstellungen → Eigene Modelle' : 'in Vercel prüfen, danach neu deployen'})` : '';
     throw new Error(`${own ? own.label : m.id} (${PROVIDER_NAMES[m.provider] || m.provider}): ${last?.message}${hint}`);
   }
+  if (chain) throw new Error(`Alle Modelle der Kette „${chain.name}“ sind ausgefallen. Letzter Fehler: ${last?.message}`);
   throw new Error(`Alle Server sind überlastet. Letzter Fehler: ${last?.message}`);
 }
 

@@ -291,3 +291,18 @@ CREATE TABLE IF NOT EXISTS user_models (
   UNIQUE (uid, provider, model_id)
 );
 CREATE INDEX IF NOT EXISTS user_models_uid ON user_models (uid);
+
+-- ===== Bring your own Key: Ausweich-Ketten und App-Modus-Einstellungen =====
+CREATE TABLE IF NOT EXISTS user_chains (
+  id         SERIAL PRIMARY KEY,
+  uid        TEXT NOT NULL,
+  name       TEXT NOT NULL,
+  members    JSONB NOT NULL DEFAULT '[]'::jsonb,   -- Reihenfolge: "flash" | "normal" | "pro" | "ultra" | "byok:<id>"
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS user_chains_uid ON user_chains (uid);
+CREATE TABLE IF NOT EXISTS user_agent_cfg (
+  uid        TEXT PRIMARY KEY,
+  cfg        JSONB NOT NULL DEFAULT '{}'::jsonb,   -- Sub-Agenten: Modell je Schwierigkeit, keyMax, overflow
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

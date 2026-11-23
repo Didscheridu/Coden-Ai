@@ -6,6 +6,7 @@ import { auth } from '../auth.js';
 import { toast } from '../toast.js';
 import { h, icon, md, sleep, copy } from './dom.js';
 import { getEffort, setEffort, bindEffortButtons } from '../effort.js';
+import { loadByok, byokReady, ownTiers, isOwnTier, isByokTier, byokEffort } from '../byok.js';
 import { createThinkPanel } from '../think-panel.js';
 import { parse } from './agent.js';
 import { ghExport } from './github.js';
@@ -90,7 +91,7 @@ export function mountBuilder(host, appId) {
             setApp(r.app); st.files = r.files || {}; st.members = r.members || []; st.version = r.app.version;
             const msgs = (await apiJson(`/apps/${appId}/messages`)).messages;
             log.replaceChildren(); msgs.forEach(addMessage); if (!msgs.length) log.append(welcome());
-            drawPeople(); drawTiers(); drawDevices(); drawViewSeg(); drawMobileTabs(); render(); scrollLog(true);
+            drawPeople(); drawTiers(); loadByok().then(() => { if (st.alive) drawTiers(); }); drawDevices(); drawViewSeg(); drawMobileTabs(); render(); scrollLog(true);
             const pending = sessionStorage.getItem('coden_app_prompt_' + appId);
             if (pending) { sessionStorage.removeItem('coden_app_prompt_' + appId); input.value = pending; send(); }
             else setTimeout(() => input.focus(), 100);
@@ -125,7 +126,13 @@ export function mountBuilder(host, appId) {
     const MODES = [['auto', 'smart_toy', 'Auto', 'Der Main Agent entscheidet selbst, ob er Sub-Agenten startet'], ['team', 'groups', 'Team', 'Der Main Agent startet immer Sub-Agenten (Layout, Logik, Spiel, Daten …) mit passendem Modell und prüft danach alles'], ['single', 'bolt', 'Solo', 'Nur der Main Agent – am schnellsten für kleine Änderungen']];
     function drawTiers() {
         const mode = h('select', { class: 'bl-mode', title: 'Agenten-Modus', onchange: (e) => { st.mode = e.target.value; localStorage.setItem('coden_agent_mode', st.mode); } }, ...MODES.map(([v, , l, tip]) => h('option', { value: v, text: (v === 'team' ? '👥 ' : v === 'single' ? '⚡ ' : '🤖 ') + l, title: tip, selected: st.mode === v })));
-        tierBox.replaceChildren(...TIERS.filter(t => t.id !== 'ultra' || auth.currentUser?.isOwner).map(t => h('button', { class: 'bl-tier' + (st.tier === t.id ? ' active' : ''), title: t.tip, text: t.label, onclick: () => { st.tier = t.id; localStorage.setItem('coden_app_tier', t.id); drawTiers(); } })), drawEffort(), mode);
+        const own = ownTiers();
+        if (isOwnTier(st.tier) && byokReady() && !own.some(o => o.tier === st.tier)) st.tier = 'pro'; // gelöschtes eigenes Modell
+        const pick = (t) => { st.tier = t; localStorage.setItem('coden_app_tier', t); drawTiers(); };
+        const ownSel = own.length ? h('select', { class: 'bl-own' + (isOwnTier(st.tier) ? ' active' : ''), title: 'Eigene Modelle und Ketten (Bring your own Key)', onchange: (e) => { if (e.target.value) pick(e.target.value); } },
+            h('option', { value: '', text: 'Eigene …' }), ...own.map(o => h('option', { value: o.tier, text: (o.kind === 'chain' ? '⛓ ' : '🔑 ') + o.label, selected: st.tier === o.tier || undefined }))) : null;
+        const cfgBtn = h('button', { type: 'button', class: 'bl-tier', title: 'Modelle der Sub-Agenten, Ketten und Key-Plätze einstellen', 'aria-label': 'Agenten-Modelle einstellen', onclick: () => window.dispatchEvent(new CustomEvent('coden:settings', { detail: { tab: 'models', sub: 'app' } })) }, icon('tune'));
+        tierBox.replaceChildren(...[...TIERS.filter(t => t.id !== 'ultra' || auth.currentUser?.isOwner).map(t => h('button', { class: 'bl-tier' + (st.tier === t.id ? ' active' : ''), title: t.tip, text: t.label, onclick: () => pick(t.id) })), ownSel, cfgBtn, isByokTier(st.tier) ? null : drawEffort(), mode].filter(Boolean));
     }
     function drawDevices() {
         const list = KINDS[st.app.kind].devices; deviceBtns.classList.toggle('hidden', list.length < 2 || st.view !== 'preview');
@@ -426,7 +433,7 @@ export function mountBuilder(host, appId) {
             if (attach) { view = liveView(attach.startedAt); status = await follow(runId, view); }
             else {
                 view = liveView();
-                const res = await apiFetch(`/apps/${appId}/agent`, { method: 'POST', signal: ac.signal, body: JSON.stringify({ tier: st.tier, effort: getEffort(), mode: st.mode }) });
+                const res = await apiFetch(`/apps/${appId}/agent`, { method: 'POST', signal: ac.signal, body: JSON.stringify({ tier: st.tier, effort: isByokTier(st.tier) ? byokEffort(st.tier) : getEffort(), mode: st.mode }) });
                 if (res.status === 409) { const d = await res.json().catch(() => ({})); if (d.runId) { runId = d.runId; status = await follow(runId, view); } else throw new Error(d.error || 'Coden arbeitet schon.'); }
                 else if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'HTTP ' + res.status); }
                 else {

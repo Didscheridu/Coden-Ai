@@ -9,6 +9,7 @@ const vm = require('vm');
 const Agent = require('../shared/agent-core');
 const { generateStream, CONTINUE } = require('./ai');
 const { Meter } = require('./usage');
+const Byok = require('./byok');
 const Push = require('./push');
 
 const MAX_FIX = 2, MAX_TEAM = 8, TEAM_PARALLEL = 8, HISTORY = 18; // alle Sub-Agenten eines Auftrags laufen gleichzeitig
@@ -21,6 +22,22 @@ function tierFor(level, chosen, allowUltra) {
   if (level === 'easy') return 'flash';
   if (level === 'hard') return RANK[chosen] > RANK[strongest] ? chosen : strongest;
   return chosen;
+}
+// Begrenzt, wie viele Sub-Agenten gleichzeitig über den eigenen Key laufen (max Plätze; Rest wartet, bis einer frei wird)
+function slots(max) {
+  let free = Math.max(1, max | 0); const q = [];
+  return {
+    free: () => free,
+    acquire(signal) {
+      return new Promise((resolve, reject) => {
+        const take = () => { free--; resolve(() => { free++; q.shift()?.(); }); };
+        if (free > 0) return take();
+        const w = () => { signal?.removeEventListener('abort', onAbort); take(); };
+        const onAbort = () => { const i = q.indexOf(w); if (i >= 0) q.splice(i, 1); reject(new Error('abgebrochen')); };
+        q.push(w); signal?.addEventListener('abort', onAbort, { once: true });
+      });
+    }
+  };
 }
 const SOFT_DEADLINE_MS = 230_000; // danach keine neuen Runden mehr (Vercel beendet Funktionen nach 300 s)
 const syntax = (code) => { try { new vm.Script(code); return null; } catch (e) { return e.message; } };
@@ -118,14 +135,16 @@ async function runAppAgent(run, ctx) {
   const S = ctx.state || {};                       // Stand aus der vorigen Etappe (oder leer beim Start)
   const leg = (S.leg || 0) + 1;
   const agents = S.agents || [];
-  const push = () => run.setAgents(agents.map(a => ({ id: a.id, role: a.role, title: a.title, status: a.status, detail: a.detail, tier: a.tier ? TIER_NAME[a.tier] : undefined, kit: a.kit, level: a.level, parent: a.parent })));
+  const labels = ctx.uid ? await Byok.labels(ctx.uid).catch(() => ({})) : {}; // Namen eigener Modelle/Ketten für die Anzeige
+  const tn = (t) => TIER_NAME[t] || labels[t] || (Byok.isOwnTier(t) ? 'Eigenes Modell' : String(t));
+  const push = () => run.setAgents(agents.map(a => ({ id: a.id, role: a.role, title: a.title, status: a.status, detail: a.detail, tier: a.tier ? tn(a.tier) : undefined, kit: a.kit, level: a.level, parent: a.parent })));
   const add = (o) => { const a = { status: 'wait', detail: '', ...o }; agents.push(a); push(); return a; };
   const set = (a, patch) => { Object.assign(a, patch); push(); };
   const style = ctx.style; let files = { ...ctx.files }; const history = ctx.history.slice();
   const legAc = new AbortController(); const legTimer = setTimeout(() => legAc.abort(), LEG_HARD_MS);
   const signal = AbortSignal.any ? AbortSignal.any([run.signal, legAc.signal]) : run.signal;
   const meter = new Meter({ uid: ctx.uid, email: ctx.email, isOwner: ctx.isOwner }, ctx.tier); // Nutzungslimit
-  const common = { isOwner: ctx.isOwner, signal, effort: ctx.effort, meter };
+  const common = { isOwner: ctx.isOwner, uid: ctx.uid, signal, effort: ctx.effort, meter };
   const spawnAllowed = ctx.mode !== 'single';
   const mainCfg = { maxSteps: MAX_TOTAL_STEPS, spawn: spawnAllowed, team: ctx.mode === 'team' && ctx.trigger === 'user' && !S.spawns };
   const sys = (team) => ({ role: 'system', content: Agent.systemPrompt({ app: ctx.app, files, style, team, main: team ? null : mainCfg }) });
@@ -239,7 +258,7 @@ async function runAppAgent(run, ctx) {
     // Eine Nachricht für den ganzen Auftrag (Dateiinhalte gekürzt, Werkzeug-Ergebnisse bleiben als kurze Zeilen)
     const reply = withReply(out.text, Agent.parse(out.text));
     if (reply !== out.text) { const suffix = reply.slice(out.text.replace(/\s+$/, '').length); if (suffix.trim()) emit(suffix); }
-    await ctx.post('assistant', Agent.condense(out.text) || '…', { changed: [...changed.values()], model: run.model || undefined, agents: agents.map(a => ({ title: a.title, status: a.status, tier: a.tier ? TIER_NAME[a.tier] : undefined })).slice(0, 14), steps: stepsTotal, legs: leg });
+    await ctx.post('assistant', Agent.condense(out.text) || '…', { changed: [...changed.values()], model: run.model || undefined, agents: agents.map(a => ({ title: a.title, status: a.status, tier: a.tier ? tn(a.tier) : undefined })).slice(0, 14), steps: stepsTotal, legs: leg });
     run.setExtra({ done: true, steps: stepsTotal, legs: leg });
     if (run.subs.size === 0 && ctx.uid && !run.signal.aborted) await Push.notify(ctx.uid, { title: `Coden ist fertig: ${ctx.app?.name || 'App'}`, body: changed.size ? `${changed.size} Datei${changed.size > 1 ? 'en' : ''} geändert – tippe, um die App zu öffnen.` : Push.preview(out.text.replace(/<result[^>]*>[^<]*<\/result>/g, '').slice(-400)), url: `/#/apps/${ctx.app?.id || ''}`, tag: 'app-' + (ctx.app?.id || '') });
     return { files, summary: { steps: stepsTotal, legs: leg, changed: [...changed.keys()] } };
@@ -295,7 +314,15 @@ async function runAppAgent(run, ctx) {
       plan = parsePlan(body, files);
       if (!plan || !plan.tasks.length) return { ok: false, summary: 'ungültiger spawn-Auftrag', text: 'spawn braucht gültiges JSON: {"contract":"…","tasks":[{"title":"…","agent":"logic","level":"mittel","files":["app.js"],"goal":"…"}]} – jede Datei nur in einer Aufgabe.' };
       spawns++; n = spawns;
-      plan.tasks.forEach(t => { t.tier = tierFor(t.level, ctx.tier, ctx.allowUltra); });
+      // Modell je Sub-Agent: Einstellung pro Schwierigkeit, sonst gemeinsames Sub-Modell, sonst wie der Main Agent (eigene Modelle) bzw. nach Schwierigkeit (Coden)
+      const cfg = ctx.agentCfg || {};
+      const validTier = (t) => t && t !== 'auto' && (['flash', 'normal', 'pro'].includes(t) || (t === 'ultra' && ctx.allowUltra) || Byok.isOwnTier(t));
+      plan.tasks.forEach(t => { t.tier = [cfg.levels?.[t.level], cfg.sub].find(validTier) || (Byok.isOwnTier(ctx.tier) ? ctx.tier : tierFor(t.level, ctx.tier, ctx.allowUltra)); });
+      // Höchstens keyMax Sub-Agenten gleichzeitig über den eigenen Key. „coden“: der Rest läuft sofort über Coden-Modelle; „wait“: der Rest wartet (siehe slots unten)
+      if (cfg.overflow === 'coden') {
+        let used = 0; const max = Math.max(1, cfg.keyMax || 3);
+        for (const t of plan.tasks) if (Byok.isOwnTier(t.tier)) { if (used < max) used++; else t.tier = ['flash', 'normal', 'pro'].includes(cfg.overflowTier) ? cfg.overflowTier : 'flash'; }
+      }
     }
     const tasks = plan.tasks;
     const subs = tasks.map((t, i) => {
@@ -315,12 +342,15 @@ async function runAppAgent(run, ctx) {
     const subMin = parseInt(process.env.CODEN_SUB_MIN_MS, 10) || 5_000;
     const cutTimer = setTimeout(() => { if (leg < MAX_LEGS) { cut = true; subAc.abort(); } }, Math.max(subMin, timeLeft() - SUB_RESERVE_MS()));
     const subSignal = AbortSignal.any([signal, subAc.signal]);
+    const keySlots = slots(ctx.agentCfg?.keyMax || 3);
     const paused = [], readyOps = [];
     await Promise.all(todo.map(async (i) => {
-      const t = tasks[i]; set(subs[i], { status: 'run', detail: raw[i] ? 'schreibt weiter …' : 'startet …' });
+      const t = tasks[i]; const viaKey = Byok.isOwnTier(t.tier); let release = null;
+      set(subs[i], viaKey && keySlots.free() < 1 ? { status: 'wait', detail: 'wartet auf einen freien Key-Platz …' } : { status: 'run', detail: raw[i] ? 'schreibt weiter …' : 'startet …' });
       const team = { role: `${Agent.kitFor(t.agent)?.name || 'Sub-Agent'} (Sub-Agent ${i + 1} von ${tasks.length}, beauftragt vom Main Agent)`, summary: plan.summary || 'Auftrag vom Main Agent', contract: plan.contract, tasks, task: t };
       const msgs = raw[i] ? [sys(team), brief, { role: 'assistant', content: raw[i] }, { role: 'user', content: CONTINUE }] : [sys(team), brief];
       try {
+        if (viaKey) { release = await keySlots.acquire(subSignal); set(subs[i], { status: 'run', detail: raw[i] ? 'schreibt weiter …' : 'startet …' }); }
         await generateStream(t.tier, msgs, { ...common, signal: subSignal, meter: meter.child(t.tier), maxTokens: 16000, onDelta: (v) => { raw[i] += v; if (raw[i].length % 1500 < v.length) set(subs[i], { detail: progress(raw[i]) || 'schreibt …' }); } });
         finishSub(i);
       } catch (e) {
@@ -328,7 +358,7 @@ async function runAppAgent(run, ctx) {
         if (cut && raw[i].trim()) { paused.push(i); set(subs[i], { status: 'wait', detail: `pausiert bei ${progress(raw[i]) || 'Schreiben'} – macht in der nächsten Etappe weiter` }); return; }
         if (cut) { paused.push(i); set(subs[i], { status: 'wait', detail: 'startet in der nächsten Etappe' }); return; }
         notes[i] = 'Fehler: ' + e.message; done.push({ i, paths: [] }); set(subs[i], { status: 'error', detail: e.message.slice(0, 120) });
-      }
+      } finally { release?.(); }
     }));
     clearTimeout(cutTimer);
     function finishSub(i) {
@@ -349,7 +379,7 @@ async function runAppAgent(run, ctx) {
     set(main, { detail: 'prüft die Ergebnisse der Sub-Agenten' });
     const okN = subs.filter(x => x.status === 'done').length;
     const pathsOf = (i) => (done.find(d => d.i === i)?.paths || []).join(', ');
-    const report = tasks.map((t, i) => `${subs[i].status === 'done' ? '✅' : '⚠️'} ${subs[i].title} [${TIER_NAME[t.tier]}] → ${pathsOf(i) || 'nichts geliefert'}${notes[i] ? '\n   Notiz: ' + notes[i] : ''}`).join('\n');
+    const report = tasks.map((t, i) => `${subs[i].status === 'done' ? '✅' : '⚠️'} ${subs[i].title} [${tn(t.tier)}] → ${pathsOf(i) || 'nichts geliefert'}${notes[i] ? '\n   Notiz: ' + notes[i] : ''}`).join('\n');
     return { ok: okN === tasks.length && !c.issues.length, summary: `${okN}/${tasks.length} Sub-Agenten fertig · ${c.summary}`,
       text: `[Sub-Agenten] ${okN} von ${tasks.length} fertig:\n${report}${r.problems.length ? '\nNicht angewendet: ' + r.problems.join('; ') : ''}\n\n${c.text}\n\nJetzt bist DU dran: lies die neuen Dateien (read/search), prüfe, ob alles zum Vertrag passt, schreibe fehlende Verbindungen selbst und behebe Fehler. Ausgefallene Aufgaben erledigst du selbst.` };
   }

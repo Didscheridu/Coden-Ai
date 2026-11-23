@@ -1,19 +1,67 @@
-/* Bring your own Key: Einstellungen + Modellmenü */
+/* Bring your own Key: Einstellungen (Modelle & Keys) + Modellmenü */
 .byok-menu-head { padding: 8px 12px 2px; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); border-top: 1px solid var(--border-color); margin-top: 4px; }
-.byok-option .byok-prov { margin-left: auto; font-size: 11px; color: var(--text-muted); }
+.byok-option .byok-prov { margin-left: auto; font-size: 11px; color: var(--text-muted); white-space: nowrap; }
 .byok-option .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px; }
-.byok-card, .byok-model { border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+#byok-effort-row .effort-seg { flex-wrap: wrap; border-radius: 14px; }
+
+/* Unterbereiche als nummerierte Schritte */
+.byok-tabs { display: flex; gap: 6px; margin: 4px 0 16px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.byok-tabs::-webkit-scrollbar { display: none; }
+.byok-tabs button { flex: 1 0 auto; display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: var(--bg-sidebar); border: 1px solid var(--border-color); color: var(--text-secondary); font: inherit; font-size: 13px; padding: 8px 12px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
+.byok-tabs button.active { background: rgba(138, 180, 248, .18); border-color: var(--accent-blue); color: var(--text-primary); }
+.byok-step { width: 18px; height: 18px; border-radius: 50%; background: rgba(255, 255, 255, .1); font-size: 11px; display: inline-grid; place-items: center; }
+.byok-tabs .active .byok-step { background: var(--accent-blue); color: #0b1020; }
+
+.byok-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.byok-stack { display: flex; flex-direction: column; gap: 12px; }
+.byok-card, .byok-model { border: 1px solid var(--border-color); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; background: rgba(255, 255, 255, .02); }
+.byok-card.on { border-color: rgba(109, 213, 140, .45); }
+.byok-model { padding: 10px 12px; background: var(--bg-sidebar); gap: 6px; }
 .byok-head, .byok-mhead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .byok-mhead .icon-btn { margin-left: auto; }
 .byok-chip { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--bg-surface); color: var(--text-muted); }
 .byok-chip.ok { color: var(--accent-green); }
 .byok-link { margin-left: auto; font-size: 12px; color: var(--accent-blue); text-decoration: none; }
 .byok-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.byok-row .settings-input { flex: 1 1 180px; min-width: 0; }
-.byok-add { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px dashed var(--border-color); }
-.byok-sub { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
-.byok-prov { font-size: 12px; color: var(--text-muted); }
+.byok-row > .settings-input, .byok-row > .byok-field { flex: 1 1 180px; min-width: 0; }
+.byok-row.between { justify-content: space-between; }
+.byok-row.two > *, .byok-row.three > * { flex: 1 1 200px; }
+.byok-row.three > * { flex-basis: 150px; }
+.byok-field { display: flex; flex-direction: column; gap: 6px; }
+.byok-field .settings-input { margin: 0; }
+.byok-fl { font-size: 13px; color: var(--text-secondary); }
+.byok-field small, .byok-prov { font-size: 12px; color: var(--text-muted); line-height: 1.45; }
+.byok-intro b { font-size: 14px; font-weight: 500; }
+.byok-intro p { margin: 4px 0 0; font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+.byok-sub { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin-top: 8px; }
+.byok-sub.first { margin-top: 0; }
 .byok-levels { display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .byok-lvl { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; cursor: pointer; }
-.byok-mine { margin-top: 14px; }
-#byok-effort-row .effort-seg { flex-wrap: wrap; border-radius: 14px; }
+.byok-def-l { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); }
+.byok-def { width: auto; margin: 0; padding: 4px 8px; font-size: 12px; }
+.byok-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; padding: 22px 14px; border: 1px dashed var(--border-color); border-radius: 14px; color: var(--text-muted); }
+.byok-empty.small { flex-direction: row; padding: 10px 14px; text-align: left; }
+.byok-empty p { margin: 0; font-size: 13px; }
+
+/* Modellliste zum Auswählen */
+.byok-pick { max-height: 170px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--border-color); border-radius: 10px; padding: 4px; }
+.byok-pick-i { display: flex; flex-direction: column; align-items: flex-start; gap: 0; text-align: left; background: none; border: 0; color: var(--text-primary); font: inherit; font-size: 13px; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+.byok-pick-i:hover { background: rgba(255, 255, 255, .07); }
+.byok-pick-i small { color: var(--text-muted); font-size: 11px; word-break: break-all; }
+
+/* Ketten */
+.byok-chain { display: flex; flex-direction: column; gap: 4px; }
+.byok-chain-i { display: flex; align-items: center; gap: 6px; background: var(--bg-sidebar); border: 1px solid var(--border-color); border-radius: 10px; padding: 4px 6px 4px 10px; }
+.byok-chain-i .icon-btn { width: 30px; height: 30px; }
+.byok-chain-i .icon-btn[disabled] { opacity: .3; pointer-events: none; }
+.byok-n { width: 20px; height: 20px; border-radius: 50%; background: rgba(138, 180, 248, .2); font-size: 11px; display: inline-grid; place-items: center; flex: none; }
+.byok-cn { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+
+/* App-Modus */
+.byok-num { min-width: 28px; text-align: center; font-weight: 600; font-size: 16px; color: var(--accent-blue); }
+.byok-example { margin: 0; padding: 8px 12px; border-radius: 10px; background: rgba(138, 180, 248, .1); font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+.byok-row .settings-slider { flex: 1; }
+
+/* App-Builder: Auswahl eigener Modelle */
+.bl-own { max-width: 150px; font: inherit; font-size: 12px; background: var(--bg-sidebar); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 999px; padding: 4px 8px; }
+.bl-own.active { border-color: var(--accent-blue); background: rgba(138, 180, 248, .18); }
