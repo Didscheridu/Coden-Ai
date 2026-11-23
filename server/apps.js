@@ -1,6 +1,7 @@
 // App-Builder: Apps anlegen, Dateien speichern, gemeinsamer Agent-Chat, Mitglieder (Code Buddy), Veröffentlichen.
 // Plus die öffentliche Seite /a/<slug>/ – sie zeigt die App in einer Sandbox, damit fremder Code nie an Coden-Logins kommt.
 const crypto = require('crypto');
+const Byok = require('./byok');
 const Usage = require('./usage');
 const fs = require('fs');
 const path = require('path');
@@ -261,14 +262,18 @@ function appsRouter(requireAuth) {
   }
   r.post('/:id/agent', rateLimit('apps-agent', 30, 60), async (req, res) => {
     const a = await memberOf(req, res, req.params.id, true); if (!a) return;
-    const tier = ['flash', 'normal', 'pro', 'ultra'].includes(req.body?.tier) ? req.body.tier : 'pro';
+    // Modell des Main Agents: Coden-Stufe, eigenes Modell oder eigene Kette (muss dem Nutzer gehören)
+    const wanted = req.body?.tier;
+    const tier = ['flash', 'normal', 'pro', 'ultra'].includes(wanted) ? wanted : (Byok.isOwnTier(wanted) && await Byok.owns(req.user.uid, wanted) ? wanted : 'pro');
     const why = await locked(req, tier); if (why) return bad(res, 403, why);
     const busy = await activeRun(a.id); if (busy) return bad(res, 409, 'Coden arbeitet gerade schon an dieser App.', { runId: busy });
-    const lim = await Usage.check(req.user); if (!lim.ok) return bad(res, 429, lim.message, { code: 'limit', usage: lim.view });
-    const effort = ['low', 'medium', 'high'].includes(req.body?.effort) ? req.body.effort : undefined;
+    const free = await Byok.freeOfQuota(req.user.uid, tier); // läuft nur über den eigenen Key: Coden-Limit gilt nicht
+    const lim = free ? { ok: true } : await Usage.check(req.user); if (!lim.ok) return bad(res, 429, lim.message, { code: 'limit', usage: lim.view });
+    const effort = Byok.LEVELS.includes(req.body?.effort) ? req.body.effort : undefined;
     const mode = ['auto', 'single', 'team'].includes(req.body?.mode) ? req.body.mode : 'auto';
     const rows = await loadMessages(a.id, req.user.uid, 0, 40);
-    const opts = { uid: req.user.uid, email: req.user.email || null, isOwner: req.user.isOwner, tier, effort, mode, allowUltra: !(await locked(req, 'ultra')),
+    const agentCfg = await Byok.getAgentConfig(req.user.uid); // Sub-Agenten-Modelle und Key-Grenzen (nur Namen/Zahlen, keine Keys)
+    const opts = { uid: req.user.uid, email: req.user.email || null, isOwner: req.user.isOwner, tier, effort, mode, agentCfg, allowUltra: !(await locked(req, 'ultra')),
       trigger: rows.length && rows[rows.length - 1].role === 'user' ? 'user' : 'tool', lastMsgId: rows.length ? Number(rows[rows.length - 1].id) : 0,
       imgBase: baseUrl(req), selfBase: selfUrl(req) };
     const ctx = agentCtx(a, opts, historyFrom(rows));
@@ -282,7 +287,7 @@ function appsRouter(requireAuth) {
     const sql = getSql(); const appId = a.id; const uid = o.uid;
     const ctx = {
       app: { id: Number(a.id), name: a.name, kind: a.kind, style: a.style, integrations: a.integrations || {} },
-      files: a.files || {}, history, uid, email: o.email || null, tier: o.tier, effort: o.effort, mode: o.mode, isOwner: o.isOwner, style: Styles.byId(a.style), allowUltra: o.allowUltra, trigger: o.trigger, state,
+      files: a.files || {}, history, uid, email: o.email || null, tier: o.tier, effort: o.effort, mode: o.mode, agentCfg: o.agentCfg, isOwner: o.isOwner, style: Styles.byId(a.style), allowUltra: o.allowUltra, trigger: o.trigger, state,
       // Dateien speichern wie PUT /files (mit Versionsprüfung, damit gleichzeitige Änderungen nicht verloren gehen)
       async save(set, remove) {
         for (let attempt = 0; attempt < 5; attempt++) {

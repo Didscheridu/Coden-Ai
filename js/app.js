@@ -3,6 +3,7 @@ import './dom-safe.js';
 import { CONFIG } from './config.js';
 import { generateAiResponse } from './api.js';
 import { bindEffortButtons } from './effort.js';
+import { initSettingsTabs } from './settings-ui.js';
 import { initByok, loadByok, clearByok, openByokSettings, syncEffortRow, byokEffort, isByokTier } from './byok.js';
 import { runModelTest } from './model-test.js';
 import { Artifacts } from './artifacts.js';
@@ -764,6 +765,8 @@ if (document.getElementById('open-settings-btn')) {
         openByokSettings(document.getElementById('byok-box'));
     });
 }
+
+initSettingsTabs();
 
 // 🔔 Push-Schalter in den Einstellungen
 async function drawPushToggle() {

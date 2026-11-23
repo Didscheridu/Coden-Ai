@@ -43,6 +43,7 @@
     <link rel="stylesheet" href="css/mobile.css">
     <link rel="stylesheet" href="css/v3.css">
     <link rel="stylesheet" href="css/byok.css">
+    <link rel="stylesheet" href="css/settings-v2.css">
     <link rel="stylesheet" href="css/responsive.css">
 
     <style>
@@ -261,71 +262,75 @@
     <div id="email-modal" class="modal-overlay hidden"><div class="modal-content" style="max-width: 600px;"><div class="modal-header"><h3 style="display: flex; align-items: center; gap: 8px; font-weight: 500;"><span class="material-symbols-outlined" style="color: #63A4FF;">mail</span> E-Mail Entwurf</h3><button class="icon-btn" id="close-email-btn"><span class="material-symbols-outlined">close</span></button></div><div class="modal-body"><label>Empfänger E-Mail</label><input type="email" id="email-recipient" class="settings-input" placeholder="empfaenger@beispiel.com" style="margin-bottom: 12px;"><label>Betreff</label><input type="text" id="email-subject" class="settings-input" placeholder="RE: Deine Nachricht" style="margin-bottom: 16px;"><label style="color: var(--accent-green);">✉️ KI-Antwortentwurf (Bearbeitbar):</label><textarea id="email-draft-output" class="settings-input" style="height: 200px; margin-bottom: 16px; resize: vertical; line-height: 1.5;"></textarea><button class="btn-save" id="send-real-email-btn" style="width: 100%; display: flex; justify-content: center; gap: 8px; background: #28a745; color: white;"><span class="material-symbols-outlined" style="font-size: 18px;">send</span> E-Mail jetzt versenden</button><div id="email-send-feedback" style="font-size: 13px; text-align: center; margin-top: 12px; display: none;"></div></div></div></div>
     
     <div id="settings-modal" class="modal-overlay hidden">
-        <div class="modal-content" style="max-height: 80vh; overflow-y: auto;">
+        <div class="modal-content settings-v2" id="settings-box" data-pane="general">
             <div class="modal-header">
                 <h3 style="display: flex; align-items: center; gap: 8px; font-weight: 500;"><span class="material-symbols-outlined" style="color: var(--accent-blue);">settings</span> Einstellungen</h3>
-                <button class="icon-btn" id="close-settings"><span class="material-symbols-outlined">close</span></button>
+                <button class="icon-btn" id="close-settings" aria-label="Schließen"><span class="material-symbols-outlined">close</span></button>
             </div>
-            <div class="modal-body">
-                <h4 style="margin-bottom: 12px; font-weight: 500; font-size: 14px; color: var(--text-primary);">👤 Profil</h4>
-                <label>Dein Name</label>
-                <input type="text" id="user-name-input" class="settings-input" placeholder="Dein Name" style="margin-bottom: 24px;">
-                <label style="margin-top: 24px; display: block;">🔠 Chat Schriftgröße: <span id="font-size-display">15</span>px</label>
-                <input type="range" id="font-size-slider" min="12" max="22" value="15" class="settings-slider">
-
-                <div class="settings-sec">
-                    <h4>📊 Nutzung</h4>
-                    <div id="usage-box" class="usage-box"></div>
+            <div class="st-layout">
+                <nav class="st-nav" id="st-nav" aria-label="Einstellungen">
+                    <button type="button" data-st="general" class="active"><span class="material-symbols-outlined">person</span><span>Allgemein</span></button>
+                    <button type="button" data-st="personal"><span class="material-symbols-outlined">psychology</span><span>Persönlich</span></button>
+                    <button type="button" data-st="models"><span class="material-symbols-outlined">key</span><span>Modelle &amp; Keys</span></button>
+                    <button type="button" data-st="notify"><span class="material-symbols-outlined">notifications</span><span>Benachrichtigungen</span></button>
+                    <button type="button" data-st="mail"><span class="material-symbols-outlined">mail</span><span>E-Mail</span></button>
+                    <button type="button" data-st="legal"><span class="material-symbols-outlined">gavel</span><span>Rechtliches</span></button>
+                </nav>
+                <div class="st-panes modal-body">
+                    <section class="st-pane" data-pane="general">
+                        <h4>Profil</h4>
+                        <label for="user-name-input">Dein Name</label>
+                        <input type="text" id="user-name-input" class="settings-input" placeholder="Dein Name">
+                        <label for="font-size-slider" style="margin-top: 18px; display: block;">Chat-Schriftgröße: <span id="font-size-display">15</span>px</label>
+                        <input type="range" id="font-size-slider" min="12" max="22" value="15" class="settings-slider">
+                        <h4 style="margin-top: 26px;">Nutzung</h4>
+                        <div id="usage-box" class="usage-box"></div>
+                    </section>
+                    <section class="st-pane hidden" data-pane="personal">
+                        <h4>Persönliche Anweisungen</h4>
+                        <p class="settings-hint">Gelten in jedem Chat, zum Beispiel „Antworte kurz und auf Deutsch“.</p>
+                        <textarea id="custom-instructions" class="settings-input" rows="3" maxlength="1500" placeholder="Wie soll Coden mit dir arbeiten?" style="resize: vertical;"></textarea>
+                        <h4 style="margin-top: 26px;">Gedächtnis</h4>
+                        <label class="st-check"><input type="checkbox" id="memory-on"> Coden darf sich Dinge über mich merken</label>
+                        <textarea id="memory-notes" class="settings-input" rows="5" placeholder="Eine Sache pro Zeile, zum Beispiel: Ich lerne Python." style="resize: vertical;"></textarea>
+                        <p class="settings-hint">Hier kannst du alles lesen, ändern und löschen. Coden fügt neue Dinge nur hinzu, wenn du es sagst („merk dir …“).</p>
+                    </section>
+                    <section class="st-pane hidden" data-pane="models">
+                        <h4>Modelle &amp; Keys</h4>
+                        <div id="byok-box"></div>
+                    </section>
+                    <section class="st-pane hidden" data-pane="notify">
+                        <h4>Benachrichtigungen</h4>
+                        <p class="settings-hint">Coden meldet sich auf diesem Gerät, wenn eine Antwort oder App fertig ist – auch wenn die Seite komplett geschlossen ist. Auf dem iPhone: Coden zuerst über „Teilen → Zum Home-Bildschirm“ installieren.</p>
+                        <div id="push-row" class="push-row"></div>
+                    </section>
+                    <section class="st-pane hidden" data-pane="mail">
+                        <h4>E-Mail-Konto verknüpfen</h4>
+                        <label for="email-provider">E-Mail-Anbieter</label>
+                        <select id="email-provider" class="settings-input" style="margin-bottom: 12px;"><option value="gmail">Gmail</option><option value="outlook">Outlook</option><option value="imap">Anderer Anbieter</option></select>
+                        <label for="email-address">Deine E-Mail-Adresse</label>
+                        <input type="email" id="email-address" class="settings-input" placeholder="deine@email.com" style="margin-bottom: 12px;">
+                        <label for="email-password">App-Passwort</label>
+                        <input type="password" id="email-password" class="settings-input" placeholder="Z. B. 16-stelliger Google-App-Code">
+                    </section>
+                    <section class="st-pane hidden" data-pane="legal">
+                        <h4>Rechtliches</h4>
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                            <button class="btn-cancel" id="open-impressum-btn" style="flex: 1; font-size: 12px; padding: 8px;">Impressum</button>
+                            <button class="btn-cancel" id="open-datenschutz-btn" style="flex: 1; font-size: 12px; padding: 8px;">Datenschutz</button>
+                            <button class="btn-cancel" id="open-agb-btn" style="flex: 1; font-size: 12px; padding: 8px;">Nutzungsbedingungen</button>
+                        </div>
+                    </section>
                 </div>
-
-                <div class="settings-sec">
-                    <h4>🔑 Eigene Modelle (Bring your own Key)</h4>
-                    <div id="byok-box"></div>
-                </div>
-
-                <div class="settings-sec">
-                    <h4>🔔 Benachrichtigungen</h4>
-                    <p class="settings-hint">Coden meldet sich auf diesem Gerät, wenn eine Antwort oder App fertig ist – auch wenn die Seite komplett geschlossen ist. Auf dem iPhone: Coden zuerst über „Teilen → Zum Home-Bildschirm“ installieren.</p>
-                    <div id="push-row" class="push-row"></div>
-                </div>
-                
-                <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border-color);">
-                    <h4 style="margin-bottom: 8px; font-weight: 500; font-size: 14px; color: var(--text-primary);">🎯 Persönliche Anweisungen</h4>
-                    <p style="margin: 0 0 8px; font-size: 12px; color: var(--text-muted);">Gelten in jedem Chat, zum Beispiel „Antworte kurz und auf Deutsch“.</p>
-                    <textarea id="custom-instructions" class="settings-input" rows="3" maxlength="1500" placeholder="Wie soll Coden mit dir arbeiten?" style="resize: vertical;"></textarea>
-                    <h4 style="margin: 20px 0 8px; font-weight: 500; font-size: 14px; color: var(--text-primary);">🧠 Gedächtnis</h4>
-                    <label style="display:flex; gap:8px; align-items:center; margin-bottom: 8px; font-size: 13px;"><input type="checkbox" id="memory-on"> Coden darf sich Dinge über mich merken</label>
-                    <textarea id="memory-notes" class="settings-input" rows="4" placeholder="Eine Sache pro Zeile, zum Beispiel: Ich lerne Python." style="resize: vertical;"></textarea>
-                    <p style="margin: 6px 0 0; font-size: 12px; color: var(--text-muted);">Hier kannst du alles lesen, ändern und löschen. Coden fügt neue Dinge nur hinzu, wenn du es sagst („merk dir …“).</p>
-                </div>
-
-                <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border-color);">
-                    <h4 style="margin-bottom: 16px; font-weight: 500; font-size: 14px; color: var(--accent-blue);">⚙️ E-Mail Konto verknüpfen</h4>
-                    <label>E-Mail Anbieter</label>
-                    <select id="email-provider" class="settings-input" style="margin-bottom: 12px;"><option value="gmail">Gmail</option><option value="outlook">Outlook</option><option value="imap">Anderer Anbieter</option></select>
-                    <label>Deine E-Mail Adresse</label>
-                    <input type="email" id="email-address" class="settings-input" placeholder="deine@email.com" style="margin-bottom: 12px;">
-                    <label>App-Passwort</label>
-                    <input type="password" id="email-password" class="settings-input" placeholder="Z.B. 16-stelliger Google App-Code">
-                </div>
-
-                <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border-color);">
-                    <h4 style="margin-bottom: 16px; font-weight: 500; font-size: 14px; color: var(--text-muted);">⚖️ Rechtliches</h4>
-                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                        <button class="btn-cancel" id="open-impressum-btn" style="flex: 1; font-size: 12px; padding: 6px;">Impressum</button>
-                        <button class="btn-cancel" id="open-datenschutz-btn" style="flex: 1; font-size: 12px; padding: 6px;">Datenschutz</button>
-                        <button class="btn-cancel" id="open-agb-btn" style="flex: 1; font-size: 12px; padding: 6px;">Nutzungsbedingungen</button>
-                    </div>
-                </div>
-
             </div>
-            <div class="modal-footer" style="margin-top: 24px;">
+            <div class="modal-footer st-footer">
+                <span class="st-footnote">Modelle &amp; Keys werden sofort gespeichert.</span>
                 <button class="btn-cancel" id="cancel-settings">Abbrechen</button>
                 <button class="btn-save" id="save-settings">Speichern</button>
             </div>
         </div>
     </div>
-    
+
     <div id="confirm-modal" class="modal-overlay hidden"><div class="modal-content confirm-box"><img src="./images/coden_logo.jpg" class="confirm-logo" onerror="this.style.display='none'"><h3>Aktion erforderlich</h3><p id="confirm-message">Willst du eine E-Mail senden?</p><div class="confirm-buttons"><button id="btn-confirm-cancel" class="btn-cancel">Abbrechen</button><button id="btn-confirm-yes" class="btn-save">JA, senden</button></div></div></div>
 
     <div id="legal-modal" class="modal-overlay hidden">
