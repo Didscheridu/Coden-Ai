@@ -19,6 +19,8 @@ import { MCP, parseCall, hideCalls, resultText } from './mcp.js';
 import { ChatApps, mountAppPicker } from './chat-apps.js';
 import { Personal, exportChat, mountDictation, mountMessageActions } from './chat-tools.js';
 import { Projects } from './projects.js';
+import { Assistants, mountAssistantPicker } from './assistants.js';
+import { renderMemory } from './memory-ui.js';
 import { Router } from './router.js';
 import { Storage } from './storage.js';
 import { initGoogleLogin, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, auth } from './auth.js';
@@ -751,7 +753,7 @@ if (document.getElementById('open-settings-btn')) {
         document.getElementById('user-name-input').value = s.userName || ''; 
         document.getElementById('font-size-slider').value = s.fontSize || 15; 
         document.getElementById('custom-instructions').value = s.instructions || ''; 
-        document.getElementById('memory-notes').value = (s.memory || []).join('\n'); 
+        renderMemory(); Assistants.renderSettings();
         document.getElementById('memory-on').checked = s.memoryOn !== false; 
         
         if (s.emailConfig) { 
@@ -788,7 +790,7 @@ if (document.getElementById('save-settings')) {
         const s = Storage.getSettings(); 
         s.userName = document.getElementById('user-name-input').value.trim() || 'Entwickler'; 
         s.fontSize = parseInt(document.getElementById('font-size-slider').value); 
-        Personal.save({ instructions: document.getElementById('custom-instructions').value, memoryText: document.getElementById('memory-notes').value, memoryOn: document.getElementById('memory-on').checked }, s); 
+        Personal.save({ instructions: document.getElementById('custom-instructions').value, memoryOn: document.getElementById('memory-on').checked }, s); 
         s.emailConfig = { 
             provider: document.getElementById('email-provider') ? document.getElementById('email-provider').value : 'gmail', 
             address: document.getElementById('email-address') ? document.getElementById('email-address').value.trim() : '', 
@@ -995,6 +997,20 @@ document.addEventListener('startProjectChat', (e) => {
     if (text && chatInput) { chatInput.value = text; setTimeout(() => handleSend(), 60); } else chatInput?.focus();
 });
 
+let assistantPicker = null;
+document.addEventListener('startAssistantChat', (e) => {
+    const { assistantId, text } = e.detail || {};
+    ChatApps.clear(); appPicker?.redraw();
+    currentSession = Storage.createNewSession(); currentSession.assistantId = assistantId;
+    sessions.unshift(currentSession); Storage.saveSessions(sessions); activeSessionId = currentSession.id;
+    UI.resetUI(); UI.renderSidebar(sessions, activeSessionId); Router.go('chat'); updateProjectChip();
+    if (text && chatInput) { chatInput.value = text; setTimeout(() => handleSend(), 60); } else chatInput?.focus();
+});
+assistantPicker = mountAssistantPicker({ session: () => currentSession, persist: () => { const toSave = JSON.parse(JSON.stringify(sessions)); toSave.forEach(x => x.messages.forEach(m => { if (m.images) delete m.images; })); Storage.saveSessions(toSave); } });
+{ // Der Knopf zeigt immer den Assistenten des aktuellen Chats – bei jedem Chat-Wechsel wird die Seitenleiste neu gezeichnet
+    const rs = UI.renderSidebar; UI.renderSidebar = function (...a) { const r = rs.apply(this, a); assistantPicker?.redraw(); return r; };
+}
+
 function truncateChat(i) {
     if (!currentSession || i < 0) return;
     currentSession.messages.splice(i);
@@ -1157,9 +1173,12 @@ async function processAnswer(raw, status = () => {}, extra = {}) {
     const wanted = [...String(raw).matchAll(IMAGE_TAG)].map(m => (m[1].match(/prompt\s*=\s*"([^"]*)"/i) || [])[1]).filter(Boolean).slice(0, 2);
     const call = parseCall(raw);
     const writes = ChatApps.parseWrites(raw);
-    const remembered = extra?.temp ? [] : Personal.take(raw);
+    const remembered = extra?.temp ? [] : Personal.take(raw, extra?.project || null);
     let out = hideImageTags(raw).trim();
-    if (remembered.length) out = (out + '\n\n🧠 *Gemerkt: ' + remembered.join('; ') + '*').trim();
+    if (remembered.length) {
+        out = (out + '\n\n🧠 *Gemerkt' + (extra?.project ? ' (nur in diesem Projekt)' : '') + ': ' + remembered.map(m => m.t).join('; ') + '*').trim();
+        toast('Gemerkt: ' + remembered.map(m => m.t).join('; ').slice(0, 90), { type: 'ok', ms: 6000, action: { label: 'Rückgängig', run: () => { Personal.undo(remembered.map(m => m.id)); renderMemory(); toast('Wieder vergessen', { type: 'info' }); } } });
+    }
     if (wanted.length) {
         status(out + '\n\n*🎨 Bild wird erstellt …*');
         const parts = [];
@@ -1214,7 +1233,7 @@ async function collectRun(r, live) {
     const run = c.run; const sess = ensureSession(run);
     let text = run.text || '';
     if (run.status === 'error' && !text.trim()) text = '⚠️ Coden konnte nicht antworten: ' + (run.error || 'unbekannter Fehler');
-    const done = await processAnswer(text, (t) => live?.update(t), run.meta?.extra); text = done.text;
+    const done = await processAnswer(text, (t) => live?.update(t), { ...run.meta?.extra, temp: !!run.meta?.temp, project: sess.projectId || null }); text = done.text;
     if (run.status === 'error' && run.text) text += '\n\n⚠️ Die Antwort wurde unterbrochen.';
     const think = live ? live.finish(text) : { secs: Math.max(0, Math.round((Date.parse(run.updatedAt) - Date.parse(run.startedAt)) / 1000)), steps: run.think?.steps || [] };
     if (!text.trim()) return;
@@ -1353,10 +1372,11 @@ async function handleSend() {
     const proj = await Projects.promptFor(currentSession.projectId);
     let appNames = [];
     try { appNames = await ChatApps.prepare(text); } catch (_) {}
+    const projName = proj.name || '';
     const personal = currentSession.temp
         ? (Personal.instructions() ? `\nPERSÖNLICHE ANWEISUNGEN DES NUTZERS (vom Nutzer selbst in den Einstellungen geschrieben, befolge sie):\n${Personal.instructions()}\n` : '') + '\nDies ist ein TEMPORÄRER CHAT: Er wird nicht gespeichert. Merke dir nichts (kein <remember>) und beziehe dich nicht auf frühere Chats.\n'
-        : Personal.prompt();
-    const systemPrompt = buildChatPrompt({ userName, extras: `${MCP.prompt()}${ChatApps.prompt()}${personal}${proj.text}` });
+        : Personal.prompt(currentSession.projectId || null, projName);
+    const systemPrompt = buildChatPrompt({ userName, extras: `${MCP.prompt()}${ChatApps.prompt()}${personal}${Assistants.prompt(currentSession.assistantId)}${proj.text}` });
     context.unshift({ role: 'system', content: systemPrompt });
 
     const sessionAtSend = currentSession; // falls der Nutzer währenddessen den Chat wechselt
