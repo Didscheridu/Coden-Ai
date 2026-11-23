@@ -306,3 +306,36 @@ CREATE TABLE IF NOT EXISTS user_agent_cfg (
   cfg        JSONB NOT NULL DEFAULT '{}'::jsonb,   -- Sub-Agenten: Modell je Schwierigkeit, keyMax, overflow
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ===== Aufgaben & Zeitpläne: Coden erledigt etwas zu festen Zeiten (auch mit Deep Research) =====
+CREATE TABLE IF NOT EXISTS scheduled_tasks (
+  id         BIGSERIAL PRIMARY KEY,
+  uid        TEXT NOT NULL,
+  email      TEXT,                                  -- für Owner-Prüfung beim automatischen Lauf
+  is_owner   BOOLEAN NOT NULL DEFAULT false,
+  title      TEXT NOT NULL,
+  prompt     TEXT NOT NULL,
+  schedule   JSONB NOT NULL,                        -- { kind: once|daily|weekly, time, days, at }
+  tz         TEXT NOT NULL DEFAULT 'Europe/Berlin',
+  tier       TEXT NOT NULL DEFAULT 'flash',
+  research   BOOLEAN NOT NULL DEFAULT false,
+  depth      TEXT NOT NULL DEFAULT 'normal',
+  enabled    BOOLEAN NOT NULL DEFAULT true,
+  next_run   TIMESTAMPTZ,                           -- null = läuft nicht mehr (einmalig erledigt)
+  last_run   TIMESTAMPTZ,
+  last_status TEXT,                                 -- ok | error
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS scheduled_tasks_uid ON scheduled_tasks (uid);
+CREATE INDEX IF NOT EXISTS scheduled_tasks_due ON scheduled_tasks (next_run) WHERE enabled;
+CREATE TABLE IF NOT EXISTS task_results (
+  id         BIGSERIAL PRIMARY KEY,
+  uid        TEXT NOT NULL,
+  task_id    BIGINT,                                -- null, wenn die Aufgabe inzwischen gelöscht ist
+  title      TEXT NOT NULL,
+  text       TEXT NOT NULL DEFAULT '',
+  ok         BOOLEAN NOT NULL DEFAULT true,
+  seen       BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS task_results_uid ON task_results (uid, created_at DESC);

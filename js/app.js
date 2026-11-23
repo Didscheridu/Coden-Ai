@@ -21,6 +21,8 @@ import { Personal, exportChat, mountDictation, mountMessageActions } from './cha
 import { Projects } from './projects.js';
 import { Assistants, mountAssistantPicker } from './assistants.js';
 import { renderMemory } from './memory-ui.js';
+import { Research } from './research.js';
+import { Tasks, resultAsMessages } from './tasks.js';
 import { Router } from './router.js';
 import { Storage } from './storage.js';
 import { initGoogleLogin, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, auth } from './auth.js';
@@ -313,7 +315,7 @@ function initApp() {
     Layout.init({ sessionsGetter: () => sessions });
     try {
         appInitialized = true; 
-        refreshPush(); setTimeout(() => refreshUsageBanner(true), 1500);
+        refreshPush(); Tasks.start(); setTimeout(() => refreshUsageBanner(true), 1500);
         setModelLabel(document.getElementById('current-model-text')?.textContent);
         sessions = Storage.getSessions();
         
@@ -753,7 +755,7 @@ if (document.getElementById('open-settings-btn')) {
         document.getElementById('user-name-input').value = s.userName || ''; 
         document.getElementById('font-size-slider').value = s.fontSize || 15; 
         document.getElementById('custom-instructions').value = s.instructions || ''; 
-        renderMemory(); Assistants.renderSettings();
+        renderMemory(); Assistants.renderSettings(); Research.renderSettings(); Tasks.renderSettings();
         document.getElementById('memory-on').checked = s.memoryOn !== false; 
         
         if (s.emailConfig) { 
@@ -996,6 +998,16 @@ document.addEventListener('startProjectChat', (e) => {
     UI.resetUI(); UI.renderSidebar(sessions, activeSessionId); Router.go('chat'); projNames = null; updateProjectChip();
     if (text && chatInput) { chatInput.value = text; setTimeout(() => handleSend(), 60); } else chatInput?.focus();
 });
+
+document.addEventListener('openTaskResult', (e) => {
+    const { title, messages } = resultAsMessages(e.detail || {});
+    currentSession = Storage.createNewSession(); currentSession.title = title; currentSession.messages = messages;
+    sessions.unshift(currentSession); Storage.saveSessions(sessions); activeSessionId = currentSession.id;
+    UI.resetUI(); UI.renderSidebar(sessions, activeSessionId); Router.go('chat');
+    messages.forEach(m => UI.appendMessage(m.text, m.isUser)); updateProjectChip();
+});
+Research.mount();
+document.getElementById('open-tasks-btn')?.addEventListener('click', (e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent('coden:settings', { detail: { tab: 'tasks' } })); });
 
 let assistantPicker = null;
 document.addEventListener('startAssistantChat', (e) => {
@@ -1351,8 +1363,9 @@ async function handleSend() {
         };
     }).reduce((acc, m) => { const l = acc[acc.length - 1]; if (l && l.role === m.role) { l.content += '\n\n' + m.content; l.images = [...(l.images || []), ...(m.images || [])]; } else acc.push(m); return acc; }, []);
 
+    const researchOn = Research.consume(); // Deep Research gilt nur für diese eine Nachricht
     let isEmailCommand = false;
-    if (['mail', 'gmail', 'sende', 'schick', 'weiterleiten'].some(w => text.toLowerCase().includes(w))) {
+    if (!researchOn && ['mail', 'gmail', 'sende', 'schick', 'weiterleiten'].some(w => text.toLowerCase().includes(w))) {
         if (await showCustomConfirm("Möchtest du eine E-Mail senden?")) isEmailCommand = true;
     }
 
@@ -1389,7 +1402,7 @@ async function handleSend() {
         aiResponse = '';
         let extra = {};
         try {
-            aiResponse = await runAiResponse(context, currentSelectedModel, { ref: sessionAtSend.id, meta: { title: sessionAtSend.title, userText: text.slice(0, 2000), temp: !!sessionAtSend.temp }, signal: ac.signal, model: pinnedModel?.key, effort: isByokTier(currentSelectedModel) ? byokEffort(currentSelectedModel) : undefined, onExtra: (x) => { extra = { ...extra, ...x }; }, onThink: (k) => live.think(k), onModel: (m) => live.model(m), onDelta: (t) => { aiResponse = t; live.update(hideImageTags(t)); } });
+            aiResponse = await runAiResponse(context, currentSelectedModel, { research: researchOn && round === 0, depth: Research.depth(), ref: sessionAtSend.id, meta: { title: sessionAtSend.title, userText: text.slice(0, 2000), temp: !!sessionAtSend.temp }, signal: ac.signal, model: pinnedModel?.key, effort: isByokTier(currentSelectedModel) ? byokEffort(currentSelectedModel) : undefined, onExtra: (x) => { extra = { ...extra, ...x }; }, onThink: (k) => live.think(k), onModel: (m) => live.model(m), onDelta: (t) => { aiResponse = t; live.update(hideImageTags(t)); } });
             const done = await processAnswer(aiResponse, (t) => live.update(t), { ...extra, temp: !!sessionAtSend.temp });
             const call = done.call; aiResponse = done.text;
             lastThink = live.finish(aiResponse);
