@@ -354,7 +354,7 @@ api.post('/live-token', requireAuth, rateLimit('live', 5, 300), async (req, res)
 const { projectsRouter } = require('../server/projects');
 const { serversRouter } = require('../server/servers');
 const needsDb = (req, res, next) => { ensureSchema().then(() => next(), next); };
-api.use('/byok', needsDb); api.use('/buddy', needsDb); api.use('/servers', needsDb); api.use('/projects', needsDb); api.use('/apps', needsDb); api.use('/data', needsDb); api.use('/runs', needsDb); api.use('/usage', needsDb); api.use('/push', needsDb);
+api.use('/byok', needsDb); api.use('/buddy', needsDb); api.use('/mcp', needsDb); api.use('/servers', needsDb); api.use('/projects', needsDb); api.use('/apps', needsDb); api.use('/data', needsDb); api.use('/runs', needsDb); api.use('/usage', needsDb); api.use('/push', needsDb);
 app.use('/a', needsDb);
 
 // ---------- KI-Bilder für den normalen Chat (Cloudflare Flux) ----------

@@ -220,6 +220,29 @@ service cloud.firestore {
         && (!('created_at' in data) || isIsoOrTs(data.created_at));
     }
 
+    function isValidMcpConnection(data) {
+      return data.keys().hasAll(['id', 'uid', 'name', 'url', 'auth_type', 'enabled'])
+        && data.keys().hasOnly(['id', 'uid', 'name', 'url', 'catalog_id', 'auth_type', 'enabled', 'header_name', 'token_enc', 'oauth_enc', 'token_expires_at', 'scopes', 'server_name', 'tools', 'status', 'last_error', 'created_at', 'updated_at'])
+        && data.id is int && data.id > 0
+        && isStr(data.uid, 1, 128)
+        && isStr(data.name, 1, 40)
+        && isStr(data.url, 8, 500) && data.url.matches('^https://.*')
+        && isOptStr(data, 'catalog_id', 64)
+        && data.auth_type in ['oauth', 'key', 'none']
+        && data.enabled is bool
+        && isOptStr(data, 'header_name', 40)
+        && isOptStr(data, 'token_enc', 4000)
+        && isOptStr(data, 'oauth_enc', 12000)
+        && (!('token_expires_at' in data) || data.token_expires_at == null || isIsoOrTs(data.token_expires_at))
+        && isOptStr(data, 'scopes', 500)
+        && isOptStr(data, 'server_name', 120)
+        && (!('tools' in data) || (data.tools is list && data.tools.size() <= 80))
+        && (!('status' in data) || data.status in ['connected', 'needs_reauth', 'error'])
+        && isOptStr(data, 'last_error', 500)
+        && (!('created_at' in data) || isIsoOrTs(data.created_at))
+        && (!('updated_at' in data) || isIsoOrTs(data.updated_at));
+    }
+
     // ---------- Connectivity Probe ----------
     match /test/connection {
       allow get: if true;
@@ -829,6 +852,20 @@ service cloud.firestore {
     match /model_quota/{quotaId} {
       allow get, create, update, delete: if isAdmin();
       allow list: if isAdminToken();
+    }
+
+    // ---------- MCP Connections (Encrypted Tokens & OAuth Credentials) ----------
+    match /mcp_connections/{connId} {
+      allow get: if isNumId(connId) && (isOwner(existing().uid) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());
+      allow create: if isVerified() && isNumId(connId) && isValidMcpConnection(incoming())
+        && incoming().uid == request.auth.uid;
+      allow update: if isVerified() && isNumId(connId) && isValidMcpConnection(incoming())
+        && (isOwner(existing().uid) || isAdmin())
+        && incoming().id == existing().id && incoming().uid == existing().uid
+        && incoming().url == existing().url
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'auth_type', 'enabled', 'header_name', 'token_enc', 'oauth_enc', 'token_expires_at', 'scopes', 'server_name', 'tools', 'status', 'last_error', 'updated_at']);
+      allow delete: if isNumId(connId) && (isOwner(existing().uid) || isAdmin());
     }
   }
 }

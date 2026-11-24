@@ -512,6 +512,32 @@
         "public": { "type": "number" }
       },
       "required": ["model", "day", "total", "public"]
+    },
+    "McpConnection": {
+      "title": "McpConnection",
+      "description": "User MCP server connection with AES-256-GCM encrypted token or OAuth credentials",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "uid": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 40 },
+        "url": { "type": "string", "maxLength": 500 },
+        "catalog_id": { "type": "string", "maxLength": 64 },
+        "auth_type": { "type": "string", "enum": ["oauth", "key", "none"], "maxLength": 16 },
+        "enabled": { "type": "boolean" },
+        "header_name": { "type": "string", "maxLength": 40 },
+        "token_enc": { "type": "string", "maxLength": 4000 },
+        "oauth_enc": { "type": "string", "maxLength": 12000 },
+        "token_expires_at": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "scopes": { "type": "string", "maxLength": 500 },
+        "server_name": { "type": "string", "maxLength": 120 },
+        "tools": { "type": "array" },
+        "status": { "type": "string", "enum": ["connected", "needs_reauth", "error"], "maxLength": 24 },
+        "last_error": { "type": "string", "maxLength": 500 },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "updated_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["id", "uid", "name", "url", "auth_type", "enabled"]
     }
   },
   "firestore": {
@@ -654,6 +680,10 @@
     "/model_quota/{quotaId}": {
       "schema": { "$ref": "#/entities/ModelQuota" },
       "description": "Daily quota counters (admin only)"
+    },
+    "/mcp_connections/{connId}": {
+      "schema": { "$ref": "#/entities/McpConnection" },
+      "description": "Per-user MCP connections and encrypted OAuth/API credentials"
     }
   }
 }

@@ -292,6 +292,7 @@ if (auth) {
                 hideDbLoader();
                 initGlobalSync();
                 loadByok();
+                MCP.syncFromCloud().catch(() => {});
 
                 if (user.emailVerified === false) {
                     toast('Bitte bestätige deine E-Mail-Adresse, damit deine Chats sicher in Firebase gespeichert werden.', {
@@ -323,6 +324,7 @@ if (auth) {
                 UI.resetUI();
                 UI.renderSidebar([], null);
                 clearByok();
+                MCP.resetMemory();
             }
         } catch (err) {
             hideDbLoader();

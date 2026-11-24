@@ -303,20 +303,34 @@ button.cd-link { all: unset; cursor: pointer; color: var(--accent-blue); font-si
 .gh-repo small { display: block; color: var(--text-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46ch }
 
 /* MCP-Verbindungen */
-.mc-list { display: flex; flex-direction: column; gap: 12px; margin: 14px 0 22px }
-.mc-card { padding: 14px 16px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, .08); background: rgba(255, 255, 255, .03) } .mc-card.off { opacity: .6 }
-.mc-head { display: flex; align-items: center; gap: 12px } .mc-head small { display: block; color: var(--text-muted); margin-top: 2px }
-.mc-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px }
+.mc-top-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 10px 0 6px }
+.mc-list { display: flex; flex-direction: column; gap: 12px; margin: 14px 0 24px }
+.mc-card { padding: 14px 16px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, .08); background: rgba(255, 255, 255, .03) } .mc-card.off { opacity: .6 } .mc-card.warn { border-color: rgba(253, 214, 99, .45) }
+.mc-head { display: flex; align-items: center; gap: 12px } .mc-head .material-symbols-outlined { font-size: 22px; color: var(--accent-blue); flex: none } .mc-head small { display: block; color: var(--text-muted); margin-top: 2px }
+.mc-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px }
 .mc-tools { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow: auto } .mc-tool small { display: block; color: var(--text-muted) }
-.mc-add { display: flex; flex-direction: column; gap: 10px; max-width: 560px; padding: 16px; border-radius: 16px; border: 1px dashed rgba(255, 255, 255, .14) } .mc-add h3 { margin: 0 }
+.mc-add { display: flex; flex-direction: column; gap: 10px; max-width: 600px; padding: 18px; border-radius: 16px; border: 1px dashed rgba(255, 255, 255, .14) } .mc-add h3 { margin: 0 }
+.mc-subfields { display: flex; flex-direction: column; gap: 8px }
+.mc-blocked { margin-top: 4px }
 .mc-switch { position: relative; width: 42px; height: 24px; flex: none } .mc-switch input { opacity: 0; position: absolute; inset: 0; margin: 0; cursor: pointer; z-index: 1 }
 .mc-switch span { position: absolute; inset: 0; border-radius: 999px; background: rgba(255, 255, 255, .15); transition: .15s } .mc-switch span::after { content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: .15s }
 .mc-switch input:checked + span { background: var(--accent-blue, #8ab4f8) } .mc-switch input:checked + span::after { transform: translateX(18px) }
 
-.mc-sec { margin: 0 0 22px } .mc-sec h3 { margin: 0 0 4px }
-.mc-sugg { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin-top: 12px }
-.mc-sg { padding: 14px 16px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, .08); background: rgba(255, 255, 255, .03); display: flex; flex-direction: column; gap: 6px }
-.mc-sg p { margin: 4px 0 0; font-size: .92rem } .mc-sg small { color: var(--text-muted) } .mc-sg .mc-actions { margin-top: auto; padding-top: 8px }
+.mc-sec { margin: 6px 0 26px } .mc-sec h3 { margin: 0 0 2px }
+.mc-lib-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px }
+.mc-search { max-width: 380px; min-width: 220px }
+.mc-cats { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none } .mc-cats::-webkit-scrollbar { display: none }
+.mc-cat { border: 1px solid rgba(255, 255, 255, .1); background: transparent; color: var(--text-secondary); border-radius: 10px; padding: 7px 12px; font: 500 13px var(--font-main); cursor: pointer; white-space: nowrap; transition: background .15s, color .15s, border-color .15s }
+.mc-cat:hover { background: rgba(255, 255, 255, .06); color: var(--text-primary) }
+.mc-cat.on { background: var(--accent-blue); color: #0b1d3a; border-color: transparent; font-weight: 600 }
+.mc-sugg { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 12px; margin-top: 12px }
+.mc-sg { padding: 15px 16px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, .08); background: rgba(255, 255, 255, .03); display: flex; flex-direction: column; gap: 7px }
+.mc-sg.linked { border-color: rgba(109, 213, 140, .35) }
+.mc-sg p { margin: 2px 0 0; font-size: .92rem; line-height: 1.45 } .mc-sg small { color: var(--text-muted); line-height: 1.4 } .mc-sg .mc-actions { margin-top: auto; padding-top: 8px }
+.mc-inline { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, .08) }
+.cd-btn.accent { background: rgba(168, 199, 250, .16); color: var(--accent-blue) } .cd-btn.accent:hover { background: rgba(168, 199, 250, .25) }
+.cd-btn.danger { color: #f28b82 } .cd-btn.danger:hover { background: rgba(242, 139, 130, .14) }
+.cd-btn.icon-only { padding: 9px 10px }
 .mc-sg a.cd-btn { text-decoration: none }
 
 /* Projekte */
