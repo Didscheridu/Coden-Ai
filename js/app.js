@@ -22,6 +22,9 @@ import { Projects } from './projects.js';
 import { Assistants, mountAssistantPicker } from './assistants.js';
 import { renderMemory } from './memory-ui.js';
 import { Skills } from './skills.js';
+import { Research } from './research.js';
+import { Tasks, resultAsMessages } from './tasks.js';
+import { WebSearch } from './websearch.js';
 import * as Menu from './menu.js';
 import { Router } from './router.js';
 import { Storage } from './storage.js';
@@ -439,7 +442,7 @@ function initApp() {
     Layout.init({ sessionsGetter: () => sessions });
     try {
         appInitialized = true; 
-        refreshPush(); setTimeout(() => refreshUsageBanner(true), 1500);
+        refreshPush(); Tasks.start(); setTimeout(() => refreshUsageBanner(true), 1500);
         setModelLabel(document.getElementById('current-model-text')?.textContent);
         sessions = Storage.getSessions();
         
@@ -884,7 +887,7 @@ if (document.getElementById('open-settings-btn')) {
         document.getElementById('user-name-input').value = s.userName || ''; 
         document.getElementById('font-size-slider').value = s.fontSize || 15; 
         document.getElementById('custom-instructions').value = s.instructions || ''; 
-        renderMemory(); Assistants.renderSettings(); Skills.renderSettings();
+        renderMemory(); Assistants.renderSettings(); Skills.renderSettings(); Research.renderSettings(); Tasks.renderSettings(); { const w = document.getElementById('websearch-on'); if (w) { w.checked = WebSearch.enabled(); w.onchange = () => WebSearch.set(w.checked); } }
         document.getElementById('memory-on').checked = s.memoryOn !== false; 
         
         if (s.emailConfig) { 
@@ -1025,6 +1028,16 @@ document.getElementById('temp-chat-btn')?.addEventListener('click', () => {
         panel.append(Menu.item({ icon: 'apps', label: 'Alle Konnektoren', onClick: () => Router.go('verbindungen') }));
     });
     if (chatInput) Skills.mountPicked(chatInput);
+    Research.mount(); WebSearch.mount();
+    document.getElementById('open-tasks-btn')?.addEventListener('click', (e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent('coden:settings', { detail: { tab: 'tasks' } })); });
+    // „Im Chat öffnen“ bei einem Aufgaben-Ergebnis: als neuer Chat, damit man nachfragen kann
+    document.addEventListener('openTaskResult', (e) => {
+        const { title, messages } = resultAsMessages(e.detail || {});
+        currentSession = Storage.createNewSession(); currentSession.title = title; currentSession.messages = messages;
+        sessions.unshift(currentSession); Storage.saveSessions(sessions); activeSessionId = currentSession.id;
+        UI.resetUI(); UI.renderSidebar(sessions, activeSessionId); Router.go('chat');
+        messages.forEach(m => UI.appendMessage(m.text, m.isUser)); updateProjectChip();
+    });
     // „Mit Coden einen Skill erstellen“ u. a.: Text ins Eingabefeld legen
     document.addEventListener('coden:compose', (e) => {
         document.getElementById('settings-modal')?.classList.add('hidden');
@@ -1374,7 +1387,7 @@ function renderAttachmentPreviews() {
 // ==========================================
 // Bild-Befehl der KI: <generate_image prompt="…"/>
 const IMAGE_TAG = /<generate_image\s+([^>]*?)\/?>/gi;
-const hideImageTags = (t) => Skills.hide(Personal.hide(ChatApps.hide(hideCalls(String(t || '').replace(/<generate_image\s+[^>]*?\/?>/gi, '').replace(/<generate_image[^>]*$/i, '')))));
+const hideImageTags = (t) => WebSearch.strip(Skills.hide(Personal.hide(ChatApps.hide(hideCalls(String(t || '').replace(/<generate_image\s+[^>]*?\/?>/gi, '').replace(/<generate_image[^>]*$/i, ''))))));
 // ---------- Live-Anzeige je Chat ----------
 // Eine laufende Antwort gehört zu einem Chat, nicht zum Bildschirm: wechselt der Nutzer den Chat und kommt zurück,
 // wird die Anzeige mit dem aktuellen Stand neu aufgebaut. Die Antwort selbst läuft auf dem Server weiter.
@@ -1607,6 +1620,7 @@ async function handleSend() {
         UI.showLoading(true, 'Coden startet …');
     }
 
+    const researchOn = Research.consume(); // Recherche gilt nur für diese eine Nachricht
     let isEmailCommand = false;
     if (maybeEmail) {
         if (await showCustomConfirm("Möchtest du eine E-Mail senden?")) isEmailCommand = true;
@@ -1643,7 +1657,7 @@ async function handleSend() {
       const skillInfo = Skills.forMessage(text); Skills.clearPicked();
       const loadedSkills = [...skillInfo.loaded];
       if (loadedSkills.length) live0Steps(initialLive, loadedSkills);
-      const systemPrompt = buildChatPrompt({ userName, extras: `${MCP.prompt()}${ChatApps.prompt()}${personal}${Assistants.prompt(sessionAtSend.assistantId)}${skillInfo.text}${proj.text}` });
+      const systemPrompt = buildChatPrompt({ userName, extras: `${MCP.prompt()}${ChatApps.prompt()}${personal}${Assistants.prompt(sessionAtSend.assistantId)}${skillInfo.text}${researchOn ? '' : WebSearch.prompt()}${proj.text}` });
       context.unshift({ role: 'system', content: systemPrompt });
 
       Storage.syncNow(); // Frage sofort sichern, damit andere Geräte sie sehen
@@ -1651,13 +1665,33 @@ async function handleSend() {
       // mitten in derselben Nachricht, der Text läuft danach weiter. shownPrefix = schon fertige Teile.
       const live = initialLive;
       let shownPrefix = '', ended = false;
+      const sources = []; // Treffer aller Websuchen dieser Antwort, fortlaufend nummeriert
+      const cite = (t) => (sources.length ? WebSearch.cite(t, sources) : t);
       const withPrefix = (t) => [shownPrefix, t].filter(x => String(x || '').trim()).join('\n\n');
-      for (let round = 0; round < 5; round++) {
+      for (let round = 0; round < 6; round++) {
         aiResponse = '';
         let extra = {};
         try {
-            aiResponse = await runAiResponse(context, currentSelectedModel, { ref: sessionAtSend.id, meta: { title: sessionAtSend.title, userText: text.slice(0, 2000), temp: !!sessionAtSend.temp }, signal: ac.signal, model: pinnedModel?.key, effort: isByokTier(currentSelectedModel) ? byokEffort(currentSelectedModel) : undefined, onExtra: (x) => { extra = { ...extra, ...x }; }, onThink: (k) => live.think(k), onModel: (m) => live.model(m), onDelta: (t) => { aiResponse = t; live.update(withPrefix(hideImageTags(t))); } });
+            aiResponse = await runAiResponse(context, currentSelectedModel, { research: researchOn && round === 0, depth: Research.depth(), ref: sessionAtSend.id, meta: { title: sessionAtSend.title, userText: text.slice(0, 2000), temp: !!sessionAtSend.temp }, signal: ac.signal, model: pinnedModel?.key, effort: isByokTier(currentSelectedModel) ? byokEffort(currentSelectedModel) : undefined, onExtra: (x) => { extra = { ...extra, ...x }; }, onThink: (k) => live.think(k), onModel: (m) => live.model(m), onDelta: (t) => { aiResponse = t; live.update(withPrefix(cite(hideImageTags(t)))); } });
             lastRaw = aiResponse;
+            // Websuche (wie bei Claude): <web_search>…</web_search> → suchen, Treffer nummeriert zurückgeben, weiter in derselben Nachricht
+            const webQ = round < 5 && !researchOn && WebSearch.enabled() && !parseCall(aiResponse) ? WebSearch.requested(aiResponse) : null;
+            if (webQ) {
+                const pre = hideImageTags(aiResponse).trim();
+                context.push({ role: 'assistant', content: aiResponse.trim() });
+                shownPrefix = withPrefix(cite(pre));
+                live.update(withPrefix(toolStep({ tool: 'Websuche', src: `„${webQ}“`, running: true })));
+                let found = [], why = '';
+                try { found = (await WebSearch.search(webQ)).results || []; } catch (e) { why = e.message; }
+                const numbered = found.map((x, i) => ({ ...x, n: sources.length + i + 1 }));
+                sources.push(...numbered);
+                shownPrefix = withPrefix(why ? toolStep({ tool: 'Websuche', src: `„${webQ}“`, err: true, note: 'nicht erreichbar', icon: 'language' })
+                    : toolStep({ tool: 'Websuche', src: `„${webQ}“`, note: `${numbered.length} Ergebnis${numbered.length === 1 ? '' : 'se'}`, list: WebSearch.lines(numbered), icon: 'language' }));
+                live.update(shownPrefix);
+                context.push({ role: 'user', content: why ? `Die Websuche ist gerade nicht erreichbar (${why}). Beantworte die Frage mit deinem Wissen und sag dazu, dass du nicht nachsehen konntest.` : WebSearch.block(webQ, numbered) });
+                aiResponse = '';
+                continue;
+            }
             // Das Modell möchte einen Skill nachladen (<use_skill>name</use_skill>): Anleitung schicken und weiterlaufen lassen
             const askedSkills = round < 4 && !parseCall(aiResponse) ? Skills.requested(aiResponse) : [];
             const newSkills = askedSkills.filter(n => !loadedSkills.includes(n));
@@ -1674,10 +1708,10 @@ async function handleSend() {
                 aiResponse = '';
                 continue;
             }
-            const done = await processAnswer(aiResponse, (t) => live.update(withPrefix(t)), { ...extra, temp: !!sessionAtSend.temp });
+            const done = await processAnswer(aiResponse, (t) => live.update(withPrefix(cite(t))), { ...extra, temp: !!sessionAtSend.temp });
             const call = done.call;
             if (!call) {
-                aiResponse = withPrefix(done.text); ended = true;
+                aiResponse = withPrefix(cite(done.text)); ended = true;
                 lastThink = live.finish(aiResponse);
                 if (document.hidden) notifyDone(sessionAtSend.title, aiResponse);
                 break;
@@ -1743,13 +1777,14 @@ async function handleSend() {
 }
 // Schritt in einer Antwort (Werkzeug-Aufruf oder nachgeladener Skill), aufklappbar wie bei Claude
 const escHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-function toolStep({ tool = '', src = '', args, result, err, note, running, skill }) {
+function toolStep({ tool = '', src = '', args, result, err, note, running, skill, list, icon: ic }) {
     if (skill) return `<div class="tool-step skill"><span class="material-symbols-outlined ts-ic">auto_awesome</span> Skill <b>${escHtml(skill)}</b> <span class="ts-src">geladen</span></div>`;
-    if (running) return `<div class="tool-step running"><span class="material-symbols-outlined ts-ic">progress_activity</span> <b>${escHtml(tool)}</b> <span class="ts-src">${escHtml(src)} · läuft …</span></div>`;
-    const head = `<summary><span class="material-symbols-outlined ts-ic">${err ? 'error' : 'build'}</span> <b>${escHtml(tool)}</b> <span class="ts-src">${escHtml(src)}${note ? ' · ' + escHtml(String(note).slice(0, 120)) : ''}</span></summary>`;
+    if (running) return `<div class="tool-step running"><span class="material-symbols-outlined ts-ic">${ic ? ic : 'progress_activity'}</span> <b>${escHtml(tool)}</b> <span class="ts-src">${escHtml(src)} · läuft …</span></div>`;
+    const head = `<summary><span class="material-symbols-outlined ts-ic">${err ? 'error' : ic || 'build'}</span> <b>${escHtml(tool)}</b> <span class="ts-src">${escHtml(src)}${note ? ' · ' + escHtml(String(note).slice(0, 120)) : ''}</span></summary>`;
     const fence = (t) => String(t).replace(/```/g, "'''");
     const parts = [];
     if (args && Object.keys(args).length) parts.push('Eingabe\n\n```json\n' + fence(JSON.stringify(args, null, 2)).slice(0, 3000) + '\n```');
+    if (list) parts.push(list);
     if (result) parts.push('Ergebnis\n\n```\n' + fence(result).slice(0, 6000) + '\n```');
     return `<details class="tool-step${err ? ' err' : ''}">${head}\n\n${parts.join('\n\n')}\n\n</details>`;
 }

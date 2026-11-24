@@ -89,17 +89,22 @@ async function fetchUrl(url) {
   } catch (e) { return { ok: false, summary: 'nicht erreichbar', text: `Fehler beim Abrufen von ${url}: ${e.message}` }; }
 }
 // Websuche ohne API-Schlüssel (DuckDuckGo HTML)
+// Websuche ohne API-Schlüssel (DuckDuckGo HTML). Liefert eine Liste { title, url, snippet }.
+async function ddgResults(query) {
+  const r = await get('https://html.duckduckgo.com/html/?q=' + encodeURIComponent(query), { maxBody: 1024 * 1024 });
+  const out = [];
+  const re = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?(?:class="result__snippet"[^>]*>([\s\S]*?)<\/a>)?/g; let m;
+  while ((m = re.exec(r.text)) && out.length < 10) {
+    let link = decode(m[1]); const u = link.match(/[?&]uddg=([^&]+)/); if (u) link = decodeURIComponent(u[1]); if (link.startsWith('//')) link = 'https:' + link;
+    if (/duckduckgo\.com\/y\.js/.test(link)) continue; // Anzeigen
+    out.push({ title: decode(m[2].replace(/<[^>]+>/g, '')).trim(), url: link, snippet: decode(String(m[3] || '').replace(/<[^>]+>/g, '')).trim() });
+  }
+  return out;
+}
 async function webSearch(query) {
   const q = String(query || '').trim(); if (!q) return { ok: false, summary: 'keine Suche angegeben', text: 'Fehler: web_search braucht query="…".' };
   try {
-    const r = await get('https://html.duckduckgo.com/html/?q=' + encodeURIComponent(q), { maxBody: 1024 * 1024 });
-    const out = [];
-    const re = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?(?:class="result__snippet"[^>]*>([\s\S]*?)<\/a>)?/g; let m;
-    while ((m = re.exec(r.text)) && out.length < 8) {
-      let link = decode(m[1]); const u = link.match(/[?&]uddg=([^&]+)/); if (u) link = decodeURIComponent(u[1]); if (link.startsWith('//')) link = 'https:' + link;
-      if (/duckduckgo\.com\/y\.js/.test(link)) continue; // Anzeigen
-      out.push({ title: decode(m[2].replace(/<[^>]+>/g, '')).trim(), url: link, snippet: decode(String(m[3] || '').replace(/<[^>]+>/g, '')).trim() });
-    }
+    const out = (await module.exports.ddgResults(q)).slice(0, 8);
     if (!out.length) return { ok: false, summary: 'keine Ergebnisse', text: `Keine Suchergebnisse für "${q}".` };
     return { ok: true, summary: `„${q.slice(0, 40)}“: ${plural(out.length, 'Ergebnis', 'Ergebnisse')}`, text: `Suchergebnisse für "${q}":\n${out.map((x, i) => `${i + 1}. ${x.title}\n   ${x.url}\n   ${x.snippet}`).join('\n')}\nLies eine Seite genauer mit <tool name="fetch" url="…"/>.` };
   } catch (e) { return { ok: false, summary: 'Suche nicht erreichbar', text: `Die Websuche ist gerade nicht erreichbar (${e.message}). Arbeite mit deinem Wissen weiter.` }; }
@@ -113,4 +118,4 @@ function memory(files, note) {
   return { ok: true, summary: 'gemerkt in CODEN.md', text: 'Notiz in CODEN.md gespeichert.', set: { 'CODEN.md': cur.replace(/\s*$/, '') + '\n- ' + n.replace(/\n+/g, ' ') + '\n' } };
 }
 
-module.exports = { list, read, search, check, fetchUrl, webSearch, memory, htmlToText, globToRe, syntax };
+module.exports = { list, read, search, check, fetchUrl, webSearch, ddgResults, memory, htmlToText, globToRe, syntax };
