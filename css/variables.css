@@ -1,29 +1,49 @@
 :root {
-    --bg-main: #131314;       /* Dunkler Hintergrund Hauptbereich */
-    --bg-sidebar: #1e1f20;    /* Etwas hellerer Sidebar Hintergrund */
-    --bg-input: #1e1f20;      /* Hintergrund der Input Box */
-    --bg-surface: #282a2c;    /* Hover States, Chips, Code-Header */
-    --bg-code: #1e1f20;       /* Code Block Hintergrund */
-    
-    --text-primary: #e3e3e3;
-    --text-secondary: #c4c7c5;
-    --text-muted: #8e918f;
-    
-    --border-color: #444746;
-    
-    --accent-blue: #a8c7fa;   /* Gemini Blau */
-    --accent-green: #6dd58c;
-    --accent-purple: #d3e3fd;
-    
-    --font-main: 'Inter', sans-serif;
-    --font-mono: 'Courier New', Courier, monospace;
+    --bg-main: #0e1014;       /* Tiefer Studio-Slate Canvas (60%) */
+    --bg-sidebar: #14171d;    /* Ruhige Seitenleiste (30%) */
+    --bg-input: #171b23;      /* Eingabefeld-Fläche */
+    --bg-surface: #1e232e;    /* Hover-Flächen, Karten, Menüs */
+    --bg-surface-hover: #252b38;
+    --bg-code: #11141a;       /* Code-Block Hintergrund */
+
+    --text-primary: #eef1f6;
+    --text-secondary: #b6bfcd;
+    --text-muted: #7f8a9c;
+
+    --border-color: rgba(255, 255, 255, 0.09);
+    --border-strong: rgba(255, 255, 255, 0.16);
+    --hairline: rgba(255, 255, 255, 0.06);
+
+    --accent-blue: #7cb3ff;   /* Akzentfarbe (10%) */
+    --accent-blue-strong: #5b9bff;
+    --accent-blue-soft: rgba(124, 179, 255, 0.14);
+    --accent-green: #4ade80;
+    --accent-amber: #fbbf24;
+    --accent-red: #f87171;
+    --accent-purple: #c4b5fd;
+
+    --font-main: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 20px;
+    --ease-ui: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
+html {
+    background-color: var(--bg-main);
+    color-scheme: dark;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
 body {
     background-color: var(--bg-main);
     color: var(--text-primary);
     font-family: var(--font-main);
+    letter-spacing: 0.005em;
     overflow: hidden;
 }
 .hidden { display: none !important; }

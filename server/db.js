@@ -8,7 +8,8 @@ function createFallbackPool() {
   let dbPromise = null;
   const getDb = () => {
     if (!dbPromise) {
-      dbPromise = import('@electric-sql/pglite')
+      const pglitePkg = '@electric-sql/' + 'pglite';
+      dbPromise = import(pglitePkg)
         .then(({ PGlite }) => new PGlite())
         .catch((err) => {
           console.warn('[AI Studio] PGlite unavailable, using no-op DB mock:', err.message);

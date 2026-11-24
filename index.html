@@ -12,7 +12,9 @@
     <meta name="apple-mobile-web-app-title" content="Coden">
     
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
@@ -46,6 +48,7 @@
     <link rel="stylesheet" href="css/settings-v2.css">
     <link rel="stylesheet" href="css/assistants.css">
     <link rel="stylesheet" href="css/responsive.css">
+    <link rel="stylesheet" href="css/v4-layout.css">
 
     <style>
         .sidebar.collapsed { display: none; }
@@ -181,10 +184,10 @@
 
         <main class="main-content">
             <header class="top-bar">
-                <div style="display: flex; align-items: center;">
-                    <div class="brand">Coden AI <button type="button" id="chat-project-chip" class="hidden"></button><span id="owner-badge" style="display:none; background:#ff4444; color:white; font-size:10px; padding:2px 6px; border-radius:4px; margin-left:8px; vertical-align:middle;">OWNER</span></div>
+                <div style="display: flex; align-items: center; min-width: 0;">
+                    <div class="brand">Coden AI <button type="button" id="chat-project-chip" class="hidden"></button><span id="owner-badge" style="display:none;">Owner</span></div>
                 </div>
-                <div class="tb-right"><button class="icon-btn" id="temp-chat-btn" title="Temporärer Chat (wird nicht gespeichert)" aria-label="Temporärer Chat" aria-pressed="false"><span class="material-symbols-outlined">history_toggle_off</span></button><button class="icon-btn" id="export-chat-btn" title="Chat als Datei speichern" aria-label="Chat exportieren"><span class="material-symbols-outlined">download</span></button><div id="user-email-display" style="font-size: 13px; color: var(--text-muted);"></div></div>
+                <div class="tb-right"><button class="icon-btn" id="temp-chat-btn" title="Temporärer Chat (wird nicht gespeichert)" aria-label="Temporärer Chat" aria-pressed="false"><span class="material-symbols-outlined">history_toggle_off</span></button><button class="icon-btn" id="export-chat-btn" title="Chat als Datei speichern" aria-label="Chat exportieren"><span class="material-symbols-outlined">download</span></button><div id="user-email-display"></div></div>
             </header>
 
             <div class="chat-scroll-area" id="chat-container">
@@ -203,9 +206,9 @@
                             <button class="icon-btn" id="attachment-btn"><span class="material-symbols-outlined">add</span></button>
                             <button type="button" class="icon-btn" id="assistant-btn" title="Assistent wählen" aria-label="Assistent wählen" aria-haspopup="true"><span class="material-symbols-outlined">smart_toy</span></button>
                             <input type="file" id="file-upload-input" multiple style="display: none;">
-                            <button id="live-call-btn" class="icon-btn" title="Live Sprach-Modus" style="display: flex; align-items: center; gap: 6px; border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 6px 14px; background: rgba(0,0,0,0.2); cursor: pointer; transition: all 0.3s;">
-                                <span class="material-symbols-outlined" style="font-size: 18px; color: #ff4444;">graphic_eq</span>
-                                <span id="live-status-indicator" style="font-size: 12px; font-weight: 500; color: #aaa;">Live Modus</span>
+                            <button id="live-call-btn" class="live-pill-btn" title="Live Sprach-Modus">
+                                <span class="material-symbols-outlined">graphic_eq</span>
+                                <span id="live-status-indicator">Live Modus</span>
                             </button>
                         </div>
                         <div class="right-tools">
@@ -240,18 +243,18 @@
                             </div>
                             <button class="icon-btn" id="mic-btn"><span class="material-symbols-outlined">mic</span></button>
                             <button class="icon-btn hidden" id="stop-btn" title="Antwort stoppen"><span class="material-symbols-outlined">stop</span></button>
-                            <button class="icon-btn" id="send-btn" style="color: var(--accent-blue);"><span class="material-symbols-outlined">send</span></button>
+                            <button class="icon-btn" id="send-btn" title="Senden" aria-label="Senden"><span class="material-symbols-outlined">arrow_upward</span></button>
                         </div>
                     </div>
                 </div>
             </div>
             <section class="welcome-extra hidden" id="welcome-extra">
                 <div class="chips" id="welcome-chips">
-                        <button class="chip chip-accent" data-go="apps/neu">📱 App bauen</button>
-                        <button class="chip" data-prompt="Baue mir ein Snake-Spiel als Webseite, das ich direkt spielen kann.">🐍 Snake-Spiel bauen</button>
-                        <button class="chip" data-prompt="Erkläre mir den Unterschied zwischen let, const und var in JavaScript mit Beispielen.">💡 JavaScript erklären</button>
-                        <button class="chip" data-prompt="Erstelle mir einen schicken Taschenrechner als Webseite mit dunklem Design.">🧮 Taschenrechner</button>
-                        <button class="chip" data-prompt="Finde den Fehler in meinem Code und erkläre ihn mir Schritt für Schritt:">🐞 Fehler finden</button>
+                        <button class="chip chip-accent" data-go="apps/neu"><span class="material-symbols-outlined">apps</span><span>App bauen</span></button>
+                        <button class="chip" data-prompt="Baue mir ein Snake-Spiel als Webseite, das ich direkt spielen kann."><span class="material-symbols-outlined">sports_esports</span><span>Snake-Spiel</span></button>
+                        <button class="chip" data-prompt="Erkläre mir den Unterschied zwischen let, const und var in JavaScript mit Beispielen."><span class="material-symbols-outlined">school</span><span>JavaScript erklären</span></button>
+                        <button class="chip" data-prompt="Erstelle mir einen schicken Taschenrechner als Webseite mit dunklem Design."><span class="material-symbols-outlined">calculate</span><span>Taschenrechner</span></button>
+                        <button class="chip" data-prompt="Finde den Fehler in meinem Code und erkläre ihn mir Schritt für Schritt:"><span class="material-symbols-outlined">bug_report</span><span>Fehler finden</span></button>
                     </div>
                 <div class="we-gallery" id="we-gallery">
                     <div class="we-head"><span>Neueste Artefakte</span><button id="we-all" class="we-link">Alle anzeigen</button></div>

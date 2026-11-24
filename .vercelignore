@@ -1,3 +1,5 @@
 android-shell/
 test/
 .github/
+scripts/
+.env.example

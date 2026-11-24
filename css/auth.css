@@ -1,95 +1,112 @@
-/* css/auth.css */
+/* css/auth.css – ruhiger, architektonischer Login-Screen */
 .login-screen {
     position: fixed;
-    top: 0; left: 0;
-    width: 100vw; height: 100vh;
-    background: var(--bg-main);
+    inset: 0;
+    width: 100vw;
+    height: 100dvh;
+    background:
+        radial-gradient(ellipse 70% 45% at 50% 0%, rgba(124, 179, 255, 0.09), transparent 70%),
+        var(--bg-main);
     display: flex;
     justify-content: center;
     align-items: center;
-    z-index: 10000; /* Ganz vorne */
+    padding: 20px;
+    z-index: 10000;
 }
 
 .login-box {
-    background: var(--bg-surface);
+    background: var(--bg-sidebar);
     border: 1px solid var(--border-color);
-    padding: 40px;
-    border-radius: 24px;
-    width: 90%;
+    padding: 36px 32px 32px;
+    border-radius: var(--radius-xl);
+    width: 100%;
     max-width: 400px;
     display: flex;
     flex-direction: column;
     align-items: center;
     text-align: center;
-    box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.48);
 }
 
-.login-box img {
-    width: 80px; height: 80px;
-    border-radius: 50%;
-    margin-bottom: 24px;
+.login-box > img {
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
+    object-fit: cover;
+    margin-bottom: 18px;
+    border: 1px solid var(--border-color);
 }
 
 .login-box h2 {
-    font-size: 24px;
+    font-size: 22px;
     font-weight: 600;
-    margin-bottom: 32px;
+    letter-spacing: -0.02em;
+    color: var(--text-primary);
+    margin-bottom: 24px;
 }
 
 .btn-google {
-    background: white;
-    color: black;
-    border: none;
+    background: #f8fafc;
+    color: #0f172a;
+    border: 1px solid rgba(255, 255, 255, 0.12);
     width: 100%;
-    padding: 12px;
-    border-radius: 24px;
+    padding: 11px 16px;
+    border-radius: var(--radius-md);
+    font-family: var(--font-main);
     font-weight: 600;
-    font-size: 15px;
+    font-size: 14px;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 12px;
+    gap: 10px;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: background 0.16s var(--ease-ui), transform 0.16s var(--ease-ui);
 }
 
-.btn-google:hover { background: #f1f1f1; }
+.btn-google:hover { background: #ffffff; }
+.btn-google:active { transform: scale(0.99); }
 
 .auth-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
     color: var(--text-muted);
-    font-size: 14px;
-    margin: 24px 0;
+    font-size: 12.5px;
+    margin: 20px 0;
     width: 100%;
-    position: relative;
 }
 
-.auth-divider::before, .auth-divider::after {
-    content: ""; position: absolute; top: 50%;
-    width: 40%; height: 1px; background: var(--border-color);
+.auth-divider::before,
+.auth-divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--border-color);
 }
-.auth-divider::before { left: 0; }
-.auth-divider::after { right: 0; }
 
 .auth-form {
     width: 100%;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 10px;
 }
 
 .auth-buttons {
     display: flex;
-    gap: 12px;
-    margin-top: 12px;
+    gap: 10px;
+    margin-top: 8px;
 }
 
 .auth-buttons button {
     flex: 1;
+    border-radius: var(--radius-md);
+    padding: 10px 16px;
 }
 
 .auth-error {
-    color: #ff4444;
+    color: var(--accent-red);
     font-size: 13px;
-    margin-top: 16px;
+    margin-top: 14px;
+    line-height: 1.45;
     display: none;
 }

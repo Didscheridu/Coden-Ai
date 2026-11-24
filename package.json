@@ -6,7 +6,6 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@electric-sql/pglite": "^0.5.17",
     "@neon/config": "^1.14.6",
     "@neon/env": "^2.1.9",
     "@vercel/functions": "^3.11.3",
@@ -16,12 +15,15 @@
     "pg": "^8.23.1",
     "web-push": "^3.6.7"
   },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.17"
+  },
   "scripts": {
     "db:migrate": "node --env-file-if-exists=.env.local --env-file-if-exists=.env db/migrate.js",
-    "dev": "node server.js",
-    "start": "node server.js",
-    "build": "node --check server.js && node --check api/index.js",
-    "lint": "node --check server.js && node --check api/index.js",
+    "dev": "node scripts/local-dev.js",
+    "start": "node scripts/local-dev.js",
+    "build": "node --check scripts/local-dev.js && node --check api/index.js",
+    "lint": "node --check scripts/local-dev.js && node --check api/index.js",
     "test": "node test/api.test.js && node test/ai.test.js && node test/buddy.test.js && node test/apps.test.js && node test/upload.test.js && node test/mcp.test.js && node test/projects.test.js && node test/servers.test.js && node test/selfmigrate.test.js && node test/runs.test.js && node test/agents.test.js && node test/usage.test.js && node test/byok.test.js && node test/byok-agents.test.js && node test/assist.test.js && node test/deps.test.js"
   }
 }
