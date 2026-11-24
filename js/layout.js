@@ -3,6 +3,8 @@ import { mountAccountMenu } from './account-menu.js';
 import { McpView } from './mcp.js';
 import { ProjectsView } from './projects.js';
 import { collectArtifacts, thumbFor, Artifacts } from './artifacts.js';
+import { attachBridge } from './artifact-bridge.js';
+import { apiJson } from './backend.js';
 import { Buddy } from './buddy.js';
 import { Router } from './router.js';
 import { AppsView } from './apps/apps.js';
@@ -74,6 +76,31 @@ const ArtifactsView = {
     }
 };
 
+// ---------- Veröffentlichtes Artefakt in Coden ansehen (#/s/<id>): mit KI und geteilten Daten über das eigene Konto ----------
+const SharedView = {
+    async mount(host, params) {
+        const id = String(params[0] || '');
+        const page = document.createElement('div'); page.className = 'sa-page';
+        host.appendChild(page);
+        let a;
+        try { a = await apiJson('/public/artifacts/' + encodeURIComponent(id)); }
+        catch (e) { page.innerHTML = '<div class="ap-empty wide"><span class="material-symbols-outlined">link_off</span><h2>Dieses Artefakt gibt es nicht (mehr)</h2><p></p></div>'; page.querySelector('p').textContent = e.message; return; }
+        const bar = document.createElement('div'); bar.className = 'sa-bar';
+        const t = document.createElement('b'); t.textContent = a.title;
+        const by = document.createElement('small'); by.textContent = 'Veröffentlichtes Artefakt' + (a.author ? ' von ' + a.author : '');
+        const mk = (ic, label, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'cd-btn sm'; const i = document.createElement('span'); i.className = 'material-symbols-outlined'; i.textContent = ic; b.append(i, ' ' + label); b.addEventListener('click', fn); return b; };
+        const copyBtn = mk('link', 'Link kopieren', async () => { try { await navigator.clipboard.writeText(`${location.origin}/s/${a.id}`); copyBtn.lastChild.textContent = ' Kopiert'; } catch (_) {} });
+        const remix = mk('edit', 'In einem Chat weiterbauen', () => document.dispatchEvent(new CustomEvent('coden:compose', { detail: { text: `Bau dieses Artefakt „${a.title}“ für mich weiter:\n\n<artifact type="${a.type}" title="${a.title.replace(/"/g, '')}">\n${a.body}\n</artifact>\n\nMeine Änderungswünsche: ` } })));
+        bar.append(t, by, copyBtn, remix);
+        const f = document.createElement('iframe'); f.className = 'sa-frame';
+        f.setAttribute('sandbox', 'allow-scripts allow-modals allow-forms allow-pointer-lock allow-popups allow-popups-to-escape-sandbox');
+        f.setAttribute('referrerpolicy', 'no-referrer'); f.setAttribute('allow', 'fullscreen; autoplay'); f.title = a.title;
+        attachBridge(f, () => ({ aid: a.id, published: true }));
+        f.srcdoc = a.html;
+        page.append(bar, f);
+    }
+};
+
 let layoutWired = false;
 export const Layout = {
     init({ sessionsGetter }) {
@@ -84,6 +111,7 @@ export const Layout = {
             Router.register('apps', AppsView);
             Router.register('artefakte', ArtifactsView);
             Router.register('verbindungen', McpView);
+            Router.register('s', SharedView);
             Router.register('projekte', ProjectsView);
             Router.register('buddy', { mount: (host, params) => Buddy.mount(host, params), unmount: () => Buddy.unmount() });
             const nav = (id, path) => $(id)?.addEventListener('click', (e) => { e.preventDefault(); Router.go(path); });

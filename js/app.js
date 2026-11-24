@@ -1038,6 +1038,7 @@ document.getElementById('temp-chat-btn')?.addEventListener('click', () => {
         UI.resetUI(); UI.renderSidebar(sessions, activeSessionId); Router.go('chat');
         messages.forEach(m => UI.appendMessage(m.text, m.isUser)); updateProjectChip();
     });
+    Artifacts.setContext(() => activeSessionId);
     // „Mit Coden einen Skill erstellen“ u. a.: Text ins Eingabefeld legen
     document.addEventListener('coden:compose', (e) => {
         document.getElementById('settings-modal')?.classList.add('hidden');

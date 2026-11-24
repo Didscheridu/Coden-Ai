@@ -6,26 +6,76 @@
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
       ]
     }
   ],
   "rewrites": [
-    { "source": "/server/:path*", "destination": "/api" },
-    { "source": "/db/:path*", "destination": "/api" },
-    { "source": "/scripts/:path*", "destination": "/api" },
-    { "source": "/test/:path*", "destination": "/api" },
-    { "source": "/package.json", "destination": "/api" },
-    { "source": "/package-lock.json", "destination": "/api" },
-    { "source": "/bun.lock", "destination": "/api" },
-    { "source": "/vercel.json", "destination": "/api" },
-    { "source": "/README.md", "destination": "/api" },
-    { "source": "/firestore.rules", "destination": "/api" },
-    { "source": "/firebase-blueprint.json", "destination": "/api" },
-    { "source": "/eslint.config.mjs", "destination": "/api" },
+    {
+      "source": "/server/:path*",
+      "destination": "/api"
+    },
+    {
+      "source": "/db/:path*",
+      "destination": "/api"
+    },
+    {
+      "source": "/scripts/:path*",
+      "destination": "/api"
+    },
+    {
+      "source": "/test/:path*",
+      "destination": "/api"
+    },
+    {
+      "source": "/package.json",
+      "destination": "/api"
+    },
+    {
+      "source": "/package-lock.json",
+      "destination": "/api"
+    },
+    {
+      "source": "/bun.lock",
+      "destination": "/api"
+    },
+    {
+      "source": "/vercel.json",
+      "destination": "/api"
+    },
+    {
+      "source": "/README.md",
+      "destination": "/api"
+    },
+    {
+      "source": "/firestore.rules",
+      "destination": "/api"
+    },
+    {
+      "source": "/firebase-blueprint.json",
+      "destination": "/api"
+    },
+    {
+      "source": "/eslint.config.mjs",
+      "destination": "/api"
+    },
     {
       "source": "/api/:path*",
+      "destination": "/api"
+    },
+    {
+      "source": "/s/:id",
+      "destination": "/api"
+    },
+    {
+      "source": "/s/:id/:rest*",
       "destination": "/api"
     },
     {
