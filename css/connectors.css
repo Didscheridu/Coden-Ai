@@ -120,3 +120,11 @@ a.cite {
 }
 a.cite:hover { background: var(--accent-blue-soft); color: var(--accent-blue) !important; }
 .tool-step ol, details.tool-step > ol { margin: 0 12px 10px 30px; font-size: 13px; line-height: 1.6; color: var(--text-secondary); }
+
+/* Veröffentlichtes Artefakt in Coden (#/s/<id>) */
+.sa-page { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.sa-bar { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--hairline); flex-wrap: wrap; }
+.sa-bar b { font-size: 15px; font-weight: 600; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sa-bar small { flex: 1; color: var(--text-muted); font-size: 12.5px; min-width: 120px; }
+.sa-frame { flex: 1; width: 100%; min-height: 70vh; border: 0; background: #fff; }
+.ap-mi[hidden], .cm-item[hidden] { display: none !important; }

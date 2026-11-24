@@ -894,6 +894,38 @@ service cloud.firestore {
       allow delete: if isNumId(resId) && (isOwner(existing().uid) || isAdmin());
     }
 
+    // ---------- Artefakte wie bei Claude: veröffentlichen, gespeicherte Daten ----------
+    match /shared_artifacts/{artId} {
+      allow get: if isValidId(artId) && (resource == null || existing().published == true || isOwner(existing().uid) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());
+      allow create, update: if isVerified() && isValidId(artId)
+        && incoming().uid == request.auth.uid
+        && (resource == null || existing().uid == request.auth.uid)
+        && isStr(incoming().title, 1, 80) && isStr(incoming().html, 1, 700000)
+        && incoming().published is bool;
+      allow delete: if isValidId(artId) && (isOwner(existing().uid) || isAdmin());
+    }
+    match /artifact_data/{docId} {
+      allow get: if isSignedIn() && ((resource == null && docId.matches('^' + request.auth.uid + '__.*')) || (resource != null && isOwner(resource.data.uid)));
+      allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow create, update: if isVerified() && docId.matches('^' + request.auth.uid + '__.*')
+        && incoming().uid == request.auth.uid
+        && isStr(incoming().key, 1, 200) && isStr(incoming().value, 0, 20000);
+      allow delete: if isSignedIn() && docId.matches('^' + request.auth.uid + '__.*');
+    }
+    match /artifact_shared/{docId} {
+      allow get: if true;
+      allow list: if isSignedIn();
+      allow create, update: if isVerified()
+        && incoming().uid == request.auth.uid
+        && isValidId(incoming().aid) && docId.matches('^' + incoming().aid + '__.*')
+        && exists(/databases/$(database)/documents/shared_artifacts/$(incoming().aid))
+        && get(/databases/$(database)/documents/shared_artifacts/$(incoming().aid)).data.published == true
+        && isStr(incoming().key, 1, 200) && isStr(incoming().value, 0, 20000);
+      allow delete: if isVerified()
+        && exists(/databases/$(database)/documents/shared_artifacts/$(existing().aid));
+    }
+
     match /mcp_connections/{connId} {
       allow get: if isNumId(connId) && (isOwner(existing().uid) || isAdmin());
       allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());

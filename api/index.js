@@ -16,6 +16,7 @@ const { chatJob, continueHandler, makeChatImage } = require('../server/chat-run'
 const { pushRouter } = require('../server/push');
 const { researchJob, researchRouter } = require('../server/research');
 const { tasksRouter, cronHandler } = require('../server/tasks');
+const { artifactsRouter, publicArtifactsRouter, sharedPageRouter } = require('../server/artifacts');
 const byok = require('../server/byok');
 const { Meter, limitGate, usageRouter } = require('../server/usage');
 const meterFor = (req) => new Meter(req.user, req.body?.tier);
@@ -358,8 +359,8 @@ api.post('/live-token', requireAuth, rateLimit('live', 5, 300), async (req, res)
 const { projectsRouter } = require('../server/projects');
 const { serversRouter } = require('../server/servers');
 const needsDb = (req, res, next) => { ensureSchema().then(() => next(), next); };
-api.use('/byok', needsDb); api.use('/buddy', needsDb); api.use('/mcp', needsDb); api.use('/servers', needsDb); api.use('/projects', needsDb); api.use('/apps', needsDb); api.use('/data', needsDb); api.use('/runs', needsDb); api.use('/usage', needsDb); api.use('/push', needsDb); api.use('/research', needsDb); api.use('/tasks', needsDb);
-app.use('/a', needsDb);
+api.use('/byok', needsDb); api.use('/buddy', needsDb); api.use('/mcp', needsDb); api.use('/servers', needsDb); api.use('/projects', needsDb); api.use('/apps', needsDb); api.use('/data', needsDb); api.use('/runs', needsDb); api.use('/usage', needsDb); api.use('/push', needsDb); api.use('/research', needsDb); api.use('/tasks', needsDb); api.use('/artifacts', needsDb);
+app.use('/a', needsDb); app.use('/s', needsDb);
 
 // ---------- KI-Bilder für den normalen Chat (Cloudflare Flux) ----------
 api.post('/image', requireAuth, rateLimit('image', 10, 300), async (req, res) => {
@@ -380,9 +381,12 @@ api.use('/research', researchRouter(requireAuth));
 api.get('/cron/tasks', needsDb, cronHandler); api.post('/cron/tasks', needsDb, cronHandler);
 api.use('/tasks', tasksRouter(requireAuth));
 api.use('/apps', appsRouter(requireAuth));
+api.use('/artifacts', artifactsRouter(requireAuth));
+api.use('/public/artifacts', needsDb, publicArtifactsRouter());
 api.use('/public', publicApiRouter());
 app.use('/api', api);
 app.use('/a', hostedRouter()); // veröffentlichte Apps: /a/<adresse>/
+app.use('/s', sharedPageRouter()); // veröffentlichte Artefakte: /s/<id>
 app.use((err, req, res, next) => {
   console.error(err);
   if (res.headersSent) return next(err);

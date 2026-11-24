@@ -3,6 +3,10 @@
 // HTML läuft in einer Sandbox (iframe ohne allow-same-origin, ohne Netzwerkzugriff) und kann nie an Login oder Daten.
 
 import { ARTIFACT_TYPES } from './system-prompt.js';
+import { aidFor, attachBridge } from './artifact-bridge.js';
+import { apiJson } from './backend.js';
+import { toast } from './toast.js';
+import { confirmBox } from './apps/dialogs.js';
 
 const RE = /<artifact\s+([^>]*)>([\s\S]*?)(<\/artifact>|$)/g;
 const attr = (s, k) => (s.match(new RegExp(k + '\\s*=\\s*"([^"]*)"', 'i')) || [])[1] || '';
@@ -41,7 +45,11 @@ const cspFor = (type) => {
 const SHIM = `<script>(function(){function mk(){var d={};return{getItem:function(k){return k in d?d[k]:null},setItem:function(k,v){d[k]=String(v)},removeItem:function(k){delete d[k]},clear:function(){d={}},key:function(i){return Object.keys(d)[i]||null},get length(){return Object.keys(d).length}}}
 try{window.localStorage.getItem('x')}catch(e){try{Object.defineProperty(window,'localStorage',{value:mk()});Object.defineProperty(window,'sessionStorage',{value:mk()})}catch(_){}}
 window.addEventListener('load',function(){try{window.focus();document.body&&document.body.setAttribute('tabindex','-1');document.body&&document.body.focus()}catch(e){}});
-window.addEventListener('error',function(e){try{parent.postMessage({codenArtifactError:String(e.message)},'*')}catch(_){}})})();<\/script>`;
+window.addEventListener('error',function(e){try{parent.postMessage({codenArtifactError:String(e.message)},'*')}catch(_){}})})();
+(function(){var n=0,w={};window.addEventListener('message',function(e){var d=e.data;if(!d||d.codenReply==null||!w[d.codenReply])return;var p=w[d.codenReply];delete w[d.codenReply];d.ok?p[0](d.value):p[1](new Error(d.error||'Fehler'))});
+function call(op,args){return new Promise(function(res,rej){var id=++n;w[id]=[res,rej];try{parent.postMessage({codenCall:id,op:op,args:args},'*')}catch(e){delete w[id];rej(e);return}setTimeout(function(){if(w[id]){delete w[id];rej(new Error('Keine Antwort von Coden'))}},120000)})}
+var st={get:function(k,s){return call('get',{key:String(k),shared:!!s})},set:function(k,v,s){return call('set',{key:String(k),value:v,shared:!!s})},delete:function(k,s){return call('delete',{key:String(k),shared:!!s})},list:function(p,s){return call('list',{prefix:p||'',shared:!!s})}};
+window.coden={ask:function(p){return call('ask',{prompt:p})},storage:st};window.claude=window.claude||{complete:function(p){return call('ask',{prompt:p})}};try{if(!window.storage)window.storage=st}catch(_){}})();<\/script>`;
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const js = (v) => JSON.stringify(v).replace(/</g, '\\u003c'); // sicher in <script> einbetten
 const BASE_CSS = `*{box-sizing:border-box}html,body{margin:0}body{font:15px/1.5 Inter,system-ui,-apple-system,"Segoe UI",sans-serif;color:#1f2328;background:#fff}.err{margin:16px;padding:12px 14px;border-radius:10px;background:#fff1f0;color:#a8071a;font:13px ui-monospace,monospace;white-space:pre-wrap}`;
@@ -120,6 +128,9 @@ function build() {
           <button type="button" class="ap-btn" data-act="more" title="Weitere Aktionen" aria-label="Weitere Aktionen" aria-haspopup="true" aria-expanded="false"><span class="material-symbols-outlined">more_horiz</span></button>
           <div class="ap-menu hidden" role="menu">
             <button type="button" class="ap-mi ap-toapp" data-act="app" role="menuitem"><span class="material-symbols-outlined">rocket_launch</span><span>Als App weiterbauen</span></button>
+            <button type="button" class="ap-mi" data-act="publish" role="menuitem"><span class="material-symbols-outlined">public</span><span class="ap-pub-label">Veröffentlichen</span></button>
+            <button type="button" class="ap-mi" data-act="link" role="menuitem" hidden><span class="material-symbols-outlined">link</span><span>Link kopieren</span></button>
+            <button type="button" class="ap-mi danger" data-act="unpublish" role="menuitem" hidden><span class="material-symbols-outlined">public_off</span><span>Veröffentlichung beenden</span></button>
             <button type="button" class="ap-mi" data-act="copy" role="menuitem"><span class="material-symbols-outlined">content_copy</span><span>Code kopieren</span></button>
             <button type="button" class="ap-mi" data-act="download" role="menuitem"><span class="material-symbols-outlined">download</span><span>Herunterladen</span></button>
             <button type="button" class="ap-mi" data-act="full" role="menuitem"><span class="material-symbols-outlined">fullscreen</span><span class="ap-full-label">Vollbild</span></button>
@@ -154,6 +165,7 @@ function build() {
                 e.stopPropagation();
                 const open = apMenu.classList.toggle('hidden') === false;
                 apMoreBtn?.setAttribute('aria-expanded', String(open));
+                if (open) refreshPublishItems();
                 return;
             }
             if (a === 'close') { closeMenu(); Artifacts.close(); }
@@ -166,6 +178,9 @@ function build() {
                 closeMenu();
             }
             if (a === 'app' && current) { const it = current; closeMenu(); Artifacts.close(); document.dispatchEvent(new CustomEvent('artifactToApp', { detail: it })); }
+            if (a === 'publish' && current) { closeMenu(); publish(current); }
+            if (a === 'link' && current) { closeMenu(); const p = publishedOf(current); if (p) copyLink(p.id); }
+            if (a === 'unpublish' && current) { closeMenu(); unpublish(current); }
             if (a === 'copy' && current) {
                 try {
                     await navigator.clipboard.writeText(current.body);
@@ -227,6 +242,7 @@ function show(item, keepTab) {
         else {
             let f = pv.querySelector('iframe');
             if (!f) { pv.className = 'ap-preview'; pv.replaceChildren(); f = document.createElement('iframe'); f.setAttribute('sandbox', 'allow-scripts allow-modals allow-forms allow-pointer-lock'); f.setAttribute('referrerpolicy', 'no-referrer'); f.setAttribute('allow', 'fullscreen; autoplay'); pv.appendChild(f); }
+            attachBridge(f, () => { if (!current) return {}; const p = publishedOf(current); return p ? { aid: p.id, published: true } : { aid: aidFor(sessionOf(), current.title), published: false }; });
             f.srcdoc = previewDoc(item); f.onload = () => { try { f.contentWindow.focus(); } catch (_) {} };
         }
     };
@@ -240,7 +256,56 @@ function show(item, keepTab) {
     else if (item.closed && autoCode) { autoCode = false; setTab('preview'); } // fertig geschrieben: automatisch zur Vorschau
 }
 
+// ---------- Veröffentlichen (Link wie bei Claude) ----------
+let sessionOf = () => 'chat';
+let sharedList = null; // [{ id, srcKey, url, version }]
+const srcKeyOf = (item) => `${item.sessionId || sessionOf()}|${item.title}`;
+const publishedOf = (item) => (sharedList || []).find(x => x.srcKey === srcKeyOf(item)) || null;
+const shareUrl = (id) => `${location.origin}/s/${id}`;
+async function loadShared(force) { if (sharedList && !force) return sharedList; try { sharedList = (await apiJson('/artifacts/shared')).items || []; } catch (_) { sharedList = sharedList || []; } return sharedList; }
+async function refreshPublishItems() {
+    if (!panel) return;
+    const set = () => {
+        const p = current ? publishedOf(current) : null;
+        panel.querySelector('.ap-pub-label').textContent = p ? 'Neue Fassung veröffentlichen' : 'Veröffentlichen';
+        panel.querySelector('[data-act="link"]').hidden = !p; panel.querySelector('[data-act="unpublish"]').hidden = !p;
+        panel.querySelector('[data-act="publish"]').hidden = !current || !current.closed;
+    };
+    set(); await loadShared(); set();
+}
+async function copyLink(id) {
+    try { await navigator.clipboard.writeText(shareUrl(id)); toast('Link kopiert', { type: 'ok', action: { label: 'Öffnen', run: () => window.open(shareUrl(id), '_blank', 'noopener') } }); }
+    catch (_) { toast(shareUrl(id), { ms: 9000 }); }
+}
+// Dokument zum Veröffentlichen: wie die Vorschau; Dokumente und Code bekommen eine eigene lesbare Seite
+function publishDoc(item) {
+    if (item.type === 'markdown') return page('markdown', '<style>body{max-width:760px;margin:0 auto;padding:32px 20px;font-size:16px;line-height:1.65}pre{background:#f6f8fa;padding:12px;border-radius:8px;overflow:auto}code{font-family:ui-monospace,monospace}table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:6px 10px}img{max-width:100%}</style>', DOMPurify.sanitize(marked.parse(item.body)));
+    if (item.type === 'code') return page('code', '<style>body{margin:0;background:#0f1115;color:#e6e6e6}pre{margin:0;padding:20px;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre;overflow:auto}</style>', `<pre>${esc(item.body)}</pre>`);
+    return previewDoc(item);
+}
+async function publish(item) {
+    await loadShared();
+    const p = publishedOf(item);
+    const ok = p || await confirmBox(`„${item.title}“ veröffentlichen? Jeder mit dem Link kann das Artefakt ansehen und benutzen. Deine Chats bleiben privat. Du kannst die Veröffentlichung jederzeit beenden.`, { ok: 'Veröffentlichen', title: 'Artefakt veröffentlichen' });
+    if (!ok) return;
+    try {
+        let author = ''; try { author = JSON.parse(localStorage.getItem('coden_settings') || '{}').userName || ''; } catch (_) {}
+        const r = await apiJson('/artifacts/share', { method: 'POST', body: JSON.stringify({ title: item.title, type: item.type, body: item.body, html: publishDoc(item), srcKey: srcKeyOf(item), author }) });
+        await loadShared(true);
+        toast(r.updated ? `Neue Fassung veröffentlicht (Version ${r.version})` : 'Veröffentlicht', { type: 'ok' });
+        copyLink(r.id);
+    } catch (e) { toast(e.message, { type: 'error', ms: 6000 }); }
+}
+async function unpublish(item) {
+    const p = publishedOf(item); if (!p) return;
+    if (!(await confirmBox('Veröffentlichung beenden? Der Link funktioniert danach nicht mehr.', { ok: 'Beenden', danger: true }))) return;
+    try { await apiJson('/artifacts/shared/' + p.id, { method: 'DELETE' }); await loadShared(true); toast('Veröffentlichung beendet', { type: 'ok' }); }
+    catch (e) { toast(e.message, { type: 'error' }); }
+}
+
 export const Artifacts = {
+    setContext(fn) { sessionOf = fn; },
+    loadShared,
     register(item) { // von ui.js beim Rendern aufgerufen; gibt die Fassungsnummer zurück
         const list = versions.get(item.title) || []; const i = list.findIndex(v => v.key === item.key);
         if (i === -1) list.push(item); else list[i] = item; versions.set(item.title, list);
