@@ -51,6 +51,7 @@
     <link rel="stylesheet" href="css/v4-layout.css">
     <link rel="stylesheet" href="css/skills.css">
     <link rel="stylesheet" href="css/connectors.css">
+    <link rel="stylesheet" href="css/research.css">
     <link rel="stylesheet" href="css/menus.css">
 
     <style>
@@ -187,6 +188,7 @@
                 <a href="#/verbindungen" class="sb-item" id="open-mcp-btn" data-route="verbindungen"><span class="material-symbols-outlined">hub</span><span class="sb-label">Konnektoren</span></a>
                 <a href="#/buddy" class="sb-item" id="open-buddy-btn" data-route="buddy"><span class="material-symbols-outlined">diversity_3</span><span class="sb-label">Code Buddy</span><span class="bd-nav-badge" style="display:none"></span></a>
                 <a href="#/projekte" class="sb-item" id="open-projects-btn" data-route="projekte"><span class="material-symbols-outlined">folder_open</span><span class="sb-label">Projekte</span></a>
+                <a href="#" class="sb-item" id="open-tasks-btn"><span class="material-symbols-outlined">schedule</span><span class="sb-label">Geplante Aufgaben</span><span class="bd-nav-badge" id="tasks-nav-badge" style="display:none"></span></a>
             </nav>
             <div class="sidebar-scroll-area"></div>
             <div class="sidebar-footer">
@@ -253,6 +255,8 @@
                         <button type="button" class="cm-item" id="ct-apps" role="menuitem" aria-haspopup="menu"><span class="material-symbols-outlined cm-ic">apps</span><span class="cm-label">Eigene Apps</span><span class="material-symbols-outlined cm-chev">chevron_right</span></button>
                         <button type="button" class="cm-item" id="ct-mcp" role="menuitem" aria-haspopup="menu"><span class="material-symbols-outlined cm-ic">hub</span><span class="cm-label">Konnektoren</span><span class="material-symbols-outlined cm-chev">chevron_right</span></button>
                         <div class="cm-sep" role="separator"></div>
+                        <button type="button" class="cm-item" id="ct-web" role="menuitemcheckbox" aria-checked="true" data-keep="1"><span class="material-symbols-outlined cm-ic">language</span><span class="cm-label">Websuche</span><span class="material-symbols-outlined cm-check off">check</span></button>
+                        <button type="button" class="cm-item" id="ct-research" role="menuitemcheckbox" aria-checked="false"><span class="material-symbols-outlined cm-ic">travel_explore</span><span class="cm-label">Recherche</span><span class="material-symbols-outlined cm-check off">check</span></button>
                         <button type="button" class="cm-item" id="ct-temp" role="menuitemcheckbox" aria-checked="false" data-keep="1"><span class="material-symbols-outlined cm-ic">history_toggle_off</span><span class="cm-label">Temporärer Chat</span><span class="material-symbols-outlined cm-check off">check</span></button>
                     </div>
                     <input type="file" id="file-upload-input" multiple style="display: none;">
@@ -335,6 +339,8 @@
                     <button type="button" data-st="personal"><span class="material-symbols-outlined">psychology</span><span>Persönlich</span></button>
                     <button type="button" data-st="assistants"><span class="material-symbols-outlined">smart_toy</span><span>Assistenten</span></button>
                     <button type="button" data-st="skills"><span class="material-symbols-outlined">auto_awesome</span><span>Skills</span></button>
+                    <button type="button" data-st="research"><span class="material-symbols-outlined">travel_explore</span><span>Websuche &amp; Recherche</span></button>
+                    <button type="button" data-st="tasks"><span class="material-symbols-outlined">schedule</span><span>Geplante Aufgaben</span><span class="tk-tab-badge" id="tasks-tab-badge" style="display:none"></span></button>
                     <button type="button" data-st="models"><span class="material-symbols-outlined">key</span><span>Modelle &amp; Keys</span></button>
                     <button type="button" data-st="notify"><span class="material-symbols-outlined">notifications</span><span>Benachrichtigungen</span></button>
                     <button type="button" data-st="mail"><span class="material-symbols-outlined">mail</span><span>E-Mail</span></button>
@@ -367,6 +373,17 @@
                         <h4>Skills</h4>
                         <p class="settings-hint">Skills sind Anleitungen für bestimmte Aufgaben (wie bei Claude). Coden lädt einen Skill automatisch, wenn er zu deiner Nachricht passt. Du kannst ihn auch mit <b>/name</b> oder über <b>+ → Skills</b> gezielt nutzen. Claude-Skills (.zip, .skill oder SKILL.md) lassen sich direkt importieren.</p>
                         <div id="skills-ui"></div>
+                    </section>
+                    <section class="st-pane hidden" data-pane="research">
+                        <h4>Websuche &amp; Recherche</h4>
+                        <p class="settings-hint">Mit <b>Websuche</b> sucht Coden selbst im Internet, wenn eine Frage aktuelle Infos braucht, und belegt die Antwort mit Quellen. <b>Recherche</b> (+ → Recherche) plant mehrere Suchen, liest die besten Seiten und schreibt einen Bericht. Das läuft im Hintergrund weiter, auch wenn du die App schließt.</p>
+                        <label class="st-check"><input type="checkbox" id="websearch-on"> Websuche im Chat (Coden entscheidet selbst, wann er sucht)</label>
+                        <div id="research-ui"></div>
+                    </section>
+                    <section class="st-pane hidden" data-pane="tasks">
+                        <h4>Geplante Aufgaben</h4>
+                        <p class="settings-hint">Coden erledigt etwas zu festen Zeiten, zum Beispiel jeden Morgen eine Zusammenfassung der Nachrichten. Das Ergebnis liegt hier, und du bekommst eine Benachrichtigung, wenn du sie unter „Benachrichtigungen“ eingeschaltet hast.</p>
+                        <div id="tasks-ui"></div>
                     </section>
                     <section class="st-pane hidden" data-pane="models">
                         <h4>Modelle &amp; Keys</h4>
@@ -470,6 +487,8 @@
     <script src="shared/assist-core.js"></script>
     <script src="shared/skills-core.js"></script>
     <script src="shared/mcp-catalog.js"></script>
+    <script src="shared/research-core.js"></script>
+    <script src="shared/tasks-core.js"></script>
     <script src="shared/upload-check.js"></script>
     <script src="js/vendor/qrcode.js"></script>
     <script type="module" src="js/app.js"></script>

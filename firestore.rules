@@ -855,6 +855,45 @@ service cloud.firestore {
     }
 
     // ---------- MCP Connections (Encrypted Tokens & OAuth Credentials) ----------
+    // ---------- Websuche-Keys, Aufgaben & Zeitpläne (Recherche) ----------
+    match /user_search_keys/{keyId} {
+      allow get: if isValidId(keyId) && ((resource == null && keyId.matches('^' + request.auth.uid + '__.*')) || (resource != null && isOwner(resource.data.uid)) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());
+      allow create, update: if isVerified() && isValidId(keyId)
+        && incoming().keys().hasAll(['uid', 'provider', 'key_enc'])
+        && incoming().keys().hasOnly(['uid', 'provider', 'key_enc', 'hint', 'created_at'])
+        && incoming().uid == request.auth.uid
+        && keyId == request.auth.uid + '__' + incoming().provider
+        && incoming().provider in ['brave', 'tavily']
+        && isStr(incoming().key_enc, 10, 2000) && isOptStr(incoming(), 'hint', 32);
+      allow delete: if isValidId(keyId) && (isOwner(existing().uid) || isAdmin());
+    }
+    match /scheduled_tasks/{taskId} {
+      allow get: if isNumId(taskId) && (resource == null || isOwner(resource.data.uid) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());
+      allow create: if isVerified() && isNumId(taskId)
+        && incoming().uid == request.auth.uid
+        && (incoming().is_owner == false || isAdminToken())
+        && isStr(incoming().prompt, 1, 2000) && isStr(incoming().title, 0, 80)
+        && incoming().schedule is map;
+      allow update: if isVerified() && isNumId(taskId)
+        && (isOwner(existing().uid) || isAdmin())
+        && incoming().uid == existing().uid && incoming().id == existing().id
+        && incoming().is_owner == existing().is_owner
+        && isStr(incoming().prompt, 1, 2000);
+      allow delete: if isNumId(taskId) && (isOwner(existing().uid) || isAdmin());
+    }
+    match /task_results/{resId} {
+      allow get: if isNumId(resId) && (resource == null || isOwner(resource.data.uid) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());
+      allow create: if isVerified() && isNumId(resId)
+        && incoming().uid == request.auth.uid
+        && isStr(incoming().text, 0, 60000) && isStr(incoming().title, 0, 80);
+      allow update: if (isOwner(existing().uid) || isAdmin())
+        && incoming().diff(existing()).affectedKeys().hasOnly(['seen']);
+      allow delete: if isNumId(resId) && (isOwner(existing().uid) || isAdmin());
+    }
+
     match /mcp_connections/{connId} {
       allow get: if isNumId(connId) && (isOwner(existing().uid) || isAdmin());
       allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());

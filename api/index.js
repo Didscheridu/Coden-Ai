@@ -14,6 +14,8 @@ const { startRun, serveRun, runsRouter } = require('../server/runs');
 const { ensureSchema } = require('../server/schema');
 const { chatJob, continueHandler, makeChatImage } = require('../server/chat-run');
 const { pushRouter } = require('../server/push');
+const { researchJob, researchRouter } = require('../server/research');
+const { tasksRouter, cronHandler } = require('../server/tasks');
 const byok = require('../server/byok');
 const { Meter, limitGate, usageRouter } = require('../server/usage');
 const meterFor = (req) => new Meter(req.user, req.body?.tier);
@@ -287,18 +289,20 @@ api.post('/chat/stream', requireAuth, rateLimit('chat', 20, 60), enforceSystemSt
   res.end();
 });
 
-api.post('/runs/chat', requireAuth, rateLimit('chat', 20, 60), enforceSystemState, gate, async (req, res) => {
+const researchLimit = (req, res, next) => (req.body?.research === true ? rateLimit('research', 6, 600)(req, res, next) : next()); // Deep Research ist teuer: höchstens 6 pro 10 Minuten
+api.post('/runs/chat', requireAuth, rateLimit('chat', 20, 60), researchLimit, enforceSystemState, gate, async (req, res) => {
   if (!validChat(req.body)) return res.status(400).json({ error: 'Ungültige Anfrage.' });
   const ref = typeof req.body.ref === 'string' && req.body.ref ? req.body.ref.slice(0, 80) : 'chat';
   const m = req.body.meta || {};
-  const meta = { title: String(m.title || '').slice(0, 120), userText: String(m.userText || '').slice(0, 4000), tier: req.body.tier, ...(m.temp ? { temp: true } : {}) };
+  const research = req.body.research === true;
+  const meta = { title: String(m.title || '').slice(0, 120), userText: String(m.userText || '').slice(0, 4000), tier: req.body.tier, ...(m.temp ? { temp: true } : {}), ...(research ? { research: true } : {}) };
   await ensureSchema();
   const state = {
     user: { uid: req.user.uid, email: req.user.email, isOwner: req.user.isOwner }, tier: req.body.tier, messages: req.body.messages, title: meta.title,
     opts: { maxTokens: maxTokensOf(req.body), effort: effortOf(req.body), pin: pinOf(req) },
-    base: baseUrl(req), self: selfUrl(req), leg: 1
+    base: baseUrl(req), self: selfUrl(req), leg: 1, ...(research ? { depth: ['quick', 'normal', 'deep'].includes(req.body.depth) ? req.body.depth : 'normal' } : {})
   };
-  const { run, done } = await startRun({ uid: req.user.uid, isOwner: req.user.isOwner, kind: 'chat', ref, meta }, (run) => chatJob(run, state));
+  const { run, done } = await startRun({ uid: req.user.uid, isOwner: req.user.isOwner, kind: 'chat', ref, meta }, (run) => (research ? researchJob(run, state) : chatJob(run, state)));
   await serveRun(res, run, done);
 });
 
@@ -354,7 +358,7 @@ api.post('/live-token', requireAuth, rateLimit('live', 5, 300), async (req, res)
 const { projectsRouter } = require('../server/projects');
 const { serversRouter } = require('../server/servers');
 const needsDb = (req, res, next) => { ensureSchema().then(() => next(), next); };
-api.use('/byok', needsDb); api.use('/buddy', needsDb); api.use('/mcp', needsDb); api.use('/servers', needsDb); api.use('/projects', needsDb); api.use('/apps', needsDb); api.use('/data', needsDb); api.use('/runs', needsDb); api.use('/usage', needsDb); api.use('/push', needsDb);
+api.use('/byok', needsDb); api.use('/buddy', needsDb); api.use('/mcp', needsDb); api.use('/servers', needsDb); api.use('/projects', needsDb); api.use('/apps', needsDb); api.use('/data', needsDb); api.use('/runs', needsDb); api.use('/usage', needsDb); api.use('/push', needsDb); api.use('/research', needsDb); api.use('/tasks', needsDb);
 app.use('/a', needsDb);
 
 // ---------- KI-Bilder für den normalen Chat (Cloudflare Flux) ----------
@@ -371,6 +375,10 @@ api.use('/servers', serversRouter(requireAuth));
 api.use('/runs', runsRouter(requireAuth));
 api.use('/usage', usageRouter(requireAuth, requireOwner));
 api.use('/push', pushRouter(requireAuth));
+api.use('/research', researchRouter(requireAuth));
+// Zeitpläne auslösen (Pinger wie cron-job.org, mit CRON_SECRET statt Login)
+api.get('/cron/tasks', needsDb, cronHandler); api.post('/cron/tasks', needsDb, cronHandler);
+api.use('/tasks', tasksRouter(requireAuth));
 api.use('/apps', appsRouter(requireAuth));
 api.use('/public', publicApiRouter());
 app.use('/api', api);

@@ -45,9 +45,9 @@ export async function watchRun(id, { onDelta, onThink, onModel, onAgents, onExtr
 
 // Startet einen Chat-Lauf. Gleiches Verhalten wie streamAiResponse (onDelta bekommt den GESAMTTEXT),
 // zusätzlich onRun(id) sobald der Server den Lauf angelegt hat.
-export async function runAiResponse(messages, tier, { ref, meta, onDelta, onModel, onThink, onRun, onExtra, signal, maxTokens, model, effort } = {}) {
+export async function runAiResponse(messages, tier, { ref, meta, onDelta, onModel, onThink, onRun, onExtra, signal, maxTokens, model, effort, research, depth } = {}) {
     const ac = new AbortController(); // nur die Verbindung – ein Abbruch hier stoppt NICHT den Lauf
-    const body = JSON.stringify({ messages, tier, ref, meta, ...(maxTokens ? { maxTokens } : {}), ...(model ? { model } : {}), effort: effort || getEffort() });
+    const body = JSON.stringify({ messages, tier, ref, meta, ...(maxTokens ? { maxTokens } : {}), ...(model ? { model } : {}), ...(research ? { research: true, depth } : {}), effort: effort || getEffort() });
     let res = await apiFetch('/runs/chat', { method: 'POST', signal: ac.signal, body });
     // Kurzer Server-Schluckauf (Kaltstart, Absturz einer Instanz): einmal still neu versuchen
     if (res.status >= 500 && !signal?.aborted) { await sleep(900); res = await apiFetch('/runs/chat', { method: 'POST', signal: ac.signal, body }); }
