@@ -21,6 +21,9 @@
     { "source": "/bun.lock", "destination": "/api" },
     { "source": "/vercel.json", "destination": "/api" },
     { "source": "/README.md", "destination": "/api" },
+    { "source": "/firestore.rules", "destination": "/api" },
+    { "source": "/firebase-blueprint.json", "destination": "/api" },
+    { "source": "/eslint.config.mjs", "destination": "/api" },
     {
       "source": "/api/:path*",
       "destination": "/api"
@@ -41,7 +44,7 @@
   "functions": {
     "api/index.js": {
       "maxDuration": 300,
-      "includeFiles": "{kit/**,db/schema.sql}"
+      "includeFiles": "{kit/**,firebase-applet-config.json}"
     }
   }
 }

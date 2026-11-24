@@ -1,16 +1,20 @@
-// Spielt db/schema.sql ein. Nutzt die DIREKTE Verbindung (ohne Pooler), wie von Neon für Migrationen empfohlen.
-// Start:  npm run db:migrate   (liest .env.local, siehe package.json)
+// Prüft Firebase-Konfiguration & Firestore-Verbindung (ersetzt das frühere Neon/Postgres-Schema-Skript).
+// Start: npm run db:migrate
 const fs = require('fs');
 const path = require('path');
-const { Client } = require('pg');
+const { getConfig, ping } = require('../server/firestore');
 
 (async () => {
-  const url = process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL;
-  if (!url) { console.error('DATABASE_URL_UNPOOLED / DATABASE_URL fehlt (neon env pull ausgeführt?)'); process.exit(1); }
-  const client = new Client({ connectionString: url });
-  await client.connect();
-  await client.query(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
-  const { rows } = await client.query("SELECT table_name FROM information_schema.tables WHERE table_schema='public' ORDER BY 1");
-  console.log('Schema ok. Tabellen:', rows.map(r => r.table_name).join(', '));
-  await client.end();
-})().catch(e => { console.error('Migration fehlgeschlagen:', e.message); process.exit(1); });
+  const cfg = getConfig();
+  if (!cfg.projectId) {
+    console.error('FIREBASE_PROJECT_ID / firebase-applet-config.json fehlt.');
+    process.exit(1);
+  }
+  const rulesPath = path.join(__dirname, '..', 'firestore.rules');
+  const hasRules = fs.existsSync(rulesPath);
+  await ping();
+  console.log(`Firebase Firestore ok (Projekt: ${cfg.projectId}, DB: ${cfg.databaseId}, Rules: ${hasRules ? 'vorhanden' : 'fehlen'}).`);
+})().catch((e) => {
+  console.error('Firebase-Prüfung fehlgeschlagen:', e.message);
+  process.exit(1);
+});

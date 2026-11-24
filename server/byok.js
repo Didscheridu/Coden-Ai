@@ -1,11 +1,11 @@
 // Bring your own Key: Nutzer bringen eigene API-Keys (Google AI Studio, OpenAI, Anthropic, OpenRouter) mit
 // und fügen eigene Modelle hinzu, die im Auswahlmenü erscheinen.
-// - Keys liegen verschlüsselt (AES-256-GCM) in der Datenbank und verlassen den Server nie wieder.
+// - Keys liegen verschlüsselt (AES-256-GCM) in Firestore und verlassen den Server nie wieder.
 // - Ein eigenes Modell hat die Stufe "byok:<id>". Der Server löst Key und Modell erst beim Aufruf auf
-//   (Läufe in der Datenbank speichern also nie einen Klartext-Key).
+//   (Läufe in Firestore speichern also nie einen Klartext-Key).
 const crypto = require('crypto');
 const express = require('express');
-const { getSql } = require('./db');
+const db = require('./db');
 const { rateLimit } = require('./rateLimit');
 const { wrapRouter } = require('./util');
 
@@ -40,19 +40,41 @@ const isOwnTier = (tier) => isByok(tier) || isChain(tier);   // eigenes Modell o
 const MAX_CHAINS = 10, MAX_CHAIN_LEN = 8;
 
 // ---------- Verschlüsselung ----------
-// Geheimnis: Umgebungsvariable BYOK_SECRET, sonst einmalig erzeugt und in app_secrets abgelegt (wie bei den Push-Schlüsseln).
+// Geheimnis: Umgebungsvariable BYOK_SECRET, sonst app_secrets/byok (Admin/Memory) oder deterministische Server-Ableitung.
 let master = null;
+function fallbackSecretSeed() {
+  const base = process.env.FIREBASE_SERVICE_ACCOUNT
+    || process.env.GEMINI_API_KEY
+    || process.env.GOOGLE_API_KEY
+    || process.env.OPENROUTER_API_KEY
+    || process.env.GROQ_API_KEY
+    || db.getConfig().projectId
+    || 'coden-byok-default';
+  return crypto.createHmac('sha256', 'coden-byok-seed-v1').update(String(base)).digest('hex');
+}
 async function masterKey() {
   if (master) return master;
   let secret = process.env.BYOK_SECRET;
   if (!secret) {
-    const sql = getSql();
-    const [r] = await sql`SELECT value FROM app_secrets WHERE name = 'byok'`;
-    if (r) secret = r.value.secret;
-    else {
-      await sql`INSERT INTO app_secrets (name, value) VALUES ('byok', ${JSON.stringify({ secret: crypto.randomBytes(32).toString('hex') })}::jsonb) ON CONFLICT (name) DO NOTHING`;
-      const [again] = await sql`SELECT value FROM app_secrets WHERE name = 'byok'`; // gleichzeitig gestartete Server nutzen dasselbe Geheimnis
-      secret = again.value.secret;
+    try {
+      const r = await db.getDoc('app_secrets/byok', { preferAdmin: true });
+      if (r?.secret) secret = r.secret;
+      else {
+        const gen = crypto.randomBytes(32).toString('hex');
+        try {
+          await db.createDoc('app_secrets/byok', { secret: gen }, { preferAdmin: true });
+          secret = gen;
+        } catch (e) {
+          if (e.code === 'ALREADY_EXISTS') {
+            const again = await db.getDoc('app_secrets/byok', { preferAdmin: true });
+            secret = again?.secret || gen;
+          } else {
+            throw e;
+          }
+        }
+      }
+    } catch (_) {
+      secret = fallbackSecretSeed();
     }
   }
   master = crypto.createHash('sha256').update('coden-byok:' + secret).digest();
@@ -73,9 +95,25 @@ async function decrypt(blob) {
 const hintOf = (key) => '…' + key.slice(-4);
 const fail = (status, message) => Object.assign(new Error(message), { status });
 
+const keyDocPath = (uid, provider) => `user_provider_keys/${uid}__${provider}`;
+
+async function allocUniqueShortDoc(collection, buildDoc) {
+  for (let i = 0; i < 8; i++) {
+    const id = 10_000_000 + crypto.randomInt(0, 900_000_000);
+    const doc = buildDoc(id);
+    try {
+      return await db.createDoc(`${collection}/${id}`, doc);
+    } catch (e) {
+      if (e.code === 'ALREADY_EXISTS' || e.code === 'PERMISSION_DENIED') continue;
+      throw e;
+    }
+  }
+  throw fail(500, 'Konnte keine ID vergeben.');
+}
+
 // ---------- Zugriff ----------
 async function keyOf(uid, provider) {
-  const [r] = await getSql()`SELECT key_enc FROM user_provider_keys WHERE uid = ${uid} AND provider = ${provider}`;
+  const r = await db.getDoc(keyDocPath(uid, provider));
   if (!r) return null;
   try { return await decrypt(r.key_enc); } catch (e) { console.error('[byok] Key nicht lesbar:', e.message); return null; }
 }
@@ -83,8 +121,8 @@ async function keyOf(uid, provider) {
 // "byok:<id>" -> { provider, id (Modell-ID beim Anbieter), apiKey, levels, defaultLevel, label }
 async function resolve(uid, tier) {
   if (!isByok(tier)) throw fail(400, 'Ungültiges Modell.');
-  const [m] = await getSql()`SELECT id, provider, model_id, label, levels, default_level FROM user_models WHERE id = ${parseInt(tier.slice(5), 10)} AND uid = ${uid}`;
-  if (!m) throw fail(404, 'Dieses eigene Modell gibt es nicht mehr. Wähle ein anderes Modell.');
+  const m = await db.getDoc(`user_models/${parseInt(tier.slice(5), 10)}`);
+  if (!m || m.uid !== uid) throw fail(404, 'Dieses eigene Modell gibt es nicht mehr. Wähle ein anderes Modell.');
   const apiKey = await keyOf(uid, m.provider);
   if (!apiKey) throw fail(400, `Für ${PROVIDERS[m.provider]?.name || m.provider} ist kein API-Key hinterlegt (Einstellungen → Eigene Modelle).`);
   return { provider: m.provider, id: m.model_id, apiKey, levels: m.levels || [], defaultLevel: m.default_level, label: m.label };
@@ -96,11 +134,13 @@ const levelFor = (own, wanted) => (own.levels.includes(wanted) ? wanted : (own.l
 // Coden-Stufen unterliegen den gleichen Sperren wie sonst (Ultra nur Owner, Admin-Sperren).
 async function resolveChain(uid, tier, { isOwner = false } = {}) {
   if (!isChain(tier)) throw fail(400, 'Ungültige Kette.');
-  const sql = getSql();
-  const [c] = await sql`SELECT name, members FROM user_chains WHERE id = ${parseInt(tier.slice(6), 10)} AND uid = ${uid}`;
-  if (!c) throw fail(404, 'Diese Kette gibt es nicht mehr. Wähle ein anderes Modell.');
+  const c = await db.getDoc(`user_chains/${parseInt(tier.slice(6), 10)}`);
+  if (!c || c.uid !== uid) throw fail(404, 'Diese Kette gibt es nicht mehr. Wähle ein anderes Modell.');
   let locks = {};
-  if (!isOwner && (c.members || []).some(m => BUILTIN[m])) locks = ((await sql`SELECT state FROM system_state WHERE id = 1`)[0]?.state || {}).locks || {};
+  if (!isOwner && (c.members || []).some(m => BUILTIN[m])) {
+    const st = await db.getDoc('system_state/global');
+    locks = st?.locks || {};
+  }
   const members = [];
   for (const m of c.members || []) {
     if (BUILTIN[m]) {
@@ -116,21 +156,28 @@ async function resolveChain(uid, tier, { isOwner = false } = {}) {
 async function freeOfQuota(uid, tier) {
   if (isByok(tier)) return true;
   if (!isChain(tier)) return false;
-  const [c] = await getSql()`SELECT members FROM user_chains WHERE id = ${parseInt(tier.slice(6), 10)} AND uid = ${uid}`;
-  return !!c && (c.members || []).length > 0 && c.members.every(isByok);
+  const c = await db.getDoc(`user_chains/${parseInt(tier.slice(6), 10)}`);
+  return !!c && c.uid === uid && (c.members || []).length > 0 && c.members.every(isByok);
 }
 // Gehört das Modell/die Kette diesem Nutzer? (für Anfragen mit frei wählbarer Stufe)
 async function owns(uid, tier) {
-  const sql = getSql();
-  if (isByok(tier)) return (await sql`SELECT 1 FROM user_models WHERE id = ${parseInt(tier.slice(5), 10)} AND uid = ${uid}`).length > 0;
-  if (isChain(tier)) return (await sql`SELECT 1 FROM user_chains WHERE id = ${parseInt(tier.slice(6), 10)} AND uid = ${uid}`).length > 0;
+  if (isByok(tier)) {
+    const m = await db.getDoc(`user_models/${parseInt(tier.slice(5), 10)}`);
+    return !!m && m.uid === uid;
+  }
+  if (isChain(tier)) {
+    const c = await db.getDoc(`user_chains/${parseInt(tier.slice(6), 10)}`);
+    return !!c && c.uid === uid;
+  }
   return false;
 }
 // Anzeigenamen aller eigenen Modelle/Ketten (für die Agenten-Anzeige)
 async function labels(uid) {
-  const sql = getSql(); const out = {};
-  for (const m of await sql`SELECT id, label FROM user_models WHERE uid = ${uid}`) out['byok:' + m.id] = m.label;
-  for (const c of await sql`SELECT id, name FROM user_chains WHERE uid = ${uid}`) out['chain:' + c.id] = c.name;
+  const out = {};
+  const models = await db.runQuery('user_models', { where: [['uid', '==', uid]] });
+  const chains = await db.runQuery('user_chains', { where: [['uid', '==', uid]] });
+  for (const m of models) out['byok:' + m.id] = m.label;
+  for (const c of chains) out['chain:' + c.id] = c.name;
   return out;
 }
 
@@ -138,27 +185,36 @@ async function labels(uid) {
 // main wird im Builder gewählt. Hier: Sub-Agenten – welches Modell (pro Schwierigkeit), wie viele gleichzeitig über den Key.
 const AGENT_DEFAULT = { sub: 'auto', levels: { easy: 'auto', medium: 'auto', hard: 'auto' }, keyMax: 3, overflow: 'wait', overflowTier: 'flash' };
 async function getAgentConfig(uid) {
-  const [r] = await getSql()`SELECT cfg FROM user_agent_cfg WHERE uid = ${uid}`;
+  const r = await db.getDoc(`user_agent_cfg/${uid}`);
   const c = r?.cfg || {};
   return { ...AGENT_DEFAULT, ...c, levels: { ...AGENT_DEFAULT.levels, ...(c.levels || {}) } };
 }
 async function setAgentConfig(uid, b = {}) {
-  const sql = getSql();
-  const mine = new Set([...(await sql`SELECT id FROM user_models WHERE uid = ${uid}`).map(m => 'byok:' + m.id), ...(await sql`SELECT id FROM user_chains WHERE uid = ${uid}`).map(c => 'chain:' + c.id)]);
+  const [models, chains] = await Promise.all([
+    db.runQuery('user_models', { where: [['uid', '==', uid]] }),
+    db.runQuery('user_chains', { where: [['uid', '==', uid]] })
+  ]);
+  const mine = new Set([...models.map(m => 'byok:' + m.id), ...chains.map(c => 'chain:' + c.id)]);
   const tierOk = (t) => (t === 'auto' || BUILTIN[t] || mine.has(t) ? t : 'auto');
   const keyMax = Math.max(1, Math.min(8, parseInt(b.keyMax, 10) || AGENT_DEFAULT.keyMax));
-  const cfg = { sub: tierOk(b.sub), levels: { easy: tierOk(b.levels?.easy), medium: tierOk(b.levels?.medium), hard: tierOk(b.levels?.hard) }, keyMax,
-    overflow: b.overflow === 'coden' ? 'coden' : 'wait', overflowTier: ['flash', 'normal', 'pro'].includes(b.overflowTier) ? b.overflowTier : 'flash' };
-  await sql`INSERT INTO user_agent_cfg (uid, cfg) VALUES (${uid}, ${JSON.stringify(cfg)}::jsonb) ON CONFLICT (uid) DO UPDATE SET cfg = EXCLUDED.cfg, updated_at = now()`;
+  const cfg = {
+    sub: tierOk(b.sub),
+    levels: { easy: tierOk(b.levels?.easy), medium: tierOk(b.levels?.medium), hard: tierOk(b.levels?.hard) },
+    keyMax,
+    overflow: b.overflow === 'coden' ? 'coden' : 'wait',
+    overflowTier: ['flash', 'normal', 'pro'].includes(b.overflowTier) ? b.overflowTier : 'flash'
+  };
+  await db.setDoc(`user_agent_cfg/${uid}`, { uid, cfg, updated_at: db.nowIso() });
   return cfg;
 }
 
 // Dem Nutzer zeigen: nie den Key, nur ob und woran er endet
 async function overview(uid) {
-  const sql = getSql();
-  const keys = await sql`SELECT provider, hint FROM user_provider_keys WHERE uid = ${uid}`;
-  const models = await sql`SELECT id, provider, model_id, label, levels, default_level FROM user_models WHERE uid = ${uid} ORDER BY id`;
-  const chains = await sql`SELECT id, name, members FROM user_chains WHERE uid = ${uid} ORDER BY id`;
+  const [keys, models, chains] = await Promise.all([
+    db.runQuery('user_provider_keys', { where: [['uid', '==', uid]] }),
+    db.runQuery('user_models', { where: [['uid', '==', uid]], orderBy: 'id' }),
+    db.runQuery('user_chains', { where: [['uid', '==', uid]], orderBy: 'id' })
+  ]);
   const have = new Map(keys.map(k => [k.provider, k.hint]));
   const readyModel = new Set(models.filter(m => have.has(m.provider)).map(m => 'byok:' + m.id));
   const nameOf = new Map([...models.map(m => ['byok:' + m.id, m.label]), ...Object.entries(BUILTIN)]);
@@ -205,13 +261,18 @@ function byokRouter(requireAuth) {
   r.put('/keys/:provider', async (req, res) => {
     const p = provider(req); const key = typeof req.body?.key === 'string' ? req.body.key.trim() : '';
     if (key.length < 8 || key.length > 400 || /\s/.test(key)) throw fail(400, 'Das sieht nicht wie ein API-Key aus.');
-    await getSql()`INSERT INTO user_provider_keys (uid, provider, key_enc, hint) VALUES (${req.user.uid}, ${p}, ${await encrypt(key)}, ${hintOf(key)})
-      ON CONFLICT (uid, provider) DO UPDATE SET key_enc = EXCLUDED.key_enc, hint = EXCLUDED.hint, created_at = now()`;
+    await db.setDoc(keyDocPath(req.user.uid, p), {
+      uid: req.user.uid,
+      provider: p,
+      key_enc: await encrypt(key),
+      hint: hintOf(key),
+      created_at: db.nowIso()
+    });
     res.json(await overview(req.user.uid));
   });
   r.delete('/keys/:provider', async (req, res) => {
     const p = provider(req);
-    await getSql()`DELETE FROM user_provider_keys WHERE uid = ${req.user.uid} AND provider = ${p}`;
+    await db.deleteDoc(keyDocPath(req.user.uid, p));
     res.json(await overview(req.user.uid));
   });
 
@@ -229,43 +290,79 @@ function byokRouter(requireAuth) {
     const label = (typeof b.label === 'string' && b.label.trim() ? b.label.trim() : modelId).slice(0, 60);
     const levels = LEVELS.filter(l => Array.isArray(b.levels) && b.levels.includes(l)); // in fester Reihenfolge, nur bekannte Stufen
     const def = levels.includes(b.defaultLevel) ? b.defaultLevel : (levels.includes('medium') ? 'medium' : levels[0] || null);
-    const sql = getSql();
-    const [{ n }] = await sql`SELECT count(*)::int AS n FROM user_models WHERE uid = ${req.user.uid}`;
-    const [known] = await sql`SELECT id FROM user_models WHERE uid = ${req.user.uid} AND provider = ${p} AND model_id = ${modelId}`;
-    if (!known && n >= MAX_MODELS) throw fail(400, `Du kannst höchstens ${MAX_MODELS} eigene Modelle anlegen.`);
-    await sql`INSERT INTO user_models (uid, provider, model_id, label, levels, default_level) VALUES (${req.user.uid}, ${p}, ${modelId}, ${label}, ${JSON.stringify(levels)}::jsonb, ${def})
-      ON CONFLICT (uid, provider, model_id) DO UPDATE SET label = EXCLUDED.label, levels = EXCLUDED.levels, default_level = EXCLUDED.default_level`;
+    const mine = await db.runQuery('user_models', { where: [['uid', '==', req.user.uid]] });
+    const known = mine.find(m => m.provider === p && m.model_id === modelId);
+    if (known) {
+      await db.updateDoc(`user_models/${known.id}`, { label, levels, default_level: def });
+    } else {
+      if (mine.length >= MAX_MODELS) throw fail(400, `Du kannst höchstens ${MAX_MODELS} eigene Modelle anlegen.`);
+      await allocUniqueShortDoc('user_models', (id) => ({
+        id,
+        uid: req.user.uid,
+        provider: p,
+        model_id: modelId,
+        label,
+        levels,
+        default_level: def,
+        created_at: db.nowIso()
+      }));
+    }
     res.json(await overview(req.user.uid));
   });
+
   r.delete('/models/:id', async (req, res) => {
     const id = parseInt(req.params.id, 10); if (!Number.isFinite(id)) throw fail(400, 'Ungültig.');
-    const sql = getSql();
-    await sql`DELETE FROM user_models WHERE id = ${id} AND uid = ${req.user.uid}`;
-    await sql`UPDATE user_chains SET members = COALESCE((SELECT jsonb_agg(m) FROM jsonb_array_elements(members) m WHERE m <> to_jsonb(${'byok:' + id}::text)), '[]'::jsonb) WHERE uid = ${req.user.uid}`; // aus Ketten entfernen
+    const existing = await db.getDoc(`user_models/${id}`);
+    if (existing && existing.uid === req.user.uid) {
+      await db.deleteDoc(`user_models/${id}`);
+    }
+    const chains = await db.runQuery('user_chains', { where: [['uid', '==', req.user.uid]] });
+    const tag = 'byok:' + id;
+    for (const c of chains) {
+      if (Array.isArray(c.members) && c.members.includes(tag)) {
+        await db.updateDoc(`user_chains/${c.id}`, { members: c.members.filter(m => m !== tag) });
+      }
+    }
     res.json(await overview(req.user.uid));
   });
+
   // Ausweich-Ketten: Modelle der Reihe nach probieren, bis eines antwortet
   r.post('/chains', async (req, res) => {
     const b = req.body || {}; const name = typeof b.name === 'string' ? b.name.trim().slice(0, 40) : '';
     if (!name) throw fail(400, 'Gib der Kette einen Namen.');
     const members = [...new Set(Array.isArray(b.members) ? b.members.filter(m => BUILTIN[m] || isByok(m)) : [])].slice(0, MAX_CHAIN_LEN);
     if (!members.length) throw fail(400, 'Eine Kette braucht mindestens ein Modell.');
-    const sql = getSql(); const mine = new Set((await sql`SELECT id FROM user_models WHERE uid = ${req.user.uid}`).map(m => 'byok:' + m.id));
+    const myModels = await db.runQuery('user_models', { where: [['uid', '==', req.user.uid]] });
+    const mine = new Set(myModels.map(m => 'byok:' + m.id));
     if (members.some(m => isByok(m) && !mine.has(m))) throw fail(400, 'Die Kette enthält ein unbekanntes Modell.');
     const id = parseInt(b.id, 10);
-    if (Number.isFinite(id)) { const u = await sql`UPDATE user_chains SET name = ${name}, members = ${JSON.stringify(members)}::jsonb WHERE id = ${id} AND uid = ${req.user.uid} RETURNING id`; if (!u.length) throw fail(404, 'Kette nicht gefunden.'); }
-    else {
-      const [{ n }] = await sql`SELECT count(*)::int AS n FROM user_chains WHERE uid = ${req.user.uid}`;
-      if (n >= MAX_CHAINS) throw fail(400, `Du kannst höchstens ${MAX_CHAINS} Ketten anlegen.`);
-      await sql`INSERT INTO user_chains (uid, name, members) VALUES (${req.user.uid}, ${name}, ${JSON.stringify(members)}::jsonb)`;
+    if (Number.isFinite(id)) {
+      const existing = await db.getDoc(`user_chains/${id}`);
+      if (!existing || existing.uid !== req.user.uid) throw fail(404, 'Kette nicht gefunden.');
+      await db.updateDoc(`user_chains/${id}`, { name, members });
+    } else {
+      const chains = await db.runQuery('user_chains', { where: [['uid', '==', req.user.uid]] });
+      if (chains.length >= MAX_CHAINS) throw fail(400, `Du kannst höchstens ${MAX_CHAINS} Ketten anlegen.`);
+      await allocUniqueShortDoc('user_chains', (newId) => ({
+        id: newId,
+        uid: req.user.uid,
+        name,
+        members,
+        created_at: db.nowIso()
+      }));
     }
     res.json(await overview(req.user.uid));
   });
+
   r.delete('/chains/:id', async (req, res) => {
     const id = parseInt(req.params.id, 10); if (!Number.isFinite(id)) throw fail(400, 'Ungültig.');
-    await getSql()`DELETE FROM user_chains WHERE id = ${id} AND uid = ${req.user.uid}`;
+    const existing = await db.getDoc(`user_chains/${id}`);
+    if (existing && existing.uid === req.user.uid) {
+      await db.deleteDoc(`user_chains/${id}`);
+    }
     res.json(await overview(req.user.uid));
   });
+
   r.put('/agent-config', async (req, res) => { await setAgentConfig(req.user.uid, req.body); res.json(await overview(req.user.uid)); });
 
   // Fehler mit Status (z. B. 400 „Key ungültig“) im Klartext zurückgeben, alles andere bleibt „Serverfehler“
@@ -273,4 +370,4 @@ function byokRouter(requireAuth) {
   return r;
 }
 
-module.exports = { byokRouter, resolve, resolveChain, levelFor, freeOfQuota, owns, labels, getAgentConfig, setAgentConfig, isByok, isChain, isOwnTier, PROVIDERS, BUILTIN, LEVELS, DEFAULT_LEVELS };
+module.exports = { byokRouter, resolve, resolveChain, levelFor, freeOfQuota, owns, labels, getAgentConfig, setAgentConfig, encrypt, decrypt, isByok, isChain, isOwnTier, PROVIDERS, BUILTIN, LEVELS, DEFAULT_LEVELS };

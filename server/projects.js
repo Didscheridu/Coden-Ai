@@ -1,6 +1,6 @@
-// Projekte: eigener Arbeitsbereich mit Anweisungen und Wissensdateien. Gehört genau einem Nutzer.
+// Projekte: eigener Arbeitsbereich mit Anweisungen und Wissensdateien. Gehört genau einem Nutzer (Firestore).
 const express = require('express');
-const { getSql } = require('./db');
+const db = require('./db');
 const { rateLimit } = require('./rateLimit');
 const { wrapRouter } = require('./util');
 
@@ -14,11 +14,11 @@ const str = (v, n) => String(v ?? '').replace(/\u0000/g, '').slice(0, n);
 function projectsRouter(requireAuth) {
   const r = wrapRouter(express.Router());
   r.use(requireAuth);
-  const sql = () => getSql();
+
   const mine = async (req, res) => {
     const id = toInt(req.params.id); if (!id) { bad(res, 404, 'Projekt nicht gefunden.'); return null; }
-    const [p] = await sql()`SELECT * FROM user_projects WHERE id = ${id} AND uid = ${req.user.uid}`;
-    if (!p) { bad(res, 404, 'Projekt nicht gefunden.'); return null; }
+    const p = await db.getDoc(`user_projects/${id}`);
+    if (!p || p.uid !== req.user.uid) { bad(res, 404, 'Projekt nicht gefunden.'); return null; }
     return p;
   };
   const meta = (p) => ({ id: Number(p.id), name: p.name, description: p.description, color: p.color, instructions: p.instructions, fileCount: Object.keys(p.files || {}).length, updatedAt: p.updated_at instanceof Date ? p.updated_at.toISOString() : p.updated_at });
@@ -37,17 +37,29 @@ function projectsRouter(requireAuth) {
   };
 
   r.get('/', async (req, res) => {
-    const rows = await sql()`SELECT * FROM user_projects WHERE uid = ${req.user.uid} ORDER BY updated_at DESC LIMIT 100`;
+    const rows = await db.runQuery('user_projects', { where: [['uid', '==', req.user.uid]], orderBy: 'updated_at', desc: true, limit: 100 });
     res.json({ projects: rows.map(p => { const m = meta(p); delete m.instructions; return m; }) });
   });
 
   r.post('/', rateLimit('projects-create', 60, 600), async (req, res) => {
     const name = str(req.body?.name, LIMITS.name).trim();
     if (!name) return bad(res, 400, 'Gib dem Projekt einen Namen.');
-    const [{ n }] = await sql()`SELECT count(*)::int AS n FROM user_projects WHERE uid = ${req.user.uid}`;
-    if (n >= LIMITS.projects) return bad(res, 400, `Du hast schon ${LIMITS.projects} Projekte.`);
+    const existing = await db.runQuery('user_projects', { where: [['uid', '==', req.user.uid]] });
+    if (existing.length >= LIMITS.projects) return bad(res, 400, `Du hast schon ${LIMITS.projects} Projekte.`);
     const color = COLOR_RE.test(req.body?.color || '') ? req.body.color : '#8ab4f8';
-    const [p] = await sql()`INSERT INTO user_projects (uid, name, description, instructions, color) VALUES (${req.user.uid}, ${name}, ${str(req.body?.description, LIMITS.desc)}, ${str(req.body?.instructions, LIMITS.instr)}, ${color}) RETURNING *`;
+    const id = db.nextId();
+    const now = db.nowIso();
+    const p = await db.createDoc(`user_projects/${id}`, {
+      id,
+      uid: req.user.uid,
+      name,
+      description: str(req.body?.description, LIMITS.desc),
+      instructions: str(req.body?.instructions, LIMITS.instr),
+      files: {},
+      color,
+      created_at: now,
+      updated_at: now
+    });
     res.json({ project: meta(p), files: {} });
   });
 
@@ -64,13 +76,13 @@ function projectsRouter(requireAuth) {
     const desc = 'description' in b ? str(b.description, LIMITS.desc) : p.description;
     const instr = 'instructions' in b ? str(b.instructions, LIMITS.instr) : p.instructions;
     const color = 'color' in b ? (COLOR_RE.test(b.color || '') ? b.color : p.color) : p.color;
-    const [u] = await sql()`UPDATE user_projects SET name = ${name}, description = ${desc}, instructions = ${instr}, color = ${color}, updated_at = now() WHERE id = ${p.id} AND uid = ${req.user.uid} RETURNING *`;
-    res.json({ project: meta(u) });
+    const u = await db.updateDoc(`user_projects/${p.id}`, { name, description: desc, instructions: instr, color, updated_at: db.nowIso() });
+    res.json({ project: meta(u || p) });
   });
 
   r.delete('/:id', async (req, res) => {
     const p = await mine(req, res); if (!p) return;
-    await sql()`DELETE FROM user_projects WHERE id = ${p.id} AND uid = ${req.user.uid}`;
+    await db.deleteDoc(`user_projects/${p.id}`);
     res.json({ ok: true });
   });
 
@@ -82,7 +94,7 @@ function projectsRouter(requireAuth) {
     for (const n of remove) delete files[n];
     for (const [n, c] of Object.entries(set)) files[String(n)] = typeof c === 'string' ? c.replace(/\u0000/g, '') : c;
     const err = checkFiles(files); if (err) return bad(res, 400, err);
-    await sql()`UPDATE user_projects SET files = ${JSON.stringify(files)}::jsonb, updated_at = now() WHERE id = ${p.id} AND uid = ${req.user.uid}`;
+    await db.updateDoc(`user_projects/${p.id}`, { files, updated_at: db.nowIso() });
     res.json({ files: Object.keys(files) });
   });
 

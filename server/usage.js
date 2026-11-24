@@ -5,7 +5,7 @@
 // - Eine Aufgabe, die schon läuft, darf zu Ende arbeiten. Nur wenn sie sehr lange weiterläuft und dabei
 //   deutlich über das Limit geht (Kulanz, Standard 125 %), wird die KI mitten in der Aufgabe gestoppt.
 // - Der Owner hat kein Limit (sein Verbrauch wird trotzdem gezählt). Mit /reset <email> setzt er Limits zurück.
-const { getSql } = require('./db');
+const db = require('./db');
 
 const H5 = 5 * 3600_000, WEEK = 7 * 24 * 3600_000;
 const intEnv = (name, def) => { const n = parseInt(process.env[name], 10); return Number.isFinite(n) && n > 0 ? n : def; };
@@ -50,32 +50,59 @@ function message(v, { during = false } = {}) {
 }
 
 async function row(uid) {
-  const rows = await getSql()`SELECT * FROM usage_limits WHERE uid = ${uid}`;
-  return rows[0] || null;
+  return db.getDoc(`usage_limits/${uid}`);
 }
 async function status(user) {
   const v = view(await row(user.uid));
   return { ...v, unlimited: !!user.isOwner, blocked: user.isOwner ? null : v.blocked };
 }
 
-// Verbrauch atomar dazurechnen. Abgelaufene Fenster beginnen dabei neu (mit der aktuellen Anfrage).
+// Verbrauch dazurechnen (optimistische Wiederholung bei gleichzeitigen Updates).
 async function add(user, tokens) {
   const n = Math.max(0, Math.round(tokens));
   if (!n || !user?.uid) return row(user?.uid);
   const email = user.email ? String(user.email).toLowerCase().slice(0, 200) : null;
-  const [r] = await getSql()`
-    INSERT INTO usage_limits (uid, email, s_start, s_tokens, w_start, w_tokens, total)
-    VALUES (${user.uid}, ${email}, now(), ${n}, now(), ${n}, ${n})
-    ON CONFLICT (uid) DO UPDATE SET
-      email    = COALESCE(EXCLUDED.email, usage_limits.email),
-      s_start  = CASE WHEN usage_limits.s_start IS NULL OR usage_limits.s_start <= now() - interval '5 hours' THEN now() ELSE usage_limits.s_start END,
-      s_tokens = CASE WHEN usage_limits.s_start IS NULL OR usage_limits.s_start <= now() - interval '5 hours' THEN ${n} ELSE usage_limits.s_tokens + ${n} END,
-      w_start  = CASE WHEN usage_limits.w_start IS NULL OR usage_limits.w_start <= now() - interval '7 days' THEN now() ELSE usage_limits.w_start END,
-      w_tokens = CASE WHEN usage_limits.w_start IS NULL OR usage_limits.w_start <= now() - interval '7 days' THEN ${n} ELSE usage_limits.w_tokens + ${n} END,
-      total    = usage_limits.total + ${n},
-      updated_at = now()
-    RETURNING *`;
-  return r;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const now = Date.now();
+    const nowIso = new Date(now).toISOString();
+    const cur = await db.getDoc(`usage_limits/${user.uid}`);
+    if (!cur) {
+      try {
+        return await db.createDoc(`usage_limits/${user.uid}`, {
+          uid: user.uid,
+          email,
+          s_start: nowIso,
+          s_tokens: n,
+          w_start: nowIso,
+          w_tokens: n,
+          total: n,
+          updated_at: nowIso
+        });
+      } catch (e) {
+        if (e.code === 'ALREADY_EXISTS') continue;
+        throw e;
+      }
+    }
+    const sExpired = !cur.s_start || (now - ms(cur.s_start)) >= H5;
+    const wExpired = !cur.w_start || (now - ms(cur.w_start)) >= WEEK;
+    const patch = {
+      email: email || cur.email || null,
+      s_start: sExpired ? nowIso : cur.s_start,
+      s_tokens: sExpired ? n : (Number(cur.s_tokens) || 0) + n,
+      w_start: wExpired ? nowIso : cur.w_start,
+      w_tokens: wExpired ? n : (Number(cur.w_tokens) || 0) + n,
+      total: (Number(cur.total) || 0) + n,
+      updated_at: nowIso
+    };
+    try {
+      const updated = await db.updateDoc(`usage_limits/${user.uid}`, patch, { updateTime: cur._updateTime });
+      if (updated) return updated;
+    } catch (e) {
+      if (e.code === 'PRECONDITION_FAILED') continue;
+      throw e;
+    }
+  }
+  return row(user.uid);
 }
 
 // Vor einer neuen Anfrage: ist noch Kontingent übrig?
@@ -100,6 +127,7 @@ function limitGate(req, res, next) {
 class Meter {
   constructor(user, tier) {
     this.user = user; this.w = WEIGHT[tier] || 1; this.pending = 0; this.timer = null; this.stop = false; this.view = null; this.busy = null;
+    this.dbCtx = db.getDbContext();
   }
   // Gleicher Zähler, aber mit dem Gewicht eines anderen Modells (Sub-Agenten auf Flash zählen weniger)
   child(tier) { const p = this; return { add: (c, o) => p.add(c, o, WEIGHT[tier] || 1), get stop() { return p.stop; }, message: () => p.message(), close: () => p.flush() }; }
@@ -114,7 +142,7 @@ class Meter {
     if (this.busy) return this.busy.then(() => (this.pending >= 1 ? this.flush() : undefined));
     const n = this.pending; if (n < 1) return Promise.resolve();
     this.pending = 0;
-    this.busy = add(this.user, n).then((r) => {
+    this.busy = db.runWithDbContext(this.dbCtx, () => add(this.user, n)).then((r) => {
       if (!r) return;
       this.view = view(r);
       const g = grace(), v = this.view;
@@ -131,17 +159,20 @@ const limitError = (meter) => Object.assign(new Error(meter.message()), { limit:
 async function resetByEmail(email) {
   const e = String(email || '').trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) throw Object.assign(new Error('Bitte eine gültige E-Mail angeben: /reset name@beispiel.de'), { status: 400 });
-  const rows = await getSql()`UPDATE usage_limits SET s_tokens = 0, s_start = NULL, w_tokens = 0, w_start = NULL, updated_at = now()
-    WHERE lower(email) = ${e} RETURNING uid`;
+  const rows = await db.runQuery('usage_limits', { where: [['email', '==', e]] });
+  const nowIso = db.nowIso();
+  for (const r of rows) {
+    await db.updateDoc(`usage_limits/${r.uid}`, { s_tokens: 0, s_start: null, w_tokens: 0, w_start: null, updated_at: nowIso });
+  }
   return { email: e, users: rows.length };
 }
 async function usageByEmail(email) {
   const e = String(email || '').trim().toLowerCase();
-  const rows = await getSql()`SELECT * FROM usage_limits WHERE lower(email) = ${e}`;
+  const rows = await db.runQuery('usage_limits', { where: [['email', '==', e]] });
   return rows.map((r) => ({ uid: r.uid, email: r.email, ...view(r) }));
 }
 async function topUsers(n = 10) {
-  const rows = await getSql()`SELECT * FROM usage_limits ORDER BY updated_at DESC LIMIT ${n}`;
+  const rows = await db.listDocs('usage_limits', { orderBy: 'updated_at', desc: true, limit: n });
   return rows.map((r) => ({ email: r.email, ...view(r) }));
 }
 

@@ -165,7 +165,7 @@
                 <a href="#/chat" class="sb-item new-chat-btn" id="sb-new" title="Neuer Chat"><span class="material-symbols-outlined">add</span><span class="sb-label">Neu</span></a>
                 <a href="#" class="sb-item" id="toggle-search-btn"><span class="material-symbols-outlined">search</span><span class="sb-label">Suchen</span></a>
                 <div id="search-container" class="sb-search"><input type="text" id="chat-search-input" placeholder="Chats durchsuchen…" autocomplete="off"></div>
-                <a href="#/apps" class="sb-item" id="open-apps-btn" data-route="apps"><span class="material-symbols-outlined">apps</span><span class="sb-label">Apps</span><span class="sb-pill">Neu</span></a>
+                <a href="#/apps" class="sb-item" id="open-apps-btn" data-route="apps"><span class="material-symbols-outlined">apps</span><span class="sb-label">Apps</span></a>
                 <a href="#/artefakte" class="sb-item" id="open-artifacts-btn" data-route="artefakte"><span class="material-symbols-outlined">deployed_code</span><span class="sb-label">Artefakte</span></a>
                 <a href="#/verbindungen" class="sb-item" id="open-mcp-btn" data-route="verbindungen"><span class="material-symbols-outlined">hub</span><span class="sb-label">Verbindungen</span></a>
                 <a href="#/buddy" class="sb-item" id="open-buddy-btn" data-route="buddy"><span class="material-symbols-outlined">diversity_3</span><span class="sb-label">Code Buddy</span><span class="bd-nav-badge" style="display:none"></span></a>
@@ -184,10 +184,31 @@
 
         <main class="main-content">
             <header class="top-bar">
-                <div style="display: flex; align-items: center; min-width: 0;">
-                    <div class="brand">Coden AI <button type="button" id="chat-project-chip" class="hidden"></button><span id="owner-badge" style="display:none;">Owner</span></div>
+                <div class="tb-left">
+                    <div class="brand">
+                        <span class="brand-name">Coden AI</span>
+                        <button type="button" id="chat-project-chip" class="hidden"></button>
+                        <span id="owner-badge" style="display:none;">Owner</span>
+                    </div>
                 </div>
-                <div class="tb-right"><button class="icon-btn" id="temp-chat-btn" title="Temporärer Chat (wird nicht gespeichert)" aria-label="Temporärer Chat" aria-pressed="false"><span class="material-symbols-outlined">history_toggle_off</span></button><button class="icon-btn" id="export-chat-btn" title="Chat als Datei speichern" aria-label="Chat exportieren"><span class="material-symbols-outlined">download</span></button><div id="user-email-display"></div></div>
+                <div class="tb-right">
+                    <div class="tb-more-wrap">
+                        <button type="button" class="icon-btn" id="tb-more-btn" title="Chat-Optionen" aria-label="Chat-Optionen" aria-haspopup="true" aria-expanded="false">
+                            <span class="material-symbols-outlined">more_horiz</span>
+                        </button>
+                        <div class="tb-more-menu hidden" id="tb-more-menu" role="menu">
+                            <div id="user-email-display" class="tb-menu-email"></div>
+                            <button type="button" class="tb-menu-item" id="temp-chat-btn" role="menuitem" title="Temporärer Chat (wird nicht gespeichert)" aria-label="Temporärer Chat" aria-pressed="false">
+                                <span class="material-symbols-outlined">history_toggle_off</span>
+                                <span class="tb-mi-label">Temporärer Chat</span>
+                            </button>
+                            <button type="button" class="tb-menu-item" id="export-chat-btn" role="menuitem" title="Chat als Datei speichern" aria-label="Chat exportieren">
+                                <span class="material-symbols-outlined">download</span>
+                                <span class="tb-mi-label">Chat exportieren</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </header>
 
             <div class="chat-scroll-area" id="chat-container">
@@ -200,20 +221,31 @@
                 <div class="input-box" style="position: relative;">
                     <div id="command-popup" class="command-popup hidden"></div>
                     <div id="assistant-popup" class="assistant-popup hidden" role="menu" aria-label="Assistent wählen"></div>
-                    <textarea id="main-input" rows="1" placeholder="Prompt eingeben... (Tippe '/' für Befehle)"></textarea>
+                    <div id="composer-tools-menu" class="composer-tools-menu hidden" role="menu" aria-label="Werkzeuge &amp; Anhänge">
+                        <button type="button" class="ct-item" id="attachment-btn" role="menuitem">
+                            <span class="material-symbols-outlined">attach_file</span>
+                            <span class="ct-label">Datei oder Bild anhängen</span>
+                        </button>
+                        <button type="button" class="ct-item" id="assistant-btn" role="menuitem" title="Assistent wählen" aria-label="Assistent wählen" aria-haspopup="true">
+                            <span class="material-symbols-outlined">smart_toy</span>
+                            <span class="ct-label">Assistent wählen</span>
+                        </button>
+                    </div>
+                    <input type="file" id="file-upload-input" multiple style="display: none;">
+                    <textarea id="main-input" rows="1" placeholder="Nachricht an Coden … ('/' für Befehle)"></textarea>
                     <div class="input-footer">
                         <div class="left-tools">
-                            <button class="icon-btn" id="attachment-btn"><span class="material-symbols-outlined">add</span></button>
-                            <button type="button" class="icon-btn" id="assistant-btn" title="Assistent wählen" aria-label="Assistent wählen" aria-haspopup="true"><span class="material-symbols-outlined">smart_toy</span></button>
-                            <input type="file" id="file-upload-input" multiple style="display: none;">
-                            <button id="live-call-btn" class="live-pill-btn" title="Live Sprach-Modus">
+                            <button type="button" class="icon-btn" id="composer-plus-btn" title="Anhänge, Apps &amp; Assistent" aria-label="Anhänge, Apps und Assistent" aria-haspopup="true" aria-expanded="false">
+                                <span class="material-symbols-outlined">add</span>
+                            </button>
+                            <button type="button" id="live-call-btn" class="live-pill-btn" title="Live Sprach-Modus" aria-label="Live Sprach-Modus">
                                 <span class="material-symbols-outlined">graphic_eq</span>
-                                <span id="live-status-indicator">Live Modus</span>
+                                <span id="live-status-indicator">Live</span>
                             </button>
                         </div>
                         <div class="right-tools">
                             <div class="model-dropdown-container" style="position: relative;">
-                                <button class="text-btn" id="model-selector-btn">
+                                <button type="button" class="text-btn" id="model-selector-btn">
                                     <span id="current-model-text">Coden Flash</span> 
                                     <span class="material-symbols-outlined">expand_more</span>
                                 </button>
@@ -241,9 +273,9 @@
                                     </div>
                                 </div>
                             </div>
-                            <button class="icon-btn" id="mic-btn"><span class="material-symbols-outlined">mic</span></button>
-                            <button class="icon-btn hidden" id="stop-btn" title="Antwort stoppen"><span class="material-symbols-outlined">stop</span></button>
-                            <button class="icon-btn" id="send-btn" title="Senden" aria-label="Senden"><span class="material-symbols-outlined">arrow_upward</span></button>
+                            <button type="button" class="icon-btn" id="mic-btn" title="Diktieren" aria-label="Diktieren"><span class="material-symbols-outlined">mic</span></button>
+                            <button type="button" class="icon-btn hidden" id="stop-btn" title="Antwort stoppen" aria-label="Antwort stoppen"><span class="material-symbols-outlined">stop</span></button>
+                            <button type="button" class="icon-btn" id="send-btn" title="Senden" aria-label="Senden"><span class="material-symbols-outlined">arrow_upward</span></button>
                         </div>
                     </div>
                 </div>

@@ -113,17 +113,27 @@ function build() {
     panel = document.createElement('aside'); panel.id = 'artifact-panel'; panel.className = 'artifact-panel'; panel.setAttribute('aria-label', 'Artefakt');
     panel.innerHTML = `
       <div class="ap-head">
-        <span class="material-symbols-outlined ap-icon"></span><div class="ap-title"></div>
-        <select class="ap-versions" title="Version" hidden></select>
-        <div class="ap-tabs"><button data-tab="preview" class="active">Vorschau</button><button data-tab="code">Code</button></div>
-        <button class="ap-btn ap-toapp" data-act="app" title="Als App mit eigener Coden-Adresse weiterbauen"><span class="material-symbols-outlined">rocket_launch</span><span class="ap-toapp-t">Als App</span></button>
-        <button class="ap-btn" data-act="copy" title="Kopieren"><span class="material-symbols-outlined">content_copy</span></button>
-        <button class="ap-btn" data-act="download" title="Herunterladen"><span class="material-symbols-outlined">download</span></button>
-        <button class="ap-btn" data-act="full" title="Vollbild"><span class="material-symbols-outlined">fullscreen</span></button>
-        <button class="ap-btn" data-act="close" title="Schließen"><span class="material-symbols-outlined">close</span></button>
+        <span class="material-symbols-outlined ap-icon"></span>
+        <div class="ap-title"></div>
+        <div class="ap-tabs"><button type="button" data-tab="preview" class="active">Vorschau</button><button type="button" data-tab="code">Code</button></div>
+        <div class="ap-more-wrap">
+          <button type="button" class="ap-btn" data-act="more" title="Weitere Aktionen" aria-label="Weitere Aktionen" aria-haspopup="true" aria-expanded="false"><span class="material-symbols-outlined">more_horiz</span></button>
+          <div class="ap-menu hidden" role="menu">
+            <button type="button" class="ap-mi ap-toapp" data-act="app" role="menuitem"><span class="material-symbols-outlined">rocket_launch</span><span>Als App weiterbauen</span></button>
+            <button type="button" class="ap-mi" data-act="copy" role="menuitem"><span class="material-symbols-outlined">content_copy</span><span>Code kopieren</span></button>
+            <button type="button" class="ap-mi" data-act="download" role="menuitem"><span class="material-symbols-outlined">download</span><span>Herunterladen</span></button>
+            <button type="button" class="ap-mi" data-act="full" role="menuitem"><span class="material-symbols-outlined">fullscreen</span><span class="ap-full-label">Vollbild</span></button>
+            <div class="ap-ver-wrap" hidden><label class="ap-ver-lbl" for="ap-ver-sel">Version</label><select id="ap-ver-sel" class="ap-versions" title="Version"></select></div>
+          </div>
+        </div>
+        <button type="button" class="ap-btn" data-act="close" title="Schließen" aria-label="Schließen"><span class="material-symbols-outlined">close</span></button>
       </div>
       <div class="ap-body"><div class="ap-preview"></div><pre class="ap-code" hidden><code></code></pre><div class="ap-writing" hidden><span class="dots"><i></i><i></i><i></i></span> Coden schreibt …</div></div>`;
     document.body.appendChild(panel);
+    const apMenu = panel.querySelector('.ap-menu');
+    const apMoreBtn = panel.querySelector('[data-act="more"]');
+    const closeMenu = () => { apMenu.classList.add('hidden'); apMoreBtn?.setAttribute('aria-expanded', 'false'); };
+
     // Breite per Ziehen am linken Rand ändern (wird gemerkt)
     const grip = document.createElement('div'); grip.className = 'ap-grip'; grip.title = 'Breite ändern'; panel.prepend(grip);
     const setW = (w) => { const px = Math.round(Math.max(340, Math.min(window.innerWidth - 360, w))); document.documentElement.style.setProperty('--ap-w', px + 'px'); return px; };
@@ -137,18 +147,48 @@ function build() {
     grip.addEventListener('dblclick', () => { document.documentElement.style.removeProperty('--ap-w'); try { localStorage.removeItem('coden_ap_w'); } catch (_) {} });
     panel.addEventListener('click', async (e) => {
         const tab = e.target.closest('[data-tab]'); const act = e.target.closest('[data-act]');
-        if (tab) setTab(tab.dataset.tab);
+        if (tab) { closeMenu(); setTab(tab.dataset.tab); }
         if (act) {
             const a = act.dataset.act;
-            if (a === 'close') Artifacts.close();
-            if (a === 'full') { panel.classList.toggle('full'); }
-            if (a === 'app' && current) { const it = current; Artifacts.close(); document.dispatchEvent(new CustomEvent('artifactToApp', { detail: it })); }
-            if (a === 'copy' && current) { try { await navigator.clipboard.writeText(current.body); act.querySelector('span').textContent = 'check'; setTimeout(() => act.querySelector('span').textContent = 'content_copy', 1500); } catch (_) {} }
-            if (a === 'download' && current) { const url = URL.createObjectURL(new Blob([current.body], { type: 'text/plain;charset=utf-8' })); const l = document.createElement('a'); l.href = url; l.download = fileNameFor(current); l.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
+            if (a === 'more') {
+                e.stopPropagation();
+                const open = apMenu.classList.toggle('hidden') === false;
+                apMoreBtn?.setAttribute('aria-expanded', String(open));
+                return;
+            }
+            if (a === 'close') { closeMenu(); Artifacts.close(); }
+            if (a === 'full') {
+                const full = panel.classList.toggle('full');
+                const ic = act.querySelector('.material-symbols-outlined');
+                const lb = act.querySelector('.ap-full-label');
+                if (ic) ic.textContent = full ? 'fullscreen_exit' : 'fullscreen';
+                if (lb) lb.textContent = full ? 'Vollbild beenden' : 'Vollbild';
+                closeMenu();
+            }
+            if (a === 'app' && current) { const it = current; closeMenu(); Artifacts.close(); document.dispatchEvent(new CustomEvent('artifactToApp', { detail: it })); }
+            if (a === 'copy' && current) {
+                try {
+                    await navigator.clipboard.writeText(current.body);
+                    const ic = act.querySelector('.material-symbols-outlined');
+                    if (ic) { ic.textContent = 'check'; setTimeout(() => { ic.textContent = 'content_copy'; }, 1500); }
+                } catch (_) {}
+                closeMenu();
+            }
+            if (a === 'download' && current) {
+                const url = URL.createObjectURL(new Blob([current.body], { type: 'text/plain;charset=utf-8' }));
+                const l = document.createElement('a'); l.href = url; l.download = fileNameFor(current); l.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+                closeMenu();
+            }
         }
     });
-    panel.querySelector('.ap-versions').addEventListener('change', (e) => { const list = versions.get(current.title) || []; const v = list[+e.target.value]; if (v) show(v, true); });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && panel.classList.contains('open')) Artifacts.close(); });
+    document.addEventListener('click', (e) => { if (!apMenu.contains(e.target) && !apMoreBtn?.contains(e.target)) closeMenu(); });
+    panel.querySelector('.ap-versions').addEventListener('change', (e) => { const list = versions.get(current.title) || []; const v = list[+e.target.value]; if (v) { closeMenu(); show(v, true); } });
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape' || !panel.classList.contains('open')) return;
+        if (!apMenu.classList.contains('hidden')) { closeMenu(); return; }
+        Artifacts.close();
+    });
 }
 let pendingDraw = null; // Vorschau, die gezeichnet werden soll, sobald sie sichtbar ist (Mermaid/Chart brauchen echte Maße)
 function setTab(t) {
@@ -160,9 +200,20 @@ let renderTimer = null;
 function show(item, keepTab) {
     if (!panel) build();
     current = item;
+    // Auf Tablets (iPad etc.) Seitenleiste automatisch einklappen, damit Chat + Artefakt genug Platz haben
+    if (window.innerWidth <= 1180 && window.innerWidth > 768) {
+        const sb = document.getElementById('main-sidebar');
+        if (sb && !sb.classList.contains('collapsed')) {
+            sb.classList.add('collapsed');
+            document.getElementById('open-sidebar-btn')?.classList.remove('hidden');
+        }
+    }
     panel.querySelector('.ap-icon').textContent = ICON[item.type]; panel.querySelector('.ap-title').textContent = item.title;
     panel.querySelector('.ap-toapp').hidden = item.type !== 'html' || !item.closed;
-    const list = versions.get(item.title) || [item]; const sel = panel.querySelector('.ap-versions');
+    const list = versions.get(item.title) || [item];
+    const sel = panel.querySelector('.ap-versions');
+    const verWrap = panel.querySelector('.ap-ver-wrap');
+    if (verWrap) verWrap.hidden = list.length < 2;
     sel.hidden = list.length < 2; sel.replaceChildren(...list.map((v, i) => { const o = document.createElement('option'); o.value = i; o.textContent = 'Version ' + (i + 1); return o; })); sel.value = Math.max(0, list.indexOf(item));
     const codeEl = panel.querySelector('.ap-code'); const stick = codeEl.scrollHeight - codeEl.scrollTop - codeEl.clientHeight < 80 || !panel.classList.contains('open');
     codeEl.querySelector('code').textContent = item.body;
@@ -197,7 +248,17 @@ export const Artifacts = {
         return list.indexOf(item) + 1;
     },
     open(item) { show(item); },
-    close() { if (!panel) return; panel.classList.remove('open', 'full'); document.body.classList.remove('artifact-open'); current = null; const f = panel.querySelector('iframe'); if (f) f.srcdoc = ''; },
+    close() {
+        if (!panel) return;
+        panel.querySelector('.ap-menu')?.classList.add('hidden');
+        panel.querySelector('[data-act="more"]')?.setAttribute('aria-expanded', 'false');
+        const fullBtn = panel.querySelector('[data-act="full"]');
+        if (fullBtn) {
+            const ic = fullBtn.querySelector('.material-symbols-outlined'); if (ic) ic.textContent = 'fullscreen';
+            const lb = fullBtn.querySelector('.ap-full-label'); if (lb) lb.textContent = 'Vollbild';
+        }
+        panel.classList.remove('open', 'full'); document.body.classList.remove('artifact-open'); current = null; const f = panel.querySelector('iframe'); if (f) f.srcdoc = '';
+    },
     reset() { versions.clear(); this.close(); }
 };
 

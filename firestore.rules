@@ -1,0 +1,769 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net (Default-Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ---------- Shared Security Helpers ----------
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isSignedIn() { return request.auth != null; }
+    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
+    function isAdmin() {
+      return isVerified() && (
+        request.auth.token.email == 'kayden.schunack@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    function isNumId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 20 && id.matches('^[1-9][0-9]*$');
+    }
+    function isStr(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+    function isOptStr(data, field, maxLen) {
+      return !(field in data) || data[field] == null || (data[field] is string && data[field].size() <= maxLen);
+    }
+    function isIsoOrTs(val) {
+      return (val is timestamp) || (val is string && val.size() <= 64);
+    }
+
+    // ---------- Validation Blueprints ----------
+    function isValidUserData(data, uid) {
+      return data.keys().hasAll(['uid', 'settings'])
+        && data.keys().hasOnly(['uid', 'settings', 'sessionOrder', 'sessions', 'updatedAt'])
+        && isStr(data.uid, 1, 128) && data.uid == uid
+        && data.settings is map && data.settings.keys().size() <= 40
+        && (!('sessionOrder' in data) || (data.sessionOrder is list && data.sessionOrder.size() <= 300))
+        && (!('sessions' in data) || (data.sessions is list && data.sessions.size() <= 300))
+        && (!('updatedAt' in data) || isIsoOrTs(data.updatedAt));
+    }
+
+    function isValidChatSession(data, uid) {
+      return data.keys().hasAll(['id', 'uid', 'title', 'messages'])
+        && data.keys().hasOnly(['id', 'uid', 'title', 'messages', 'pinned', 'unread', 'projectId', 'assistantId', 'orderIndex', 'createdAt', 'updatedAt'])
+        && isStr(data.id, 1, 128)
+        && isStr(data.uid, 1, 128) && data.uid == uid
+        && isStr(data.title, 0, 200)
+        && data.messages is list && data.messages.size() <= 1000
+        && (!('pinned' in data) || data.pinned is bool)
+        && (!('unread' in data) || data.unread is bool)
+        && (!('projectId' in data) || data.projectId == null || data.projectId is int || isStr(data.projectId, 0, 64))
+        && (!('assistantId' in data) || data.assistantId == null || isStr(data.assistantId, 0, 128))
+        && (!('orderIndex' in data) || data.orderIndex is number)
+        && (!('createdAt' in data) || isIsoOrTs(data.createdAt))
+        && (!('updatedAt' in data) || isIsoOrTs(data.updatedAt));
+    }
+
+    function isValidUserProject(data) {
+      return data.keys().hasAll(['id', 'uid', 'name', 'description', 'instructions', 'files', 'color'])
+        && data.keys().hasOnly(['id', 'uid', 'name', 'description', 'instructions', 'files', 'color', 'created_at', 'updated_at'])
+        && data.id is int && data.id > 0
+        && isStr(data.uid, 1, 128)
+        && isStr(data.name, 1, 60)
+        && isStr(data.description, 0, 300)
+        && isStr(data.instructions, 0, 8000)
+        && data.files is map && data.files.keys().size() <= 20
+        && isStr(data.color, 4, 16)
+        && (!('created_at' in data) || isIsoOrTs(data.created_at))
+        && (!('updated_at' in data) || isIsoOrTs(data.updated_at));
+    }
+
+    function isValidProfile(data, uid) {
+      return data.keys().hasAll(['uid', 'handle', 'display_name'])
+        && data.keys().hasOnly(['uid', 'handle', 'display_name', 'bio', 'created_at', 'last_seen'])
+        && isStr(data.uid, 1, 128) && data.uid == uid
+        && isStr(data.handle, 3, 20) && data.handle.matches('^[a-z0-9_]{3,20}$')
+        && isStr(data.display_name, 1, 40)
+        && isOptStr(data, 'bio', 160)
+        && (!('created_at' in data) || isIsoOrTs(data.created_at))
+        && (!('last_seen' in data) || isIsoOrTs(data.last_seen));
+    }
+
+    function isValidFriendship(data) {
+      return data.keys().hasAll(['id', 'requester', 'addressee', 'participants', 'status'])
+        && data.keys().hasOnly(['id', 'requester', 'addressee', 'participants', 'status', 'created_at'])
+        && isStr(data.id, 3, 260)
+        && isStr(data.requester, 1, 128)
+        && isStr(data.addressee, 1, 128)
+        && data.requester != data.addressee
+        && data.participants is list && data.participants.size() == 2
+        && data.requester in data.participants && data.addressee in data.participants
+        && data.status in ['pending', 'accepted']
+        && (!('created_at' in data) || isIsoOrTs(data.created_at));
+    }
+
+    function isValidDmMessage(data) {
+      return data.keys().hasAll(['id', 'participants', 'sender', 'recipient', 'body'])
+        && data.keys().hasOnly(['id', 'participants', 'sender', 'recipient', 'peer', 'ai_for', 'body', 'attachment', 'created_at', 'read_at'])
+        && data.id is int && data.id > 0
+        && data.participants is list && data.participants.size() == 2
+        && isStr(data.sender, 1, 128)
+        && isStr(data.recipient, 1, 128)
+        && isOptStr(data, 'peer', 128)
+        && isOptStr(data, 'ai_for', 128)
+        && isStr(data.body, 1, 4500)
+        && (!('attachment' in data) || data.attachment == null || (data.attachment is map && data.attachment.keys().size() <= 10))
+        && (!('created_at' in data) || isIsoOrTs(data.created_at))
+        && (!('read_at' in data) || data.read_at == null || isIsoOrTs(data.read_at));
+    }
+
+    function isValidBuddyProject(data) {
+      return data.keys().hasAll(['id', 'owner', 'memberUids', 'title'])
+        && data.keys().hasOnly(['id', 'owner', 'memberUids', 'title', 'description', 'created_at', 'updated_at'])
+        && data.id is int && data.id > 0
+        && isStr(data.owner, 1, 128)
+        && data.memberUids is list && data.memberUids.size() >= 1 && data.memberUids.size() <= 8
+        && data.owner in data.memberUids
+        && isStr(data.title, 1, 80)
+        && isOptStr(data, 'description', 300)
+        && (!('created_at' in data) || isIsoOrTs(data.created_at))
+        && (!('updated_at' in data) || isIsoOrTs(data.updated_at));
+    }
+
+    function isValidApp(data) {
+      return data.keys().hasAll(['id', 'owner', 'memberUids', 'name', 'kind', 'slug', 'preview_token', 'published', 'files', 'version', 'theme_color'])
+        && data.keys().hasOnly(['id', 'owner', 'memberUids', 'sharedServerIds', 'name', 'kind', 'style', 'slug', 'preview_token', 'published', 'files', 'integrations', 'version', 'theme_color', 'apk', 'created_at', 'updated_at', 'published_at'])
+        && data.id is int && data.id > 0
+        && isStr(data.owner, 1, 128)
+        && data.memberUids is list && data.memberUids.size() >= 1 && data.memberUids.size() <= 8
+        && (!('sharedServerIds' in data) || (data.sharedServerIds is list && data.sharedServerIds.size() <= 30))
+        && isStr(data.name, 1, 80)
+        && data.kind in ['web', 'ios', 'android', 'both', 'game']
+        && isOptStr(data, 'style', 40)
+        && isStr(data.slug, 3, 60)
+        && isStr(data.preview_token, 8, 64)
+        && data.published is bool
+        && data.files is map && data.files.keys().size() <= 60
+        && (!('integrations' in data) || (data.integrations is map && data.integrations.keys().size() <= 20))
+        && data.version is int && data.version >= 1
+        && isStr(data.theme_color, 4, 16)
+        && (!('apk' in data) || (data.apk is map && data.apk.keys().size() <= 20))
+        && (!('created_at' in data) || isIsoOrTs(data.created_at))
+        && (!('updated_at' in data) || isIsoOrTs(data.updated_at))
+        && (!('published_at' in data) || data.published_at == null || isIsoOrTs(data.published_at));
+    }
+
+    function isValidServer(data) {
+      return data.keys().hasAll(['id', 'name', 'color', 'owner', 'invite_code', 'memberUids'])
+        && data.keys().hasOnly(['id', 'name', 'color', 'owner', 'invite_code', 'memberUids', 'created_at'])
+        && data.id is int && data.id > 0
+        && isStr(data.name, 1, 40)
+        && isStr(data.color, 4, 16)
+        && isStr(data.owner, 1, 128)
+        && isStr(data.invite_code, 6, 20)
+        && data.memberUids is list && data.memberUids.size() >= 1 && data.memberUids.size() <= 50
+        && (!('created_at' in data) || isIsoOrTs(data.created_at));
+    }
+
+    function isValidAiRun(data) {
+      return data.keys().hasAll(['id', 'uid', 'kind', 'ref', 'status'])
+        && data.keys().hasOnly(['id', 'uid', 'kind', 'ref', 'status', 'text', 'think', 'agents', 'model', 'error', 'meta', 'stop', 'claimed', 'created_at', 'updated_at'])
+        && data.id is int && data.id > 0
+        && isStr(data.uid, 1, 128)
+        && data.kind in ['chat', 'app']
+        && isStr(data.ref, 1, 128)
+        && data.status in ['running', 'done', 'error', 'stopped']
+        && isOptStr(data, 'text', 800000)
+        && (!('think' in data) || (data.think is map && data.think.keys().size() <= 10))
+        && (!('agents' in data) || (data.agents is list && data.agents.size() <= 30))
+        && isOptStr(data, 'model', 160)
+        && isOptStr(data, 'error', 2000)
+        && (!('meta' in data) || (data.meta is map && data.meta.keys().size() <= 20))
+        && (!('stop' in data) || data.stop is bool)
+        && (!('claimed' in data) || data.claimed is bool)
+        && (!('created_at' in data) || isIsoOrTs(data.created_at))
+        && (!('updated_at' in data) || isIsoOrTs(data.updated_at));
+    }
+
+    function isValidUsageLimit(data, uid) {
+      return data.keys().hasAll(['uid', 's_tokens', 'w_tokens', 'total'])
+        && data.keys().hasOnly(['uid', 'email', 's_start', 's_tokens', 'w_start', 'w_tokens', 'total', 'updated_at'])
+        && isStr(data.uid, 1, 128) && data.uid == uid
+        && isOptStr(data, 'email', 200)
+        && (!('s_start' in data) || data.s_start == null || isIsoOrTs(data.s_start))
+        && data.s_tokens is number && data.s_tokens >= 0
+        && (!('w_start' in data) || data.w_start == null || isIsoOrTs(data.w_start))
+        && data.w_tokens is number && data.w_tokens >= 0
+        && data.total is number && data.total >= 0
+        && (!('updated_at' in data) || isIsoOrTs(data.updated_at));
+    }
+
+    function isValidUserModel(data) {
+      return data.keys().hasAll(['id', 'uid', 'provider', 'model_id', 'label'])
+        && data.keys().hasOnly(['id', 'uid', 'provider', 'model_id', 'label', 'levels', 'default_level', 'created_at'])
+        && data.id is int && data.id > 0
+        && isStr(data.uid, 1, 128) && data.uid == request.auth.uid
+        && data.provider in ['google', 'openai', 'anthropic', 'openrouter']
+        && isStr(data.model_id, 1, 120) && isStr(data.label, 1, 60)
+        && (!('levels' in data) || (data.levels is list && data.levels.size() <= 10))
+        && isOptStr(data, 'default_level', 32)
+        && (!('created_at' in data) || isIsoOrTs(data.created_at));
+    }
+
+    function isValidUserChain(data) {
+      return data.keys().hasAll(['id', 'uid', 'name', 'members'])
+        && data.keys().hasOnly(['id', 'uid', 'name', 'members', 'created_at'])
+        && data.id is int && data.id > 0
+        && isStr(data.uid, 1, 128) && data.uid == request.auth.uid
+        && isStr(data.name, 1, 40)
+        && data.members is list && data.members.size() >= 0 && data.members.size() <= 8
+        && (!('created_at' in data) || isIsoOrTs(data.created_at));
+    }
+
+    // ---------- Connectivity Probe ----------
+    match /test/connection {
+      allow get: if true;
+      allow list, write: if false;
+    }
+
+    // ---------- Admins & System State ----------
+    match /admins/{uid} {
+      allow get: if isOwner(uid) || isAdmin();
+      allow list, create, update, delete: if isAdmin() && isValidId(uid);
+    }
+
+    match /system_state/{docId} {
+      allow get: if isSignedIn() && isValidId(docId);
+      allow list: if false;
+      allow create, update, delete: if isAdmin() && docId == 'global'
+        && incoming().keys().hasOnly(['locks', 'broadcast', 'forceUpdate', 'maintenance', 'globalModel', 'theme', 'fontSize', 'globalClear', 'updatedAt']);
+    }
+
+    // ---------- User Chat History & Settings (PII-isolated) ----------
+    match /user_data/{uid} {
+      allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
+      allow list: if isOwner(resource.data.uid) || isAdmin();
+      allow create: if isVerified() && isValidId(uid) && isValidUserData(incoming(), uid) && (isOwner(uid) || isAdmin());
+      allow update: if isVerified() && isValidId(uid) && isValidUserData(incoming(), uid) && (isOwner(uid) || isAdmin())
+        && incoming().uid == existing().uid
+        && incoming().diff(existing()).affectedKeys().hasOnly(['settings', 'sessionOrder', 'sessions', 'updatedAt']);
+      allow delete: if isValidId(uid) && (isOwner(uid) || isAdmin());
+
+      match /sessions/{sessionId} {
+        allow get: if isValidId(uid) && isValidId(sessionId) && (isOwner(uid) || isAdmin());
+        allow list: if isOwner(uid) || isAdmin();
+        allow create: if isVerified() && isValidId(uid) && isValidId(sessionId) && isValidChatSession(incoming(), uid)
+          && incoming().id == sessionId && (isOwner(uid) || isAdmin());
+        allow update: if isVerified() && isValidId(uid) && isValidId(sessionId) && isValidChatSession(incoming(), uid)
+          && incoming().uid == existing().uid && incoming().id == existing().id
+          && (isOwner(uid) || isAdmin())
+          && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'messages', 'pinned', 'unread', 'projectId', 'assistantId', 'orderIndex', 'updatedAt']);
+        allow delete: if isValidId(uid) && isValidId(sessionId) && (isOwner(uid) || isAdmin());
+      }
+    }
+
+    // ---------- Private AI Projects ----------
+    match /user_projects/{projectId} {
+      allow get: if isNumId(projectId) && (isOwner(existing().uid) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isNumId(projectId) && isValidUserProject(incoming())
+        && incoming().uid == request.auth.uid;
+      allow update: if isVerified() && isNumId(projectId) && isValidUserProject(incoming())
+        && (isOwner(existing().uid) || isAdmin())
+        && incoming().uid == existing().uid && incoming().id == existing().id
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'instructions', 'files', 'color', 'updated_at']);
+      allow delete: if isNumId(projectId) && (isOwner(existing().uid) || isAdmin());
+    }
+
+    // ---------- Code Buddy Profiles & Handles ----------
+    match /profiles/{uid} {
+      allow get: if isSignedIn() && isValidId(uid);
+      allow list: if isSignedIn();
+      allow create: if isVerified() && isValidId(uid) && isValidProfile(incoming(), uid) && isOwner(uid);
+      allow update: if isVerified() && isValidId(uid) && isValidProfile(incoming(), uid)
+        && (isOwner(uid) || isAdmin())
+        && incoming().uid == existing().uid
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['handle', 'display_name', 'bio', 'last_seen']) ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['last_seen'])
+        );
+      allow delete: if isValidId(uid) && (isOwner(uid) || isAdmin());
+    }
+
+    match /buddy_handles/{handle} {
+      allow get: if isSignedIn() && isStr(handle, 3, 20);
+      allow list: if false;
+      allow create: if isVerified() && isStr(handle, 3, 20) && handle.matches('^[a-z0-9_]{3,20}$')
+        && incoming().keys().hasAll(['handle', 'uid']) && incoming().keys().hasOnly(['handle', 'uid'])
+        && incoming().handle == handle && incoming().uid == request.auth.uid;
+      allow update: if false;
+      allow delete: if isVerified() && isStr(handle, 3, 20) && (isOwner(existing().uid) || isAdmin());
+    }
+
+    // ---------- Friendships & DMs ----------
+    match /friendships/{pairId} {
+      allow get: if isSignedIn() && isValidId(pairId) && (request.auth.uid in existing().participants || isAdmin());
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.participants || isAdmin());
+      allow create: if isVerified() && isValidId(pairId) && isValidFriendship(incoming())
+        && incoming().requester == request.auth.uid && incoming().id == pairId;
+      allow update: if isVerified() && isValidId(pairId) && isValidFriendship(incoming())
+        && existing().status == 'pending'
+        && (isOwner(existing().addressee) || isAdmin())
+        && incoming().requester == existing().requester && incoming().addressee == existing().addressee
+        && incoming().participants == existing().participants && incoming().id == existing().id
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status']);
+      allow delete: if isValidId(pairId) && (request.auth.uid in existing().participants || isAdmin());
+    }
+
+    match /dm_messages/{msgId} {
+      allow get: if isNumId(msgId) && isSignedIn() && (request.auth.uid in existing().participants || isAdmin());
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.participants || isAdmin());
+      allow create: if isVerified() && isNumId(msgId) && isValidDmMessage(incoming())
+        && request.auth.uid in incoming().participants
+        && (incoming().sender == request.auth.uid || (incoming().sender == 'coden' && incoming().ai_for == request.auth.uid));
+      allow update: if isVerified() && isNumId(msgId) && isValidDmMessage(incoming())
+        && (isOwner(existing().recipient) || isAdmin())
+        && incoming().id == existing().id && incoming().sender == existing().sender
+        && incoming().recipient == existing().recipient && incoming().participants == existing().participants
+        && incoming().body == existing().body
+        && incoming().diff(existing()).affectedKeys().hasOnly(['read_at']);
+      allow delete: if isNumId(msgId) && (request.auth.uid in existing().participants || isAdmin());
+    }
+
+    // ---------- Collaborative Buddy Projects ----------
+    match /buddy_projects/{projectId} {
+      function isBpMember() {
+        return isSignedIn() && (
+          request.auth.uid in existing().memberUids ||
+          exists(/databases/$(database)/documents/buddy_projects/$(projectId)/members/$(request.auth.uid))
+        );
+      }
+      allow get: if isNumId(projectId) && (isBpMember() || isAdmin());
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.memberUids || isAdmin());
+      allow create: if isVerified() && isNumId(projectId) && isValidBuddyProject(incoming())
+        && incoming().owner == request.auth.uid;
+      allow update: if isVerified() && isNumId(projectId) && isValidBuddyProject(incoming())
+        && incoming().id == existing().id && incoming().owner == existing().owner
+        && (
+          (isOwner(existing().owner) && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'memberUids', 'updated_at'])) ||
+          (isBpMember() && incoming().diff(existing()).affectedKeys().hasOnly(['updated_at'])) ||
+          (request.auth.uid in existing().memberUids
+            && !(request.auth.uid in incoming().memberUids)
+            && incoming().memberUids.size() == existing().memberUids.size() - 1
+            && existing().memberUids.hasAll(incoming().memberUids)
+            && incoming().diff(existing()).affectedKeys().hasOnly(['memberUids', 'updated_at'])) ||
+          isAdmin()
+        );
+      allow delete: if isNumId(projectId) && (isOwner(existing().owner) || isAdmin());
+
+      match /members/{memberUid} {
+        allow get, list: if isValidId(memberUid) && isSignedIn() && (
+          request.auth.uid in get(/databases/$(database)/documents/buddy_projects/$(projectId)).data.memberUids || isAdmin()
+        );
+        allow create: if isVerified() && isValidId(memberUid)
+          && exists(/databases/$(database)/documents/buddy_projects/$(projectId))
+          && incoming().keys().hasAll(['project_id', 'uid', 'role'])
+          && incoming().keys().hasOnly(['project_id', 'uid', 'role'])
+          && incoming().uid == memberUid && incoming().role in ['owner', 'editor']
+          && (get(/databases/$(database)/documents/buddy_projects/$(projectId)).data.owner == request.auth.uid || isAdmin());
+        allow update: if isVerified() && isValidId(memberUid)
+          && incoming().keys().hasAll(['project_id', 'uid', 'role'])
+          && incoming().keys().hasOnly(['project_id', 'uid', 'role'])
+          && incoming().uid == existing().uid && incoming().project_id == existing().project_id
+          && incoming().role in ['owner', 'editor']
+          && (get(/databases/$(database)/documents/buddy_projects/$(projectId)).data.owner == request.auth.uid || isAdmin())
+          && incoming().diff(existing()).affectedKeys().hasOnly(['role']);
+        allow delete: if isValidId(memberUid) && (
+          isOwner(memberUid) || get(/databases/$(database)/documents/buddy_projects/$(projectId)).data.owner == request.auth.uid || isAdmin()
+        );
+      }
+
+      match /files/{fileKey} {
+        allow get, list: if isSignedIn() && (
+          request.auth.uid in get(/databases/$(database)/documents/buddy_projects/$(projectId)).data.memberUids || isAdmin()
+        );
+        allow create: if isVerified() && isValidId(fileKey)
+          && exists(/databases/$(database)/documents/buddy_projects/$(projectId))
+          && incoming().keys().hasAll(['project_id', 'name', 'content', 'version', 'updated_by'])
+          && incoming().keys().hasOnly(['project_id', 'name', 'content', 'version', 'updated_by', 'updated_at'])
+          && isStr(incoming().name, 1, 100) && isStr(incoming().content, 0, 250000)
+          && incoming().version is int && incoming().version == 1
+          && incoming().updated_by == request.auth.uid
+          && request.auth.uid in get(/databases/$(database)/documents/buddy_projects/$(projectId)).data.memberUids;
+        allow update: if isVerified() && isValidId(fileKey)
+          && incoming().keys().hasAll(['project_id', 'name', 'content', 'version', 'updated_by'])
+          && incoming().keys().hasOnly(['project_id', 'name', 'content', 'version', 'updated_by', 'updated_at'])
+          && incoming().project_id == existing().project_id && incoming().name == existing().name
+          && isStr(incoming().content, 0, 250000)
+          && incoming().version is int && incoming().version == existing().version + 1
+          && incoming().updated_by == request.auth.uid
+          && incoming().diff(existing()).affectedKeys().hasOnly(['content', 'version', 'updated_by', 'updated_at'])
+          && request.auth.uid in get(/databases/$(database)/documents/buddy_projects/$(projectId)).data.memberUids;
+        allow delete: if isSignedIn() && (
+          request.auth.uid in get(/databases/$(database)/documents/buddy_projects/$(projectId)).data.memberUids || isAdmin()
+        );
+      }
+
+      match /messages/{msgId} {
+        allow get, list: if isSignedIn() && (
+          request.auth.uid in get(/databases/$(database)/documents/buddy_projects/$(projectId)).data.memberUids || isAdmin()
+        );
+        allow create: if isVerified() && isNumId(msgId)
+          && exists(/databases/$(database)/documents/buddy_projects/$(projectId))
+          && incoming().keys().hasAll(['id', 'project_id', 'sender', 'body'])
+          && incoming().keys().hasOnly(['id', 'project_id', 'sender', 'body', 'created_at'])
+          && incoming().sender == request.auth.uid && isStr(incoming().body, 1, 2500)
+          && request.auth.uid in get(/databases/$(database)/documents/buddy_projects/$(projectId)).data.memberUids;
+        allow update: if false;
+        allow delete: if isNumId(msgId) && (
+          get(/databases/$(database)/documents/buddy_projects/$(projectId)).data.owner == request.auth.uid || isAdmin()
+        );
+      }
+    }
+
+    // ---------- App Builder Apps ----------
+    match /apps/{appId} {
+      function canReadApp() {
+        return isSignedIn() && (
+          request.auth.uid in existing().memberUids ||
+          exists(/databases/$(database)/documents/apps/$(appId)/members/$(request.auth.uid))
+        );
+      }
+      allow get: if isNumId(appId) && (canReadApp() || isAdmin());
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.memberUids || isAdmin());
+      allow create: if isVerified() && isNumId(appId) && isValidApp(incoming())
+        && incoming().owner == request.auth.uid && request.auth.uid in incoming().memberUids;
+      allow update: if isVerified() && isNumId(appId) && isValidApp(incoming())
+        && incoming().id == existing().id && incoming().owner == existing().owner
+        && (
+          (isOwner(existing().owner) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'kind', 'style', 'slug', 'preview_token', 'published', 'published_at', 'files', 'integrations', 'version', 'theme_color', 'apk', 'memberUids', 'sharedServerIds', 'updated_at'])) ||
+          (exists(/databases/$(database)/documents/apps/$(appId)/members/$(request.auth.uid))
+            && get(/databases/$(database)/documents/apps/$(appId)/members/$(request.auth.uid)).data.role in ['owner', 'editor']
+            && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'kind', 'style', 'files', 'integrations', 'version', 'theme_color', 'apk', 'updated_at'])) ||
+          (request.auth.uid in existing().memberUids
+            && !(request.auth.uid in incoming().memberUids)
+            && incoming().memberUids.size() == existing().memberUids.size() - 1
+            && existing().memberUids.hasAll(incoming().memberUids)
+            && incoming().diff(existing()).affectedKeys().hasOnly(['memberUids'])) ||
+          isAdmin()
+        );
+      allow delete: if isNumId(appId) && (isOwner(existing().owner) || isAdmin());
+
+      match /members/{memberUid} {
+        allow get, list: if isValidId(memberUid) && isSignedIn() && (
+          request.auth.uid in get(/databases/$(database)/documents/apps/$(appId)).data.memberUids || isAdmin()
+        );
+        allow create: if isVerified() && isValidId(memberUid)
+          && exists(/databases/$(database)/documents/apps/$(appId))
+          && incoming().keys().hasAll(['app_id', 'uid', 'role'])
+          && incoming().keys().hasOnly(['app_id', 'uid', 'role', 'last_seen'])
+          && incoming().uid == memberUid && incoming().role in ['owner', 'editor', 'viewer']
+          && (get(/databases/$(database)/documents/apps/$(appId)).data.owner == request.auth.uid || isAdmin());
+        allow update: if isVerified() && isValidId(memberUid)
+          && incoming().keys().hasAll(['app_id', 'uid', 'role'])
+          && incoming().keys().hasOnly(['app_id', 'uid', 'role', 'last_seen'])
+          && incoming().uid == existing().uid && incoming().app_id == existing().app_id
+          && incoming().role in ['owner', 'editor', 'viewer']
+          && (
+            (get(/databases/$(database)/documents/apps/$(appId)).data.owner == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'last_seen'])) ||
+            (isOwner(memberUid) && incoming().diff(existing()).affectedKeys().hasOnly(['last_seen'])) ||
+            isAdmin()
+          );
+        allow delete: if isValidId(memberUid) && (
+          isOwner(memberUid) || get(/databases/$(database)/documents/apps/$(appId)).data.owner == request.auth.uid || isAdmin()
+        );
+      }
+
+      match /messages/{msgId} {
+        allow get, list: if isSignedIn() && (
+          request.auth.uid in get(/databases/$(database)/documents/apps/$(appId)).data.memberUids || isAdmin()
+        );
+        allow create: if isVerified() && isNumId(msgId)
+          && exists(/databases/$(database)/documents/apps/$(appId))
+          && incoming().keys().hasAll(['id', 'app_id', 'sender', 'role', 'body'])
+          && incoming().keys().hasOnly(['id', 'app_id', 'sender', 'role', 'body', 'meta', 'created_at'])
+          && incoming().sender == request.auth.uid
+          && incoming().role in ['user', 'assistant', 'tool', 'event']
+          && isStr(incoming().body, 0, 65000)
+          && request.auth.uid in get(/databases/$(database)/documents/apps/$(appId)).data.memberUids;
+        allow update: if false;
+        allow delete: if isNumId(msgId) && (
+          get(/databases/$(database)/documents/apps/$(appId)).data.owner == request.auth.uid || isAdmin()
+        );
+      }
+    }
+
+    match /app_routes/{slug} {
+      allow get: if isStr(slug, 3, 60) && (existing().published == true || isOwner(existing().owner) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.owner == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isStr(slug, 3, 60)
+        && incoming().keys().hasAll(['app_id', 'owner', 'slug', 'published'])
+        && incoming().keys().hasOnly(['app_id', 'owner', 'slug', 'name', 'kind', 'style', 'published', 'files', 'version', 'theme_color', 'updated_at'])
+        && incoming().slug == slug && incoming().owner == request.auth.uid;
+      allow update: if isVerified() && isStr(slug, 3, 60)
+        && (isOwner(existing().owner) || isAdmin()) && incoming().owner == existing().owner && incoming().slug == existing().slug
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'kind', 'style', 'published', 'files', 'version', 'theme_color', 'updated_at']);
+      allow delete: if isStr(slug, 3, 60) && (isOwner(existing().owner) || isAdmin());
+    }
+
+    match /app_previews/{previewId} {
+      allow get: if isStr(previewId, 12, 140);
+      allow list: if false;
+      allow create: if isVerified() && isStr(previewId, 12, 140)
+        && incoming().keys().hasAll(['app_id', 'owner', 'slug'])
+        && incoming().keys().hasOnly(['app_id', 'owner', 'slug', 'name', 'kind', 'style', 'files', 'version', 'theme_color', 'updated_at'])
+        && incoming().owner == request.auth.uid;
+      allow update: if isVerified() && isStr(previewId, 12, 140)
+        && (isOwner(existing().owner) || isAdmin()) && incoming().owner == existing().owner
+        && incoming().diff(existing()).affectedKeys().hasOnly(['slug', 'name', 'kind', 'style', 'files', 'version', 'theme_color', 'updated_at']);
+      allow delete: if isStr(previewId, 12, 140) && (isOwner(existing().owner) || isAdmin());
+    }
+
+    match /app_images/{key} {
+      allow get: if isStr(key, 6, 32);
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isStr(key, 6, 32)
+        && incoming().keys().hasAll(['key', 'uid', 'mime', 'data_b64'])
+        && incoming().keys().hasOnly(['key', 'app_id', 'uid', 'prompt', 'mime', 'data_b64', 'created_at'])
+        && incoming().key == key && incoming().uid == request.auth.uid
+        && isStr(incoming().mime, 5, 64) && isStr(incoming().data_b64, 4, 950000);
+      allow update: if false;
+      allow delete: if isStr(key, 6, 32) && (isOwner(existing().uid) || isAdmin());
+    }
+
+    // ---------- Code Buddy Servers ----------
+    match /servers/{serverId} {
+      function isSrvMember() {
+        return isSignedIn() && (
+          request.auth.uid in existing().memberUids ||
+          exists(/databases/$(database)/documents/servers/$(serverId)/members/$(request.auth.uid))
+        );
+      }
+      allow get: if isNumId(serverId) && (isSrvMember() || isAdmin());
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.memberUids || isAdmin());
+      allow create: if isVerified() && isNumId(serverId) && isValidServer(incoming())
+        && incoming().owner == request.auth.uid && request.auth.uid in incoming().memberUids;
+      allow update: if isVerified() && isNumId(serverId) && isValidServer(incoming())
+        && incoming().id == existing().id && incoming().owner == existing().owner
+        && (
+          (isOwner(existing().owner) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'color', 'invite_code', 'memberUids'])) ||
+          (!(request.auth.uid in existing().memberUids)
+            && request.auth.uid in incoming().memberUids
+            && incoming().memberUids.size() == existing().memberUids.size() + 1
+            && incoming().memberUids.hasAll(existing().memberUids)
+            && exists(/databases/$(database)/documents/server_invites/$(existing().invite_code))
+            && incoming().diff(existing()).affectedKeys().hasOnly(['memberUids'])) ||
+          (request.auth.uid in existing().memberUids
+            && !(request.auth.uid in incoming().memberUids)
+            && incoming().memberUids.size() == existing().memberUids.size() - 1
+            && existing().memberUids.hasAll(incoming().memberUids)
+            && incoming().diff(existing()).affectedKeys().hasOnly(['memberUids'])) ||
+          isAdmin()
+        );
+      allow delete: if isNumId(serverId) && (isOwner(existing().owner) || isAdmin());
+
+      match /members/{memberUid} {
+        allow get, list: if isValidId(memberUid) && isSignedIn() && (
+          request.auth.uid in get(/databases/$(database)/documents/servers/$(serverId)).data.memberUids || isAdmin()
+        );
+        allow create: if isVerified() && isValidId(memberUid)
+          && exists(/databases/$(database)/documents/servers/$(serverId))
+          && incoming().keys().hasAll(['server_id', 'uid', 'role'])
+          && incoming().keys().hasOnly(['server_id', 'uid', 'role', 'joined_at'])
+          && incoming().uid == memberUid && incoming().role in ['owner', 'editor', 'viewer']
+          && (
+            get(/databases/$(database)/documents/servers/$(serverId)).data.owner == request.auth.uid ||
+            (isOwner(memberUid) && incoming().role == 'viewer') ||
+            isAdmin()
+          );
+        allow update: if isVerified() && isValidId(memberUid)
+          && incoming().keys().hasAll(['server_id', 'uid', 'role'])
+          && incoming().keys().hasOnly(['server_id', 'uid', 'role', 'joined_at'])
+          && incoming().uid == existing().uid && incoming().server_id == existing().server_id
+          && incoming().role in ['editor', 'viewer']
+          && (get(/databases/$(database)/documents/servers/$(serverId)).data.owner == request.auth.uid || isAdmin())
+          && incoming().diff(existing()).affectedKeys().hasOnly(['role']);
+        allow delete: if isValidId(memberUid) && (
+          isOwner(memberUid) || get(/databases/$(database)/documents/servers/$(serverId)).data.owner == request.auth.uid || isAdmin()
+        );
+      }
+
+      match /channels/{channelId} {
+        allow get, list: if isSignedIn() && (
+          request.auth.uid in get(/databases/$(database)/documents/servers/$(serverId)).data.memberUids || isAdmin()
+        );
+        allow create: if isVerified() && isNumId(channelId)
+          && exists(/databases/$(database)/documents/servers/$(serverId))
+          && incoming().keys().hasAll(['id', 'server_id', 'name'])
+          && incoming().keys().hasOnly(['id', 'server_id', 'name', 'created_at'])
+          && isStr(incoming().name, 1, 40)
+          && get(/databases/$(database)/documents/servers/$(serverId)/members/$(request.auth.uid)).data.role in ['owner', 'editor'];
+        allow update: if false;
+        allow delete: if isNumId(channelId) && (
+          get(/databases/$(database)/documents/servers/$(serverId)).data.owner == request.auth.uid || isAdmin()
+        );
+
+        match /messages/{msgId} {
+          allow get, list: if isSignedIn() && (
+            request.auth.uid in get(/databases/$(database)/documents/servers/$(serverId)).data.memberUids || isAdmin()
+          );
+          allow create: if isVerified() && isNumId(msgId)
+            && exists(/databases/$(database)/documents/servers/$(serverId)/channels/$(channelId))
+            && incoming().keys().hasAll(['id', 'server_id', 'channel_id', 'sender', 'body'])
+            && incoming().keys().hasOnly(['id', 'server_id', 'channel_id', 'sender', 'ai_for', 'body', 'created_at'])
+            && isStr(incoming().body, 1, 4500)
+            && (incoming().sender == request.auth.uid || (incoming().sender == 'coden' && incoming().ai_for == request.auth.uid))
+            && request.auth.uid in get(/databases/$(database)/documents/servers/$(serverId)).data.memberUids;
+          allow update, delete: if isAdmin();
+        }
+      }
+
+      match /shares/{appId} {
+        allow get, list: if isSignedIn() && (
+          request.auth.uid in get(/databases/$(database)/documents/servers/$(serverId)).data.memberUids || isAdmin()
+        );
+        allow create: if isVerified() && isNumId(appId)
+          && exists(/databases/$(database)/documents/servers/$(serverId))
+          && incoming().keys().hasAll(['server_id', 'app_id', 'shared_by'])
+          && incoming().keys().hasOnly(['server_id', 'app_id', 'shared_by', 'name', 'kind', 'style', 'slug', 'published', 'preview_token', 'version', 'theme_color', 'updated_at', 'created_at'])
+          && incoming().shared_by == request.auth.uid
+          && get(/databases/$(database)/documents/servers/$(serverId)/members/$(request.auth.uid)).data.role in ['owner', 'editor'];
+        allow update: if false;
+        allow delete: if isNumId(appId) && (
+          isOwner(existing().shared_by) ||
+          get(/databases/$(database)/documents/servers/$(serverId)).data.owner == request.auth.uid ||
+          isAdmin()
+        );
+      }
+    }
+
+    match /server_invites/{code} {
+      allow get: if isSignedIn() && isStr(code, 6, 20);
+      allow list: if false;
+      allow create: if isVerified() && isStr(code, 6, 20)
+        && incoming().keys().hasAll(['code', 'server_id', 'owner'])
+        && incoming().keys().hasOnly(['code', 'server_id', 'owner'])
+        && incoming().code == code && incoming().owner == request.auth.uid;
+      allow update: if false;
+      allow delete: if isStr(code, 6, 20) && (isOwner(existing().owner) || isAdmin());
+    }
+
+    // ---------- Background Runs ----------
+    match /ai_runs/{runId} {
+      allow get: if isNumId(runId) && (isOwner(existing().uid) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isNumId(runId) && isValidAiRun(incoming())
+        && incoming().uid == request.auth.uid && incoming().status == 'running';
+      allow update: if isVerified() && isNumId(runId) && isValidAiRun(incoming())
+        && (isOwner(existing().uid) || isAdmin())
+        && incoming().id == existing().id && incoming().uid == existing().uid
+        && (
+          isAdmin() ||
+          (existing().status == 'running' && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'text', 'think', 'agents', 'model', 'error', 'meta', 'stop', 'claimed', 'updated_at'])) ||
+          (existing().status != 'running' && existing().claimed == false && incoming().claimed == true && incoming().status == existing().status && incoming().diff(existing()).affectedKeys().hasOnly(['claimed', 'updated_at']))
+        );
+      allow delete: if isNumId(runId) && (isOwner(existing().uid) || isAdmin());
+    }
+
+    // ---------- Usage Limits ----------
+    match /usage_limits/{uid} {
+      allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isValidId(uid) && isValidUsageLimit(incoming(), uid) && (isOwner(uid) || isAdmin());
+      allow update: if isVerified() && isValidId(uid) && isValidUsageLimit(incoming(), uid)
+        && incoming().uid == existing().uid
+        && (
+          isAdmin() ||
+          (isOwner(uid) && incoming().total >= existing().total && incoming().diff(existing()).affectedKeys().hasOnly(['email', 's_start', 's_tokens', 'w_start', 'w_tokens', 'total', 'updated_at']))
+        );
+      allow delete: if isAdmin();
+    }
+
+    // ---------- Push Subscriptions ----------
+    match /push_subs/{subId} {
+      allow get: if isValidId(subId) && (isOwner(existing().uid) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isValidId(subId)
+        && incoming().keys().hasAll(['uid', 'endpoint', 'keys'])
+        && incoming().keys().hasOnly(['uid', 'endpoint', 'keys', 'created_at'])
+        && incoming().uid == request.auth.uid
+        && isStr(incoming().endpoint, 10, 1000)
+        && incoming().keys is map && incoming().keys.keys().hasOnly(['p256dh', 'auth']);
+      allow update: if isVerified() && isValidId(subId)
+        && (isOwner(existing().uid) || isAdmin())
+        && incoming().keys().hasAll(['uid', 'endpoint', 'keys'])
+        && incoming().keys().hasOnly(['uid', 'endpoint', 'keys', 'created_at'])
+        && incoming().uid == existing().uid && incoming().endpoint == existing().endpoint
+        && incoming().keys is map && incoming().keys.keys().hasOnly(['p256dh', 'auth'])
+        && incoming().diff(existing()).affectedKeys().hasOnly(['keys']);
+      allow delete: if isValidId(subId) && (isOwner(existing().uid) || isAdmin());
+    }
+
+    // ---------- BYOK Models, Chains & Encrypted Keys ----------
+    match /user_provider_keys/{keyId} {
+      allow get: if isValidId(keyId) && (isOwner(existing().uid) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isValidId(keyId)
+        && incoming().keys().hasAll(['uid', 'provider', 'key_enc'])
+        && incoming().keys().hasOnly(['uid', 'provider', 'key_enc', 'hint', 'created_at'])
+        && incoming().uid == request.auth.uid
+        && incoming().provider in ['google', 'openai', 'anthropic', 'openrouter']
+        && isStr(incoming().key_enc, 10, 2000) && isOptStr(incoming(), 'hint', 32);
+      allow update: if isVerified() && isValidId(keyId)
+        && (isOwner(existing().uid) || isAdmin())
+        && incoming().keys().hasAll(['uid', 'provider', 'key_enc'])
+        && incoming().keys().hasOnly(['uid', 'provider', 'key_enc', 'hint', 'created_at'])
+        && incoming().uid == existing().uid && incoming().provider == existing().provider
+        && isStr(incoming().key_enc, 10, 2000) && isOptStr(incoming(), 'hint', 32)
+        && incoming().diff(existing()).affectedKeys().hasOnly(['key_enc', 'hint', 'created_at']);
+      allow delete: if isValidId(keyId) && (isOwner(existing().uid) || isAdmin());
+    }
+
+    match /user_models/{modelId} {
+      allow get: if isNumId(modelId) && (isOwner(existing().uid) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isNumId(modelId) && isValidUserModel(incoming());
+      allow update: if isVerified() && isNumId(modelId) && isValidUserModel(incoming())
+        && (isOwner(existing().uid) || isAdmin())
+        && incoming().id == existing().id && incoming().uid == existing().uid
+        && incoming().provider == existing().provider && incoming().model_id == existing().model_id
+        && incoming().diff(existing()).affectedKeys().hasOnly(['label', 'levels', 'default_level']);
+      allow delete: if isNumId(modelId) && (isOwner(existing().uid) || isAdmin());
+    }
+
+    match /user_chains/{chainId} {
+      allow get: if isNumId(chainId) && (isOwner(existing().uid) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isNumId(chainId) && isValidUserChain(incoming());
+      allow update: if isVerified() && isNumId(chainId) && isValidUserChain(incoming())
+        && (isOwner(existing().uid) || isAdmin())
+        && incoming().id == existing().id && incoming().uid == existing().uid
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'members']);
+      allow delete: if isNumId(chainId) && (isOwner(existing().uid) || isAdmin());
+    }
+
+    match /user_agent_cfg/{uid} {
+      allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isValidId(uid)
+        && incoming().keys().hasAll(['uid', 'cfg'])
+        && incoming().keys().hasOnly(['uid', 'cfg', 'updated_at'])
+        && incoming().uid == request.auth.uid
+        && incoming().cfg is map && incoming().cfg.keys().size() <= 16;
+      allow update: if isVerified() && isValidId(uid)
+        && (isOwner(uid) || isAdmin())
+        && incoming().keys().hasAll(['uid', 'cfg'])
+        && incoming().keys().hasOnly(['uid', 'cfg', 'updated_at'])
+        && incoming().uid == existing().uid
+        && incoming().cfg is map && incoming().cfg.keys().size() <= 16
+        && incoming().diff(existing()).affectedKeys().hasOnly(['cfg', 'updated_at']);
+      allow delete: if isValidId(uid) && (isOwner(uid) || isAdmin());
+    }
+
+    // ---------- Server-Only Secrets & Daily Model Quotas ----------
+    match /app_secrets/{name} {
+      allow read, write: if isAdmin();
+    }
+
+    match /model_quota/{quotaId} {
+      allow read, write: if isAdmin();
+    }
+  }
+}

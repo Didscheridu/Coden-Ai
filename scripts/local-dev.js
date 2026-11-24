@@ -20,6 +20,9 @@ for (const dir of ['css', 'js', 'images', 'kit', 'shared']) {
   app.use(`/${dir}`, express.static(path.join(root, dir)));
 }
 
+app.get('/firebase-applet-config.json', (req, res) => {
+  res.sendFile(path.join(root, 'firebase-applet-config.json'));
+});
 app.get('/manifest.webmanifest', (req, res) => {
   res.sendFile(path.join(root, 'manifest.webmanifest'));
 });

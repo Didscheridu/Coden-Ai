@@ -1,10 +1,11 @@
-// End-to-End-Test gegen ein echtes Postgres (PGlite) mit der echten schema.sql und den echten Abfragen.
-const Module = require('module'); const path = require('path'); const fs = require('fs');
+// End-to-End-Test gegen Firebase Firestore (In-Memory-Store) und den vollständigen Express-Server.
+const path = require('path');
 const root = path.join(__dirname, '..');
 (async () => {
-  const { PGlite } = await import('@electric-sql/pglite');
-  const db = new PGlite();
-  await db.exec(fs.readFileSync(path.join(root, 'db/schema.sql'), 'utf8'));
+  const firestore = require(path.join(root, 'server/firestore'));
+  firestore.enableMemoryDb();
+  firestore.clearMemoryDb();
+  require(path.join(root, 'server/rateLimit'))._clearRateLimits();
   // Echte Firebase-Token-Prüfung testen: eigener Schlüssel + lokaler JWKS-Server
   const jose = await import('jose');
   const { publicKey, privateKey } = await jose.generateKeyPair('RS256');
@@ -15,12 +16,7 @@ const root = path.join(__dirname, '..');
   const PROJECT = 'coden-4561f';
   const token = (claims = {}, { key = privateKey, aud = PROJECT, iss = `https://securetoken.google.com/${PROJECT}`, exp = '1h' } = {}) =>
     new jose.SignJWT(claims).setProtectedHeader({ alg: 'RS256', kid: 'k1' }).setSubject(claims.sub).setAudience(aud).setIssuer(iss).setIssuedAt().setExpirationTime(exp).sign(key);
-  const orig = Module._load;
-  Module._load = function (req, ...a) {
-    if (req === 'pg') return { Pool: class { on() {} query(text, values) { return db.query(text, values); } } };
-    return orig.call(this, req, ...a);
-  };
-  Object.assign(process.env, { DATABASE_URL: 'pglite', ADMIN_EMAIL: 'admin@test.de', FIREBASE_PROJECT_ID: PROJECT, FIREBASE_JWKS_URL: `http://127.0.0.1:${jwksServer.address().port}/jwks` });
+  Object.assign(process.env, { CODEN_TEST_DB: 'memory', ADMIN_EMAIL: 'admin@test.de', FIREBASE_PROJECT_ID: PROJECT, FIREBASE_JWKS_URL: `http://127.0.0.1:${jwksServer.address().port}/jwks` });
   const app = require(path.join(root, 'api/index.js'));
   const srv = app.listen(0, async () => {
     const base = `http://127.0.0.1:${srv.address().port}/api`;
@@ -46,7 +42,7 @@ const root = path.join(__dirname, '..');
     chk('Admin mit bestätigter E-Mail = Owner', (await call('/me', null, admin)).j.isOwner, true);
     chk('Daten: leer', (await call('/data', null, user)).j.exists, false);
     const settings = { fontSize: 15, apiKey: 'GEHEIM', emailConfig: { provider: 'gmail', address: 'a@b.de', password: 'GEHEIM' } };
-    chk('Daten speichern (Neon)', (await call('/data', { sessions: [{ id: '1', title: 'Hallo', messages: [] }], settings }, user, null, 'PUT')).s, 200);
+    chk('Daten speichern (Firestore)', (await call('/data', { sessions: [{ id: '1', title: 'Hallo', messages: [] }], settings }, user, null, 'PUT')).s, 200);
     const got = (await call('/data', null, user)).j;
     chk('Daten lesen: Chat', got.sessions[0].title, 'Hallo');
     chk('Secrets nicht in DB: apiKey', got.settings.apiKey, undefined);
@@ -89,7 +85,7 @@ const root = path.join(__dirname, '..');
     chk('Modell erzwingen: unbekanntes Modell → 400 (Owner)', (await call('/chat', { messages: [{ role: 'user', content: 'hi' }], tier: 'flash', model: 'groq:gibt-es-nicht' }, admin)).s, 400);
     chk('email: fremder SMTP-Host abgelehnt', (await call('/send-email', { provider: 'evil.com', email: 'a@b.de', password: 'p', to: 'c@d.de', text: 't' }, user)).s, 400);
     let last; for (let i = 0; i < 25; i++) last = await call('/chat', { messages: [{ role: 'user', content: 'hi' }], tier: 'gibtsnicht' }, user);
-    chk('Rate-Limit (Neon-Zähler)', last.s, 429);
+    chk('Rate-Limit (Zähler)', last.s, 429);
     let bad = 0; for (const [n, g, w] of t) { const ok = g === w; if (!ok) bad++; console.log(ok ? 'OK  ' : 'FAIL', n, ok ? '' : `(bekam ${g}, erwartet ${w})`); }
     console.log(`\n${t.length - bad}/${t.length} bestanden`);
     srv.close(); jwksServer.close(); process.exit(bad ? 1 : 0);

@@ -1,0 +1,655 @@
+{
+  "entities": {
+    "TestConnection": {
+      "title": "TestConnection",
+      "description": "Startup Firestore connectivity probe document",
+      "type": "object",
+      "properties": {
+        "ok": { "type": "boolean" }
+      }
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Admin role assignment document keyed by Firebase UID",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["uid"]
+    },
+    "SystemState": {
+      "title": "SystemState",
+      "description": "Global application locks, broadcast, theme and maintenance flags",
+      "type": "object",
+      "properties": {
+        "locks": { "type": "object" },
+        "broadcast": { "type": "object" },
+        "forceUpdate": { "type": "number" },
+        "maintenance": { "type": "boolean" },
+        "globalModel": { "type": "string", "maxLength": 32 },
+        "theme": { "type": "string", "maxLength": 32 },
+        "fontSize": { "type": "number" },
+        "globalClear": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time", "maxLength": 64 }
+      }
+    },
+    "UserData": {
+      "title": "UserData",
+      "description": "User settings, chat session ordering and legacy fallback metadata",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "settings": { "type": "object" },
+        "sessionOrder": { "type": "array" },
+        "sessions": { "type": "array" },
+        "updatedAt": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["uid", "settings"]
+    },
+    "ChatSession": {
+      "title": "ChatSession",
+      "description": "Individual persisted user chat session in subcollection",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "uid": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "messages": { "type": "array" },
+        "pinned": { "type": "boolean" },
+        "unread": { "type": "boolean" },
+        "projectId": { "type": "number" },
+        "assistantId": { "type": "string", "maxLength": 128 },
+        "orderIndex": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "updatedAt": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["id", "uid", "title", "messages"]
+    },
+    "UserProject": {
+      "title": "UserProject",
+      "description": "Private user AI workspace with custom instructions and knowledge files",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "uid": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 60 },
+        "description": { "type": "string", "maxLength": 300 },
+        "instructions": { "type": "string", "maxLength": 8000 },
+        "files": { "type": "object" },
+        "color": { "type": "string", "maxLength": 16 },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "updated_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["id", "uid", "name", "description", "instructions", "files", "color"]
+    },
+    "BuddyProfile": {
+      "title": "BuddyProfile",
+      "description": "Public Code Buddy user profile without PII",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "handle": { "type": "string", "maxLength": 20 },
+        "display_name": { "type": "string", "maxLength": 40 },
+        "bio": { "type": "string", "maxLength": 160 },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "last_seen": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["uid", "handle", "display_name"]
+    },
+    "BuddyHandle": {
+      "title": "BuddyHandle",
+      "description": "Unique handle index mapping handle string to UID",
+      "type": "object",
+      "properties": {
+        "handle": { "type": "string", "maxLength": 20 },
+        "uid": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["handle", "uid"]
+    },
+    "Friendship": {
+      "title": "Friendship",
+      "description": "Friend request or accepted friendship between two UIDs",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 260 },
+        "requester": { "type": "string", "maxLength": 128 },
+        "addressee": { "type": "string", "maxLength": 128 },
+        "participants": { "type": "array" },
+        "status": { "type": "string", "enum": ["pending", "accepted"], "maxLength": 16 },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["id", "requester", "addressee", "participants", "status"]
+    },
+    "DmMessage": {
+      "title": "DmMessage",
+      "description": "Direct message or @coden reply between two Code Buddy friends",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "participants": { "type": "array" },
+        "sender": { "type": "string", "maxLength": 128 },
+        "recipient": { "type": "string", "maxLength": 128 },
+        "peer": { "type": "string", "maxLength": 128 },
+        "ai_for": { "type": "string", "maxLength": 128 },
+        "body": { "type": "string", "maxLength": 4500 },
+        "attachment": { "type": "object" },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "read_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["id", "participants", "sender", "recipient", "body"]
+    },
+    "BuddyProject": {
+      "title": "BuddyProject",
+      "description": "Collaborative Code Buddy project",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "owner": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "title": { "type": "string", "maxLength": 80 },
+        "description": { "type": "string", "maxLength": 300 },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "updated_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["id", "owner", "memberUids", "title"]
+    },
+    "BuddyProjectMember": {
+      "title": "BuddyProjectMember",
+      "description": "Membership record for collaborative Code Buddy project",
+      "type": "object",
+      "properties": {
+        "project_id": { "type": "number" },
+        "uid": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "enum": ["owner", "editor"], "maxLength": 16 }
+      },
+      "required": ["project_id", "uid", "role"]
+    },
+    "BuddyProjectFile": {
+      "title": "BuddyProjectFile",
+      "description": "Versioned source file in a collaborative Code Buddy project",
+      "type": "object",
+      "properties": {
+        "project_id": { "type": "number" },
+        "name": { "type": "string", "maxLength": 100 },
+        "content": { "type": "string", "maxLength": 250000 },
+        "version": { "type": "number" },
+        "updated_by": { "type": "string", "maxLength": 128 },
+        "updated_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["project_id", "name", "content", "version", "updated_by"]
+    },
+    "BuddyProjectMessage": {
+      "title": "BuddyProjectMessage",
+      "description": "Chat message inside a collaborative Code Buddy project",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "project_id": { "type": "number" },
+        "sender": { "type": "string", "maxLength": 128 },
+        "body": { "type": "string", "maxLength": 2500 },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["id", "project_id", "sender", "body"]
+    },
+    "BuilderApp": {
+      "title": "BuilderApp",
+      "description": "App Builder project including files, styling and sharing metadata",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "owner": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "sharedServerIds": { "type": "array" },
+        "name": { "type": "string", "maxLength": 80 },
+        "kind": { "type": "string", "enum": ["web", "ios", "android", "both", "game"], "maxLength": 16 },
+        "style": { "type": "string", "maxLength": 40 },
+        "slug": { "type": "string", "maxLength": 60 },
+        "preview_token": { "type": "string", "maxLength": 64 },
+        "published": { "type": "boolean" },
+        "files": { "type": "object" },
+        "integrations": { "type": "object" },
+        "version": { "type": "number" },
+        "theme_color": { "type": "string", "maxLength": 16 },
+        "apk": { "type": "object" },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "updated_at": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "published_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["id", "owner", "memberUids", "name", "kind", "slug", "preview_token", "published", "files", "version", "theme_color"]
+    },
+    "AppMember": {
+      "title": "AppMember",
+      "description": "Direct collaborator on a BuilderApp",
+      "type": "object",
+      "properties": {
+        "app_id": { "type": "number" },
+        "uid": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "enum": ["owner", "editor", "viewer"], "maxLength": 16 },
+        "last_seen": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["app_id", "uid", "role"]
+    },
+    "AppMessage": {
+      "title": "AppMessage",
+      "description": "Agent or team chat message in an App Builder workspace",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "app_id": { "type": "number" },
+        "sender": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "enum": ["user", "assistant", "tool", "event"], "maxLength": 16 },
+        "body": { "type": "string", "maxLength": 65000 },
+        "meta": { "type": "object" },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["id", "app_id", "sender", "role", "body"]
+    },
+    "AppRoute": {
+      "title": "AppRoute",
+      "description": "Published public route snapshot for /a/{slug}/",
+      "type": "object",
+      "properties": {
+        "app_id": { "type": "number" },
+        "owner": { "type": "string", "maxLength": 128 },
+        "slug": { "type": "string", "maxLength": 60 },
+        "name": { "type": "string", "maxLength": 80 },
+        "kind": { "type": "string", "maxLength": 16 },
+        "style": { "type": "string", "maxLength": 40 },
+        "published": { "type": "boolean" },
+        "files": { "type": "object" },
+        "version": { "type": "number" },
+        "theme_color": { "type": "string", "maxLength": 16 },
+        "updated_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["app_id", "owner", "slug", "published"]
+    },
+    "AppPreview": {
+      "title": "AppPreview",
+      "description": "Secret capability-token snapshot for private app previews",
+      "type": "object",
+      "properties": {
+        "app_id": { "type": "number" },
+        "owner": { "type": "string", "maxLength": 128 },
+        "slug": { "type": "string", "maxLength": 60 },
+        "name": { "type": "string", "maxLength": 80 },
+        "kind": { "type": "string", "maxLength": 16 },
+        "style": { "type": "string", "maxLength": 40 },
+        "files": { "type": "object" },
+        "version": { "type": "number" },
+        "theme_color": { "type": "string", "maxLength": 16 },
+        "updated_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["app_id", "owner", "slug"]
+    },
+    "AppImage": {
+      "title": "AppImage",
+      "description": "Generated image asset served under /api/public/img/{key}",
+      "type": "object",
+      "properties": {
+        "key": { "type": "string", "maxLength": 32 },
+        "app_id": { "type": "number" },
+        "uid": { "type": "string", "maxLength": 128 },
+        "prompt": { "type": "string", "maxLength": 2000 },
+        "mime": { "type": "string", "maxLength": 64 },
+        "data_b64": { "type": "string", "maxLength": 950000 },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["key", "uid", "mime", "data_b64"]
+    },
+    "BuddyServer": {
+      "title": "BuddyServer",
+      "description": "Discord-style Code Buddy community server",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "name": { "type": "string", "maxLength": 40 },
+        "color": { "type": "string", "maxLength": 16 },
+        "owner": { "type": "string", "maxLength": 128 },
+        "invite_code": { "type": "string", "maxLength": 20 },
+        "memberUids": { "type": "array" },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["id", "name", "color", "owner", "invite_code", "memberUids"]
+    },
+    "ServerInvite": {
+      "title": "ServerInvite",
+      "description": "Invite lookup keyed by 10-char invite code",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "maxLength": 20 },
+        "server_id": { "type": "number" },
+        "owner": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["code", "server_id", "owner"]
+    },
+    "ServerMember": {
+      "title": "ServerMember",
+      "description": "Role-based membership inside a BuddyServer",
+      "type": "object",
+      "properties": {
+        "server_id": { "type": "number" },
+        "uid": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "enum": ["owner", "editor", "viewer"], "maxLength": 16 },
+        "joined_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["server_id", "uid", "role"]
+    },
+    "ServerChannel": {
+      "title": "ServerChannel",
+      "description": "Text channel inside a BuddyServer",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "server_id": { "type": "number" },
+        "name": { "type": "string", "maxLength": 40 },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["id", "server_id", "name"]
+    },
+    "ServerMessage": {
+      "title": "ServerMessage",
+      "description": "Channel message or @coden reply in a BuddyServer",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "server_id": { "type": "number" },
+        "channel_id": { "type": "number" },
+        "sender": { "type": "string", "maxLength": 128 },
+        "ai_for": { "type": "string", "maxLength": 128 },
+        "body": { "type": "string", "maxLength": 4500 },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["id", "server_id", "channel_id", "sender", "body"]
+    },
+    "ServerShare": {
+      "title": "ServerShare",
+      "description": "App shared with a BuddyServer",
+      "type": "object",
+      "properties": {
+        "server_id": { "type": "number" },
+        "app_id": { "type": "number" },
+        "shared_by": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 80 },
+        "kind": { "type": "string", "maxLength": 16 },
+        "style": { "type": "string", "maxLength": 40 },
+        "slug": { "type": "string", "maxLength": 60 },
+        "published": { "type": "boolean" },
+        "preview_token": { "type": "string", "maxLength": 64 },
+        "version": { "type": "number" },
+        "theme_color": { "type": "string", "maxLength": 16 },
+        "updated_at": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["server_id", "app_id", "shared_by"]
+    },
+    "AiRun": {
+      "title": "AiRun",
+      "description": "Background AI execution state for chat or app agent runs",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "uid": { "type": "string", "maxLength": 128 },
+        "kind": { "type": "string", "enum": ["chat", "app"], "maxLength": 16 },
+        "ref": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["running", "done", "error", "stopped"], "maxLength": 16 },
+        "text": { "type": "string", "maxLength": 800000 },
+        "think": { "type": "object" },
+        "agents": { "type": "array" },
+        "model": { "type": "string", "maxLength": 160 },
+        "error": { "type": "string", "maxLength": 2000 },
+        "meta": { "type": "object" },
+        "stop": { "type": "boolean" },
+        "claimed": { "type": "boolean" },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "updated_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["id", "uid", "kind", "ref", "status"]
+    },
+    "UsageLimit": {
+      "title": "UsageLimit",
+      "description": "5-hour and 7-day token usage quota record per user",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 200 },
+        "s_start": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "s_tokens": { "type": "number" },
+        "w_start": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "w_tokens": { "type": "number" },
+        "total": { "type": "number" },
+        "updated_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["uid", "s_tokens", "w_tokens", "total"]
+    },
+    "PushSub": {
+      "title": "PushSub",
+      "description": "Web Push browser subscription record for a user",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "endpoint": { "type": "string", "maxLength": 1000 },
+        "keys": { "type": "object" },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["uid", "endpoint", "keys"]
+    },
+    "UserProviderKey": {
+      "title": "UserProviderKey",
+      "description": "AES-256-GCM encrypted BYOK provider API key",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "provider": { "type": "string", "enum": ["google", "openai", "anthropic", "openrouter"], "maxLength": 32 },
+        "key_enc": { "type": "string", "maxLength": 2000 },
+        "hint": { "type": "string", "maxLength": 32 },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["uid", "provider", "key_enc"]
+    },
+    "UserModel": {
+      "title": "UserModel",
+      "description": "Custom BYOK model definition belonging to a user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "uid": { "type": "string", "maxLength": 128 },
+        "provider": { "type": "string", "enum": ["google", "openai", "anthropic", "openrouter"], "maxLength": 32 },
+        "model_id": { "type": "string", "maxLength": 120 },
+        "label": { "type": "string", "maxLength": 60 },
+        "levels": { "type": "array" },
+        "default_level": { "type": "string", "maxLength": 32 },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["id", "uid", "provider", "model_id", "label"]
+    },
+    "UserChain": {
+      "title": "UserChain",
+      "description": "Fallback chain of models belonging to a user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "uid": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 40 },
+        "members": { "type": "array" },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["id", "uid", "name", "members"]
+    },
+    "UserAgentCfg": {
+      "title": "UserAgentCfg",
+      "description": "Sub-agent model routing configuration per user",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "cfg": { "type": "object" },
+        "updated_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["uid", "cfg"]
+    },
+    "AppSecret": {
+      "title": "AppSecret",
+      "description": "Server-only internal secrets (admin access only)",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 64 },
+        "value": { "type": "object" }
+      },
+      "required": ["name", "value"]
+    },
+    "ModelQuota": {
+      "title": "ModelQuota",
+      "description": "Daily server quota counter for scarce models (admin access only)",
+      "type": "object",
+      "properties": {
+        "model": { "type": "string", "maxLength": 120 },
+        "day": { "type": "string", "maxLength": 16 },
+        "total": { "type": "number" },
+        "public": { "type": "number" }
+      },
+      "required": ["model", "day", "total", "public"]
+    }
+  },
+  "firestore": {
+    "/test/{docId}": {
+      "schema": { "$ref": "#/entities/TestConnection" },
+      "description": "Startup Firestore connection probe"
+    },
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Explicit admin UIDs"
+    },
+    "/system_state/{docId}": {
+      "schema": { "$ref": "#/entities/SystemState" },
+      "description": "Global application settings and locks"
+    },
+    "/user_data/{uid}": {
+      "schema": { "$ref": "#/entities/UserData" },
+      "description": "Per-user settings and chat session order"
+    },
+    "/user_data/{uid}/sessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/ChatSession" },
+      "description": "Per-user persisted chat session documents"
+    },
+    "/user_projects/{projectId}": {
+      "schema": { "$ref": "#/entities/UserProject" },
+      "description": "Private user AI workspaces"
+    },
+    "/profiles/{uid}": {
+      "schema": { "$ref": "#/entities/BuddyProfile" },
+      "description": "Code Buddy public profiles"
+    },
+    "/buddy_handles/{handle}": {
+      "schema": { "$ref": "#/entities/BuddyHandle" },
+      "description": "Unique Code Buddy handle lookup table"
+    },
+    "/friendships/{pairId}": {
+      "schema": { "$ref": "#/entities/Friendship" },
+      "description": "Friendships and requests between users"
+    },
+    "/dm_messages/{msgId}": {
+      "schema": { "$ref": "#/entities/DmMessage" },
+      "description": "Direct messages between Code Buddy friends"
+    },
+    "/buddy_projects/{projectId}": {
+      "schema": { "$ref": "#/entities/BuddyProject" },
+      "description": "Collaborative Code Buddy projects"
+    },
+    "/buddy_projects/{projectId}/members/{memberUid}": {
+      "schema": { "$ref": "#/entities/BuddyProjectMember" },
+      "description": "Collaborative project memberships"
+    },
+    "/buddy_projects/{projectId}/files/{fileKey}": {
+      "schema": { "$ref": "#/entities/BuddyProjectFile" },
+      "description": "Collaborative project files"
+    },
+    "/buddy_projects/{projectId}/messages/{msgId}": {
+      "schema": { "$ref": "#/entities/BuddyProjectMessage" },
+      "description": "Collaborative project messages"
+    },
+    "/apps/{appId}": {
+      "schema": { "$ref": "#/entities/BuilderApp" },
+      "description": "App Builder applications"
+    },
+    "/apps/{appId}/members/{memberUid}": {
+      "schema": { "$ref": "#/entities/AppMember" },
+      "description": "App Builder direct members"
+    },
+    "/apps/{appId}/messages/{msgId}": {
+      "schema": { "$ref": "#/entities/AppMessage" },
+      "description": "App Builder chat and agent messages"
+    },
+    "/app_routes/{slug}": {
+      "schema": { "$ref": "#/entities/AppRoute" },
+      "description": "Published app routes indexed by slug"
+    },
+    "/app_previews/{previewId}": {
+      "schema": { "$ref": "#/entities/AppPreview" },
+      "description": "Secret preview token routes for unpublished apps"
+    },
+    "/app_images/{key}": {
+      "schema": { "$ref": "#/entities/AppImage" },
+      "description": "Generated images for chats and apps"
+    },
+    "/servers/{serverId}": {
+      "schema": { "$ref": "#/entities/BuddyServer" },
+      "description": "Code Buddy servers"
+    },
+    "/server_invites/{code}": {
+      "schema": { "$ref": "#/entities/ServerInvite" },
+      "description": "Invite code lookup records"
+    },
+    "/servers/{serverId}/members/{memberUid}": {
+      "schema": { "$ref": "#/entities/ServerMember" },
+      "description": "Server member roles"
+    },
+    "/servers/{serverId}/channels/{channelId}": {
+      "schema": { "$ref": "#/entities/ServerChannel" },
+      "description": "Server text channels"
+    },
+    "/servers/{serverId}/channels/{channelId}/messages/{msgId}": {
+      "schema": { "$ref": "#/entities/ServerMessage" },
+      "description": "Server channel messages"
+    },
+    "/servers/{serverId}/shares/{appId}": {
+      "schema": { "$ref": "#/entities/ServerShare" },
+      "description": "Apps shared into a server"
+    },
+    "/ai_runs/{runId}": {
+      "schema": { "$ref": "#/entities/AiRun" },
+      "description": "Background AI runs"
+    },
+    "/usage_limits/{uid}": {
+      "schema": { "$ref": "#/entities/UsageLimit" },
+      "description": "User token quota limits"
+    },
+    "/push_subs/{subId}": {
+      "schema": { "$ref": "#/entities/PushSub" },
+      "description": "Web Push subscriptions"
+    },
+    "/user_provider_keys/{keyId}": {
+      "schema": { "$ref": "#/entities/UserProviderKey" },
+      "description": "Encrypted BYOK provider API keys"
+    },
+    "/user_models/{modelId}": {
+      "schema": { "$ref": "#/entities/UserModel" },
+      "description": "User custom BYOK models"
+    },
+    "/user_chains/{chainId}": {
+      "schema": { "$ref": "#/entities/UserChain" },
+      "description": "User model fallback chains"
+    },
+    "/user_agent_cfg/{uid}": {
+      "schema": { "$ref": "#/entities/UserAgentCfg" },
+      "description": "User sub-agent routing config"
+    },
+    "/app_secrets/{name}": {
+      "schema": { "$ref": "#/entities/AppSecret" },
+      "description": "Internal server secrets (admin only)"
+    },
+    "/model_quota/{quotaId}": {
+      "schema": { "$ref": "#/entities/ModelQuota" },
+      "description": "Daily quota counters (admin only)"
+    }
+  }
+}

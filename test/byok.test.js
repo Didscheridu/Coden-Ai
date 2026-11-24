@@ -41,7 +41,7 @@ const { setup } = require('./helpers');
   chk('Key gespeichert', put.s, 200);
   chk('Antwort zeigt nur die letzten 4 Zeichen', put.j.providers[0].hint, '…abcd');
   chk('Antwort enthält den Key nicht', JSON.stringify(put.j).includes('TESTKEY'), false);
-  const stored = (await db.query(`SELECT key_enc FROM user_provider_keys WHERE uid = 'uid-anna'`)).rows[0].key_enc;
+  const stored = (await db.getDoc('user_provider_keys/uid-anna__google')).key_enc;
   chk('In der Datenbank verschlüsselt', stored.includes('TESTKEY') || stored.includes(KEY), false);
   chk('Verschlüsselung entschlüsselbar', await require('../server/byok').resolve('uid-anna', 'byok:' + (await addModel('google', 'gemini-4-hydrogen', ['low', 'medium', 'high', 'xhigh'])).j.models[0].id).then(m => m.apiKey), KEY);
 
@@ -70,7 +70,8 @@ const { setup } = require('./helpers');
   chk('Google: eigener Key benutzt', last().headers['x-goog-api-key'], KEY);
   chk('Google: Denkstufe xhigh gesendet', last().body.generationConfig.thinkingConfig.thinkingLevel, 'xhigh');
   chk('Eigenes Modell zeigt seinen Namen', events(t).some(e => e.t === 'm' && e.model === 'gemini-4-hydrogen'), true);
-  chk('Limit nicht gezählt', ((await db.query(`SELECT count(*)::int AS n FROM usage_limits WHERE uid = 'uid-anna' AND (s_tokens > 0 OR w_tokens > 0)`)).rows[0].n), 0);
+  const usageDoc = await db.getDoc('usage_limits/uid-anna');
+  chk('Limit nicht gezählt', !!usageDoc && ((usageDoc.s_tokens || 0) > 0 || (usageDoc.w_tokens || 0) > 0), false);
   // Stufe, die das Modell nicht hat -> Standardstufe des Modells (mittlere gibt es nicht -> erste)
   await stream(gm.tier, anna, { effort: 'medium' });
   chk('Unbekannte Stufe -> Standard des Modells', last().body.generationConfig.thinkingConfig.thinkingLevel, 'low');

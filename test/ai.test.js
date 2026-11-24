@@ -1,4 +1,4 @@
-// Kontingent, Kaskaden-Reihenfolge, Streaming. Anbieter werden mit einem Fake-fetch simuliert, die Datenbank ist echt (PGlite).
+// Kontingent, Kaskaden-Reihenfolge, Streaming. Anbieter werden mit einem Fake-fetch simuliert, die Datenbank ist Firestore (In-Memory).
 const { setup } = require('./helpers');
 const enc = new TextEncoder();
 const sseResponse = (chunks, { failAfter } = {}) => new Response(new ReadableStream({
@@ -37,7 +37,9 @@ const gem = (t) => `data: ${JSON.stringify({ candidates: [{ content: { parts: [{
     if (mode === 'streamMidError') return sseResponse([oa('Teil1 '), oa('Teil2'), oa('Teil3')], { failAfter: 2 });
     if (mode === 'streamGoogle') return sseResponse([gem('Ge'), gem('mini')]);
   };
-  const counts = async (m) => (await db.query('SELECT total, public FROM model_quota WHERE model = $1', [m])).rows[0] || { total: 0, public: 0 };
+  const pacificDay = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+  const qKey = (m) => `model_quota/${String(m).replace(/[^a-zA-Z0-9_-]/g, '_')}__${pacificDay()}`;
+  const counts = async (m) => { const d = await db.getDoc(qKey(m)); return d ? { total: d.total, public: d.public } : { total: 0, public: 0 }; };
 
   // --- Reihenfolge ---
   const last = (t) => ai.CASCADES[t][ai.CASCADES[t].length - 1].id;
@@ -91,11 +93,11 @@ const gem = (t) => `data: ${JSON.stringify({ candidates: [{ content: { parts: [{
   const n1 = []; for (let i = 0; i < 11; i++) { try { n1.push(await ai.generate('normal', [{ role: 'user', content: 'hi' }], { isOwner: false })); } catch (e) { n1.push('FEHLER'); } }
   chk('3.8 Flash: öffentlich max. 10', [n1.filter(x => x === 'Antwort von gemini-quota-b').length, n1[10]], [10, 'FEHLER']);
   // Tageswechsel: neuer Tag = neuer Zähler
-  await db.query("UPDATE model_quota SET day = day - 1");
+  await db.deleteDoc(qKey('gemini-quota-a'));
   chk('Neuer Tag: wieder verfügbar', await ai.generate('pro', [{ role: 'user', content: 'hi' }], { isOwner: false }), 'Antwort von gemini-quota-a');
 
   // --- Parallele Aufrufe überschreiten das Limit nicht (atomar) ---
-  await db.query('DELETE FROM model_quota');
+  await db.deleteCollection('model_quota');
   const par = await Promise.allSettled(Array.from({ length: 25 }, () => ai.generate('pro', [{ role: 'user', content: 'hi' }], { isOwner: false })));
   chk('25 gleichzeitige öffentliche Aufrufe: höchstens 10 durch', [par.filter(x => x.status === 'fulfilled').length, (await counts('gemini-quota-a')).total], [10, 10]);
 

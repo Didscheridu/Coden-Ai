@@ -1,6 +1,7 @@
-// Anmeldung läuft über Firebase Auth. Das Backend prüft nur das Firebase-ID-Token
-// (Signatur über Googles öffentliche Schlüssel) - dafür ist kein geheimer Schlüssel nötig.
+// Anmeldung läuft über Firebase Auth. Das Backend prüft das Firebase-ID-Token
+// (Signatur über Googles öffentliche Schlüssel) und bindet das Token per AsyncLocalStorage an Firestore-Anfragen.
 const { createRemoteJWKSet, jwtVerify } = require('jose');
+const { runWithDbContext } = require('./firestore');
 
 const PROJECT_ID = () => process.env.FIREBASE_PROJECT_ID || 'coden-4561f';
 const JWKS_URL = () => process.env.FIREBASE_JWKS_URL || 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
@@ -22,13 +23,15 @@ async function requireAuth(req, res, next) {
     });
     if (!payload.sub) throw new Error('kein sub');
     const email = (payload.email || '').toLowerCase();
+    req.idToken = token;
     req.user = {
       uid: payload.sub,
       email: payload.email || null,
+      emailVerified: payload.email_verified === true,
       // Owner nur mit bestätigter E-Mail (Google-Login oder angeklickter Bestätigungslink)
       isOwner: !!adminEmail() && payload.email_verified === true && email === adminEmail()
     };
-    next();
+    runWithDbContext({ token, uid: req.user.uid, email: req.user.email, isOwner: req.user.isOwner }, () => next());
   } catch (e) {
     res.status(401).json({ error: 'Ungültiges oder abgelaufenes Login.' });
   }

@@ -236,10 +236,50 @@ export const UI = {
     },
 
     renderSidebar: (sessions, activeSessionId) => {
+        document.getElementById('sb-ctx-menu')?.remove();
         sessions = sessions.filter(s => !s.temp); // temporäre Chats tauchen nicht im Verlauf auf
         const list = document.querySelector('.sidebar-scroll-area');
         if (!list) return;
         const collapsed = (() => { try { return JSON.parse(localStorage.getItem('coden_sb_collapsed') || '{}'); } catch (_) { return {}; } })();
+        const openRowMenu = (sess, btn) => {
+            const existing = document.getElementById('sb-ctx-menu');
+            const same = existing && existing.dataset.sid === sess.id;
+            existing?.remove();
+            if (same) return;
+            const menu = document.createElement('div');
+            menu.id = 'sb-ctx-menu';
+            menu.className = 'sb-ctx-menu';
+            menu.dataset.sid = sess.id;
+            menu.setAttribute('role', 'menu');
+            const mk = (ic, label, cls, fn) => {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'sb-ctx-item' + (cls ? ' ' + cls : '');
+                b.setAttribute('role', 'menuitem');
+                b.innerHTML = '<span class="material-symbols-outlined"></span><span></span>';
+                b.firstChild.textContent = ic;
+                b.lastChild.textContent = label;
+                b.addEventListener('click', (e) => { e.stopPropagation(); menu.remove(); fn(); });
+                return b;
+            };
+            menu.append(
+                mk(sess.pinned ? 'keep_off' : 'keep', sess.pinned ? 'Lösen' : 'Anheften', '', () => document.dispatchEvent(new CustomEvent('togglePinSession', { detail: sess.id }))),
+                mk('delete', 'Chat löschen', 'danger', () => document.dispatchEvent(new CustomEvent('deleteChatSession', { detail: sess.id })))
+            );
+            document.body.append(menu);
+            const r = btn.getBoundingClientRect();
+            const mw = menu.offsetWidth || 168, mh = menu.offsetHeight || 86;
+            const left = Math.max(8, Math.min(r.right - mw, window.innerWidth - mw - 8));
+            const top = r.bottom + 4 + mh > window.innerHeight - 8 ? Math.max(8, r.top - mh - 4) : r.bottom + 4;
+            menu.style.left = left + 'px';
+            menu.style.top = top + 'px';
+        };
+        if (!UI._sbCtxBound) {
+            UI._sbCtxBound = true;
+            document.addEventListener('click', (e) => { if (!e.target.closest('#sb-ctx-menu, .sb-more-btn')) document.getElementById('sb-ctx-menu')?.remove(); });
+            document.addEventListener('keydown', (e) => { if (e.key === 'Escape') document.getElementById('sb-ctx-menu')?.remove(); });
+            list.addEventListener('scroll', () => document.getElementById('sb-ctx-menu')?.remove(), { passive: true });
+        }
         const section = (key, label, items) => {
             const wrap = document.createElement('div'); wrap.className = 'sb-section' + (collapsed[key] ? ' closed' : '');
             const head = document.createElement('button'); head.className = 'sb-head'; head.type = 'button';
@@ -252,11 +292,11 @@ export const UI = {
                 const ic = Object.assign(document.createElement('span'), { className: 'material-symbols-outlined' + (busy ? ' sb-spin' : ''), textContent: busy ? 'progress_activity' : sess.pinned ? 'keep' : 'chat_bubble' });
                 const title = document.createElement('span'); title.className = 'session-title'; title.textContent = sess.title; // Titel stammen von der KI: nur textContent
                 const act = document.createElement('span'); act.className = 'sb-actions';
-                const pin = Object.assign(document.createElement('button'), { className: 'sb-act', title: sess.pinned ? 'Lösen' : 'Anheften', type: 'button' }); pin.innerHTML = '<span class="material-symbols-outlined">' + (sess.pinned ? 'keep_off' : 'keep') + '</span>';
-                const del = Object.assign(document.createElement('button'), { className: 'sb-act delete-chat-btn', title: 'Chat löschen', type: 'button' }); del.innerHTML = '<span class="material-symbols-outlined">delete</span>';
-                pin.addEventListener('click', (e) => { e.stopPropagation(); document.dispatchEvent(new CustomEvent('togglePinSession', { detail: sess.id })); });
-                del.addEventListener('click', (e) => { e.stopPropagation(); document.dispatchEvent(new CustomEvent('deleteChatSession', { detail: sess.id })); });
-                act.append(pin, del); row.append(ic, title, act);
+                const more = Object.assign(document.createElement('button'), { className: 'sb-act sb-more-btn', title: 'Chat-Aktionen', type: 'button' });
+                more.setAttribute('aria-label', 'Chat-Aktionen');
+                more.innerHTML = '<span class="material-symbols-outlined">more_horiz</span>';
+                more.addEventListener('click', (e) => { e.stopPropagation(); openRowMenu(sess, more); });
+                act.append(more); row.append(ic, title, act);
                 row.addEventListener('click', () => document.dispatchEvent(new CustomEvent('loadChatSession', { detail: sess.id })));
                 body.appendChild(row);
             });

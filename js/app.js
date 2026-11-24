@@ -23,7 +23,7 @@ import { Assistants, mountAssistantPicker } from './assistants.js';
 import { renderMemory } from './memory-ui.js';
 import { Router } from './router.js';
 import { Storage } from './storage.js';
-import { initGoogleLogin, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, auth } from './auth.js';
+import { initGoogleLogin, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, resendVerificationEmail, refreshAuth, auth } from './auth.js';
 import { apiFetch, apiJson } from './backend.js';
 import { checkRateLimit } from './Limit-Spamschutz.js';
 import { MultimodalLivePrototype } from './multimodal-live-prototype.js'; // 🔥 NEU: Der Live Client 🔥
@@ -186,29 +186,67 @@ if (auth) {
                 if (appContainer) appContainer.classList.remove('hidden');
                 if (userEmailDisplay) userEmailDisplay.textContent = user.email;
                 
-                try { 
-                    if (Storage.loadFromCloud) await Storage.loadFromCloud(); 
-                } catch(e) {}
-                
+                try {
+                    if (Storage.loadFromCloud) await Storage.loadFromCloud();
+                } catch (e) {
+                    console.error('Cloud Load Error:', e);
+                }
+
                 let settings = Storage.getSettings();
-                if (!settings.userName) { 
-                    settings.userName = extractNameFromEmail(user.email); 
-                    Storage.saveSettings(settings); 
+                if (!settings.userName) {
+                    settings.userName = extractNameFromEmail(user.email);
+                    Storage.saveSettings(settings);
                 }
                 updateGreeting();
 
-                if (!appInitialized) initApp(); 
-                initGlobalSync(); 
+                if (!appInitialized) {
+                    initApp();
+                } else {
+                    sessions = Storage.getSessions();
+                    if (sessions.length === 0) {
+                        currentSession = Storage.createNewSession();
+                        sessions.push(currentSession);
+                    } else {
+                        currentSession = sessions.find(x => x.id === activeSessionId) || sessions[0];
+                    }
+                    activeSessionId = currentSession.id;
+                    loadSession(activeSessionId);
+                }
+                initGlobalSync();
                 loadByok();
+
+                if (user.emailVerified === false) {
+                    toast('Bitte bestätige deine E-Mail-Adresse, damit deine Chats sicher in Firebase gespeichert werden.', {
+                        type: 'warn',
+                        ms: 9000,
+                        action: {
+                            label: 'Mail senden',
+                            run: async () => {
+                                try {
+                                    await resendVerificationEmail();
+                                    toast('Bestätigungsmail gesendet! Danach kurz neu laden.', { type: 'ok', action: { label: 'Prüfen', run: () => refreshAuth() } });
+                                } catch (err) {
+                                    toast(err.message, { type: 'error' });
+                                }
+                            }
+                        }
+                    });
+                }
             } else {
-                if (loginScreen) loginScreen.classList.remove('hidden'); 
+                if (loginScreen) loginScreen.classList.remove('hidden');
                 if (appContainer) appContainer.classList.add('hidden');
-                appInitialized = false; 
+                appInitialized = false;
                 isOwner = false;
+                sessions = [];
+                currentSession = null;
+                activeSessionId = null;
+                Storage.clearLocalUserCache?.();
+                UI.resetUI();
+                UI.renderSidebar([], null);
                 clearByok();
             }
-        } catch (err) { 
-            showError("Fehler beim Laden deines Profils."); 
+        } catch (err) {
+            showError("Fehler beim Laden deines Profils.");
         }
     });
 }
@@ -220,7 +258,7 @@ let globalSyncTimer = null;
 function initGlobalSync() {
     clearInterval(globalSyncTimer);
     pollSystemState();
-    // Neon schläft bei Inaktivität ein -> bewusst nur alle 30 s abfragen, nur bei sichtbarem Tab
+    // Bewusst nur alle 30 s abfragen, nur bei sichtbarem Tab
     globalSyncTimer = setInterval(() => { if (!document.hidden && auth.currentUser) pollSystemState(); }, 30000);
 }
 
@@ -593,7 +631,7 @@ const legalTexts = {
         <h4 style="color: white; margin-bottom: 10px;">Datenschutzerklärung</h4>
         <p>Der Schutz deiner Daten ist uns wichtig. Hier ist zusammengefasst, wie wir Daten verarbeiten:</p>
         <ul style="margin-left: 20px; margin-top: 10px; margin-bottom: 20px;">
-            <li style="margin-bottom: 8px;"><strong>Accounts & Login:</strong> Für die Anmeldung nutzen wir Firebase Authentication (Google). Deine Chats und Einstellungen speichern wir in unserer Datenbank (Neon, Frankfurt).</li>
+            <li style="margin-bottom: 8px;"><strong>Accounts & Login:</strong> Für die Anmeldung nutzen wir Firebase Authentication (Google). Deine Chats, Projekte und Einstellungen speichern wir in Google Firebase (Firestore).</li>
             <li style="margin-bottom: 8px;"><strong>Chats:</strong> Deine Nachrichten werden lokal in deinem Browser gespeichert (LocalStorage) und in unserer Datenbank gesichert.</li>
             <li style="margin-bottom: 8px;"><strong>KI-Verarbeitung:</strong> Nachrichten werden verschlüsselt an unsere Backend-Server (Vercel) und KI-Partner gesendet. Sende niemals sensible Daten (z.B. Passwörter) im Chat.</li>
             <li style="margin-bottom: 8px;"><strong>Hosting:</strong> Diese Webseite wird bei Vercel gehostet. Vercel verarbeitet zur Bereitstellung der Webseite kurzfristig IP-Adressen.</li>
@@ -713,8 +751,8 @@ const isPhone = () => window.matchMedia('(max-width: 768px)').matches;
 function closeSidebarOnPhone() { if (!isPhone() || !mainSidebar) return; mainSidebar.classList.add('collapsed'); document.getElementById('open-sidebar-btn')?.classList.remove('hidden'); }
 if (mainSidebar) {
     closeSidebarOnPhone();
-    mainSidebar.addEventListener('click', (e) => { if (e.target.closest('.sb-chat:not(.sb-act), a.sb-item, .new-chat-btn') && !e.target.closest('.sb-act')) setTimeout(closeSidebarOnPhone, 60); });
-    document.addEventListener('pointerdown', (e) => { if (isPhone() && !mainSidebar.classList.contains('collapsed') && !mainSidebar.contains(e.target) && !e.target.closest('#open-sidebar-btn')) closeSidebarOnPhone(); });
+    mainSidebar.addEventListener('click', (e) => { if (e.target.closest('.sb-chat, a.sb-item, .new-chat-btn') && !e.target.closest('.sb-act, .sb-more-btn, .sb-ctx-menu')) setTimeout(closeSidebarOnPhone, 60); });
+    document.addEventListener('pointerdown', (e) => { if (isPhone() && !mainSidebar.classList.contains('collapsed') && !mainSidebar.contains(e.target) && !e.target.closest('#open-sidebar-btn, .sb-ctx-menu')) closeSidebarOnPhone(); });
 }
 
 if (document.getElementById('toggle-search-btn')) {
@@ -736,7 +774,7 @@ if (chatSearchInput) {
             UI.renderSidebar(sessions, activeSessionId); 
             return; 
         } 
-        const fs = sessions.filter(s => (s.title && s.title.toLowerCase().includes(st)) || s.messages.some(m => m.text.toLowerCase().includes(st))); 
+        const fs = sessions.filter(s => (s.title && s.title.toLowerCase().includes(st)) || (Array.isArray(s.messages) && s.messages.some(m => String(m?.text || m?.displayHTML || '').toLowerCase().includes(st)))); 
         UI.renderSidebar(fs, activeSessionId); 
     });
 }
@@ -835,7 +873,14 @@ function showCustomConfirm(message) {
 const dropTemp = (keepId) => { sessions = sessions.filter(s => !s.temp || s.id === keepId); };
 function markTemp() {
     const on = !!currentSession?.temp; document.body.classList.toggle('temp-chat', on);
-    const b = document.getElementById('temp-chat-btn'); if (b) { b.classList.toggle('on', on); b.title = on ? 'Temporären Chat beenden' : 'Temporärer Chat (wird nicht gespeichert)'; b.setAttribute('aria-pressed', String(on)); }
+    const b = document.getElementById('temp-chat-btn');
+    if (b) {
+        b.classList.toggle('on', on);
+        b.title = on ? 'Temporären Chat beenden' : 'Temporärer Chat (wird nicht gespeichert)';
+        b.setAttribute('aria-pressed', String(on));
+        const lbl = b.querySelector('.tb-mi-label');
+        if (lbl) lbl.textContent = on ? 'Temporären Chat beenden' : 'Temporärer Chat';
+    }
 }
 function startTempChat(on = true) {
     dropTemp();
@@ -846,7 +891,41 @@ function startTempChat(on = true) {
     if (location.hash && !location.hash.startsWith('#/chat')) location.hash = '#/chat';
     if (on) toast('Temporärer Chat: wird nicht gespeichert, Coden merkt sich nichts daraus.', { type: 'info', ms: 3500 });
 }
-document.getElementById('temp-chat-btn')?.addEventListener('click', () => startTempChat(!currentSession?.temp));
+document.getElementById('temp-chat-btn')?.addEventListener('click', () => {
+    document.getElementById('tb-more-menu')?.classList.add('hidden');
+    document.getElementById('tb-more-btn')?.setAttribute('aria-expanded', 'false');
+    startTempChat(!currentSession?.temp);
+});
+
+// Top-Bar & Composer Overflow-Menüs (reduziert sichtbare Knöpfe auf das Wesentliche)
+{
+    const tbBtn = document.getElementById('tb-more-btn');
+    const tbMenu = document.getElementById('tb-more-menu');
+    const closeTb = () => { tbMenu?.classList.add('hidden'); tbBtn?.setAttribute('aria-expanded', 'false'); };
+    if (tbBtn && tbMenu) {
+        tbBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const open = tbMenu.classList.toggle('hidden') === false;
+            tbBtn.setAttribute('aria-expanded', String(open));
+        });
+        document.addEventListener('click', (e) => { if (!tbMenu.contains(e.target) && !tbBtn.contains(e.target)) closeTb(); });
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeTb(); });
+    }
+
+    const plusBtn = document.getElementById('composer-plus-btn');
+    const toolsMenu = document.getElementById('composer-tools-menu');
+    const closeTools = () => { toolsMenu?.classList.add('hidden'); plusBtn?.setAttribute('aria-expanded', 'false'); };
+    if (plusBtn && toolsMenu) {
+        plusBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            document.getElementById('assistant-popup')?.classList.add('hidden');
+            const open = toolsMenu.classList.toggle('hidden') === false;
+            plusBtn.setAttribute('aria-expanded', String(open));
+        });
+        document.addEventListener('click', (e) => { if (!toolsMenu.contains(e.target) && !plusBtn.contains(e.target)) closeTools(); });
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeTools(); });
+    }
+}
 
 if (newChatBtn) {
     newChatBtn.addEventListener('click', () => { 
@@ -862,36 +941,38 @@ if (newChatBtn) {
 
 function loadSession(id) {
     dropTemp(id);
-    ChatApps.clear(); appPicker?.redraw(); setTimeout(() => updateProjectChip(), 0); 
-    const s = sessions.find(s => s.id === id); 
-    if (s) { 
-        activeSessionId = id; 
-        currentSession = s; 
-        UI.resetUI(); 
+    ChatApps.clear(); appPicker?.redraw(); setTimeout(() => updateProjectChip(), 0);
+    const s = sessions.find(s => s.id === id) || sessions[0];
+    if (s) {
+        activeSessionId = s.id;
+        currentSession = s;
+        UI.resetUI();
         if (s.unread) { s.unread = false; saveAll(); }
-        const n = currentSession.messages.length;
-        currentSession.messages.forEach((m, i) => UI.appendMessage(m.text, m.isUser, false, { think: m.think, last: i === n - 1 && !m.isUser && !liveViews.has(id) }));
-        liveViews.get(id)?.attach(); // läuft hier gerade eine Antwort? -> live weiter anzeigen
+        const msgs = Array.isArray(currentSession.messages) ? currentSession.messages : [];
+        const n = msgs.length;
+        msgs.forEach((m, i) => UI.appendMessage(m.displayHTML || m.text || '', m.isUser, false, { think: m.think, last: i === n - 1 && !m.isUser && !liveViews.has(s.id) }));
+        liveViews.get(s.id)?.attach(); // läuft hier gerade eine Antwort? -> live weiter anzeigen
         setStreaming(!!curStream());
         UI.renderSidebar(sessions, activeSessionId); markTemp();
-    } 
+    }
 }
 
-function deleteSession(id) { 
-    sessions = sessions.filter(s => s.id !== id); 
-    if (sessions.length === 0) { 
-        currentSession = Storage.createNewSession(); 
-        sessions.push(currentSession); 
-        activeSessionId = currentSession.id; 
-        UI.resetUI(); 
-    } else if (id === activeSessionId) { 
-        currentSession = sessions[0]; 
-        activeSessionId = currentSession.id; 
-        loadSession(currentSession.id); 
-        return; 
-    } 
-    Storage.saveSessions(sessions); 
-    UI.renderSidebar(sessions, activeSessionId); 
+function deleteSession(id) {
+    sessions = sessions.filter(s => s.id !== id);
+    Storage.deleteSessionFromCloud?.(id);
+    if (sessions.length === 0) {
+        currentSession = Storage.createNewSession();
+        sessions.push(currentSession);
+        activeSessionId = currentSession.id;
+        UI.resetUI();
+    } else if (id === activeSessionId) {
+        currentSession = sessions[0];
+        activeSessionId = currentSession.id;
+        loadSession(currentSession.id);
+        return;
+    }
+    Storage.saveSessions(sessions);
+    UI.renderSidebar(sessions, activeSessionId);
 }
 
 
@@ -967,14 +1048,9 @@ let previewContainer = document.getElementById('attachment-preview-container');
 if (!previewContainer) {
     previewContainer = document.createElement('div');
     previewContainer.id = 'attachment-preview-container';
-    previewContainer.style.display = 'flex';
-    previewContainer.style.gap = '8px';
-    previewContainer.style.padding = '0 12px';
-    previewContainer.style.overflowX = 'auto';
-    previewContainer.style.marginBottom = '8px';
-    
+    previewContainer.className = 'att-preview-bar hidden';
     const inputBox = document.querySelector('.input-box');
-    if(inputBox) inputBox.insertBefore(previewContainer, inputBox.firstChild);
+    if (inputBox) inputBox.insertBefore(previewContainer, inputBox.firstChild);
 }
 
 const projChip = document.getElementById('chat-project-chip');
@@ -1022,7 +1098,11 @@ function truncateChat(i) {
 }
 mountMessageActions({ session: () => currentSession, truncate: truncateChat, setInput: (t) => { if (chatInput) { chatInput.value = t; chatInput.dispatchEvent(new Event('input', { bubbles: true })); chatInput.focus(); } }, send: () => handleSend() }, toast);
 mountDictation(document.getElementById('mic-btn'), chatInput, toast);
-document.getElementById('export-chat-btn')?.addEventListener('click', () => { if (!exportChat(currentSession)) toast('Dieser Chat ist noch leer.', { type: 'warn' }); });
+document.getElementById('export-chat-btn')?.addEventListener('click', () => {
+    document.getElementById('tb-more-menu')?.classList.add('hidden');
+    document.getElementById('tb-more-btn')?.setAttribute('aria-expanded', 'false');
+    if (!exportChat(currentSession)) toast('Dieser Chat ist noch leer.', { type: 'warn' });
+});
 let appPicker = null;
 if (attachmentBtn && chatInput) {
     const chipsHost = document.createElement('div'); chipsHost.className = 'ca-chips hidden'; chipsHost.id = 'chat-app-chips';
@@ -1032,6 +1112,8 @@ if (attachmentBtn && chatInput) {
 if (attachmentBtn && fileUploadInput) {
     attachmentBtn.addEventListener('click', (e) => {
         e.preventDefault();
+        document.getElementById('composer-tools-menu')?.classList.add('hidden');
+        document.getElementById('composer-plus-btn')?.setAttribute('aria-expanded', 'false');
         fileUploadInput.click(); // Öffnet Dateidialog
     });
 
@@ -1063,6 +1145,7 @@ if (attachmentBtn && fileUploadInput) {
 function renderAttachmentPreviews() {
     if (!previewContainer) return;
     previewContainer.innerHTML = '';
+    previewContainer.classList.toggle('hidden', !pendingAttachments.length);
     
     pendingAttachments.forEach((att, index) => {
         const attDiv = document.createElement('div');

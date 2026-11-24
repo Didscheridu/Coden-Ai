@@ -1,4 +1,4 @@
-// App-Builder: Apps anlegen, Dateien speichern, gemeinsamer Agent-Chat, Mitglieder (Code Buddy), Veröffentlichen.
+// App-Builder: Apps anlegen, Dateien speichern, gemeinsamer Agent-Chat, Mitglieder (Code Buddy), Veröffentlichen (Firebase Firestore).
 // Plus die öffentliche Seite /a/<slug>/ – sie zeigt die App in einer Sandbox, damit fremder Code nie an Coden-Logins kommt.
 const crypto = require('crypto');
 const Byok = require('./byok');
@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const { generateImage } = require('./images');
-const { getSql } = require('./db');
+const db = require('./db');
 const { rateLimit, byIp } = require('./rateLimit');
 const { wrapRouter } = require('./util');
 const { iconPng } = require('./icon');
@@ -31,6 +31,8 @@ const toInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) && n
 const token = () => crypto.randomBytes(12).toString('base64url');
 const sameToken = (a, b) => { if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false; return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b)); };
 const escHtml = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const pairKey = (a, b) => [a, b].sort().join('__');
+const previewIdOf = (slug, tok) => `${slug}__${tok}`;
 
 function slugify(s) {
   return String(s || '').toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
@@ -57,7 +59,7 @@ let KIT;
 const kit = () => KIT || (KIT = { css: fs.readFileSync(path.join(__dirname, '..', 'kit', 'coden-kit.css'), 'utf8'), js: fs.readFileSync(path.join(__dirname, '..', 'kit', 'coden-kit.js'), 'utf8') });
 const cache = new Map();
 function bundleFor(app) {
-  const key = `${app.id}:${app.version}`;
+  const key = `${app.app_id || app.id}:${app.version}`;
   if (cache.has(key)) return cache.get(key);
   const style = Styles.byId(app.style);
   const platform = app.kind === 'both' ? null : app.kind === 'game' ? 'web' : app.kind;
@@ -69,58 +71,180 @@ function bundleFor(app) {
 const baseUrl = (req) => (process.env.PUBLIC_APP_BASE || `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.headers.host}`).replace(/\/$/, '');
 function publicUrl(req, slug) { return `${baseUrl(req)}/a/${slug}/`; }
 
+// Synchronisiert app_routes/{slug} und app_previews/{slug}__{token} für öffentlichen Zugriff ohne Service-Account
+async function syncPublicDocs(app, { oldSlug, oldToken } = {}) {
+  const now = app.updated_at || db.nowIso();
+  const routePayload = {
+    app_id: app.id,
+    owner: app.owner,
+    slug: app.slug,
+    name: app.name,
+    kind: app.kind,
+    style: app.style || '',
+    published: !!app.published,
+    files: app.files || {},
+    version: app.version,
+    theme_color: app.theme_color,
+    updated_at: now
+  };
+  const prevPayload = {
+    app_id: app.id,
+    owner: app.owner,
+    slug: app.slug,
+    name: app.name,
+    kind: app.kind,
+    style: app.style || '',
+    files: app.files || {},
+    version: app.version,
+    theme_color: app.theme_color,
+    updated_at: now
+  };
+  await db.setDoc(`app_routes/${app.slug}`, routePayload, { preferAdmin: true });
+  await db.setDoc(`app_previews/${previewIdOf(app.slug, app.preview_token)}`, prevPayload, { preferAdmin: true });
+  if (oldSlug && oldSlug !== app.slug) {
+    await db.deleteDoc(`app_routes/${oldSlug}`, { preferAdmin: true }).catch(() => {});
+  }
+  if ((oldSlug && oldSlug !== app.slug) || (oldToken && oldToken !== app.preview_token)) {
+    const stalePrev = previewIdOf(oldSlug || app.slug, oldToken || app.preview_token);
+    if (stalePrev !== previewIdOf(app.slug, app.preview_token)) {
+      await db.deleteDoc(`app_previews/${stalePrev}`, { preferAdmin: true }).catch(() => {});
+    }
+  }
+}
+
 // =====================================================================
 // Geschützte API (/api/apps …)
 // =====================================================================
 function appsRouter(requireAuth) {
   const r = wrapRouter(express.Router());
-  // Interne Fortsetzung eines Agenten-Laufs (nächste Etappe). Ohne Login, aber nur mit dem geheimen Etappen-Schlüssel des Laufs.
   r.post('/:id/agent/continue', (req, res, next) => continueLeg(req, res).catch(next));
   r.use(requireAuth);
 
   // Zugriff: direktes Mitglied, sonst über einen Server, in den die App geteilt wurde (Bearbeiter → editor, Zuschauer → viewer).
-  // needWrite = true: Zuschauer werden abgewiesen.
   async function memberOf(req, res, id, needWrite = false) {
     id = toInt(id); if (!id) { bad(res, 404, 'App nicht gefunden.'); return null; }
-    let [a] = await getSql()`SELECT a.*, m.role FROM apps a JOIN app_members m ON m.app_id = a.id AND m.uid = ${req.user.uid} WHERE a.id = ${id}`;
-    if (!a) {
-      [a] = await getSql()`SELECT a.*, CASE WHEN bool_or(sm.role IN ('owner','editor')) THEN 'editor' ELSE 'viewer' END AS role
-        FROM apps a JOIN server_shares ss ON ss.app_id = a.id JOIN server_members sm ON sm.server_id = ss.server_id AND sm.uid = ${req.user.uid}
-        WHERE a.id = ${id} GROUP BY a.id`;
+    let a = await db.getDoc(`apps/${id}`).catch(() => null);
+    let role = null;
+    if (a) {
+      const m = await db.getDoc(`apps/${id}/members/${req.user.uid}`).catch(() => null);
+      if (m) role = m.role;
+      else if (a.owner === req.user.uid) role = 'owner';
     }
-    if (!a) { bad(res, 404, 'App nicht gefunden.'); return null; }
-    if (needWrite && a.role === 'viewer') { bad(res, 403, 'Du darfst diese App nur ansehen.'); return null; }
-    return a;
+    if (!role) {
+      const mySrvs = await db.runQuery('servers', { where: [['memberUids', 'ARRAY_CONTAINS', req.user.uid]] });
+      let serverRole = null;
+      for (const s of mySrvs) {
+        const sh = await db.getDoc(`servers/${s.id}/shares/${id}`).catch(() => null);
+        if (!sh) continue;
+        const sm = await db.getDoc(`servers/${s.id}/members/${req.user.uid}`).catch(() => null);
+        if (!sm) continue;
+        if (sm.role === 'owner' || sm.role === 'editor') { serverRole = 'editor'; break; }
+        if (!serverRole) serverRole = 'viewer';
+      }
+      if (serverRole) {
+        if (!a) a = await db.getDoc(`apps/${id}`, { preferAdmin: true }).catch(() => null);
+        if (a) role = serverRole;
+      }
+    }
+    if (!a || !role) { bad(res, 404, 'App nicht gefunden.'); return null; }
+    if (needWrite && role === 'viewer') { bad(res, 403, 'Du darfst diese App nur ansehen.'); return null; }
+    return { ...a, role };
   }
+
   const meta = (a, req) => ({
     id: Number(a.id), name: a.name, kind: a.kind, style: a.style, slug: a.slug, published: a.published, version: a.version,
     themeColor: a.theme_color, role: a.role, previewToken: a.preview_token, integrations: a.integrations || {},
     url: publicUrl(req, a.slug), testUrl: publicUrl(req, a.slug) + '?t=' + a.preview_token,
     apk: apk.publicState(a.apk), updatedAt: iso(a.updated_at), publishedAt: iso(a.published_at)
   });
+
   async function membersOf(id, uid) {
-    const rows = await getSql()`SELECT m.uid, m.role, m.last_seen, p.handle, p.display_name FROM app_members m LEFT JOIN profiles p ON p.uid = m.uid WHERE m.app_id = ${id} ORDER BY (m.role = 'owner') DESC, p.handle`;
+    const rows = await db.listDocs(`apps/${id}/members`);
+    const enriched = await Promise.all(rows.map(async (m) => {
+      const p = await db.getDoc(`profiles/${m.uid}`).catch(() => null);
+      return {
+        uid: m.uid,
+        role: m.role,
+        last_seen: m.last_seen,
+        handle: p?.handle || null,
+        displayName: p?.display_name || (m.role === 'owner' ? 'Besitzer' : 'Mitglied')
+      };
+    }));
+    enriched.sort((a, b) => (b.role === 'owner' ? 1 : 0) - (a.role === 'owner' ? 1 : 0) || String(a.handle || '').localeCompare(String(b.handle || '')));
     const now = Date.now();
-    return rows.map(m => ({ handle: m.handle || null, displayName: m.display_name || (m.role === 'owner' ? 'Besitzer' : 'Mitglied'), role: m.role, me: m.uid === uid, online: now - new Date(m.last_seen).getTime() < 45_000 }));
+    return enriched.map(m => ({
+      handle: m.handle,
+      displayName: m.displayName,
+      role: m.role,
+      me: m.uid === uid,
+      online: m.last_seen ? now - new Date(m.last_seen).getTime() < 45_000 : false
+    }));
   }
-  const touch = (id, uid) => getSql()`UPDATE app_members SET last_seen = now() WHERE app_id = ${id} AND uid = ${uid} AND last_seen < now() - interval '15 seconds'`.catch(() => {});
+
+  const touch = (id, uid) => {
+    db.getDoc(`apps/${id}/members/${uid}`).then((m) => {
+      if (!m) return;
+      const last = m.last_seen ? new Date(m.last_seen).getTime() : 0;
+      if (Date.now() - last > 15_000) {
+        return db.updateDoc(`apps/${id}/members/${uid}`, { last_seen: db.nowIso() });
+      }
+    }).catch(() => {});
+  };
 
   // Liste: eigene und geteilte Apps
   r.get('/', async (req, res) => {
-    const rows = await getSql()`
-      SELECT a.id, a.name, a.kind, a.style, a.slug, a.published, a.updated_at, a.theme_color, a.preview_token, a.version, m.role,
-        (SELECT count(*)::int FROM app_members x WHERE x.app_id = a.id) AS members
-      FROM apps a JOIN app_members m ON m.app_id = a.id AND m.uid = ${req.user.uid} ORDER BY a.updated_at DESC LIMIT 100`;
-    // Über Server geteilte Apps (nur die, die nicht schon direkt zugänglich sind)
-    const shared = await getSql()`
-      SELECT a.id, a.name, a.kind, a.style, a.slug, a.published, a.updated_at, a.theme_color, a.preview_token, a.version,
-        CASE WHEN bool_or(sm.role IN ('owner','editor')) THEN 'editor' ELSE 'viewer' END AS role,
-        (SELECT count(*)::int FROM app_members x WHERE x.app_id = a.id) AS members
-      FROM apps a JOIN server_shares ss ON ss.app_id = a.id JOIN server_members sm ON sm.server_id = ss.server_id AND sm.uid = ${req.user.uid}
-      WHERE NOT EXISTS (SELECT 1 FROM app_members z WHERE z.app_id = a.id AND z.uid = ${req.user.uid})
-      GROUP BY a.id ORDER BY a.updated_at DESC LIMIT 100`;
-    rows.push(...shared);
-    res.json({ apps: rows.map(a => ({ id: Number(a.id), name: a.name, kind: a.kind, style: a.style, slug: a.slug, published: a.published, role: a.role, members: a.members, themeColor: a.theme_color, version: a.version, updatedAt: iso(a.updated_at), url: publicUrl(req, a.slug), testUrl: publicUrl(req, a.slug) + '?t=' + a.preview_token })) });
+    const direct = await db.runQuery('apps', { where: [['memberUids', 'ARRAY_CONTAINS', req.user.uid]], orderBy: 'updated_at', desc: true, limit: 100 });
+    const seenIds = new Set();
+    const out = [];
+    for (const a of direct) {
+      const m = await db.getDoc(`apps/${a.id}/members/${req.user.uid}`).catch(() => null);
+      const role = m?.role || (a.owner === req.user.uid ? 'owner' : 'viewer');
+      seenIds.add(Number(a.id));
+      out.push({
+        id: Number(a.id), name: a.name, kind: a.kind, style: a.style, slug: a.slug, published: a.published, role,
+        members: Array.isArray(a.memberUids) ? a.memberUids.length : 1,
+        themeColor: a.theme_color, version: a.version, updatedAt: iso(a.updated_at),
+        url: publicUrl(req, a.slug), testUrl: publicUrl(req, a.slug) + '?t=' + a.preview_token
+      });
+    }
+    // Über Server geteilte Apps
+    const mySrvs = await db.runQuery('servers', { where: [['memberUids', 'ARRAY_CONTAINS', req.user.uid]] });
+    const srvRoles = new Map();
+    for (const s of mySrvs) {
+      const [sm, shares] = await Promise.all([
+        db.getDoc(`servers/${s.id}/members/${req.user.uid}`).catch(() => null),
+        db.listDocs(`servers/${s.id}/shares`).catch(() => [])
+      ]);
+      if (!sm) continue;
+      const sRole = (sm.role === 'owner' || sm.role === 'editor') ? 'editor' : 'viewer';
+      for (const sh of shares) {
+        const aid = Number(sh.app_id);
+        if (seenIds.has(aid)) continue;
+        const prev = srvRoles.get(aid);
+        if (!prev || (sRole === 'editor' && prev.role !== 'editor')) srvRoles.set(aid, { sh, role: sRole });
+      }
+    }
+    for (const [aid, { sh, role }] of srvRoles.entries()) {
+      const full = await db.getDoc(`apps/${aid}`, { preferAdmin: true }).catch(() => null);
+      const src = full || sh;
+      out.push({
+        id: aid,
+        name: src.name,
+        kind: src.kind,
+        style: src.style || '',
+        slug: src.slug,
+        published: !!src.published,
+        role,
+        members: Array.isArray(full?.memberUids) ? full.memberUids.length : 1,
+        themeColor: src.theme_color,
+        version: src.version || 1,
+        updatedAt: iso(src.updated_at || sh.created_at),
+        url: publicUrl(req, src.slug),
+        testUrl: publicUrl(req, src.slug) + '?t=' + src.preview_token
+      });
+    }
+    out.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+    res.json({ apps: out.slice(0, 100) });
   });
 
   r.post('/', rateLimit('apps-create', 15, 600), async (req, res) => {
@@ -133,18 +257,45 @@ function appsRouter(requireAuth) {
     if (!KINDS.includes(kind)) return bad(res, 400, 'Unbekannter App-Typ.');
     if (style && !Styles.byId(style)) return bad(res, 400, 'Unbekannter Stil.');
     const err = checkFiles(files); if (err) return bad(res, 400, err);
-    const sql = getSql();
-    const [{ n }] = await sql`SELECT count(*)::int AS n FROM apps WHERE owner = ${req.user.uid}`;
-    if (n >= LIMITS.apps && !req.user.isOwner) return bad(res, 400, `Du hast schon ${LIMITS.apps} Apps. Lösche eine alte, um eine neue anzulegen.`);
-    let a;
-    for (let i = 0; i < 4 && !a; i++) {
-      try { [a] = await sql`INSERT INTO apps (owner, name, kind, style, slug, preview_token, files, theme_color) VALUES (${req.user.uid}, ${name}, ${kind}, ${style}, ${randomSlug(name)}, ${token()}, ${JSON.stringify(files)}::jsonb, ${themeColor}) RETURNING *`; }
-      catch (e) { if (e.code !== '23505') throw e; }
+    const mine = await db.runQuery('apps', { where: [['memberUids', 'ARRAY_CONTAINS', req.user.uid]] });
+    if (mine.filter(a => a.owner === req.user.uid).length >= LIMITS.apps && !req.user.isOwner) {
+      return bad(res, 400, `Du hast schon ${LIMITS.apps} Apps. Lösche eine alte, um eine neue anzulegen.`);
     }
-    if (!a) return bad(res, 500, 'Konnte keine Adresse vergeben.');
-    await sql`INSERT INTO app_members (app_id, uid, role) VALUES (${a.id}, ${req.user.uid}, 'owner')`;
-    a.role = 'owner';
-    res.json({ app: meta(a, req), files: a.files });
+    let slug = null;
+    for (let i = 0; i < 4; i++) {
+      const candidate = randomSlug(name);
+      const taken = await db.getDoc(`app_routes/${candidate}`, { preferAdmin: true }).catch(() => null);
+      if (!taken) { slug = candidate; break; }
+    }
+    if (!slug) return bad(res, 500, 'Konnte keine Adresse vergeben.');
+    const id = db.nextId();
+    const now = db.nowIso();
+    const previewTok = token();
+    const doc = {
+      id,
+      owner: req.user.uid,
+      memberUids: [req.user.uid],
+      sharedServerIds: [],
+      name,
+      kind,
+      style,
+      slug,
+      preview_token: previewTok,
+      published: false,
+      files,
+      integrations: {},
+      version: 1,
+      theme_color: themeColor,
+      apk: {},
+      created_at: now,
+      updated_at: now,
+      published_at: null
+    };
+    await db.createDoc(`apps/${id}`, doc);
+    await db.createDoc(`apps/${id}/members/${req.user.uid}`, { app_id: id, uid: req.user.uid, role: 'owner', last_seen: now });
+    await syncPublicDocs(doc);
+    doc.role = 'owner';
+    res.json({ app: meta(doc, req), files: doc.files });
   });
 
   r.get('/:id', async (req, res) => {
@@ -155,7 +306,7 @@ function appsRouter(requireAuth) {
 
   r.patch('/:id', async (req, res) => {
     const a = await memberOf(req, res, req.params.id, true); if (!a) return;
-    const b = req.body || {}; const sql = getSql();
+    const b = req.body || {};
     const name = b.name !== undefined ? String(b.name).trim().slice(0, 60) : a.name;
     const kind = b.kind !== undefined ? String(b.kind) : a.kind;
     const style = b.style !== undefined ? String(b.style) : a.style;
@@ -169,31 +320,46 @@ function appsRouter(requireAuth) {
       integ = { ...integ, ...b.integrations }; for (const k of Object.keys(integ)) if (integ[k] === null) delete integ[k];
       if (JSON.stringify(integ).length > 10_000) return bad(res, 400, 'Zu viele Integrationsdaten.');
     }
-    const [u] = await sql`UPDATE apps SET name = ${name}, kind = ${kind}, style = ${style}, theme_color = ${color}, integrations = ${JSON.stringify(integ)}::jsonb, version = version + 1, updated_at = now() WHERE id = ${a.id} RETURNING *`;
+    const u = await db.updateDoc(`apps/${a.id}`, {
+      name, kind, style, theme_color: color, integrations: integ, version: (a.version || 1) + 1, updated_at: db.nowIso()
+    }, { preferAdmin: a.owner !== req.user.uid });
+    await syncPublicDocs(u).catch(() => {});
     u.role = a.role; res.json({ app: meta(u, req) });
   });
 
   r.delete('/:id', async (req, res) => {
     const a = await memberOf(req, res, req.params.id); if (!a) return;
     if (a.role !== 'owner') return bad(res, 403, 'Nur der Besitzer kann die App löschen.');
-    // Arbeitet gerade ein Agent an der App? Erst stoppen, damit er nichts mehr in die gelöschte App schreibt
-    const running = await getSql()`UPDATE ai_runs SET stop = true WHERE kind = 'app' AND ref = ${String(a.id)} AND status = 'running' RETURNING id`;
-    running.forEach(x => liveRuns.get(Number(x.id))?.ac.abort());
-    await getSql()`DELETE FROM apps WHERE id = ${a.id}`;
+    const myRuns = await db.runQuery('ai_runs', { where: [['uid', '==', req.user.uid]] }).catch(() => []);
+    for (const run of myRuns) {
+      if (run.kind === 'app' && run.ref === String(a.id) && run.status === 'running') {
+        await db.updateDoc(`ai_runs/${run.id}`, { stop: true, updated_at: db.nowIso() }).catch(() => {});
+        liveRuns.get(Number(run.id))?.ac.abort();
+      }
+    }
+    await db.deleteDoc(`app_routes/${a.slug}`, { preferAdmin: true }).catch(() => {});
+    await db.deleteDoc(`app_previews/${previewIdOf(a.slug, a.preview_token)}`, { preferAdmin: true }).catch(() => {});
+    for (const sid of a.sharedServerIds || []) {
+      await db.deleteDoc(`servers/${sid}/shares/${a.id}`, { preferAdmin: true }).catch(() => {});
+    }
+    await db.deleteTree(`apps/${a.id}`, ['members', 'messages']);
     res.json({ ok: true });
   });
+
   // Eine geteilte App verlassen (Mitglieder; der Besitzer löscht stattdessen)
   r.post('/:id/leave', async (req, res) => {
     const a = await memberOf(req, res, req.params.id); if (!a) return;
     if (a.role === 'owner') return bad(res, 400, 'Du bist der Besitzer – lösche die App stattdessen.');
-    const gone = await getSql()`DELETE FROM app_members WHERE app_id = ${a.id} AND uid = ${req.user.uid} RETURNING uid`;
-    if (!gone.length) return bad(res, 400, 'Du siehst diese App über einen Server. Die Freigabe kann nur der Besitzer entfernen.');
+    const m = await db.getDoc(`apps/${a.id}/members/${req.user.uid}`);
+    if (!m) return bad(res, 400, 'Du siehst diese App über einen Server. Die Freigabe kann nur der Besitzer entfernen.');
+    await db.deleteDoc(`apps/${a.id}/members/${req.user.uid}`);
+    await db.updateDoc(`apps/${a.id}`, { memberUids: (a.memberUids || []).filter(u => u !== req.user.uid) }).catch(() => {});
     res.json({ ok: true });
   });
 
-  // Dateien ändern: set = {pfad: inhalt}, remove = [pfad]. Verschiedene Dateien kollidieren nie; gleiche Datei: zuletzt gewinnt.
+  // Dateien ändern: set = {pfad: inhalt}, remove = [pfad]. Optimistische Versionsprüfung.
   r.put('/:id/files', rateLimit('apps-files', 90, 60), async (req, res) => {
-    const id = toInt(req.params.id); const sql = getSql();
+    const id = toInt(req.params.id);
     const set = req.body?.set && typeof req.body.set === 'object' && !Array.isArray(req.body.set) ? req.body.set : {};
     const remove = Array.isArray(req.body?.remove) ? req.body.remove.map(String) : [];
     for (let attempt = 0; attempt < 4; attempt++) {
@@ -202,8 +368,18 @@ function appsRouter(requireAuth) {
       for (const n of remove) delete files[n];
       for (const [n, c] of Object.entries(set)) files[n] = c;
       const err = checkFiles(files); if (err) return bad(res, 400, err);
-      const rows = await sql`UPDATE apps SET files = ${JSON.stringify(files)}::jsonb, version = version + 1, updated_at = now() WHERE id = ${a.id} AND version = ${a.version} RETURNING version`;
-      if (rows.length) return res.json({ version: rows[0].version, files: Object.keys(files) });
+      try {
+        const u = await db.updateDoc(`apps/${a.id}`, {
+          files, version: (a.version || 1) + 1, updated_at: db.nowIso()
+        }, { updateTime: a._updateTime, expect: { version: a.version }, preferAdmin: a.owner !== req.user.uid });
+        if (u) {
+          await syncPublicDocs(u).catch(() => {});
+          return res.json({ version: u.version, files: Object.keys(files) });
+        }
+      } catch (e) {
+        if (e.code === 'PRECONDITION_FAILED') continue;
+        throw e;
+      }
     }
     bad(res, 409, 'Gerade ändern zu viele gleichzeitig. Bitte nochmal versuchen.');
   });
@@ -214,104 +390,153 @@ function appsRouter(requireAuth) {
     touch(a.id, req.user.uid);
     const after = toInt(req.query.after);
     const messages = after ? await loadMessages(a.id, req.user.uid, after) : [];
-    res.json({ version: a.version, name: a.name, published: a.published, apk: apk.publicState(a.apk), messages, members: await membersOf(a.id, req.user.uid), agentRun: await activeRun(a.id) });
+    res.json({ version: a.version, name: a.name, published: a.published, apk: apk.publicState(a.apk), messages, members: await membersOf(a.id, req.user.uid), agentRun: await activeRun(a.id, req.user.uid) });
   });
 
   async function loadMessages(appId, uid, after = 0, limit = 120) {
-    const rows = after
-      ? await getSql()`SELECT m.id, m.sender, m.role, m.body, m.meta, m.created_at, p.handle FROM app_messages m LEFT JOIN profiles p ON p.uid = m.sender WHERE m.app_id = ${appId} AND m.id > ${after} ORDER BY m.id LIMIT ${limit}`
-      : await getSql()`SELECT * FROM (SELECT m.id, m.sender, m.role, m.body, m.meta, m.created_at, p.handle FROM app_messages m LEFT JOIN profiles p ON p.uid = m.sender WHERE m.app_id = ${appId} ORDER BY m.id DESC LIMIT ${limit}) x ORDER BY id`;
-    return rows.map(m => ({ id: Number(m.id), role: m.role, body: m.body, meta: m.meta || {}, handle: m.handle || null, mine: m.sender === uid, createdAt: iso(m.created_at) }));
+    const all = await db.listDocs(`apps/${appId}/messages`, { orderBy: 'id' });
+    const rows = after ? all.filter(m => Number(m.id) > after).slice(0, limit) : all.slice(-limit);
+    const profMap = new Map();
+    for (const s of new Set(rows.map(m => m.sender).filter(Boolean))) {
+      const p = await db.getDoc(`profiles/${s}`).catch(() => null);
+      if (p) profMap.set(s, p);
+    }
+    return rows.map(m => ({ id: Number(m.id), role: m.role, body: m.body, meta: m.meta || {}, handle: profMap.get(m.sender)?.handle || null, mine: m.sender === uid, createdAt: iso(m.created_at) }));
   }
+
   r.get('/:id/messages', async (req, res) => {
     const a = await memberOf(req, res, req.params.id); if (!a) return;
     res.json({ messages: await loadMessages(a.id, req.user.uid, toInt(req.query.after)) });
   });
-  // KI-Bild erzeugen und als URL zurückgeben (Coden baut sie dann in die App ein)
+
+  // KI-Bild erzeugen und als URL zurückgeben
   async function makeImage(a, uid, req, prompt) {
     const base = typeof req === 'string' ? req : baseUrl(req);
     prompt = String(prompt || '').trim().slice(0, 1500);
     if (prompt.length < 3) throw Object.assign(new Error('Beschreibe das Bild kurz.'), { status: 400 });
-    const [{ n }] = await getSql()`SELECT count(*)::int AS n FROM app_images WHERE app_id = ${a.id}`;
-    if (n >= LIMITS.images) throw Object.assign(new Error(`Höchstens ${LIMITS.images} Bilder pro App.`), { status: 400 });
+    const mine = await db.runQuery('app_images', { where: [['uid', '==', uid]] }).catch(() => []);
+    if (mine.filter(x => Number(x.app_id) === Number(a.id)).length >= LIMITS.images) {
+      throw Object.assign(new Error(`Höchstens ${LIMITS.images} Bilder pro App.`), { status: 400 });
+    }
     const img = await generateImage(prompt);
     const key = crypto.randomBytes(9).toString('hex');
-    await getSql()`INSERT INTO app_images (key, app_id, uid, prompt, mime, data) VALUES (${key}, ${a.id}, ${uid}, ${prompt}, ${img.mime}, ${img.data})`;
+    await db.createDoc(`app_images/${key}`, {
+      key,
+      app_id: a.id,
+      uid,
+      prompt,
+      mime: img.mime,
+      data_b64: Buffer.from(img.data).toString('base64'),
+      created_at: db.nowIso()
+    });
     return { key, url: `${base}/api/public/img/${key}` };
   }
+
   r.post('/:id/images', rateLimit('apps-img', 12, 300), async (req, res) => {
     const a = await memberOf(req, res, req.params.id, true); if (!a) return;
     try { res.json(await makeImage(a, req.user.uid, req, req.body?.prompt)); } catch (e) { bad(res, e.status || 502, e.message); }
   });
 
   // ---------- Coden-Agententeam (läuft als Hintergrund-Lauf auf dem Server) ----------
-  async function activeRun(appId) {
-    const [x] = await getSql()`SELECT id, updated_at FROM ai_runs WHERE kind = 'app' AND ref = ${String(appId)} AND status = 'running' ORDER BY id DESC LIMIT 1`;
+  async function activeRun(appId, uid) {
+    let rows = [];
+    if (process.env.FIREBASE_SERVICE_ACCOUNT || db.isMemoryDb()) {
+      rows = await db.runQuery('ai_runs', { where: [['ref', '==', String(appId)]], preferAdmin: true }).catch(() => []);
+    } else if (uid) {
+      rows = await db.runQuery('ai_runs', { where: [['uid', '==', uid]] }).catch(() => []);
+    }
+    const x = rows
+      .filter(r => r.kind === 'app' && r.ref === String(appId) && r.status === 'running')
+      .sort((a, b) => Number(b.id) - Number(a.id))[0];
     if (!x) return null;
-    if (!liveRuns.has(Number(x.id)) && Date.now() - new Date(x.updated_at).getTime() > 120_000) { getSql()`UPDATE ai_runs SET status = 'error', error = 'Der Lauf wurde unterbrochen (Zeitlimit des Servers).' WHERE id = ${x.id} AND status = 'running'`.catch(() => {}); return null; }
+    if (!liveRuns.has(Number(x.id)) && Date.now() - new Date(x.updated_at).getTime() > 120_000) {
+      db.updateDoc(`ai_runs/${x.id}`, { status: 'error', error: 'Der Lauf wurde unterbrochen (Zeitlimit des Servers).', updated_at: db.nowIso() }, { preferAdmin: true }).catch(() => {});
+      return null;
+    }
     return Number(x.id);
   }
+
   async function locked(req, tier) {
     if (req.user.isOwner) return null;
-    const [row] = await getSql()`SELECT state FROM system_state WHERE id = 1`; const st = row?.state || {};
+    const st = await db.getDoc('system_state/global') || {};
     if (st.maintenance) return 'Wartungsarbeiten.';
     if (tier === 'ultra' && st.locks?.ultra !== false) return 'Coden Ultra ist gesperrt (nur der Owner).';
     if (tier === 'pro' && st.locks?.pro) return 'Coden Pro ist gesperrt.';
     if (tier === 'normal' && st.locks?.thinking) return 'Coden Thinking ist gesperrt.';
     return null;
   }
+
   r.post('/:id/agent', rateLimit('apps-agent', 30, 60), async (req, res) => {
     const a = await memberOf(req, res, req.params.id, true); if (!a) return;
-    // Modell des Main Agents: Coden-Stufe, eigenes Modell oder eigene Kette (muss dem Nutzer gehören)
     const wanted = req.body?.tier;
     const tier = ['flash', 'normal', 'pro', 'ultra'].includes(wanted) ? wanted : (Byok.isOwnTier(wanted) && await Byok.owns(req.user.uid, wanted) ? wanted : 'pro');
     const why = await locked(req, tier); if (why) return bad(res, 403, why);
-    const busy = await activeRun(a.id); if (busy) return bad(res, 409, 'Coden arbeitet gerade schon an dieser App.', { runId: busy });
-    const free = await Byok.freeOfQuota(req.user.uid, tier); // läuft nur über den eigenen Key: Coden-Limit gilt nicht
+    const busy = await activeRun(a.id, req.user.uid); if (busy) return bad(res, 409, 'Coden arbeitet gerade schon an dieser App.', { runId: busy });
+    const free = await Byok.freeOfQuota(req.user.uid, tier);
     const lim = free ? { ok: true } : await Usage.check(req.user); if (!lim.ok) return bad(res, 429, lim.message, { code: 'limit', usage: lim.view });
     const effort = Byok.LEVELS.includes(req.body?.effort) ? req.body.effort : undefined;
     const mode = ['auto', 'single', 'team'].includes(req.body?.mode) ? req.body.mode : 'auto';
     const rows = await loadMessages(a.id, req.user.uid, 0, 40);
-    const agentCfg = await Byok.getAgentConfig(req.user.uid); // Sub-Agenten-Modelle und Key-Grenzen (nur Namen/Zahlen, keine Keys)
-    const opts = { uid: req.user.uid, email: req.user.email || null, isOwner: req.user.isOwner, tier, effort, mode, agentCfg, allowUltra: !(await locked(req, 'ultra')),
+    const agentCfg = await Byok.getAgentConfig(req.user.uid);
+    const opts = {
+      uid: req.user.uid, email: req.user.email || null, isOwner: req.user.isOwner, tier, effort, mode, agentCfg, allowUltra: !(await locked(req, 'ultra')),
       trigger: rows.length && rows[rows.length - 1].role === 'user' ? 'user' : 'tool', lastMsgId: rows.length ? Number(rows[rows.length - 1].id) : 0,
-      imgBase: baseUrl(req), selfBase: selfUrl(req) };
+      imgBase: baseUrl(req), selfBase: selfUrl(req)
+    };
     const ctx = agentCtx(a, opts, historyFrom(rows));
     const { run, done } = await startRun({ uid: opts.uid, isOwner: opts.isOwner, kind: 'app', ref: String(a.id), meta: { tier, mode } }, (run) => { ctx.run = run; return runAppAgent(run, ctx); });
     await serveRun(res, run, done);
   });
-  // Eigene Adresse dieser Ausführung (für den Selbstaufruf der nächsten Etappe)
+
   function selfUrl(req) { return `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.headers.host}`.replace(/\/$/, ''); }
-  // Alles, was der Agent zum Arbeiten braucht – unabhängig von der HTTP-Anfrage, damit spätere Etappen es neu aufbauen können
+
   function agentCtx(a, o, history, state) {
-    const sql = getSql(); const appId = a.id; const uid = o.uid;
+    const appId = a.id; const uid = o.uid;
     const ctx = {
       app: { id: Number(a.id), name: a.name, kind: a.kind, style: a.style, integrations: a.integrations || {} },
       files: a.files || {}, history, uid, email: o.email || null, tier: o.tier, effort: o.effort, mode: o.mode, agentCfg: o.agentCfg, isOwner: o.isOwner, style: Styles.byId(a.style), allowUltra: o.allowUltra, trigger: o.trigger, state,
-      // Dateien speichern wie PUT /files (mit Versionsprüfung, damit gleichzeitige Änderungen nicht verloren gehen)
       async save(set, remove) {
         for (let attempt = 0; attempt < 5; attempt++) {
-          const [cur] = await sql`SELECT files, version FROM apps WHERE id = ${appId}`;
+          const cur = await db.getDoc(`apps/${appId}`);
           if (!cur) throw new Error('Die App wurde gelöscht.');
           const files = { ...(cur.files || {}) }; for (const n of remove) delete files[n]; for (const [n, c] of Object.entries(set)) files[n] = c;
           const err = checkFiles(files); if (err) throw new Error(err);
-          const ok = await sql`UPDATE apps SET files = ${JSON.stringify(files)}::jsonb, version = version + 1, updated_at = now() WHERE id = ${appId} AND version = ${cur.version} RETURNING version`;
-          if (ok.length) return files;
+          try {
+            const ok = await db.updateDoc(`apps/${appId}`, {
+              files, version: (cur.version || 1) + 1, updated_at: db.nowIso()
+            }, { updateTime: cur._updateTime, expect: { version: cur.version }, preferAdmin: cur.owner !== uid });
+            if (ok) {
+              await syncPublicDocs(ok).catch(() => {});
+              return files;
+            }
+          } catch (e) {
+            if (e.code === 'PRECONDITION_FAILED') continue;
+            throw e;
+          }
         }
         throw new Error('Dateien konnten nicht gespeichert werden (zu viele gleichzeitige Änderungen).');
       },
       async post(role, body, meta = {}) {
         const m = JSON.stringify(meta).length > LIMITS.meta ? { ...meta, changed: (meta.changed || []).slice(0, 20), agents: undefined } : meta;
-        await sql`INSERT INTO app_messages (app_id, sender, role, body, meta) VALUES (${appId}, ${uid}, ${role}, ${String(body).slice(0, LIMITS.msg)}, ${JSON.stringify(m)}::jsonb)`;
-        sql`UPDATE apps SET updated_at = now() WHERE id = ${appId}`.catch(() => {});
+        const mid = db.nextId();
+        const now = db.nowIso();
+        await db.createDoc(`apps/${appId}/messages/${mid}`, {
+          id: mid, app_id: appId, sender: uid, role, body: String(body).slice(0, LIMITS.msg), meta: m, created_at: now
+        });
+        db.updateDoc(`apps/${appId}`, { updated_at: now }).catch(() => {});
       },
       image: async (prompt) => (await makeImage(a, uid, o.imgBase, prompt)).url,
-      // Nächste Etappe: Stand mit geheimem Schlüssel im Lauf speichern, dann die eigene Fortsetzungs-Adresse aufrufen
       async continueLeg(state) {
         const run = ctx.run; if (!run) return false;
         const key = crypto.randomBytes(24).toString('hex');
         await run.pause();
-        await sql`UPDATE ai_runs SET meta = meta || ${JSON.stringify({ cont: { key, state, opts: o } })}::jsonb, updated_at = now() WHERE id = ${run.id}`;
+        const ctxToken = db.getDbContext().token;
+        const authTokenEnc = ctxToken ? await Byok.encrypt(ctxToken).catch(() => null) : null;
+        const savedOpts = authTokenEnc ? { ...o, authTokenEnc } : o;
+        await db.updateDoc(`ai_runs/${run.id}`, {
+          meta: { ...run.meta, extra: run.extra, cont: { key, state, opts: savedOpts } },
+          updated_at: db.nowIso()
+        });
         const headers = { 'Content-Type': 'application/json', 'X-Coden-Leg': key };
         if (process.env.VERCEL_AUTOMATION_BYPASS_SECRET) headers['x-vercel-protection-bypass'] = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
         try {
@@ -319,47 +544,76 @@ function appsRouter(requireAuth) {
           if (r.ok) return true;
           console.warn('[agent] Etappe abgelehnt:', r.status);
         } catch (e) { console.warn('[agent] Etappe nicht erreichbar:', e.message); }
-        await sql`UPDATE ai_runs SET meta = meta - 'cont' WHERE id = ${run.id}`.catch(() => {});
+        await db.updateDoc(`ai_runs/${run.id}`, { meta: { ...run.meta, extra: run.extra }, updated_at: db.nowIso() }).catch(() => {});
         run.unpause(); return false;
       }
     };
     return ctx;
   }
+
   async function continueLeg(req, res) {
     const appId = toInt(req.params.id); const runId = toInt(req.body?.run); const key = String(req.headers['x-coden-leg'] || '');
     if (!appId || !runId || key.length !== 48) return bad(res, 400, 'Ungültig.');
-    const sql = getSql();
-    const [row] = await sql`SELECT id, meta FROM ai_runs WHERE id = ${runId} AND kind = 'app' AND ref = ${String(appId)} AND status = 'running'`;
-    const cont = row?.meta?.cont;
-    if (!cont || typeof cont.key !== 'string' || cont.key.length !== key.length || !crypto.timingSafeEqual(Buffer.from(cont.key), Buffer.from(key))) return bad(res, 403, 'Nicht erlaubt.');
-    const took = await sql`UPDATE ai_runs SET meta = meta - 'cont', updated_at = now() WHERE id = ${runId} AND meta->'cont'->>'key' = ${key} RETURNING id`;
-    if (!took.length) return bad(res, 409, 'Diese Etappe läuft schon.'); // Schlüssel gilt nur einmal
-    const [a] = await sql`SELECT * FROM apps WHERE id = ${appId}`;
-    if (!a) { await sql`UPDATE ai_runs SET status = 'error', error = 'Die App wurde gelöscht.' WHERE id = ${runId}`; return bad(res, 404, 'App nicht gefunden.'); }
-    const o = cont.opts || {};
-    const rows = (await loadMessages(a.id, o.uid, 0, 60)).filter(m => Number(m.id) <= (o.lastMsgId || Infinity));
-    const ctx = agentCtx(a, { ...o, selfBase: o.selfBase || selfUrl(req) }, historyFrom(rows), cont.state);
-    const started = await resumeRun(runId, { isOwner: o.isOwner }, (run) => { ctx.run = run; return runAppAgent(run, ctx); });
-    if (!started) return bad(res, 409, 'Der Lauf ist nicht mehr aktiv.');
-    res.status(202).json({ ok: true }); // die Arbeit läuft im Hintergrund weiter (waitUntil)
+    const row = await db.getDoc(`ai_runs/${runId}`, { preferAdmin: true });
+    const cont = row?.kind === 'app' && row?.ref === String(appId) && row?.status === 'running' ? row?.meta?.cont : null;
+    if (!cont || typeof cont.key !== 'string' || cont.key.length !== key.length || !crypto.timingSafeEqual(Buffer.from(cont.key), Buffer.from(key))) {
+      return bad(res, 403, 'Nicht erlaubt.');
+    }
+    const { cont: _c, ...restMeta } = row.meta || {};
+    void _c;
+    try {
+      const took = await db.updateDoc(`ai_runs/${runId}`, { meta: restMeta, updated_at: db.nowIso() }, { updateTime: row._updateTime, preferAdmin: true });
+      if (!took) return bad(res, 409, 'Diese Etappe läuft schon.');
+    } catch (e) {
+      if (e.code === 'PRECONDITION_FAILED') return bad(res, 409, 'Diese Etappe läuft schon.');
+      throw e;
+    }
+    const rawOpts = cont.opts || {};
+    let tokenStr = null;
+    if (rawOpts.authTokenEnc) tokenStr = await Byok.decrypt(rawOpts.authTokenEnc).catch(() => null);
+    const { authTokenEnc: _a, ...o } = rawOpts;
+    void _a;
+    const dbCtx = { token: tokenStr, uid: o.uid, isOwner: !!o.isOwner, email: o.email };
+    return db.runWithDbContext(dbCtx, async () => {
+      const a = await db.getDoc(`apps/${appId}`);
+      if (!a) {
+        await db.updateDoc(`ai_runs/${runId}`, { status: 'error', error: 'Die App wurde gelöscht.', updated_at: db.nowIso() });
+        return bad(res, 404, 'App nicht gefunden.');
+      }
+      const rows = (await loadMessages(a.id, o.uid, 0, 60)).filter(m => Number(m.id) <= (o.lastMsgId || Infinity));
+      const ctx = agentCtx(a, { ...o, selfBase: o.selfBase || selfUrl(req) }, historyFrom(rows), cont.state);
+      const started = await resumeRun(runId, { isOwner: o.isOwner }, (run) => { ctx.run = run; return runAppAgent(run, ctx); });
+      if (!started) return bad(res, 409, 'Der Lauf ist nicht mehr aktiv.');
+      return res.status(202).json({ ok: true });
+    });
   }
-  // Stand eines Agenten-Laufs dieser App (für alle Mitglieder, auch nach dem Neuladen)
+
   r.get('/:id/agent', async (req, res) => {
     const a = await memberOf(req, res, req.params.id); if (!a) return;
-    const id = toInt(req.query.run) || await activeRun(a.id);
+    const id = toInt(req.query.run) || await activeRun(a.id, req.user.uid);
     if (!id) return res.json({ run: null });
-    const [x] = await getSql()`SELECT * FROM ai_runs WHERE id = ${id} AND kind = 'app' AND ref = ${String(a.id)}`;
-    if (!x) return res.json({ run: null });
+    const x = await db.getDoc(`ai_runs/${id}`, { preferAdmin: true }).catch(() => null);
+    if (!x || x.kind !== 'app' || x.ref !== String(a.id)) return res.json({ run: null });
     const from = Math.max(0, parseInt(req.query.from, 10) || 0); const text = x.text || '';
     const { cont: _cont, ...safeRunMeta } = (x.meta && typeof x.meta === 'object' ? x.meta : {});
+    void _cont;
     res.json({ id: Number(x.id), status: x.status, from, len: text.length, text: text.slice(Math.min(from, text.length)), think: x.think || {}, agents: x.agents || [], model: req.user.isOwner ? x.model : undefined, error: x.error, meta: safeRunMeta, startedAt: iso(x.created_at), updatedAt: iso(x.updated_at) });
   });
+
   r.post('/:id/agent/stop', async (req, res) => {
     const a = await memberOf(req, res, req.params.id, true); if (!a) return;
-    const rows = await getSql()`UPDATE ai_runs SET stop = true WHERE kind = 'app' AND ref = ${String(a.id)} AND status = 'running' RETURNING id`;
-    rows.forEach(x => liveRuns.get(Number(x.id))?.ac.abort());
-    res.json({ ok: true, stopped: rows.length });
+    const runs = await db.runQuery('ai_runs', { where: [['uid', '==', req.user.uid]] }).catch(() => []);
+    let stopped = 0;
+    for (const x of runs) {
+      if (x.kind === 'app' && x.ref === String(a.id) && x.status === 'running') {
+        await db.updateDoc(`ai_runs/${x.id}`, { stop: true, updated_at: db.nowIso() }).catch(() => {});
+        liveRuns.get(Number(x.id))?.ac.abort();
+        stopped++;
+      }
+    }
+    res.json({ ok: true, stopped });
   });
+
   r.post('/:id/messages', rateLimit('apps-msg', 90, 60), async (req, res) => {
     const a = await memberOf(req, res, req.params.id, true); if (!a) return;
     const role = String(req.body?.role || 'user'); const body = String(req.body?.body ?? '');
@@ -368,14 +622,19 @@ function appsRouter(requireAuth) {
     if (!body.trim() && role === 'user') return bad(res, 400, 'Leere Nachricht.');
     if (body.length > LIMITS.msg) return bad(res, 400, 'Nachricht zu lang.');
     if (JSON.stringify(m).length > LIMITS.meta) return bad(res, 400, 'Zu viele Zusatzdaten.');
-    const [row] = await getSql()`INSERT INTO app_messages (app_id, sender, role, body, meta) VALUES (${a.id}, ${req.user.uid}, ${role}, ${body}, ${JSON.stringify(m)}::jsonb) RETURNING id, created_at`;
-    getSql()`UPDATE apps SET updated_at = now() WHERE id = ${a.id}`.catch(() => {});
-    res.json({ message: { id: Number(row.id), role, body, meta: m, mine: true, createdAt: iso(row.created_at) } });
+    const mid = db.nextId();
+    const now = db.nowIso();
+    await db.createDoc(`apps/${a.id}/messages/${mid}`, {
+      id: mid, app_id: a.id, sender: req.user.uid, role, body, meta: m, created_at: now
+    });
+    db.updateDoc(`apps/${a.id}`, { updated_at: now }).catch(() => {});
+    res.json({ message: { id: Number(mid), role, body, meta: m, mine: true, createdAt: now } });
   });
+
   r.delete('/:id/messages', async (req, res) => {
     const a = await memberOf(req, res, req.params.id); if (!a) return;
     if (a.role !== 'owner') return bad(res, 403, 'Nur der Besitzer kann den Verlauf leeren.');
-    await getSql()`DELETE FROM app_messages WHERE app_id = ${a.id}`;
+    await db.deleteCollection(`apps/${a.id}/messages`);
     res.json({ ok: true });
   });
 
@@ -383,28 +642,34 @@ function appsRouter(requireAuth) {
   r.post('/:id/members', rateLimit('apps-member', 20, 300), async (req, res) => {
     const a = await memberOf(req, res, req.params.id); if (!a) return;
     if (a.role !== 'owner') return bad(res, 403, 'Nur der Besitzer kann einladen.');
-    const sql = getSql();
     const handle = String(req.body?.handle || '').trim().toLowerCase().replace(/^@/, '');
     if (!HANDLE_RE.test(handle)) return bad(res, 404, 'Nutzer nicht gefunden.');
-    const [other] = await sql`SELECT uid, handle FROM profiles WHERE handle = ${handle}`;
-    if (!other) return bad(res, 404, 'Nutzer nicht gefunden.');
-    const [f] = await sql`SELECT status FROM friendships WHERE LEAST(requester, addressee) = LEAST(${req.user.uid}, ${other.uid}) AND GREATEST(requester, addressee) = GREATEST(${req.user.uid}, ${other.uid})`;
+    const hdoc = await db.getDoc(`buddy_handles/${handle}`);
+    if (!hdoc) return bad(res, 404, 'Nutzer nicht gefunden.');
+    const f = await db.getDoc(`friendships/${pairKey(req.user.uid, hdoc.uid)}`);
     if (!f || f.status !== 'accepted') return bad(res, 403, 'Du kannst nur Code-Buddy-Freunde einladen.');
-    const [{ n }] = await sql`SELECT count(*)::int AS n FROM app_members WHERE app_id = ${a.id}`;
-    if (n >= LIMITS.members) return bad(res, 400, `Höchstens ${LIMITS.members} Personen pro App.`);
-    const ins = await sql`INSERT INTO app_members (app_id, uid, role) VALUES (${a.id}, ${other.uid}, 'editor') ON CONFLICT DO NOTHING RETURNING uid`;
-    if (!ins.length) return bad(res, 409, 'Ist schon dabei.');
-    await sql`INSERT INTO app_messages (app_id, sender, role, body, meta) VALUES (${a.id}, ${req.user.uid}, 'event', ${'@' + other.handle + ' ist jetzt dabei.'}, '{"kind":"member"}'::jsonb)`;
+    const curMembers = Array.isArray(a.memberUids) ? a.memberUids : [];
+    if (curMembers.length >= LIMITS.members) return bad(res, 400, `Höchstens ${LIMITS.members} Personen pro App.`);
+    const existingMember = await db.getDoc(`apps/${a.id}/members/${hdoc.uid}`);
+    if (existingMember) return bad(res, 409, 'Ist schon dabei.');
+    await db.updateDoc(`apps/${a.id}`, { memberUids: [...new Set([...curMembers, hdoc.uid])] });
+    await db.createDoc(`apps/${a.id}/members/${hdoc.uid}`, { app_id: a.id, uid: hdoc.uid, role: 'editor', last_seen: db.nowIso() });
+    const mid = db.nextId();
+    await db.createDoc(`apps/${a.id}/messages/${mid}`, {
+      id: mid, app_id: a.id, sender: req.user.uid, role: 'event', body: `@${hdoc.handle} ist jetzt dabei.`, meta: { kind: 'member' }, created_at: db.nowIso()
+    });
     res.json({ ok: true, members: await membersOf(a.id, req.user.uid) });
   });
+
   r.delete('/:id/members/:handle', async (req, res) => {
     const a = await memberOf(req, res, req.params.id); if (!a) return;
-    const sql = getSql();
-    const [other] = await sql`SELECT p.uid, m.role FROM profiles p JOIN app_members m ON m.uid = p.uid AND m.app_id = ${a.id} WHERE p.handle = ${String(req.params.handle).toLowerCase()}`;
-    if (!other) return bad(res, 404, 'Nicht in dieser App.');
-    if (other.role === 'owner') return bad(res, 400, 'Der Besitzer kann nicht entfernt werden.');
-    if (a.role !== 'owner' && other.uid !== req.user.uid) return bad(res, 403, 'Nur der Besitzer kann andere entfernen.');
-    await sql`DELETE FROM app_members WHERE app_id = ${a.id} AND uid = ${other.uid}`;
+    const hdoc = await db.getDoc(`buddy_handles/${String(req.params.handle).toLowerCase()}`);
+    const m = hdoc ? await db.getDoc(`apps/${a.id}/members/${hdoc.uid}`) : null;
+    if (!m) return bad(res, 404, 'Nicht in dieser App.');
+    if (m.role === 'owner') return bad(res, 400, 'Der Besitzer kann nicht entfernt werden.');
+    if (a.role !== 'owner' && hdoc.uid !== req.user.uid) return bad(res, 403, 'Nur der Besitzer kann andere entfernen.');
+    await db.deleteDoc(`apps/${a.id}/members/${hdoc.uid}`);
+    await db.updateDoc(`apps/${a.id}`, { memberUids: (a.memberUids || []).filter(u => u !== hdoc.uid) });
     res.json({ ok: true });
   });
 
@@ -412,24 +677,50 @@ function appsRouter(requireAuth) {
   r.post('/:id/publish', rateLimit('apps-publish', 20, 300), async (req, res) => {
     const a = await memberOf(req, res, req.params.id); if (!a) return;
     if (a.role !== 'owner') return bad(res, 403, 'Nur der Besitzer kann veröffentlichen.');
-    let slug = req.body?.slug !== undefined ? String(req.body.slug).trim().toLowerCase() : a.slug;
+    const slug = req.body?.slug !== undefined ? String(req.body.slug).trim().toLowerCase() : a.slug;
     if (!SLUG_RE.test(slug)) return bad(res, 400, 'Adresse: 3 bis 40 Zeichen, nur a-z, 0-9 und Bindestrich (nicht am Anfang/Ende).');
     if (RESERVED.has(slug)) return bad(res, 400, 'Diese Adresse ist reserviert.');
-    let u;
-    try { [u] = await getSql()`UPDATE apps SET slug = ${slug}, published = true, published_at = COALESCE(published_at, now()), updated_at = now() WHERE id = ${a.id} RETURNING *`; }
-    catch (e) { if (e.code === '23505') return bad(res, 409, 'Diese Adresse ist schon vergeben.'); throw e; }
+    if (slug !== a.slug) {
+      const existingRoute = await db.getDoc(`app_routes/${slug}`, { preferAdmin: true }).catch(() => null);
+      if (existingRoute && Number(existingRoute.app_id) !== Number(a.id)) {
+        return bad(res, 409, 'Diese Adresse ist schon vergeben.');
+      }
+      // Falls fremder Besitzer (403 bei anderem Dokument): als vergeben melden
+      if (!existingRoute && !db.isMemoryDb() && !process.env.FIREBASE_SERVICE_ACCOUNT) {
+        try {
+          await db.createDoc(`app_routes/${slug}`, { app_id: a.id, owner: a.owner, slug, published: true });
+        } catch (e) {
+          if (e.code === 'ALREADY_EXISTS' || e.code === 'PERMISSION_DENIED') {
+            return bad(res, 409, 'Diese Adresse ist schon vergeben.');
+          }
+        }
+      }
+    }
+    const now = db.nowIso();
+    const u = await db.updateDoc(`apps/${a.id}`, {
+      slug,
+      published: true,
+      published_at: a.published_at || now,
+      updated_at: now
+    });
+    await syncPublicDocs(u, { oldSlug: a.slug, oldToken: a.preview_token });
     u.role = a.role; res.json({ app: meta(u, req) });
   });
+
   r.delete('/:id/publish', async (req, res) => {
     const a = await memberOf(req, res, req.params.id); if (!a) return;
     if (a.role !== 'owner') return bad(res, 403, 'Nur der Besitzer kann das ändern.');
-    const [u] = await getSql()`UPDATE apps SET published = false, updated_at = now() WHERE id = ${a.id} RETURNING *`;
+    const u = await db.updateDoc(`apps/${a.id}`, { published: false, updated_at: db.nowIso() });
+    await syncPublicDocs(u);
     u.role = a.role; res.json({ app: meta(u, req) });
   });
+
   r.post('/:id/token', async (req, res) => {
     const a = await memberOf(req, res, req.params.id); if (!a) return;
     if (a.role !== 'owner') return bad(res, 403, 'Nur der Besitzer kann den Testlink erneuern.');
-    const [u] = await getSql()`UPDATE apps SET preview_token = ${token()} WHERE id = ${a.id} RETURNING *`;
+    const nextTok = token();
+    const u = await db.updateDoc(`apps/${a.id}`, { preview_token: nextTok, updated_at: db.nowIso() });
+    await syncPublicDocs(u, { oldToken: a.preview_token });
     u.role = a.role; res.json({ app: meta(u, req) });
   });
 
@@ -442,15 +733,19 @@ function appsRouter(requireAuth) {
     const st = apk.publicState(a.apk);
     if (st.status === 'building') return res.json({ apk: st });
     const next = await apk.dispatch({ slug: a.slug, name: a.name, url: publicUrl(req, a.slug), color: a.theme_color });
-    await getSql()`UPDATE apps SET apk = ${JSON.stringify(next)}::jsonb WHERE id = ${a.id}`;
+    await db.updateDoc(`apps/${a.id}`, { apk: next }, { preferAdmin: a.owner !== req.user.uid });
     res.json({ apk: apk.publicState(next) });
   });
+
   r.get('/:id/apk', async (req, res) => {
     const a = await memberOf(req, res, req.params.id); if (!a) return;
     let state = a.apk || {};
     if (state.status === 'building') {
       const next = await apk.check(a.slug, state).catch(() => state);
-      if (JSON.stringify(next) !== JSON.stringify(state)) { await getSql()`UPDATE apps SET apk = ${JSON.stringify(next)}::jsonb WHERE id = ${a.id}`; state = next; }
+      if (JSON.stringify(next) !== JSON.stringify(state)) {
+        await db.updateDoc(`apps/${a.id}`, { apk: next }, { preferAdmin: a.owner !== req.user.uid });
+        state = next;
+      }
     }
     res.json({ apk: apk.publicState(state), configured: apk.configured() });
   });
@@ -464,11 +759,21 @@ function appsRouter(requireAuth) {
 async function loadPublic(slug, t) {
   slug = String(slug || '').toLowerCase();
   if (!SLUG_RE.test(slug)) return null;
-  const [a] = await getSql()`SELECT id, name, kind, style, slug, published, preview_token, files, version, theme_color FROM apps WHERE slug = ${slug}`;
-  if (!a) return null;
-  const preview = !!t && sameToken(String(t), a.preview_token);
-  if (!a.published && !preview) return null;
-  return { a, preview };
+  if (t && typeof t === 'string' && t.length >= 8 && t.length <= 64) {
+    const prev = await db.getDoc(`app_previews/${previewIdOf(slug, String(t))}`).catch(() => null);
+    if (prev) return { a: prev, preview: true };
+  }
+  const route = await db.getDoc(`app_routes/${slug}`).catch(() => null);
+  if (route && route.published) return { a: route, preview: false };
+  // Fallback (z. B. falls Service-Account aktiv oder Memory-DB)
+  if (db.isMemoryDb() || process.env.FIREBASE_SERVICE_ACCOUNT) {
+    const [a] = await db.runQuery('apps', { where: [['slug', '==', slug]], limit: 1, preferAdmin: true }).catch(() => []);
+    if (!a) return null;
+    const preview = !!t && sameToken(String(t), a.preview_token);
+    if (!a.published && !preview) return null;
+    return { a, preview };
+  }
+  return null;
 }
 
 function publicApiRouter() {
@@ -480,9 +785,10 @@ function publicApiRouter() {
   });
   r.get('/img/:key', rateLimit('pub-img', 600, 60, byIp), async (req, res) => {
     if (!/^[a-f0-9]{18}$/.test(req.params.key)) return res.status(404).end();
-    const [im] = await getSql()`SELECT mime, data FROM app_images WHERE key = ${req.params.key}`;
+    const im = await db.getDoc(`app_images/${req.params.key}`).catch(() => null);
     if (!im) return res.status(404).end();
-    res.setHeader('Content-Type', im.mime); res.set('Cache-Control', 'public, max-age=31536000, immutable').set('Access-Control-Allow-Origin', '*').end(Buffer.from(im.data));
+    const buf = im.data_b64 ? Buffer.from(im.data_b64, 'base64') : Buffer.from(im.data || '');
+    res.setHeader('Content-Type', im.mime); res.set('Cache-Control', 'public, max-age=31536000, immutable').set('Access-Control-Allow-Origin', '*').end(buf);
   });
   r.get('/apps/:slug/version', rateLimit('pub-ver', 120, 60, byIp), async (req, res) => {
     const x = await loadPublic(req.params.slug, req.query.t); if (!x) return bad(res, 404, 'Nicht gefunden.');
@@ -499,7 +805,7 @@ function wrapperHtml({ a, preview, slug, page, t }) {
   return `<!doctype html><html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>${escHtml(a.name)}</title><meta name="theme-color" content="${escHtml(a.theme_color)}">
-<link rel="manifest" href="/a/${slug}/manifest.webmanifest${q}"><link rel="icon" type="image/png" href="/a/${slug}/icon-192.png"><link rel="apple-touch-icon" href="/a/${slug}/icon-180.png">
+<link rel="manifest" href="/a/${slug}/manifest.webmanifest${q}"><link rel="icon" type="image/png" href="/a/${slug}/icon-192.png${q}"><link rel="apple-touch-icon" href="/a/${slug}/icon-180.png${q}">
 <meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="${escHtml(a.name.slice(0, 30))}"><meta name="apple-mobile-web-app-status-bar-style" content="default">
 ${preview ? '<meta name="robots" content="noindex">' : ''}
 <style>html,body{margin:0;height:100%;background:${escHtml(bg)};overflow:hidden}#f{position:fixed;inset:0;width:100%;height:100%;border:0;background:${escHtml(bg)}}
@@ -529,16 +835,20 @@ function hostedRouter() {
   r.get('/:slug/manifest.webmanifest', limiter, async (req, res) => {
     const x = await loadPublic(req.params.slug, req.query.t); if (!x) return res.status(404).json({});
     const { a, preview } = x; const base = `/a/${a.slug}/`; const style = Styles.byId(a.style);
+    const q = preview ? `?t=${encodeURIComponent(req.query.t)}` : '';
     res.set('Content-Type', 'application/manifest+json; charset=utf-8').set('Cache-Control', 'public, max-age=300');
     res.send(JSON.stringify({
-      id: base, name: a.name, short_name: a.name.slice(0, 12), start_url: base + (preview ? `?t=${encodeURIComponent(req.query.t)}` : ''), scope: base,
+      id: base, name: a.name, short_name: a.name.slice(0, 12), start_url: base + q, scope: base,
       display: 'standalone', orientation: a.kind === 'web' || a.kind === 'game' ? 'any' : 'portrait', background_color: style ? style.v.bg.match(/^#/) ? style.v.bg : '#ffffff' : '#ffffff', theme_color: a.theme_color, lang: 'de',
-      icons: [{ src: base + 'icon-192.png', sizes: '192x192', type: 'image/png' }, { src: base + 'icon-512.png', sizes: '512x512', type: 'image/png' }, { src: base + 'icon-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }]
+      icons: [{ src: base + 'icon-192.png' + q, sizes: '192x192', type: 'image/png' }, { src: base + 'icon-512.png' + q, sizes: '512x512', type: 'image/png' }, { src: base + 'icon-maskable.png' + q, sizes: '512x512', type: 'image/png', purpose: 'maskable' }]
     }));
   });
   r.get(/^\/([a-z0-9-]+)\/icon-(180|192|512|maskable)\.png$/, limiter, async (req, res) => {
     const slug = req.params[0]; const kind = req.params[1];
-    const [a] = SLUG_RE.test(slug) ? await getSql()`SELECT name, theme_color FROM apps WHERE slug = ${slug}` : [];
+    let a = (await loadPublic(slug, req.query.t))?.a || null;
+    if (!a && SLUG_RE.test(slug) && (db.isMemoryDb() || process.env.FIREBASE_SERVICE_ACCOUNT)) {
+      a = await db.getDoc(`app_routes/${slug}`, { preferAdmin: true }).catch(() => null);
+    }
     if (!a) return res.status(404).end();
     const png = iconPng({ size: kind === 'maskable' ? 512 : +kind, color: a.theme_color, letter: a.name.trim()[0] || 'C', maskable: kind === 'maskable' });
     res.set('Content-Type', 'image/png').set('Cache-Control', 'public, max-age=3600').send(png);

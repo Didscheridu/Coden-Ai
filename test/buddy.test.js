@@ -1,4 +1,4 @@
-// Code Buddy (Profile, Freunde, DMs, Projekte) und der Streaming-Endpunkt, Ende-zu-Ende gegen echtes Postgres.
+// Code Buddy (Profile, Freunde, DMs, Projekte) und der Streaming-Endpunkt, Ende-zu-Ende gegen Firestore.
 const { setup } = require('./helpers');
 (async () => {
   const { call, chk, finish, token, base, db } = await setup();
@@ -88,7 +88,7 @@ const { setup } = require('./helpers');
   chk('Ben verlässt das Projekt', (await D(`/buddy/projects/${pid}/members/ben`, T.ben)).s, 200);
   chk('Danach kein Zugriff mehr', (await G(`/buddy/projects/${pid}`, T.ben)).s, 404);
   chk('Anna löscht das Projekt', (await D(`/buddy/projects/${pid}`, T.anna)).s, 200);
-  chk('Dateien und Nachrichten mit gelöscht (Cascade)', [(await db.query('SELECT count(*)::int n FROM project_files')).rows[0].n, (await db.query('SELECT count(*)::int n FROM project_messages')).rows[0].n], [0, 0]);
+  chk('Dateien und Nachrichten mit gelöscht (Cascade)', [(await db.listDocs(`buddy_projects/${pid}/files`)).length, (await db.listDocs(`buddy_projects/${pid}/messages`)).length], [0, 0]);
 
   // Freund entfernen
   chk('Freund entfernen', (await D('/buddy/friends/ben', T.anna)).s, 200);

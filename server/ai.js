@@ -1,5 +1,5 @@
 // KI-Anbieter. Alle Keys kommen ausschließlich aus Umgebungsvariablen.
-const { getSql } = require('./db');
+const db = require('./db');
 const byok = require('./byok');
 
 // Alle Gratis-Modelle von OpenRouter (Stand 21.11.2026, per OpenRouter-MCP abgefragt, Preis 0 $ rein/raus).
@@ -75,19 +75,51 @@ const OPENAI_COMPAT = {
 // ---------- Tageskontingent ----------
 const pacificDay = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
 
-// Zählt einen Aufruf atomar. true = erlaubt. Normale Nutzer dürfen nur bis publicMax, der Owner bis total.
+const quotaQueues = new Map();
+function withQuotaLock(key, fn) {
+  const prev = quotaQueues.get(key) || Promise.resolve();
+  const next = prev.then(fn, fn);
+  const cleanup = next.finally(() => {
+    if (quotaQueues.get(key) === cleanup) quotaQueues.delete(key);
+  });
+  quotaQueues.set(key, cleanup);
+  return next;
+}
+
+// Zählt einen Aufruf. true = erlaubt. Normale Nutzer dürfen nur bis publicMax, der Owner bis total.
 async function reserveQuota(model, isOwner) {
   const q = QUOTAS[model];
   if (!q) return true;
   const pub = isOwner ? 0 : 1;
   if (q.total < 1 || (!isOwner && q.publicMax < 1)) return false;
-  const rows = await getSql()`
-    INSERT INTO model_quota (model, day, total, public) VALUES (${model}, ${pacificDay()}, 1, ${pub})
-    ON CONFLICT (model, day) DO UPDATE
-      SET total = model_quota.total + 1, public = model_quota.public + ${pub}
-      WHERE model_quota.total < ${q.total} AND (${pub} = 0 OR model_quota.public < ${q.publicMax})
-    RETURNING total`;
-  return rows.length > 0;
+  const key = `${String(model).replace(/[^a-zA-Z0-9_-]/g, '_')}__${pacificDay()}`;
+  return withQuotaLock(key, async () => {
+    try {
+      for (let attempt = 0; attempt < 16; attempt++) {
+        const cur = await db.getDoc(`model_quota/${key}`, { preferAdmin: true });
+        if (!cur) {
+          try {
+            await db.createDoc(`model_quota/${key}`, { model, day: pacificDay(), total: 1, public: pub }, { preferAdmin: true });
+            return true;
+          } catch (e) {
+            if (e.code === 'ALREADY_EXISTS') continue;
+            return false;
+          }
+        }
+        if (cur.total >= q.total || (pub > 0 && cur.public >= q.publicMax)) return false;
+        try {
+          await db.updateDoc(`model_quota/${key}`, { total: cur.total + 1, public: cur.public + pub }, { updateTime: cur._updateTime, preferAdmin: true });
+          return true;
+        } catch (e) {
+          if (e.code === 'PRECONDITION_FAILED') continue;
+          return false;
+        }
+      }
+    } catch (_) {
+      return false;
+    }
+    return false;
+  });
 }
 
 // ---------- Nachrichten umwandeln ----------

@@ -1,11 +1,11 @@
 // Chat-Antworten als Hintergrund-Lauf, die auch bei komplett geschlossener Seite fertig werden:
 // - Etappen: Ein Server-Aufruf darf auf Vercel höchstens 5 Minuten laufen. Wird eine Antwort sehr lang,
-//   sichert der Lauf rechtzeitig seinen Stand und startet sich selbst neu; das Modell schreibt nahtlos weiter.
-// - Bilder (<generate_image prompt="…">) erstellt der Server selbst, damit sie nicht erst beim Öffnen entstehen.
-// - Am Ende kommt eine Push-Benachrichtigung aufs Gerät (wenn der Nutzer sie eingeschaltet hat).
-// - Das Nutzungslimit zählt mit; geht eine sehr lange Antwort weit über das Limit, hält sie an.
+//   sichert der Lauf rechtzeitig seinen Stand in Firestore und startet sich selbst neu; das Modell schreibt nahtlos weiter.
+// - Bilder (<generate_image prompt="…">) erstellt der Server selbst.
+// - Am Ende kommt eine Push-Benachrichtigung aufs Gerät (wenn eingeschaltet).
 const crypto = require('crypto');
-const { getSql } = require('./db');
+const db = require('./db');
+const byok = require('./byok');
 const { generateStream, CONTINUE } = require('./ai');
 const { generateImage } = require('./images');
 const { Meter } = require('./usage');
@@ -17,15 +17,24 @@ const LEG_MS = () => intEnv('CODEN_CHAT_LEG_MS', 230_000); // danach neue Etappe
 const MAX_LEGS = 6;
 const IMAGE_TAG = /<generate_image\s+([^>]*?)\/?>/gi;
 
-// Ein Bild erzeugen und speichern (auch für POST /api/image)
+// Ein Bild erzeugen und in Firestore speichern (auch für POST /api/image)
 async function makeChatImage(user, prompt, base) {
   const p = String(prompt || '').trim().slice(0, 1500);
   if (p.length < 3) throw Object.assign(new Error('Beschreibe das Bild kurz.'), { status: 400 });
-  const [{ n }] = await getSql()`SELECT count(*)::int AS n FROM app_images WHERE uid = ${user.uid}`;
-  if (n >= 300 && !user.isOwner) throw Object.assign(new Error('Du hast das Bild-Limit erreicht (300).'), { status: 400 });
+  if (!user.isOwner) {
+    const mine = await db.runQuery('app_images', { where: [['uid', '==', user.uid]] });
+    if (mine.length >= 300) throw Object.assign(new Error('Du hast das Bild-Limit erreicht (300).'), { status: 400 });
+  }
   const img = await generateImage(p);
   const key = crypto.randomBytes(9).toString('hex');
-  await getSql()`INSERT INTO app_images (key, uid, prompt, mime, data) VALUES (${key}, ${user.uid}, ${p}, ${img.mime}, ${img.data})`;
+  await db.createDoc(`app_images/${key}`, {
+    key,
+    uid: user.uid,
+    prompt: p,
+    mime: img.mime,
+    data_b64: Buffer.from(img.data).toString('base64'),
+    created_at: db.nowIso()
+  });
   return { key, url: `${base}/api/public/img/${key}` };
 }
 
@@ -46,7 +55,6 @@ async function chatJob(run, state) {
   const { user, tier, messages, opts = {}, leg = 1 } = state;
   const meter = new Meter(user, tier);
   const legAc = new AbortController(); let legEnd = false;
-  // Nur wechseln, wenn schon Text da ist (sonst würde die nächste Etappe nur von vorn anfangen)
   const timer = setTimeout(() => { if (run.text.trim() && leg < MAX_LEGS) { legEnd = true; legAc.abort(); } }, LEG_MS());
   const msgs = leg > 1 && run.text.trim()
     ? [...messages, { role: 'assistant', content: run.text.replace(/<think>[\s\S]*?<\/think>\s*/gi, '') }, { role: 'user', content: CONTINUE }]
@@ -70,7 +78,7 @@ async function chatJob(run, state) {
   if (run.subs.size === 0) await Push.notify(user.uid, { title: state.title ? `Coden ist fertig: ${state.title}` : 'Coden ist fertig', body: Push.preview(run.text), url: '/#/chat', tag: 'chat-' + run.ref });
 }
 
-// Bilder aus der Antwort gleich auf dem Server erstellen. Der Client setzt sie an Stelle der Tags ein.
+// Bilder aus der Antwort gleich auf dem Server erstellen.
 async function images(run, user, base) {
   const wanted = [...run.text.matchAll(IMAGE_TAG)].map(m => (m[1].match(/prompt\s*=\s*"([^"]*)"/i) || [])[1]).filter(Boolean).slice(0, 2);
   if (!wanted.length || !base) return;
@@ -86,9 +94,14 @@ async function images(run, user, base) {
 async function continueLeg(run, state) {
   const key = crypto.randomBytes(24).toString('hex');
   await run.pause();
-  await getSql()`UPDATE ai_runs SET meta = meta || ${JSON.stringify({ cont: { key, state } })}::jsonb, updated_at = now() WHERE id = ${run.id}`;
+  const ctxToken = db.getDbContext().token;
+  const authTokenEnc = ctxToken ? await byok.encrypt(ctxToken).catch(() => null) : null;
+  const savedState = authTokenEnc ? { ...state, authTokenEnc } : state;
+  const nextMeta = { ...run.meta, extra: run.extra, cont: { key, state: savedState } };
+  await db.updateDoc(`ai_runs/${run.id}`, { meta: nextMeta, updated_at: db.nowIso() });
   if (await selfInvoke(`${state.self}/api/runs/${run.id}/continue`, key, { run: run.id })) return true;
-  await getSql()`UPDATE ai_runs SET meta = meta - 'cont' WHERE id = ${run.id}`.catch(() => {});
+  const cleanMeta = { ...run.meta, extra: run.extra };
+  await db.updateDoc(`ai_runs/${run.id}`, { meta: cleanMeta, updated_at: db.nowIso() }).catch(() => {});
   run.unpause(); return false;
 }
 
@@ -96,13 +109,27 @@ async function continueLeg(run, state) {
 async function continueHandler(req, res) {
   const id = parseInt(req.params.id, 10); const key = String(req.headers['x-coden-leg'] || '');
   if (!Number.isFinite(id) || key.length !== 48) return res.status(400).json({ error: 'Ungültig.' });
-  const sql = getSql();
-  const [row] = await sql`SELECT id, meta FROM ai_runs WHERE id = ${id} AND kind = 'chat' AND status = 'running'`;
-  const cont = row?.meta?.cont;
-  if (!cont || typeof cont.key !== 'string' || cont.key.length !== key.length || !crypto.timingSafeEqual(Buffer.from(cont.key), Buffer.from(key))) return res.status(403).json({ error: 'Nicht erlaubt.' });
-  const took = await sql`UPDATE ai_runs SET meta = meta - 'cont', updated_at = now() WHERE id = ${id} AND meta->'cont'->>'key' = ${key} RETURNING id`;
-  if (!took.length) return res.status(409).json({ error: 'Diese Etappe läuft schon.' });
-  const started = await resumeRun(id, { isOwner: !!cont.state.user?.isOwner }, (run) => chatJob(run, cont.state));
+  const row = await db.getDoc(`ai_runs/${id}`, { preferAdmin: true });
+  const cont = row?.status === 'running' && row?.kind === 'chat' ? row?.meta?.cont : null;
+  if (!cont || typeof cont.key !== 'string' || cont.key.length !== key.length || !crypto.timingSafeEqual(Buffer.from(cont.key), Buffer.from(key))) {
+    return res.status(403).json({ error: 'Nicht erlaubt.' });
+  }
+  const { cont: _c, ...restMeta } = row.meta || {};
+  void _c;
+  try {
+    const took = await db.updateDoc(`ai_runs/${id}`, { meta: restMeta, updated_at: db.nowIso() }, { updateTime: row._updateTime, preferAdmin: true });
+    if (!took) return res.status(409).json({ error: 'Diese Etappe läuft schon.' });
+  } catch (e) {
+    if (e.code === 'PRECONDITION_FAILED') return res.status(409).json({ error: 'Diese Etappe läuft schon.' });
+    throw e;
+  }
+  const st = cont.state || {};
+  let token = null;
+  if (st.authTokenEnc) token = await byok.decrypt(st.authTokenEnc).catch(() => null);
+  const { authTokenEnc: _a, ...cleanState } = st;
+  void _a;
+  const dbCtx = { token, uid: st.user?.uid, isOwner: !!st.user?.isOwner, email: st.user?.email };
+  const started = await db.runWithDbContext(dbCtx, () => resumeRun(id, { isOwner: !!st.user?.isOwner }, (run) => chatJob(run, cleanState)));
   if (!started) return res.status(409).json({ error: 'Der Lauf ist nicht mehr aktiv.' });
   res.status(202).json({ ok: true });
 }

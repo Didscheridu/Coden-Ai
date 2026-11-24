@@ -53,7 +53,7 @@ const { setup } = require('./helpers');
   await run('flash', 'c2').then(r => r.text()); await wait(100);
   u = (await call('/usage', null, anna)).j;
   chk('Flash zählt nur halb', Math.round(u.session.used - before) >= 490 && u.session.used - before < 560, true);
-  chk('E-Mail wird klein gespeichert', (await db.query(`SELECT email FROM usage_limits WHERE uid = 'uid-anna'`)).rows[0].email, 'anna@x.de');
+  chk('E-Mail wird klein gespeichert', (await db.getDoc('usage_limits/uid-anna')).email, 'anna@x.de');
 
   // 3) Limit voll: neue Anfragen werden abgelehnt (mit Rücksetz-Zeit)
   await Usage.add({ uid: 'uid-anna' }, 20000);

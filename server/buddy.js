@@ -1,7 +1,7 @@
-// Code Buddy: Profile, Freunde, Direktnachrichten und gemeinsame Projekte.
+// Code Buddy: Profile, Freunde, Direktnachrichten und gemeinsame Projekte (Firebase Firestore).
 // Alle Rechte werden hier serverseitig geprüft; das Frontend bekommt nie fremde interne IDs (nur Handles).
 const express = require('express');
-const { getSql } = require('./db');
+const db = require('./db');
 const { rateLimit } = require('./rateLimit');
 const { wrapRouter } = require('./util');
 const Coden = require('./coden-chat');
@@ -14,6 +14,8 @@ const LIMITS = { msg: 2000, file: 200_000, filesPerProject: 30, projectsPerUser:
 const bad = (res, status, error) => res.status(status).json({ error });
 const toInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) && n > 0 ? n : 0; };
 const iso = (d) => (d instanceof Date ? d.toISOString() : d);
+const pairKey = (a, b) => [a, b].sort().join('__');
+const fileDocKey = (name) => Buffer.from(String(name), 'utf8').toString('base64url');
 
 function buddyRouter(requireAuth) {
   const r = wrapRouter(express.Router());
@@ -21,10 +23,14 @@ function buddyRouter(requireAuth) {
 
   // Profil laden (und "zuletzt gesehen" höchstens einmal pro Minute aktualisieren)
   async function loadProfile(req) {
-    const sql = getSql();
-    const rows = await sql`SELECT uid, handle, display_name, bio FROM profiles WHERE uid = ${req.user.uid}`;
-    if (rows[0]) sql`UPDATE profiles SET last_seen = now() WHERE uid = ${req.user.uid} AND last_seen < now() - interval '60 seconds'`.catch(() => {});
-    return rows[0] || null;
+    const p = await db.getDoc(`profiles/${req.user.uid}`);
+    if (p) {
+      const last = p.last_seen ? new Date(p.last_seen).getTime() : 0;
+      if (Date.now() - last > 60_000) {
+        db.updateDoc(`profiles/${req.user.uid}`, { last_seen: db.nowIso() }).catch(() => {});
+      }
+    }
+    return p;
   }
   async function needProfile(req, res, next) {
     req.profile = await loadProfile(req);
@@ -46,13 +52,31 @@ function buddyRouter(requireAuth) {
     if (!HANDLE_RE.test(handle)) return bad(res, 400, 'Benutzername: 3 bis 20 Zeichen, nur a-z, 0-9 und _.');
     if (RESERVED.has(handle)) return bad(res, 400, 'Dieser Benutzername ist reserviert.');
     if (!displayName) return bad(res, 400, 'Bitte gib einen Anzeigenamen an.');
-    try {
-      await getSql()`
-        INSERT INTO profiles (uid, handle, display_name, bio) VALUES (${req.user.uid}, ${handle}, ${displayName}, ${bio})
-        ON CONFLICT (uid) DO UPDATE SET handle = EXCLUDED.handle, display_name = EXCLUDED.display_name, bio = EXCLUDED.bio`;
-    } catch (e) {
-      if (e.code === '23505') return bad(res, 409, 'Dieser Benutzername ist schon vergeben.');
-      throw e;
+
+    const uid = req.user.uid;
+    const existing = await db.getDoc(`profiles/${uid}`);
+    if (!existing || existing.handle !== handle) {
+      const taken = await db.getDoc(`buddy_handles/${handle}`);
+      if (taken && taken.uid !== uid) return bad(res, 409, 'Dieser Benutzername ist schon vergeben.');
+      if (!taken) {
+        try {
+          await db.createDoc(`buddy_handles/${handle}`, { handle, uid });
+        } catch (e) {
+          if (e.code === 'ALREADY_EXISTS' || e.code === 'PERMISSION_DENIED') {
+            return bad(res, 409, 'Dieser Benutzername ist schon vergeben.');
+          }
+          throw e;
+        }
+      }
+      if (existing && existing.handle && existing.handle !== handle) {
+        await db.deleteDoc(`buddy_handles/${existing.handle}`).catch(() => {});
+      }
+    }
+    const now = db.nowIso();
+    if (existing) {
+      await db.updateDoc(`profiles/${uid}`, { handle, display_name: displayName, bio, last_seen: now });
+    } else {
+      await db.createDoc(`profiles/${uid}`, { uid, handle, display_name: displayName, bio, created_at: now, last_seen: now });
     }
     res.json({ profile: { handle, displayName, bio } });
   });
@@ -61,23 +85,36 @@ function buddyRouter(requireAuth) {
   r.get('/summary', async (req, res) => {
     const p = await loadProfile(req);
     if (!p) return res.json({ hasProfile: false, unread: 0, requests: 0 });
-    const sql = getSql(); const uid = req.user.uid;
-    const [u] = await sql`SELECT count(*)::int AS n FROM dm_messages WHERE recipient = ${uid} AND read_at IS NULL`;
-    const [q] = await sql`SELECT count(*)::int AS n FROM friendships WHERE addressee = ${uid} AND status = 'pending'`;
-    res.json({ hasProfile: true, unread: u.n, requests: q.n });
+    const uid = req.user.uid;
+    const [dms, frs] = await Promise.all([
+      db.runQuery('dm_messages', { where: [['participants', 'ARRAY_CONTAINS', uid]] }),
+      db.runQuery('friendships', { where: [['participants', 'ARRAY_CONTAINS', uid]] })
+    ]);
+    const unread = dms.filter(m => m.recipient === uid && !m.read_at && m.sender !== 'coden').length;
+    const requests = frs.filter(f => f.addressee === uid && f.status === 'pending').length;
+    res.json({ hasProfile: true, unread, requests });
   });
 
   // ---------- Freunde ----------
+  async function findByHandle(handle) {
+    handle = String(handle || '').trim().toLowerCase().replace(/^@/, '');
+    if (!HANDLE_RE.test(handle)) return null;
+    const h = await db.getDoc(`buddy_handles/${handle}`);
+    if (!h) return null;
+    return db.getDoc(`profiles/${h.uid}`);
+  }
+  async function pairRow(a, b) {
+    return db.getDoc(`friendships/${pairKey(a, b)}`);
+  }
+
   r.get('/search', rateLimit('buddy-search', 30, 60), needProfile, async (req, res) => {
-    const handle = String(req.query.handle || '').trim().toLowerCase().replace(/^@/, '');
-    if (!HANDLE_RE.test(handle)) return res.json({ result: null });
-    const sql = getSql(); const uid = req.user.uid;
-    const [p] = await sql`SELECT uid, handle, display_name, bio FROM profiles WHERE handle = ${handle}`;
+    const p = await findByHandle(req.query.handle);
     if (!p) return res.json({ result: null });
+    const uid = req.user.uid;
     let relation = 'none';
     if (p.uid === uid) relation = 'self';
     else {
-      const [f] = await sql`SELECT requester, status FROM friendships WHERE LEAST(requester, addressee) = LEAST(${uid}, ${p.uid}) AND GREATEST(requester, addressee) = GREATEST(${uid}, ${p.uid})`;
+      const f = await pairRow(uid, p.uid);
       if (f) relation = f.status === 'accepted' ? 'friend' : (f.requester === uid ? 'outgoing' : 'incoming');
     }
     res.json({ result: { ...publicProfile(p), relation } });
@@ -85,31 +122,41 @@ function buddyRouter(requireAuth) {
 
   r.get('/friends', needProfile, async (req, res) => {
     const uid = req.user.uid;
-    const rows = await getSql()`
-      SELECT p.handle, p.display_name, p.bio, p.last_seen, f.status, (f.requester = ${uid}) AS i_requested,
-        (SELECT count(*)::int FROM dm_messages m WHERE m.sender = p.uid AND m.recipient = ${uid} AND m.read_at IS NULL) AS unread
-      FROM friendships f JOIN profiles p ON p.uid = CASE WHEN f.requester = ${uid} THEN f.addressee ELSE f.requester END
-      WHERE f.requester = ${uid} OR f.addressee = ${uid}
-      ORDER BY p.display_name`;
+    const [frs, dms] = await Promise.all([
+      db.runQuery('friendships', { where: [['participants', 'ARRAY_CONTAINS', uid]] }),
+      db.runQuery('dm_messages', { where: [['participants', 'ARRAY_CONTAINS', uid]] })
+    ]);
+    const unreadFrom = new Map();
+    for (const m of dms) {
+      if (m.recipient === uid && !m.read_at && m.sender !== 'coden') {
+        unreadFrom.set(m.sender, (unreadFrom.get(m.sender) || 0) + 1);
+      }
+    }
+    const items = (await Promise.all(frs.map(async (f) => {
+      const otherUid = f.requester === uid ? f.addressee : f.requester;
+      const p = await db.getDoc(`profiles/${otherUid}`).catch(() => null);
+      if (!p) return null;
+      return {
+        uid: otherUid,
+        handle: p.handle,
+        displayName: p.display_name,
+        bio: p.bio,
+        last_seen: p.last_seen,
+        status: f.status,
+        i_requested: f.requester === uid,
+        unread: unreadFrom.get(otherUid) || 0
+      };
+    }))).filter(Boolean).sort((a, b) => String(a.displayName || '').localeCompare(String(b.displayName || '')));
+
     const now = Date.now();
-    const base = (x) => ({ handle: x.handle, displayName: x.display_name, bio: x.bio });
+    const base = (x) => ({ handle: x.handle, displayName: x.displayName, bio: x.bio });
     res.json({
-      friends: rows.filter(x => x.status === 'accepted').map(x => ({ ...base(x), unread: x.unread, online: now - new Date(x.last_seen).getTime() < 120_000 })),
-      incoming: rows.filter(x => x.status === 'pending' && !x.i_requested).map(base),
-      outgoing: rows.filter(x => x.status === 'pending' && x.i_requested).map(base)
+      friends: items.filter(x => x.status === 'accepted').map(x => ({ ...base(x), unread: x.unread, online: x.last_seen ? now - new Date(x.last_seen).getTime() < 120_000 : false })),
+      incoming: items.filter(x => x.status === 'pending' && !x.i_requested).map(base),
+      outgoing: items.filter(x => x.status === 'pending' && x.i_requested).map(base)
     });
   });
 
-  async function findByHandle(handle) {
-    handle = String(handle || '').trim().toLowerCase().replace(/^@/, '');
-    if (!HANDLE_RE.test(handle)) return null;
-    const [p] = await getSql()`SELECT uid, handle, display_name, bio FROM profiles WHERE handle = ${handle}`;
-    return p || null;
-  }
-  async function pairRow(a, b) {
-    const [f] = await getSql()`SELECT id, requester, addressee, status FROM friendships WHERE LEAST(requester, addressee) = LEAST(${a}, ${b}) AND GREATEST(requester, addressee) = GREATEST(${a}, ${b})`;
-    return f || null;
-  }
   async function requireFriend(req, res, handle) {
     const other = await findByHandle(handle);
     if (!other) { bad(res, 404, 'Nutzer nicht gefunden.'); return null; }
@@ -119,7 +166,7 @@ function buddyRouter(requireAuth) {
   }
 
   r.post('/requests', rateLimit('buddy-request', 20, 300), needProfile, async (req, res) => {
-    const uid = req.user.uid; const sql = getSql();
+    const uid = req.user.uid;
     const target = await findByHandle(req.body?.handle);
     if (!target) return bad(res, 404, 'Diesen Benutzer gibt es nicht.');
     if (target.uid === uid) return bad(res, 400, 'Du kannst dich nicht selbst hinzufügen.');
@@ -127,29 +174,46 @@ function buddyRouter(requireAuth) {
     if (existing) {
       if (existing.status === 'accepted') return bad(res, 409, 'Ihr seid schon befreundet.');
       if (existing.requester === uid) return bad(res, 409, 'Anfrage wurde schon gesendet.');
-      await sql`UPDATE friendships SET status = 'accepted' WHERE id = ${existing.id}`; // er hatte dir schon geschrieben
+      await db.updateDoc(`friendships/${existing.id}`, { status: 'accepted' });
       return res.json({ status: 'accepted' });
     }
-    const [{ n }] = await sql`SELECT count(*)::int AS n FROM friendships WHERE requester = ${uid} AND status = 'pending'`;
-    if (n >= LIMITS.pendingOut) return bad(res, 429, 'Zu viele offene Anfragen.');
-    const [{ c }] = await sql`SELECT count(*)::int AS c FROM friendships WHERE (requester = ${uid} OR addressee = ${uid}) AND status = 'accepted'`;
-    if (c >= LIMITS.friends) return bad(res, 400, 'Freundesliste ist voll.');
-    await sql`INSERT INTO friendships (requester, addressee, status) VALUES (${uid}, ${target.uid}, 'pending')`;
+    const mine = await db.runQuery('friendships', { where: [['participants', 'ARRAY_CONTAINS', uid]] });
+    if (mine.filter(f => f.requester === uid && f.status === 'pending').length >= LIMITS.pendingOut) {
+      return bad(res, 429, 'Zu viele offene Anfragen.');
+    }
+    if (mine.filter(f => f.status === 'accepted').length >= LIMITS.friends) {
+      return bad(res, 400, 'Freundesliste ist voll.');
+    }
+    const id = pairKey(uid, target.uid);
+    await db.createDoc(`friendships/${id}`, {
+      id,
+      requester: uid,
+      addressee: target.uid,
+      participants: [uid, target.uid].sort(),
+      status: 'pending',
+      created_at: db.nowIso()
+    });
     res.json({ status: 'pending' });
   });
 
   r.post('/requests/:handle/accept', needProfile, async (req, res) => {
     const other = await findByHandle(req.params.handle);
     if (!other) return bad(res, 404, 'Nutzer nicht gefunden.');
-    const rows = await getSql()`UPDATE friendships SET status = 'accepted' WHERE requester = ${other.uid} AND addressee = ${req.user.uid} AND status = 'pending' RETURNING id`;
-    if (!rows.length) return bad(res, 404, 'Keine offene Anfrage.');
+    const f = await pairRow(req.user.uid, other.uid);
+    if (!f || f.requester !== other.uid || f.addressee !== req.user.uid || f.status !== 'pending') {
+      return bad(res, 404, 'Keine offene Anfrage.');
+    }
+    await db.updateDoc(`friendships/${f.id}`, { status: 'accepted' });
     res.json({ ok: true });
   });
 
   r.post('/requests/:handle/decline', needProfile, async (req, res) => {
     const other = await findByHandle(req.params.handle);
     if (!other) return bad(res, 404, 'Nutzer nicht gefunden.');
-    await getSql()`DELETE FROM friendships WHERE requester = ${other.uid} AND addressee = ${req.user.uid} AND status = 'pending'`;
+    const f = await pairRow(req.user.uid, other.uid);
+    if (f && f.requester === other.uid && f.addressee === req.user.uid && f.status === 'pending') {
+      await db.deleteDoc(`friendships/${f.id}`);
+    }
     res.json({ ok: true });
   });
 
@@ -157,7 +221,7 @@ function buddyRouter(requireAuth) {
   r.delete('/friends/:handle', needProfile, async (req, res) => {
     const other = await findByHandle(req.params.handle);
     if (!other) return bad(res, 404, 'Nutzer nicht gefunden.');
-    await getSql()`DELETE FROM friendships WHERE LEAST(requester, addressee) = LEAST(${req.user.uid}, ${other.uid}) AND GREATEST(requester, addressee) = GREATEST(${req.user.uid}, ${other.uid})`;
+    await db.deleteDoc(`friendships/${pairKey(req.user.uid, other.uid)}`);
     res.json({ ok: true });
   });
 
@@ -166,43 +230,55 @@ function buddyRouter(requireAuth) {
     ? { id: Number(m.id), mine: false, ai: true, handle: 'coden', displayName: 'Coden', body: m.body, createdAt: iso(m.created_at) }
     : { id: Number(m.id), mine: m.sender === uid, body: m.body, attachment: m.attachment || undefined, createdAt: iso(m.created_at) };
 
-  // Gespräch zwischen zwei Personen inkl. Coden-Antworten (sender 'coden', recipient = Fragesteller, peer = Gegenüber)
   const thread = async (uid, other, after) => {
-    const sql = getSql();
-    return after
-      ? await sql`SELECT id, sender, body, attachment, created_at FROM dm_messages WHERE id > ${after}
-          AND ((sender = ${uid} AND recipient = ${other}) OR (sender = ${other} AND recipient = ${uid})
-            OR (sender = 'coden' AND ((recipient = ${uid} AND peer = ${other}) OR (recipient = ${other} AND peer = ${uid})))) ORDER BY id LIMIT 200`
-      : (await sql`SELECT id, sender, body, attachment, created_at FROM dm_messages WHERE
-          ((sender = ${uid} AND recipient = ${other}) OR (sender = ${other} AND recipient = ${uid})
-            OR (sender = 'coden' AND ((recipient = ${uid} AND peer = ${other}) OR (recipient = ${other} AND peer = ${uid})))) ORDER BY id DESC LIMIT 60`).reverse();
+    const all = await db.runQuery('dm_messages', { where: [['participants', 'ARRAY_CONTAINS', uid]] });
+    const conv = all.filter(m => {
+      const okPair = (m.sender === uid && m.recipient === other)
+        || (m.sender === other && m.recipient === uid)
+        || (m.sender === 'coden' && ((m.recipient === uid && m.peer === other) || (m.recipient === other && m.peer === uid)));
+      if (!okPair) return false;
+      return after ? Number(m.id) > after : true;
+    }).sort((a, b) => Number(a.id) - Number(b.id));
+    return after ? conv.slice(0, 200) : conv.slice(-60);
   };
 
   r.get('/messages/:handle', needProfile, async (req, res) => {
     const other = await requireFriend(req, res, req.params.handle); if (!other) return;
-    const uid = req.user.uid; const sql = getSql(); const after = toInt(req.query.after);
+    const uid = req.user.uid; const after = toInt(req.query.after);
     const rows = await thread(uid, other.uid, after);
-    if (rows.some(m => m.sender === other.uid)) sql`UPDATE dm_messages SET read_at = now() WHERE sender = ${other.uid} AND recipient = ${uid} AND read_at IS NULL`.catch(() => {});
+    const unread = rows.filter(m => m.sender === other.uid && m.recipient === uid && !m.read_at);
+    if (unread.length) {
+      const now = db.nowIso();
+      Promise.all(unread.map(m => db.updateDoc(`dm_messages/${m.id}`, { read_at: now }).catch(() => {}))).catch(() => {});
+    }
     res.json({ messages: rows.map(m => msgOut(m, uid)) });
   });
 
   // Anhang teilen: gibt dem Freund sofort Zugriff (App als Zuschauer/Bearbeiter, Projekt als Mitglied)
   async function shareAttachment(req, res, other, att) {
-    const sql = getSql(); const type = att?.type; const id = toInt(att?.id);
+    const type = att?.type; const id = toInt(att?.id);
     if (type === 'app') {
       const role = att.role === 'editor' ? 'editor' : 'viewer';
-      const [a] = await sql`SELECT a.id, a.name FROM apps a JOIN app_members m ON m.app_id = a.id AND m.uid = ${req.user.uid} AND m.role = 'owner' WHERE a.id = ${id}`;
-      if (!a) { bad(res, 403, 'Du kannst nur Apps teilen, die dir gehören.'); return null; }
-      await sql`INSERT INTO app_members (app_id, uid, role) VALUES (${a.id}, ${other.uid}, ${role}) ON CONFLICT (app_id, uid) DO UPDATE SET role = EXCLUDED.role WHERE app_members.role <> 'owner'`;
+      const a = id ? await db.getDoc(`apps/${id}`) : null;
+      if (!a || a.owner !== req.user.uid) { bad(res, 403, 'Du kannst nur Apps teilen, die dir gehören.'); return null; }
+      const nextUids = [...new Set([...(a.memberUids || []), other.uid])];
+      if (nextUids.length > (a.memberUids || []).length) {
+        await db.updateDoc(`apps/${a.id}`, { memberUids: nextUids });
+      }
+      if (other.uid !== a.owner) {
+        await db.setDoc(`apps/${a.id}/members/${other.uid}`, { app_id: a.id, uid: other.uid, role, last_seen: db.nowIso() });
+      }
       return { type: 'app', id: Number(a.id), name: a.name, role };
     }
     if (type === 'project') {
       const proj = await memberOf(req, res, id); if (!proj) return null;
       if (proj.role !== 'owner') { bad(res, 403, 'Nur der Besitzer kann ein Projekt teilen.'); return null; }
-      const [{ n }] = await sql`SELECT count(*)::int AS n FROM project_members WHERE project_id = ${proj.id}`;
-      const [already] = await sql`SELECT 1 FROM project_members WHERE project_id = ${proj.id} AND uid = ${other.uid}`;
-      if (!already && n >= LIMITS.membersPerProject) { bad(res, 400, 'Das Projekt hat schon die maximale Mitgliederzahl.'); return null; }
-      await sql`INSERT INTO project_members (project_id, uid, role) VALUES (${proj.id}, ${other.uid}, 'editor') ON CONFLICT DO NOTHING`;
+      const curMembers = Array.isArray(proj.memberUids) ? proj.memberUids : [];
+      if (!curMembers.includes(other.uid)) {
+        if (curMembers.length >= LIMITS.membersPerProject) { bad(res, 400, 'Das Projekt hat schon die maximale Mitgliederzahl.'); return null; }
+        await db.updateDoc(`buddy_projects/${proj.id}`, { memberUids: [...curMembers, other.uid], updated_at: db.nowIso() });
+        await db.createDoc(`buddy_projects/${proj.id}/members/${other.uid}`, { project_id: proj.id, uid: other.uid, role: 'editor' });
+      }
       return { type: 'project', id: Number(proj.id), name: proj.title, role: 'editor' };
     }
     bad(res, 400, 'Unbekannter Anhang.'); return null;
@@ -218,10 +294,18 @@ function buddyRouter(requireAuth) {
     }
     if (!body) return bad(res, 400, 'Leere Nachricht.');
     if (body.length > LIMITS.msg) return bad(res, 400, `Maximal ${LIMITS.msg} Zeichen.`);
-    const sql = getSql();
-    const [m] = await sql`INSERT INTO dm_messages (sender, recipient, body, attachment) VALUES (${req.user.uid}, ${other.uid}, ${body}, ${attachment ? JSON.stringify(attachment) : null}::jsonb) RETURNING id, sender, body, attachment, created_at`;
+    const mid = db.nextId();
+    const now = db.nowIso();
+    const m = await db.createDoc(`dm_messages/${mid}`, {
+      id: mid,
+      participants: [req.user.uid, other.uid].sort(),
+      sender: req.user.uid,
+      recipient: other.uid,
+      body,
+      attachment,
+      created_at: now
+    });
     const out = { message: msgOut(m, req.user.uid) };
-    // @coden: Coden antwortet im selben Gespräch (für beide sichtbar)
     if (Coden.mentionsCoden(body)) {
       try {
         if (!(await Coden.canAsk(req.user.uid))) out.codenError = `Coden braucht eine Pause (höchstens ${Coden.LIMIT.perWindow} Fragen in ${Coden.LIMIT.windowMin} Minuten).`;
@@ -229,7 +313,19 @@ function buddyRouter(requireAuth) {
           const hist = (await thread(req.user.uid, other.uid)).slice(-14);
           const who = (m2) => m2.sender === 'coden' ? 'coden' : (m2.sender === req.user.uid ? req.profile.handle : other.handle);
           const text = await Coden.ask({ isOwner: req.user.isOwner, where: `Direktnachricht zwischen @${req.profile.handle} und @${other.handle}`, asker: req.profile.handle, history: hist.map(m2 => ({ who: who(m2), body: m2.body })) });
-          const [c] = await sql`INSERT INTO dm_messages (sender, recipient, peer, ai_for, body, read_at) VALUES ('coden', ${req.user.uid}, ${other.uid}, ${req.user.uid}, ${text}, now()) RETURNING id, sender, body, attachment, created_at`;
+          const cid = db.nextId();
+          const cnow = db.nowIso();
+          const c = await db.createDoc(`dm_messages/${cid}`, {
+            id: cid,
+            participants: [req.user.uid, other.uid].sort(),
+            sender: 'coden',
+            recipient: req.user.uid,
+            peer: other.uid,
+            ai_for: req.user.uid,
+            body: text,
+            created_at: cnow,
+            read_at: cnow
+          });
           out.reply = msgOut(c, req.user.uid);
         }
       } catch (e) { console.warn('[coden-chat]', e.message); out.codenError = 'Coden ist gerade überlastet. Versuch es gleich nochmal.'; }
@@ -237,53 +333,104 @@ function buddyRouter(requireAuth) {
     res.json(out);
   });
 
-  // ---------- Projekte ----------
+  // ---------- Gemeinsame Buddy-Projekte ----------
   async function memberOf(req, res, idRaw) {
     const id = toInt(idRaw);
     if (!id) { bad(res, 404, 'Projekt nicht gefunden.'); return null; }
-    const [m] = await getSql()`
-      SELECT p.id, p.owner, p.title, p.description, pm.role FROM projects p JOIN project_members pm ON pm.project_id = p.id
-      WHERE p.id = ${id} AND pm.uid = ${req.user.uid}`;
-    if (!m) { bad(res, 404, 'Projekt nicht gefunden.'); return null; }
-    return m;
+    const [p, m] = await Promise.all([
+      db.getDoc(`buddy_projects/${id}`),
+      db.getDoc(`buddy_projects/${id}/members/${req.user.uid}`)
+    ]);
+    if (!p || !m) { bad(res, 404, 'Projekt nicht gefunden.'); return null; }
+    return { ...p, role: m.role };
   }
 
   r.get('/projects', needProfile, async (req, res) => {
-    const rows = await getSql()`
-      SELECT p.id, p.title, p.description, pm.role, p.updated_at,
-        (SELECT count(*)::int FROM project_members x WHERE x.project_id = p.id) AS members
-      FROM projects p JOIN project_members pm ON pm.project_id = p.id WHERE pm.uid = ${req.user.uid} ORDER BY p.updated_at DESC`;
-    res.json({ projects: rows.map(p => ({ id: Number(p.id), title: p.title, description: p.description, role: p.role, members: p.members, updatedAt: iso(p.updated_at) })) });
+    const projs = await db.runQuery('buddy_projects', { where: [['memberUids', 'ARRAY_CONTAINS', req.user.uid]], orderBy: 'updated_at', desc: true });
+    const rows = [];
+    for (const p of projs) {
+      const m = await db.getDoc(`buddy_projects/${p.id}/members/${req.user.uid}`);
+      if (m) {
+        rows.push({
+          id: Number(p.id),
+          title: p.title,
+          description: p.description,
+          role: m.role,
+          members: Array.isArray(p.memberUids) ? p.memberUids.length : 1,
+          updatedAt: iso(p.updated_at)
+        });
+      }
+    }
+    res.json({ projects: rows });
   });
 
   r.post('/projects', rateLimit('buddy-project', 10, 300), needProfile, async (req, res) => {
     const title = String(req.body?.title || '').trim().slice(0, 80);
     const description = String(req.body?.description || '').trim().slice(0, 300);
     if (!title) return bad(res, 400, 'Bitte gib einen Projektnamen an.');
-    const sql = getSql();
-    const [{ n }] = await sql`SELECT count(*)::int AS n FROM projects WHERE owner = ${req.user.uid}`;
-    if (n >= LIMITS.projectsPerUser) return bad(res, 400, 'Du hast schon zu viele Projekte.');
-    const [p] = await sql`INSERT INTO projects (owner, title, description) VALUES (${req.user.uid}, ${title}, ${description}) RETURNING id`;
-    await sql`INSERT INTO project_members (project_id, uid, role) VALUES (${p.id}, ${req.user.uid}, 'owner')`;
-    res.json({ id: Number(p.id) });
+    const mine = await db.runQuery('buddy_projects', { where: [['memberUids', 'ARRAY_CONTAINS', req.user.uid]] });
+    if (mine.filter(p => p.owner === req.user.uid).length >= LIMITS.projectsPerUser) {
+      return bad(res, 400, 'Du hast schon zu viele Projekte.');
+    }
+    const id = db.nextId();
+    const now = db.nowIso();
+    await db.createDoc(`buddy_projects/${id}`, {
+      id,
+      owner: req.user.uid,
+      memberUids: [req.user.uid],
+      title,
+      description,
+      created_at: now,
+      updated_at: now
+    });
+    await db.createDoc(`buddy_projects/${id}/members/${req.user.uid}`, { project_id: id, uid: req.user.uid, role: 'owner' });
+    res.json({ id: Number(id) });
   });
 
   r.get('/projects/:id', needProfile, async (req, res) => {
     const proj = await memberOf(req, res, req.params.id); if (!proj) return;
-    const sql = getSql();
-    const members = await sql`SELECT pr.handle, pr.display_name, pm.role, pr.last_seen FROM project_members pm JOIN profiles pr ON pr.uid = pm.uid WHERE pm.project_id = ${proj.id} ORDER BY pm.role DESC, pr.handle`;
-    const files = await sql`SELECT f.name, f.version, f.updated_at, length(f.content)::int AS size, pr.handle AS updated_by FROM project_files f LEFT JOIN profiles pr ON pr.uid = f.updated_by WHERE f.project_id = ${proj.id} ORDER BY f.name`;
+    const [mDocs, fDocs] = await Promise.all([
+      db.listDocs(`buddy_projects/${proj.id}/members`),
+      db.listDocs(`buddy_projects/${proj.id}/files`)
+    ]);
+    const profMap = new Map();
+    const needUids = new Set([
+      ...mDocs.map(m => m.uid),
+      ...fDocs.map(f => f.updated_by).filter(Boolean)
+    ]);
+    for (const u of needUids) {
+      const pr = await db.getDoc(`profiles/${u}`).catch(() => null);
+      if (pr) profMap.set(u, pr);
+    }
+    const members = mDocs.map(m => {
+      const pr = profMap.get(m.uid);
+      return {
+        handle: pr?.handle || null,
+        displayName: pr?.display_name || null,
+        role: m.role,
+        online: pr?.last_seen ? Date.now() - new Date(pr.last_seen).getTime() < 120_000 : false
+      };
+    }).sort((a, b) => String(b.role).localeCompare(String(a.role)) || String(a.handle || '').localeCompare(String(b.handle || '')));
+
+    const files = fDocs.sort((a, b) => String(a.name).localeCompare(String(b.name))).map(f => ({
+      name: f.name,
+      version: f.version,
+      size: String(f.content || '').length,
+      updatedBy: profMap.get(f.updated_by)?.handle || null,
+      updatedAt: iso(f.updated_at)
+    }));
+
     res.json({
       project: { id: Number(proj.id), title: proj.title, description: proj.description, role: proj.role },
-      members: members.map(m => ({ handle: m.handle, displayName: m.display_name, role: m.role, online: Date.now() - new Date(m.last_seen).getTime() < 120_000 })),
-      files: files.map(f => ({ name: f.name, version: f.version, size: f.size, updatedBy: f.updated_by, updatedAt: iso(f.updated_at) }))
+      members,
+      files
     });
   });
 
   r.delete('/projects/:id', needProfile, async (req, res) => {
     const proj = await memberOf(req, res, req.params.id); if (!proj) return;
     if (proj.role !== 'owner') return bad(res, 403, 'Nur der Besitzer kann das Projekt löschen.');
-    await getSql()`DELETE FROM projects WHERE id = ${proj.id}`;
+    await db.deleteTree(`buddy_projects/${proj.id}`, ['members', 'files', 'messages']);
     res.json({ ok: true });
   });
 
@@ -291,10 +438,12 @@ function buddyRouter(requireAuth) {
     const proj = await memberOf(req, res, req.params.id); if (!proj) return;
     if (proj.role !== 'owner') return bad(res, 403, 'Nur der Besitzer kann Mitglieder einladen.');
     const friend = await requireFriend(req, res, req.body?.handle); if (!friend) return;
-    const sql = getSql();
-    const [{ n }] = await sql`SELECT count(*)::int AS n FROM project_members WHERE project_id = ${proj.id}`;
-    if (n >= LIMITS.membersPerProject) return bad(res, 400, 'Das Projekt hat schon die maximale Mitgliederzahl.');
-    await sql`INSERT INTO project_members (project_id, uid, role) VALUES (${proj.id}, ${friend.uid}, 'editor') ON CONFLICT DO NOTHING`;
+    const cur = Array.isArray(proj.memberUids) ? proj.memberUids : [];
+    if (!cur.includes(friend.uid)) {
+      if (cur.length >= LIMITS.membersPerProject) return bad(res, 400, 'Das Projekt hat schon die maximale Mitgliederzahl.');
+      await db.updateDoc(`buddy_projects/${proj.id}`, { memberUids: [...cur, friend.uid], updated_at: db.nowIso() });
+      await db.createDoc(`buddy_projects/${proj.id}/members/${friend.uid}`, { project_id: proj.id, uid: friend.uid, role: 'editor' });
+    }
     res.json({ ok: true });
   });
 
@@ -306,7 +455,11 @@ function buddyRouter(requireAuth) {
     const self = other.uid === req.user.uid;
     if (!self && proj.role !== 'owner') return bad(res, 403, 'Nur der Besitzer kann Mitglieder entfernen.');
     if (other.uid === proj.owner) return bad(res, 400, 'Der Besitzer kann nicht entfernt werden. Lösche stattdessen das Projekt.');
-    await getSql()`DELETE FROM project_members WHERE project_id = ${proj.id} AND uid = ${other.uid}`;
+    await db.deleteDoc(`buddy_projects/${proj.id}/members/${other.uid}`);
+    await db.updateDoc(`buddy_projects/${proj.id}`, {
+      memberUids: (proj.memberUids || []).filter(u => u !== other.uid),
+      updated_at: db.nowIso()
+    });
     res.json({ ok: true });
   });
 
@@ -316,7 +469,7 @@ function buddyRouter(requireAuth) {
   r.get('/projects/:id/file', needProfile, async (req, res) => {
     const proj = await memberOf(req, res, req.params.id); if (!proj) return;
     const name = cleanName(req.query.name); if (!name) return bad(res, 400, 'Ungültiger Dateiname.');
-    const [f] = await getSql()`SELECT name, content, version FROM project_files WHERE project_id = ${proj.id} AND name = ${name}`;
+    const f = await db.getDoc(`buddy_projects/${proj.id}/files/${fileDocKey(name)}`);
     if (!f) return bad(res, 404, 'Datei nicht gefunden.');
     res.json({ name: f.name, content: f.content, version: f.version });
   });
@@ -328,41 +481,77 @@ function buddyRouter(requireAuth) {
     const content = String(req.body?.content ?? '');
     if (content.length > LIMITS.file) return bad(res, 413, `Datei ist zu groß (max. ${LIMITS.file / 1000} KB).`);
     const base = parseInt(req.body?.baseVersion, 10) || 0;
-    const sql = getSql(); const uid = req.user.uid;
+    const uid = req.user.uid;
+    const fpath = `buddy_projects/${proj.id}/files/${fileDocKey(name)}`;
     let version;
     if (base === 0) {
-      const [{ n }] = await sql`SELECT count(*)::int AS n FROM project_files WHERE project_id = ${proj.id}`;
-      if (n >= LIMITS.filesPerProject) return bad(res, 400, `Maximal ${LIMITS.filesPerProject} Dateien pro Projekt.`);
-      const rows = await sql`INSERT INTO project_files (project_id, name, content, version, updated_by) VALUES (${proj.id}, ${name}, ${content}, 1, ${uid}) ON CONFLICT (project_id, name) DO NOTHING RETURNING version`;
-      if (!rows.length) return res.status(409).json({ error: 'Diese Datei gibt es schon.', conflict: true });
-      version = rows[0].version;
-    } else {
-      const rows = await sql`UPDATE project_files SET content = ${content}, version = version + 1, updated_by = ${uid}, updated_at = now() WHERE project_id = ${proj.id} AND name = ${name} AND version = ${base} RETURNING version`;
-      if (!rows.length) {
-        const [cur] = await sql`SELECT f.version, pr.handle AS updated_by FROM project_files f LEFT JOIN profiles pr ON pr.uid = f.updated_by WHERE f.project_id = ${proj.id} AND f.name = ${name}`;
-        return res.status(409).json({ error: cur ? `${cur.updated_by || 'Jemand'} hat die Datei inzwischen geändert.` : 'Datei wurde gelöscht.', conflict: true, currentVersion: cur?.version || 0 });
+      const existingFiles = await db.listDocs(`buddy_projects/${proj.id}/files`);
+      if (existingFiles.length >= LIMITS.filesPerProject) return bad(res, 400, `Maximal ${LIMITS.filesPerProject} Dateien pro Projekt.`);
+      try {
+        await db.createDoc(fpath, {
+          project_id: proj.id,
+          name,
+          content,
+          version: 1,
+          updated_by: uid,
+          updated_at: db.nowIso()
+        });
+        version = 1;
+      } catch (e) {
+        if (e.code === 'ALREADY_EXISTS') return res.status(409).json({ error: 'Diese Datei gibt es schon.', conflict: true });
+        throw e;
       }
-      version = rows[0].version;
+    } else {
+      const cur = await db.getDoc(fpath);
+      if (!cur || cur.version !== base) {
+        const pr = cur?.updated_by ? await db.getDoc(`profiles/${cur.updated_by}`).catch(() => null) : null;
+        return res.status(409).json({ error: cur ? `${pr?.handle || 'Jemand'} hat die Datei inzwischen geändert.` : 'Datei wurde gelöscht.', conflict: true, currentVersion: cur?.version || 0 });
+      }
+      try {
+        const u = await db.updateDoc(fpath, {
+          content,
+          version: cur.version + 1,
+          updated_by: uid,
+          updated_at: db.nowIso()
+        }, { updateTime: cur._updateTime, expect: { version: base } });
+        version = u.version;
+      } catch (e) {
+        if (e.code === 'PRECONDITION_FAILED') {
+          const fresh = await db.getDoc(fpath);
+          const pr = fresh?.updated_by ? await db.getDoc(`profiles/${fresh.updated_by}`).catch(() => null) : null;
+          return res.status(409).json({ error: fresh ? `${pr?.handle || 'Jemand'} hat die Datei inzwischen geändert.` : 'Datei wurde gelöscht.', conflict: true, currentVersion: fresh?.version || 0 });
+        }
+        throw e;
+      }
     }
-    sql`UPDATE projects SET updated_at = now() WHERE id = ${proj.id}`.catch(() => {});
+    db.updateDoc(`buddy_projects/${proj.id}`, { updated_at: db.nowIso() }).catch(() => {});
     res.json({ name, version });
   });
 
   r.delete('/projects/:id/file', needProfile, async (req, res) => {
     const proj = await memberOf(req, res, req.params.id); if (!proj) return;
     const name = cleanName(req.query.name); if (!name) return bad(res, 400, 'Ungültiger Dateiname.');
-    await getSql()`DELETE FROM project_files WHERE project_id = ${proj.id} AND name = ${name}`;
+    await db.deleteDoc(`buddy_projects/${proj.id}/files/${fileDocKey(name)}`);
     res.json({ ok: true });
   });
 
   // ---------- Projekt-Chat ----------
   r.get('/projects/:id/messages', needProfile, async (req, res) => {
     const proj = await memberOf(req, res, req.params.id); if (!proj) return;
-    const after = toInt(req.query.after); const sql = getSql();
-    const rows = after
-      ? await sql`SELECT m.id, m.sender, m.body, m.created_at, pr.handle, pr.display_name FROM project_messages m LEFT JOIN profiles pr ON pr.uid = m.sender WHERE m.project_id = ${proj.id} AND m.id > ${after} ORDER BY m.id LIMIT 200`
-      : (await sql`SELECT m.id, m.sender, m.body, m.created_at, pr.handle, pr.display_name FROM project_messages m LEFT JOIN profiles pr ON pr.uid = m.sender WHERE m.project_id = ${proj.id} ORDER BY m.id DESC LIMIT 60`).reverse();
-    res.json({ messages: rows.map(m => ({ id: Number(m.id), mine: m.sender === req.user.uid, handle: m.handle, displayName: m.display_name, body: m.body, createdAt: iso(m.created_at) })) });
+    const after = toInt(req.query.after);
+    const all = await db.listDocs(`buddy_projects/${proj.id}/messages`, { orderBy: 'id' });
+    const rows = after ? all.filter(m => Number(m.id) > after).slice(0, 200) : all.slice(-60);
+    const profMap = new Map();
+    for (const u of new Set(rows.map(m => m.sender))) {
+      const pr = await db.getDoc(`profiles/${u}`).catch(() => null);
+      if (pr) profMap.set(u, pr);
+    }
+    res.json({
+      messages: rows.map(m => {
+        const pr = profMap.get(m.sender);
+        return { id: Number(m.id), mine: m.sender === req.user.uid, handle: pr?.handle || null, displayName: pr?.display_name || null, body: m.body, createdAt: iso(m.created_at) };
+      })
+    });
   });
 
   r.post('/projects/:id/messages', rateLimit('buddy-pmsg', 40, 60), needProfile, async (req, res) => {
@@ -370,8 +559,12 @@ function buddyRouter(requireAuth) {
     const body = String(req.body?.body || '').trim();
     if (!body) return bad(res, 400, 'Leere Nachricht.');
     if (body.length > LIMITS.msg) return bad(res, 400, `Maximal ${LIMITS.msg} Zeichen.`);
-    const [m] = await getSql()`INSERT INTO project_messages (project_id, sender, body) VALUES (${proj.id}, ${req.user.uid}, ${body}) RETURNING id, created_at`;
-    res.json({ message: { id: Number(m.id), mine: true, handle: req.profile.handle, displayName: req.profile.display_name, body, createdAt: iso(m.created_at) } });
+    const mid = db.nextId();
+    const now = db.nowIso();
+    await db.createDoc(`buddy_projects/${proj.id}/messages/${mid}`, {
+      id: mid, project_id: proj.id, sender: req.user.uid, body, created_at: now
+    });
+    res.json({ message: { id: Number(mid), mine: true, handle: req.profile.handle, displayName: req.profile.display_name, body, createdAt: now } });
   });
 
   return r;

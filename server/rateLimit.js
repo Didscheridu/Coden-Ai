@@ -1,25 +1,36 @@
-const { getSql } = require('./db');
-
-// Festes Zeitfenster, in der Datenbank gezählt (funktioniert über alle Serverless-Instanzen hinweg)
+// In-Memory-Rate-Limiting pro Zeitfenster (keine Postgres-Abhängigkeit)
 const clientIp = req => String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown').split(',')[0].trim();
 const byIp = clientIp;
 
+const buckets = new Map(); // `${name}:${subject}` -> { bucket, count }
+
+function prune(nowBucketMap) {
+  if (buckets.size <= 5000) return;
+  for (const [k, v] of buckets.entries()) {
+    if (v.expiresAt < Date.now()) buckets.delete(k);
+  }
+  void nowBucketMap;
+}
+
 function rateLimit(name, max, windowSec, keyFn = req => req.user.uid) {
-  return async (req, res, next) => {
+  return (req, res, next) => {
     if (req.user?.isOwner) return next();
     try {
-      const sql = getSql();
-      const bucket = Math.floor(Date.now() / 1000 / windowSec);
+      const now = Date.now();
+      const bucket = Math.floor(now / 1000 / windowSec);
       const key = `${name}:${keyFn(req)}`;
-      const rows = await sql`
-        INSERT INTO rate_limits (key, bucket, count) VALUES (${key}, ${bucket}, 1)
-        ON CONFLICT (key, bucket) DO UPDATE SET count = rate_limits.count + 1
-        RETURNING count`;
-      if (rows[0].count > max) {
-        return res.status(429).json({ error: `Zu viele Anfragen. Bitte kurz warten.` });
+      const cur = buckets.get(key);
+      let count = 1;
+      if (cur && cur.bucket === bucket) {
+        count = cur.count + 1;
+        cur.count = count;
+      } else {
+        buckets.set(key, { bucket, count: 1, expiresAt: (bucket + 2) * windowSec * 1000 });
       }
-      // alte Einträge gelegentlich aufräumen
-      if (Math.random() < 0.02) sql`DELETE FROM rate_limits WHERE bucket < ${bucket - 5}`.catch(() => {});
+      if (count > max) {
+        return res.status(429).json({ error: 'Zu viele Anfragen. Bitte kurz warten.' });
+      }
+      if (Math.random() < 0.02) prune();
       next();
     } catch (e) {
       console.error('rateLimit', e);
@@ -27,4 +38,9 @@ function rateLimit(name, max, windowSec, keyFn = req => req.user.uid) {
     }
   };
 }
-module.exports = { rateLimit, byIp };
+
+function _clearRateLimits() {
+  buckets.clear();
+}
+
+module.exports = { rateLimit, byIp, _clearRateLimits };

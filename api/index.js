@@ -1,13 +1,12 @@
-// Einziger Vercel-Einstiegspunkt: Express-Backend für Coden AI
+// Einziger Vercel-Einstiegspunkt: Express-Backend für Coden AI (Datenbank: ausschließlich Firebase Firestore)
 const express = require('express');
 const nodemailer = require('nodemailer');
-const { getSql } = require('../server/db');
+const db = require('../server/db');
 const { requireAuth, requireOwner } = require('../server/auth');
 const { rateLimit } = require('../server/rateLimit');
 const { generate, generateStream, listModels, probe, TEST_PROMPT } = require('../server/ai');
 const { buddyRouter } = require('../server/buddy');
 const { appsRouter, publicApiRouter, hostedRouter, baseUrl } = require('../server/apps');
-const crypto = require('crypto');
 const { mcpRouter } = require('../server/mcp');
 const CodenUpload = require('../shared/upload-check');
 const { wrapRouter } = require('../server/util');
@@ -18,14 +17,12 @@ const { pushRouter } = require('../server/push');
 const byok = require('../server/byok');
 const { Meter, limitGate, usageRouter } = require('../server/usage');
 const meterFor = (req) => new Meter(req.user, req.body?.tier);
-// Limit-Prüfung braucht die Tabelle: vorher sicherstellen
+
 // Eigene Modelle (Bring your own Key) laufen über den Key des Nutzers und zählen nicht gegen die Coden-Limits
 const gate = (req, res, next) => (byok.isByok(req.body?.tier) ? next() : ensureSchema()
   .then(() => (byok.isChain(req.body?.tier) ? byok.freeOfQuota(req.user.uid, req.body.tier) : false))
   .then((free) => (free ? next() : limitGate(req, res, next)), next));
 
-// Ein einzelner vergessener Fehler (z. B. in einem Hintergrund-Lauf) darf nie die ganze Funktion abstürzen lassen:
-// sonst antwortet Vercel allen gleichzeitigen Anfragen nur noch mit „HTTP 500“.
 process.on('unhandledRejection', (e) => console.error('[unhandledRejection]', e?.stack || e));
 process.on('uncaughtException', (e) => console.error('[uncaughtException]', e?.stack || e));
 
@@ -45,7 +42,7 @@ wrapRouter(api);
 // ---------- Selbsttest (ohne Login, verrät nichts Geheimes): coden-ai.vercel.app/api/health ----------
 api.get('/health', async (req, res) => {
   const out = { ok: true, node: process.version, db: false, schema: false, push: false };
-  try { await getSql()`SELECT 1`; out.db = true; } catch (e) { out.ok = false; out.dbError = String(e.message).slice(0, 120); }
+  try { await db.ping(); out.db = true; } catch (e) { out.ok = false; out.dbError = String(e.message).slice(0, 120); }
   try { out.schema = await ensureSchema(); } catch (_) { out.schema = false; }
   try { require('web-push'); out.push = true; } catch (e) { out.pushError = String(e.code || e.message).slice(0, 80); }
   res.status(out.ok ? 200 : 503).json(out);
@@ -53,11 +50,11 @@ api.get('/health', async (req, res) => {
 
 // ---------- Wer bin ich? ----------
 api.get('/me', requireAuth, (req, res) => {
-  res.json({ uid: req.user.uid, email: req.user.email, isOwner: req.user.isOwner });
+  res.json({ uid: req.user.uid, email: req.user.email, emailVerified: !!req.user.emailVerified, isOwner: req.user.isOwner });
 });
 
 // ---------- Nutzerdaten (Chats + Einstellungen) ----------
-// Geheimnisse (eigene API-Keys, E-Mail-Passwort) werden NIE in der Datenbank gespeichert.
+// Geheimnisse (eigene API-Keys, E-Mail-Passwort) werden NIE in Firestore gespeichert.
 function stripSecrets(settings) {
   const s = { ...(settings || {}) };
   delete s.apiKey;
@@ -65,10 +62,47 @@ function stripSecrets(settings) {
   return s;
 }
 
+const sanitizeSessionId = (id, idx) => {
+  const cleaned = String(id || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
+  return cleaned || `chat_${idx}`;
+};
+
 api.get('/data', requireAuth, async (req, res) => {
-  const rows = await getSql()`SELECT sessions, settings FROM user_data WHERE uid = ${req.user.uid}`;
-  if (!rows.length) return res.json({ exists: false });
-  res.json({ exists: true, sessions: rows[0].sessions, settings: rows[0].settings });
+  const uid = req.user.uid;
+  const [userDoc, subSessions] = await Promise.all([
+    db.getDoc(`user_data/${uid}`),
+    db.listDocs(`user_data/${uid}/sessions`, { limit: 300 }).catch(() => [])
+  ]);
+  if (!userDoc && !subSessions.length) return res.json({ exists: false });
+
+  let sessions = [];
+  if (subSessions.length) {
+    const order = Array.isArray(userDoc?.sessionOrder) ? userDoc.sessionOrder : [];
+    const pos = new Map(order.map((id, i) => [id, i]));
+    sessions = subSessions
+      .slice()
+      .sort((a, b) => {
+        const pa = pos.has(a.id) ? pos.get(a.id) : (typeof a.orderIndex === 'number' ? a.orderIndex : 99999);
+        const pb = pos.has(b.id) ? pos.get(b.id) : (typeof b.orderIndex === 'number' ? b.orderIndex : 99999);
+        if (pa !== pb) return pa - pb;
+        return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
+      })
+      .map((s) => ({
+        id: s.id,
+        title: s.title || 'Neuer Chat',
+        messages: Array.isArray(s.messages) ? s.messages : [],
+        ...(s.pinned ? { pinned: true } : {}),
+        ...(s.unread ? { unread: true } : {}),
+        ...(s.projectId ? { projectId: s.projectId } : {}),
+        ...(s.assistantId ? { assistantId: s.assistantId } : {}),
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt
+      }));
+  } else if (Array.isArray(userDoc?.sessions)) {
+    sessions = userDoc.sessions;
+  }
+
+  res.json({ exists: true, sessions, settings: userDoc?.settings || {} });
 });
 
 api.put('/data', requireAuth, rateLimit('data', 30, 60), async (req, res) => {
@@ -76,19 +110,65 @@ api.put('/data', requireAuth, rateLimit('data', 30, 60), async (req, res) => {
   if (!Array.isArray(sessions) || typeof settings !== 'object' || settings === null) {
     return res.status(400).json({ error: 'Ungültige Daten.' });
   }
-  const s = JSON.stringify(sessions);
-  if (s.length > 3_000_000) return res.status(413).json({ error: 'Zu viele Daten.' });
-  await getSql()`
-    INSERT INTO user_data (uid, sessions, settings, updated_at)
-    VALUES (${req.user.uid}, ${s}::jsonb, ${JSON.stringify(stripSecrets(settings))}::jsonb, now())
-    ON CONFLICT (uid) DO UPDATE SET sessions = EXCLUDED.sessions, settings = EXCLUDED.settings, updated_at = now()`;
+  const serialized = JSON.stringify(sessions);
+  if (serialized.length > 3_000_000) return res.status(413).json({ error: 'Zu viele Daten.' });
+
+  const uid = req.user.uid;
+  const now = db.nowIso();
+  const cleanSettings = stripSecrets(settings);
+  const keptIds = [];
+  const seen = new Set();
+
+  const limitedSessions = sessions.slice(0, 300);
+  for (let i = 0; i < limitedSessions.length; i++) {
+    const raw = limitedSessions[i] || {};
+    let id = sanitizeSessionId(raw.id, i);
+    while (seen.has(id)) id = `${id.slice(0, 110)}_${i}`;
+    seen.add(id);
+    keptIds.push(id);
+
+    await db.setDoc(`user_data/${uid}/sessions/${id}`, {
+      id,
+      uid,
+      title: String(raw.title || 'Neuer Chat').slice(0, 200),
+      messages: Array.isArray(raw.messages) ? raw.messages.slice(-1000) : [],
+      pinned: !!raw.pinned,
+      unread: !!raw.unread,
+      projectId: raw.projectId || null,
+      assistantId: raw.assistantId || null,
+      orderIndex: i,
+      createdAt: raw.createdAt || now,
+      updatedAt: raw.updatedAt || now
+    });
+  }
+
+  // Entferne gelöschte Chats aus der Subcollection
+  const existing = await db.listDocs(`user_data/${uid}/sessions`, { limit: 300 }).catch(() => []);
+  for (const old of existing) {
+    if (!seen.has(old._id)) await db.deleteDoc(`user_data/${uid}/sessions/${old._id}`).catch(() => {});
+  }
+
+  await db.setDoc(`user_data/${uid}`, {
+    uid,
+    settings: cleanSettings,
+    sessionOrder: keptIds,
+    updatedAt: now
+  });
+
   res.json({ ok: true });
 });
 
-// ---------- Globaler Systemzustand (früher Firestore system/state) ----------
+// ---------- Globaler Systemzustand (Firestore system_state/global) ----------
+function cleanDoc(doc) {
+  if (!doc) return {};
+  const { _id, _updateTime, ...rest } = doc;
+  void _id; void _updateTime;
+  return rest;
+}
+
 api.get('/system/state', requireAuth, async (req, res) => {
-  const rows = await getSql()`SELECT state FROM system_state WHERE id = 1`;
-  res.json(rows[0]?.state || {});
+  const doc = await db.getDoc('system_state/global');
+  res.json(cleanDoc(doc));
 });
 
 api.post('/admin/command', requireAuth, requireOwner, async (req, res) => {
@@ -109,36 +189,32 @@ api.post('/admin/command', requireAuth, requireOwner, async (req, res) => {
     case 'clearall': patch = { globalClear: now }; break;
     default: return res.status(400).json({ error: 'Unbekannter Befehl.' });
   }
-  // flache Zusammenführung; "locks" wird eine Ebene tief gemerged
-  await getSql()`
-    UPDATE system_state SET state = CASE
-      WHEN ${JSON.stringify(patch)}::jsonb ? 'locks'
-      THEN (state || ${JSON.stringify(patch)}::jsonb) || jsonb_build_object('locks', COALESCE(state->'locks','{}'::jsonb) || (${JSON.stringify(patch)}::jsonb->'locks'))
-      ELSE state || ${JSON.stringify(patch)}::jsonb END
-    WHERE id = 1`;
+  const cur = cleanDoc(await db.getDoc('system_state/global'));
+  const next = patch.locks
+    ? { ...cur, ...patch, locks: { ...(cur.locks || {}), ...patch.locks }, updatedAt: db.nowIso() }
+    : { ...cur, ...patch, updatedAt: db.nowIso() };
+  await db.setDoc('system_state/global', next);
   res.json({ ok: true });
 });
 
-// Blockiert normale Nutzer bei Wartungsmodus / gesperrten Modellen (jetzt serverseitig)
+// Blockiert normale Nutzer bei Wartungsmodus / gesperrten Modellen (serverseitig)
 async function enforceSystemState(req, res, next) {
   if (req.user.isOwner) return next();
-  const rows = await getSql()`SELECT state FROM system_state WHERE id = 1`;
-  const st = rows[0]?.state || {};
+  const st = cleanDoc(await db.getDoc('system_state/global'));
   if (st.maintenance) return res.status(503).json({ error: 'Wartungsarbeiten.' });
   const tier = req.body?.tier;
-  if (tier === 'ultra' && st.locks?.ultra !== false) return res.status(403).json({ error: 'Coden Ultra ist gesperrt (nur der Owner).' }); // standardmäßig gesperrt
+  if (tier === 'ultra' && st.locks?.ultra !== false) return res.status(403).json({ error: 'Coden Ultra ist gesperrt (nur der Owner).' });
   if (tier === 'pro' && st.locks?.pro) return res.status(403).json({ error: 'Coden Pro ist gesperrt.' });
   if (tier === 'normal' && st.locks?.thinking) return res.status(403).json({ error: 'Coden Thinking ist gesperrt.' });
   next();
 }
 
 // ---------- Chat ----------
-// Befehl /modelle: Liste aller Modelle (nur Owner) und gezielt ein Modell wählen
 api.get('/models', requireAuth, (req, res) => {
   if (!req.user.isOwner) return res.status(403).json({ error: 'Nur der Owner.' });
   res.json({ models: listModels() });
 });
-// /model-test (nur Owner): alle Modelle mit demselben Prompt messen, Ergebnisse live als SSE
+
 const TEST_CONCURRENCY = 3, TEST_TIMEOUT_MS = 90_000;
 api.post('/models/test', requireAuth, rateLimit('model-test', 3, 600), async (req, res) => {
   if (!req.user.isOwner) return res.status(403).json({ error: 'Nur der Owner.' });
@@ -164,7 +240,7 @@ api.post('/models/test', requireAuth, rateLimit('model-test', 3, 600), async (re
   await Promise.all(Array.from({ length: TEST_CONCURRENCY }, worker));
   send({ t: 'done' }); res.end();
 });
-// Einfache Qualitäts-Checks für den Standard-Prompt (Snake): wie viele Bausteine tauchen im Code auf?
+
 function checksOf(text) {
   return [/<\/html>/i, /<canvas|getContext|<div|<table/i, /keydown|ArrowUp/i, /game ?over/i, /neustart|restart|reset|neu starten/i, /score|punkte/i].filter(r => r.test(text)).length;
 }
@@ -177,8 +253,7 @@ function validChat(body) {
     && (!m.images || (Array.isArray(m.images) && m.images.length <= 4 && m.images.every(i => typeof i === 'string' && CodenUpload.inspectImageDataUrl(i).ok))));
 }
 
-// Der App-Agent darf längere Antworten schreiben (ganze Dateien), normale Chats bleiben bei 8192
-const effortOf = (b) => (byok.LEVELS.includes(b?.effort) ? b.effort : undefined); // eigene Modelle kennen mehr Stufen; die Coden-Modelle ignorieren alles außer low/medium/high
+const effortOf = (b) => (byok.LEVELS.includes(b?.effort) ? b.effort : undefined);
 const maxTokensOf = (b) => { const n = parseInt(b?.maxTokens, 10); return Number.isFinite(n) ? Math.max(1024, Math.min(n, 16384)) : undefined; };
 
 api.post('/chat', requireAuth, rateLimit('chat', 20, 60), enforceSystemState, gate, async (req, res) => {
@@ -191,18 +266,17 @@ api.post('/chat', requireAuth, rateLimit('chat', 20, 60), enforceSystemState, ga
   } finally { meter.close(); }
 });
 
-// Live-Streaming (Server-Sent Events): Text kommt Stück für Stück an
 api.post('/chat/stream', requireAuth, rateLimit('chat', 20, 60), enforceSystemState, gate, async (req, res) => {
   if (!validChat(req.body)) return res.status(400).json({ error: 'Ungültige Anfrage.' });
   const ac = new AbortController();
-  res.on('close', () => { if (!res.writableEnded) ac.abort(); }); // Nutzer hat abgebrochen -> Anbieter nicht weiter belasten
+  res.on('close', () => { if (!res.writableEnded) ac.abort(); });
   res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
   const send = (o) => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(o)}\n\n`); };
   const meter = meterFor(req);
   try {
     await generateStream(req.body.tier, req.body.messages, {
       isOwner: req.user.isOwner, uid: req.user.uid, signal: ac.signal, maxTokens: maxTokensOf(req.body), effort: effortOf(req.body), pin: pinOf(req), meter,
-      onModel: (m) => { if (req.user.isOwner || m.own) send({ t: 'm', model: m.id }); }, // Modellname sieht nur der Owner (und wer ein eigenes Modell gewählt hat)
+      onModel: (m) => { if (req.user.isOwner || m.own) send({ t: 'm', model: m.id }); },
       onThink: (k) => send({ t: 'k', h: k.h, v: k.v }),
       onDelta: (v) => send({ t: 'd', v })
     });
@@ -213,8 +287,6 @@ api.post('/chat/stream', requireAuth, rateLimit('chat', 20, 60), enforceSystemSt
   res.end();
 });
 
-// Hintergrund-Lauf: wie /chat/stream, aber die Antwort läuft auf dem Server zu Ende, auch wenn die Seite zu ist.
-// Der Client bekommt sofort die Lauf-ID ({t:'run'}) und kann sich später per /runs/:id wieder anhängen.
 api.post('/runs/chat', requireAuth, rateLimit('chat', 20, 60), enforceSystemState, gate, async (req, res) => {
   if (!validChat(req.body)) return res.status(400).json({ error: 'Ungültige Anfrage.' });
   const ref = typeof req.body.ref === 'string' && req.body.ref ? req.body.ref.slice(0, 80) : 'chat';
@@ -229,7 +301,7 @@ api.post('/runs/chat', requireAuth, rateLimit('chat', 20, 60), enforceSystemStat
   const { run, done } = await startRun({ uid: req.user.uid, isOwner: req.user.isOwner, kind: 'chat', ref, meta }, (run) => chatJob(run, state));
   await serveRun(res, run, done);
 });
-// Nächste Etappe eines langen Chat-Laufs (ruft der Server selbst auf, mit Einmal-Schlüssel statt Login)
+
 api.post('/runs/:id/continue', (req, res, next) => ensureSchema().then(() => continueHandler(req, res)).catch(next));
 const selfUrl = (req) => `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.headers.host}`.replace(/\/$/, '');
 
@@ -279,12 +351,12 @@ api.post('/live-token', requireAuth, rateLimit('live', 5, 300), async (req, res)
   }
 });
 
-// Tabellen sicherstellen (einmal pro Serverstart), bevor Funktionen mit Datenbank laufen
 const { projectsRouter } = require('../server/projects');
 const { serversRouter } = require('../server/servers');
 const needsDb = (req, res, next) => { ensureSchema().then(() => next(), next); };
 api.use('/byok', needsDb); api.use('/buddy', needsDb); api.use('/servers', needsDb); api.use('/projects', needsDb); api.use('/apps', needsDb); api.use('/data', needsDb); api.use('/runs', needsDb); api.use('/usage', needsDb); api.use('/push', needsDb);
 app.use('/a', needsDb);
+
 // ---------- KI-Bilder für den normalen Chat (Cloudflare Flux) ----------
 api.post('/image', requireAuth, rateLimit('image', 10, 300), async (req, res) => {
   try { res.json(await makeChatImage(req.user, req.body?.prompt, baseUrl(req))); }

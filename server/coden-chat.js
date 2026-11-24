@@ -1,6 +1,6 @@
 // Coden als Gesprächspartner in Code Buddy: wer "@coden" schreibt, bekommt eine Antwort von der KI.
 // Der Chatverlauf wird nur als Daten übergeben (nie als Anweisung), die Anzahl der Fragen ist pro Nutzer begrenzt.
-const { getSql } = require('./db');
+const db = require('./db');
 const { generate } = require('./ai');
 
 const MENTION = /(^|[^a-z0-9_])@coden(?![a-z0-9_])/i;
@@ -9,10 +9,25 @@ const mentionsCoden = (body) => MENTION.test(String(body || ''));
 
 // Wie oft hat dieser Nutzer Coden in den letzten Minuten gefragt (DMs + Server-Kanäle zusammen)?
 async function canAsk(uid) {
-  const sql = getSql();
-  const [a] = await sql`SELECT count(*)::int AS n FROM dm_messages WHERE ai_for = ${uid} AND created_at > now() - interval '10 minutes'`;
-  const [b] = await sql`SELECT count(*)::int AS n FROM server_messages WHERE ai_for = ${uid} AND created_at > now() - interval '10 minutes'`;
-  return a.n + b.n < LIMIT.perWindow;
+  const since = Date.now() - LIMIT.windowMin * 60_000;
+  let count = 0;
+
+  const dms = await db.runQuery('dm_messages', { where: [['participants', 'ARRAY_CONTAINS', uid]], limit: 200 });
+  for (const m of dms) {
+    if (m.ai_for === uid && new Date(m.created_at).getTime() > since) count++;
+  }
+
+  const servers = await db.runQuery('servers', { where: [['memberUids', 'ARRAY_CONTAINS', uid]], limit: 20 });
+  for (const s of servers) {
+    const channels = await db.listDocs(`servers/${s.id}/channels`, { limit: 20 });
+    for (const c of channels) {
+      const msgs = await db.listDocs(`servers/${s.id}/channels/${c.id}/messages`, { orderBy: 'id', desc: true, limit: 50 });
+      for (const m of msgs) {
+        if (m.ai_for === uid && new Date(m.created_at).getTime() > since) count++;
+      }
+    }
+  }
+  return count < LIMIT.perWindow;
 }
 
 // history: [{ who: 'anna', body: '…' }] (älteste zuerst, letzte = die Frage). Gibt den Antworttext zurück oder wirft.
