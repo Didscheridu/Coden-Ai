@@ -11,12 +11,16 @@ import {
   orderBy
 } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { auth } from './auth.js';
-import { db, fbAuth, OperationType, handleFirestoreError } from './firebase.js';
+import { db, fbAuth, OperationType, handleFirestoreError, dbState } from './firebase.js';
 import { apiJson } from './backend.js';
 
 const LOCAL_SESSIONS_KEY = 'coden_sessions';
 const LOCAL_SETTINGS_KEY = 'coden_settings';
 const LOCAL_UID_KEY = 'coden_sessions_uid';
+// Stand der letzten erfolgreichen Synchronisierung: { uid, sigs: {sessionId: Fingerabdruck}, user: Fingerabdruck, dirty }
+// Damit wird beim Speichern nur geschrieben, was sich geändert hat (statt jedes Mal alle Chats zu lesen und neu zu schreiben),
+// und Änderungen, die ohne Datenbank gemacht wurden, gehen beim nächsten Laden nicht verloren.
+const LOCAL_SYNC_KEY = 'coden_sync_state';
 const ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
 
 const DEFAULT_SETTINGS = () => ({
@@ -109,6 +113,29 @@ function stripSecrets(settings) {
   return trimmed;
 }
 
+function hashStr(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return (h >>> 0).toString(36) + '.' + str.length.toString(36);
+}
+// Fingerabdruck eines (bereinigten) Chats inkl. Position; Zeitstempel zählen nicht mit
+function sigOf(clean, idx) {
+  return hashStr(JSON.stringify([idx, clean.title, clean.messages, !!clean.pinned, !!clean.unread, clean.projectId ?? null, clean.assistantId || null]));
+}
+function getSyncState(uid) {
+  const st = safeParse(localStorage.getItem(LOCAL_SYNC_KEY), null);
+  return st && st.uid === uid ? { ...st, sigs: st.sigs && typeof st.sigs === 'object' ? st.sigs : null } : null;
+}
+function setSyncState(st) {
+  try { localStorage.setItem(LOCAL_SYNC_KEY, JSON.stringify(st)); } catch (_) {}
+}
+function markDirty(uid) {
+  if (!uid) return;
+  const st = getSyncState(uid) || { uid, sigs: null, user: null };
+  if (!st.dirty) { st.dirty = true; setSyncState(st); }
+}
+const dbUnavailable = () => dbState.reason === 'quota' || dbState.reason === 'denied' || dbState.reason === 'offline';
+
 function hasRealContent(sessions) {
   return Array.isArray(sessions) && sessions.some(s => !s.temp && Array.isArray(s.messages) && s.messages.length > 0);
 }
@@ -126,33 +153,40 @@ async function writeToFirestore(uid, sessions, settings) {
     .slice(0, 300);
   const cleanSettings = stripSecrets(settings);
 
-  const userDocRef = doc(db, 'user_data', uid);
+  const prev = getSyncState(uid);
   const userPayload = {
     uid,
     settings: cleanSettings,
-    sessionOrder: cleanSessions.map(s => s.id),
-    updatedAt: nowIso
+    sessionOrder: cleanSessions.map(s => s.id)
   };
-
-  try {
-    await setDoc(userDocRef, userPayload, { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, `user_data/${uid}`);
+  const userSig = hashStr(JSON.stringify(userPayload));
+  if (!prev || prev.user !== userSig) {
+    try {
+      await setDoc(doc(db, 'user_data', uid), { ...userPayload, updatedAt: nowIso }, { merge: true });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `user_data/${uid}`);
+    }
   }
 
-  // Aktive Sessions in user_data/{uid}/sessions/{sessionId} speichern
-  const sessionsCol = collection(db, 'user_data', uid, 'sessions');
-  let existingIds = new Set();
-  try {
-    const snap = await getDocs(sessionsCol);
-    snap.forEach(d => existingIds.add(d.id));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, `user_data/${uid}/sessions`);
+  // Welche Chats liegen schon in user_data/{uid}/sessions? Normalerweise aus dem letzten Abgleich bekannt,
+  // nur ohne bekannten Stand wird die Liste einmal gelesen.
+  let known = prev?.sigs || null;
+  if (!known) {
+    known = {};
+    try {
+      const snap = await getDocs(collection(db, 'user_data', uid, 'sessions'));
+      snap.forEach(d => { known[d.id] = 'unbekannt'; });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, `user_data/${uid}/sessions`);
+    }
   }
 
-  const keepIds = new Set(cleanSessions.map(s => s.id));
+  const nextSigs = {};
   const ops = [];
   cleanSessions.forEach((s, idx) => {
+    const sig = sigOf(s, idx);
+    nextSigs[s.id] = sig;
+    if (known[s.id] === sig) return; // unverändert: nichts schreiben
     ops.push({
       type: 'set',
       ref: doc(db, 'user_data', uid, 'sessions', s.id),
@@ -171,8 +205,8 @@ async function writeToFirestore(uid, sessions, settings) {
       }
     });
   });
-  for (const oldId of existingIds) {
-    if (!keepIds.has(oldId)) {
+  for (const oldId of Object.keys(known)) {
+    if (!(oldId in nextSigs)) {
       ops.push({ type: 'delete', ref: doc(db, 'user_data', uid, 'sessions', oldId) });
     }
   }
@@ -190,6 +224,7 @@ async function writeToFirestore(uid, sessions, settings) {
       handleFirestoreError(error, OperationType.WRITE, `user_data/${uid}/sessions`);
     }
   }
+  setSyncState({ uid, sigs: nextSigs, user: userSig, dirty: false });
   return true;
 }
 
@@ -204,6 +239,10 @@ async function flushCloudSync() {
     const uid = auth.currentUser.uid;
     const sessions = Storage.getSessions();
     const settings = Storage.getSettings();
+    markDirty(uid);
+    // Datenbank gerade nicht erreichbar (z. B. Tageskontingent): nicht bei jeder Eingabe erneut anklopfen.
+    // Die Änderungen bleiben auf dem Gerät und werden nach der Wiederverbindung übertragen.
+    if (dbUnavailable()) return false;
     const ok = await writeToFirestore(uid, sessions, settings);
     if (!ok) {
       // Fallback: falls unbestätigt oder noch im REST-Modus, Backend API probieren
@@ -212,6 +251,7 @@ async function flushCloudSync() {
     return true;
   } catch (e) {
     console.error('Cloud Sync Error:', e);
+    if (e?.code === 'resource-exhausted' || /quota|resource.exhausted/i.test(String(e?.message || e))) Object.assign(dbState, { ok: false, reason: 'quota' });
     return false;
   } finally {
     syncingInFlight = false;
@@ -220,6 +260,33 @@ async function flushCloudSync() {
       setTimeout(() => { flushCloudSync(); }, 300);
     }
   }
+}
+
+// Änderungen, die ohne Datenbank gemacht wurden, mit dem Cloud-Stand zusammenführen.
+// Mit bekanntem letzten Abgleich (st.sigs) wird genau unterschieden, wer was geändert hat;
+// ohne (ältere Version) gewinnt der Chat mit mehr Nachrichten.
+function mergeOffline(localSessions, remote, st) {
+  const local = (Array.isArray(localSessions) ? localSessions : []).map((x, i) => sanitizeSession(x, i)).filter(Boolean);
+  const base = st.sigs || null;
+  const remoteById = new Map(remote.map(r => [r.id, r]));
+  const out = []; const used = new Set();
+  local.forEach((l, i) => {
+    const r = remoteById.get(l.id);
+    let pick = l;
+    if (r) {
+      if (base) pick = base[l.id] && base[l.id] === sigOf(l, i) ? r : l; // lokal unverändert → Cloud-Stand nehmen
+      else pick = (r.messages?.length || 0) > (l.messages?.length || 0) ? r : l;
+    } else if (base && base[l.id]) {
+      return; // war synchron, wurde aber auf einem anderen Gerät gelöscht
+    }
+    out.push(pick); used.add(l.id);
+  });
+  remote.forEach((r) => {
+    if (used.has(r.id)) return;
+    if (base && base[r.id] && !local.some(l => l.id === r.id)) return; // lokal gelöscht
+    out.push(r);
+  });
+  return out;
 }
 
 export const Storage = {
@@ -244,6 +311,7 @@ export const Storage = {
       const stripped = clean.map((s, i) => sanitizeSession(s, i)).filter(Boolean);
       try { localStorage.setItem(LOCAL_SESSIONS_KEY, JSON.stringify(stripped)); } catch (_) {}
     }
+    markDirty(auth.currentUser?.uid);
     Storage.syncToCloud();
   },
 
@@ -266,6 +334,7 @@ export const Storage = {
   saveSettings: (settings) => {
     if (auth.currentUser?.uid) localStorage.setItem(LOCAL_UID_KEY, auth.currentUser.uid);
     localStorage.setItem(LOCAL_SETTINGS_KEY, JSON.stringify(settings));
+    markDirty(auth.currentUser?.uid);
     Storage.syncToCloud();
   },
 
@@ -286,6 +355,7 @@ export const Storage = {
     lastLoadedUid = null;
     localStorage.removeItem(LOCAL_SESSIONS_KEY);
     localStorage.removeItem(LOCAL_UID_KEY);
+    localStorage.removeItem(LOCAL_SYNC_KEY);
   },
 
   syncToCloud: () => {
@@ -312,6 +382,7 @@ export const Storage = {
     let remoteSessions = [];
     let remoteSettings = null;
     let remoteFound = false;
+    let loadFailed = false;
 
     try {
       const userSnap = await getDoc(doc(db, 'user_data', uid));
@@ -362,7 +433,10 @@ export const Storage = {
         handleFirestoreError(error, OperationType.GET, `user_data/${uid}`);
       }
       console.error('Firestore Load Error:', error);
+      loadFailed = true;
     }
+    // Laden fehlgeschlagen (z. B. Kontingent aufgebraucht): lokalen Stand behalten, nichts überschreiben
+    if (loadFailed) return false;
 
     // Fallback über /api/data (z. B. wenn Firestore-Subcollection noch leer ist und Server migrieren kann)
     if (!remoteFound || (!remoteSessions.length && !hasRealContent(remoteSessions))) {
@@ -392,8 +466,15 @@ export const Storage = {
     }
 
     if (remoteFound && remoteSessions.length > 0) {
-      const normalized = remoteSessions.map((s, idx) => sanitizeSession(s, idx)).filter(Boolean);
+      let normalized = remoteSessions.map((s, idx) => sanitizeSession(s, idx)).filter(Boolean);
+      const remoteSigs = {}; normalized.forEach((x, i) => { remoteSigs[x.id] = sigOf(x, i); });
+      const st = sameOrLegacyLocal ? getSyncState(uid) : null;
+      const merged = st?.dirty ? mergeOffline(localSessions, normalized, st) : null;
+      // Basis für spätere Abgleiche: das, was jetzt wirklich in der Cloud liegt
+      setSyncState({ uid, sigs: remoteSigs, user: st?.user || null, dirty: !!merged });
+      if (merged) normalized = merged;
       localStorage.setItem(LOCAL_SESSIONS_KEY, JSON.stringify(normalized));
+      if (merged) setTimeout(() => { flushCloudSync(); }, 500);
     } else if (cachedUid && cachedUid !== uid) {
       localStorage.setItem(LOCAL_SESSIONS_KEY, JSON.stringify([]));
     }

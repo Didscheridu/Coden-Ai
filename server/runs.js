@@ -5,8 +5,8 @@ const db = require('./db');
 let waitUntil = () => {};
 try { waitUntil = require('@vercel/functions').waitUntil; } catch (_) { /* lokal ohne Vercel */ }
 
-const FLUSH_MS = 700;        // so oft wird der Stand höchstens nach Firestore geschrieben
-const HEARTBEAT_MS = 2000;   // Lebenszeichen (und Prüfung auf "Stopp"), auch wenn das Modell gerade still ist
+const FLUSH_MS = 1500;       // so oft wird der Stand höchstens nach Firestore geschrieben (Firestore-Gratis-Kontingent schonen)
+const HEARTBEAT_MS = 4000;   // Lebenszeichen (und Prüfung auf "Stopp"), auch wenn das Modell gerade still ist
 const STALE_MS = 120_000;    // länger kein Lebenszeichen: Lauf gilt als abgebrochen
 const live = new Map();      // laufende Läufe dieser Server-Instanz
 
@@ -57,7 +57,7 @@ class Run {
     this.timer = setTimeout(() => { this.timer = null; this.flush().catch(() => {}); }, Math.max(0, FLUSH_MS - (Date.now() - this.lastFlush)));
   }
   async flush() {
-    if (this.status !== 'running') return;
+    if (this.status !== 'running' || this.ephemeral) return;
     if (this.flushing) return this.flushing;
     this.lastFlush = Date.now();
     this.flushing = db.runWithDbContext(this.dbCtx, async () => {
@@ -78,6 +78,7 @@ class Run {
     clearInterval(this.beat); clearTimeout(this.timer); this.timer = null;
     if (this.flushing) await this.flushing.catch(() => {});
     this.status = status; this.error = error || null;
+    if (this.ephemeral) { live.delete(this.id); return; }
     await db.runWithDbContext(this.dbCtx, () => db.updateDoc(`ai_runs/${this.id}`, {
       status,
       error: this.error,
@@ -96,6 +97,9 @@ class Run {
 async function startRun({ uid, isOwner, kind, ref, meta = {} }, job) {
   const id = db.nextId();
   const now = db.nowIso();
+  // Ist die Datenbank nicht erreichbar (z. B. Tageskontingent aufgebraucht), läuft die Antwort trotzdem –
+  // nur im Speicher dieser Instanz, ohne Wiederaufnahme nach dem Schließen.
+  let ephemeral = false;
   const row = await db.createDoc(`ai_runs/${id}`, {
     id,
     uid,
@@ -112,8 +116,8 @@ async function startRun({ uid, isOwner, kind, ref, meta = {} }, job) {
     claimed: false,
     created_at: now,
     updated_at: now
-  });
-  if (Math.random() < 0.05) {
+  }).catch((e) => { console.warn('[runs] ohne Datenbank weiter:', e.message); ephemeral = true; return { id, uid, kind, ref: String(ref).slice(0, 80), meta: meta || {} }; });
+  if (!ephemeral && Math.random() < 0.05) {
     const cutoff = Date.now() - 7 * 24 * 3600_000;
     db.runQuery('ai_runs', { where: [['uid', '==', uid]] }).then(async (list) => {
       for (const item of list) {
@@ -122,6 +126,7 @@ async function startRun({ uid, isOwner, kind, ref, meta = {} }, job) {
     }).catch(() => {});
   }
   const run = new Run(row, { isOwner, dbCtx: db.getDbContext() });
+  if (ephemeral) { run.ephemeral = true; clearInterval(run.beat); }
   live.set(run.id, run);
   return drive(run, job);
 }
@@ -206,6 +211,10 @@ function runsRouter(requireAuth) {
       .filter(x => x.kind === kind && new Date(x.created_at).getTime() > cutoff && (x.status === 'running' || x.claimed === false))
       .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
       .slice(0, 20);
+    // Aufräumen: abgeholte, fertige Läufe (älter als 15 Min.) und alles älter als 2 Tage löschen.
+    // Sonst liest jede Abfrage hier immer mehr Dokumente (Firestore-Lesekontingent).
+    const old = all.filter(x => { const age = Date.now() - new Date(x.created_at).getTime(); return age > 2 * 24 * 3600_000 || (x.claimed === true && x.status !== 'running' && age > 15 * 60_000); }).slice(0, 40);
+    if (old.length) Promise.all(old.map(x => db.deleteDoc(`ai_runs/${x.id}`).catch(() => {}))).catch(() => {});
     const out = [];
     for (const row of rows) {
       const s = await settleStale(row);

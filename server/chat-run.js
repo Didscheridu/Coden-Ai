@@ -55,7 +55,7 @@ async function chatJob(run, state) {
   const { user, tier, messages, opts = {}, leg = 1 } = state;
   const meter = new Meter(user, tier);
   const legAc = new AbortController(); let legEnd = false;
-  const timer = setTimeout(() => { if (run.text.trim() && leg < MAX_LEGS) { legEnd = true; legAc.abort(); } }, LEG_MS());
+  const timer = setTimeout(() => { if (run.text.trim() && leg < MAX_LEGS && !run.ephemeral) { legEnd = true; legAc.abort(); } }, LEG_MS());
   const msgs = leg > 1 && run.text.trim()
     ? [...messages, { role: 'assistant', content: run.text.replace(/<think>[\s\S]*?<\/think>\s*/gi, '') }, { role: 'user', content: CONTINUE }]
     : messages;
