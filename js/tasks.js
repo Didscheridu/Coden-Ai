@@ -28,8 +28,13 @@ export const Tasks = {
     // Beim Start und danach alle paar Minuten: fällige Aufgaben anstoßen, neue Ergebnisse melden
     start() {
         if (timer) return;
-        const cycle = async () => {
+        // Jede Abfrage liest Aufgaben und Ergebnisse aus der Datenbank: ohne Aufgaben nur selten nachsehen.
+        let lastAt = 0;
+        const cycle = async (force = false) => {
             if (document.hidden) return;
+            const idle = !(state.tasks?.length) && !lastUnseen;
+            if (!force && lastAt && Date.now() - lastAt < (idle ? 30 * 60_000 : 4 * 60_000)) return;
+            lastAt = Date.now();
             try {
                 await apiJson('/tasks/tick', { method: 'POST', body: '{}' }).catch(() => {});
                 const r = await this.load();
@@ -40,7 +45,7 @@ export const Tasks = {
                 lastUnseen = r.unseen;
             } catch (_) { /* offline: nächster Versuch */ }
         };
-        cycle(); timer = setInterval(cycle, 90_000);
+        cycle(true); timer = setInterval(() => cycle(), 5 * 60_000);
         document.addEventListener('visibilitychange', () => { if (!document.hidden) cycle(); });
         // Tippen auf die Benachrichtigung öffnet die Aufgaben
         const fromPush = () => { if (location.hash === '#aufgaben') { history.replaceState(null, '', '#/chat'); openTab(); } };

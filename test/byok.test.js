@@ -29,7 +29,7 @@ const { setup } = require('./helpers');
 
   // 1) Start: vier voreingestellte Anbieter, kein Key
   let o = (await call('/byok', null, anna)).j;
-  chk('Anbieter voreingestellt', o.providers.map(p => p.id), ['google', 'openai', 'anthropic', 'openrouter']);
+  chk('Anbieter voreingestellt', o.providers.map(p => p.id), ['google', 'openai', 'anthropic', 'openrouter', 'numes']);
   chk('Google AI Studio heißt so', o.providers[0].name, 'Google AI Studio');
   chk('Anfangs kein Key, keine Modelle', `${o.providers.some(p => p.hasKey)} ${o.models.length}`, 'false 0');
   chk('Ohne Login geht nichts', (await call('/byok')).s, 401);
@@ -109,6 +109,11 @@ const { setup } = require('./helpers');
   reply = () => sse([`data: ${JSON.stringify({ choices: [{ delta: { content: 'Hey' } }] })}\n\n`, 'data: [DONE]\n\n']);
   seen.length = 0; t = await stream(rm.tier, anna, { effort: 'high' });
   chk('OpenRouter: eigener Key, Modell, Stufe', `${last().headers.Authorization} ${last().body.model} ${last().body.reasoning.effort}`, 'Bearer sk-or-test-5555 vendor/model high');
+  // Numes (numes.ai): OpenAI-kompatibel unter api.numes.ai/api/v1
+  await call('/byok/keys/numes', { key: 'nms-test-key-7777' }, anna, 'PUT');
+  const nm = (await addModel('numes', 'deepseek/deepseek-v4.1-flash:free', ['low', 'high'])).j.models.find(m => m.provider === 'numes');
+  seen.length = 0; t = await stream(nm.tier, anna, { effort: 'low' });
+  chk('Numes: eigener Key, richtige Adresse, Modell', [last().url, last().headers.Authorization, last().body.model, nm.providerName], ['https://api.numes.ai/api/v1/chat/completions', 'Bearer nms-test-key-7777', 'deepseek/deepseek-v4.1-flash:free', 'Numes']);
 
   // 9) Fehler eines eigenen Modells: genaue Ursache, kein Ausweichen auf Coden-Modelle
   reply = () => new Response(JSON.stringify({ error: { message: 'Incorrect API key provided' } }), { status: 401 });

@@ -70,6 +70,7 @@ const OPENAI_COMPAT = {
   openrouter: { url: 'https://openrouter.ai/api/v1/chat/completions', env: 'OPENROUTER_API_KEY' },
   groq: { url: 'https://api.groq.com/openai/v1/chat/completions', env: 'GROQ_API_KEY' },
   openai: { url: 'https://api.openai.com/v1/chat/completions', env: null }, // nur mit eigenem Key (Bring your own Key)
+  numes: { url: 'https://api.numes.ai/api/v1/chat/completions', env: null }, // nur mit eigenem Key (numes.ai)
 };
 
 // ---------- Tageskontingent ----------
@@ -325,7 +326,7 @@ async function callModel(m, messages, { stream, onDelta, onThink, signal, maxTok
 }
 
 // ---------- Modellliste (für den Befehl /modelle) ----------
-const PROVIDER_NAMES = { groq: 'Groq', openrouter: 'OpenRouter', google: 'Google', openai: 'OpenAI', anthropic: 'Anthropic' };
+const PROVIDER_NAMES = { groq: 'Groq', openrouter: 'OpenRouter', google: 'Google', openai: 'OpenAI', anthropic: 'Anthropic', numes: 'Numes' };
 const keyOf = (m) => `${m.provider}:${m.id}`;
 function listModels() {
   const seen = new Map();

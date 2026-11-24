@@ -170,8 +170,7 @@ function cleanDoc(doc) {
 }
 
 api.get('/system/state', requireAuth, async (req, res) => {
-  const doc = await db.getDoc('system_state/global');
-  res.json(cleanDoc(doc));
+  res.json(await systemState());
 });
 
 api.post('/admin/command', requireAuth, requireOwner, async (req, res) => {
@@ -196,14 +195,23 @@ api.post('/admin/command', requireAuth, requireOwner, async (req, res) => {
   const next = patch.locks
     ? { ...cur, ...patch, locks: { ...(cur.locks || {}), ...patch.locks }, updatedAt: db.nowIso() }
     : { ...cur, ...patch, updatedAt: db.nowIso() };
-  await db.setDoc('system_state/global', next);
+  await db.setDoc('system_state/global', next); sysCache = { at: 0, doc: null };
   res.json({ ok: true });
 });
 
 // Blockiert normale Nutzer bei Wartungsmodus / gesperrten Modellen (serverseitig)
+// Systemzustand (Sperren, Wartung) kurz zwischenspeichern: jede Chat-Anfrage und jede Abfrage der App
+// würde sonst einen Firestore-Lesezugriff kosten. Ist die Datenbank nicht erreichbar, gilt der letzte bekannte Stand.
+let sysCache = { at: 0, doc: null };
+async function systemState() {
+  if (sysCache.doc && Date.now() - sysCache.at < 30_000) return sysCache.doc;
+  try { sysCache = { at: Date.now(), doc: cleanDoc(await db.getDoc('system_state/global')) }; }
+  catch (e) { console.warn('[system] Zustand nicht lesbar:', e.message); sysCache = { at: Date.now() - 20_000, doc: sysCache.doc || cleanDoc(null) }; }
+  return sysCache.doc;
+}
 async function enforceSystemState(req, res, next) {
   if (req.user.isOwner) return next();
-  const st = cleanDoc(await db.getDoc('system_state/global'));
+  const st = await systemState();
   if (st.maintenance) return res.status(503).json({ error: 'Wartungsarbeiten.' });
   const tier = req.body?.tier;
   if (tier === 'ultra' && st.locks?.ultra !== false) return res.status(403).json({ error: 'Coden Ultra ist gesperrt (nur der Owner).' });

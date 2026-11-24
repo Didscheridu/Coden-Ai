@@ -10,7 +10,8 @@ function ensureSchema() {
       if (!isMemoryDb()) await ping();
       return true;
     })().catch((e) => {
-      done = null;
+      // Nicht bei jeder Anfrage erneut prüfen (jeder Versuch kostet einen Lesezugriff) – frühestens nach einer Minute
+      setTimeout(() => { done = null; }, 60_000).unref?.();
       console.error('ensureSchema:', e.message);
       return false;
     });

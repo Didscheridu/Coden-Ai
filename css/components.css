@@ -135,3 +135,8 @@
     background-color: rgba(168, 199, 250, 0.1);
     color: var(--accent-blue);
 } 
+/* Hinweis, wenn die Datenbank nicht erreichbar ist (Coden läuft trotzdem weiter) */
+.db-banner { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 10020; display: flex; align-items: flex-start; gap: 10px; max-width: min(560px, calc(100vw - 24px)); padding: 10px 12px 10px 14px; border-radius: 12px; background: var(--bg-secondary, #2a2a28); color: var(--text-primary, #eee); border: 1px solid rgba(217, 119, 87, .45); box-shadow: 0 8px 28px rgba(0, 0, 0, .28); font-size: 13px; line-height: 1.45 }
+.db-banner.hidden { display: none }
+.db-banner-x { flex: none; background: none; border: 0; color: inherit; opacity: .7; font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px }
+.db-banner-x:hover { opacity: 1 }

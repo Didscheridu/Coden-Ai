@@ -336,7 +336,7 @@ export const Buddy = {
         setTimeout(updateBadge, 1500);
         if (!buddyWired) {
             buddyWired = true;
-            setInterval(() => { if (!document.hidden && !root.isConnected) updateBadge(); }, 30000);
+            setInterval(() => { if (!document.hidden && !root.isConnected) updateBadge(); }, 120000);
         }
     },
     // Als Tab: #/buddy, #/buddy/projekte, #/buddy/apps

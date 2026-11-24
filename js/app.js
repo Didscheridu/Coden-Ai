@@ -29,7 +29,7 @@ import * as Menu from './menu.js';
 import { Router } from './router.js';
 import { Storage } from './storage.js';
 import { initGoogleLogin, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, resendVerificationEmail, refreshAuth, auth } from './auth.js';
-import { ensureDbConnection, retryDbNow } from './firebase.js';
+import { ensureDbConnection, retryDbNow, dbState } from './firebase.js';
 import { apiFetch, apiJson } from './backend.js';
 import { checkRateLimit } from './Limit-Spamschutz.js';
 import { MultimodalLivePrototype } from './multimodal-live-prototype.js'; // 🔥 NEU: Der Live Client 🔥
@@ -220,12 +220,49 @@ if (dbBootRetry) {
 
 const initialDbReady = waitForDbReady();
 
+// Datenbank nicht erreichbar: Coden nicht blockieren, sondern mit dem Gerätespeicher weiterlaufen lassen,
+// einen Hinweis zeigen und höchstens jede Minute leise neu prüfen (jeder Versuch kostet einen Lesezugriff).
+let dbBannerEl = null; let dbBgTimer = null;
+function dbProblemText() {
+    if (dbState.reason === 'quota') return 'Das Tageslimit der Datenbank ist erreicht. Coden läuft eingeschränkt weiter: Chats werden auf diesem Gerät gespeichert und später synchronisiert. Das Limit wird gegen 09:00 Uhr zurückgesetzt.';
+    if (dbState.reason === 'denied') return 'Die Datenbank verweigert den Zugriff. Coden läuft mit dem Speicher auf diesem Gerät weiter.';
+    return 'Die Datenbank ist gerade nicht erreichbar. Coden läuft mit dem Speicher auf diesem Gerät weiter und verbindet sich automatisch neu.';
+}
+function showDbBanner() {
+    if (!dbBannerEl) {
+        dbBannerEl = document.createElement('div');
+        dbBannerEl.className = 'db-banner'; dbBannerEl.setAttribute('role', 'status');
+        dbBannerEl.innerHTML = '<span class="db-banner-text"></span><button type="button" class="db-banner-x" aria-label="Hinweis schließen">×</button>';
+        dbBannerEl.querySelector('.db-banner-x').addEventListener('click', () => dbBannerEl.classList.add('hidden'));
+        document.body.appendChild(dbBannerEl);
+    }
+    dbBannerEl.querySelector('.db-banner-text').textContent = dbProblemText();
+    dbBannerEl.classList.remove('hidden');
+}
+function hideDbBanner() { dbBannerEl?.classList.add('hidden'); }
+function scheduleDbBackgroundRetry() {
+    if (dbBgTimer) return;
+    dbBgTimer = setInterval(async () => {
+        if (document.hidden || navigator.onLine === false) return;
+        const ok = await ensureDbConnection({ maxFreshMs: 0, maxAttempts: 1 });
+        if (!ok) return;
+        clearInterval(dbBgTimer); dbBgTimer = null; hideDbBanner();
+        // Änderungen, die in der Zwischenzeit nur auf dem Gerät lagen, jetzt übertragen (nur Geändertes)
+        Storage.syncNow?.().catch?.(() => {});
+    }, 60_000);
+}
+function noteDbResult(ok) {
+    if (ok) { hideDbBanner(); return true; }
+    hideDbLoader(); showDbBanner(); scheduleDbBackgroundRetry();
+    return false;
+}
+
 let reconnectInFlight = null;
 async function handleOfflineReconnect() {
     if (reconnectInFlight) return reconnectInFlight;
     reconnectInFlight = (async () => {
         showDbLoader('Verbindung unterbrochen', 'Verbinde erneut mit der Datenbank …', true);
-        await ensureDbConnection({
+        const ok = await ensureDbConnection({
             maxFreshMs: 0,
             onAttempt: ({ attempt, online }) => {
                 const sub = !online
@@ -234,7 +271,7 @@ async function handleOfflineReconnect() {
                 showDbLoader('Verbindung unterbrochen', sub, true);
             }
         });
-        hideDbLoader();
+        hideDbLoader(); noteDbResult(ok);
     })();
     try {
         await reconnectInFlight;
@@ -255,8 +292,7 @@ if (auth) {
     onAuthStateChanged(auth, async (user) => {
         try {
             showDbLoader('Verbinde mit Datenbank …', 'Firebase Firestore wird verbunden');
-            await initialDbReady;
-            await waitForDbReady();
+            const dbOk = noteDbResult((await initialDbReady) && (await waitForDbReady()));
 
             if (user) {
                 isOwner = user.isOwner === true; // vom Server entschieden
@@ -270,7 +306,7 @@ if (auth) {
                 showDbLoader('Daten werden geladen …', 'Chats und Einstellungen werden aus Firebase geladen');
 
                 try {
-                    if (Storage.loadFromCloud) await Storage.loadFromCloud();
+                    if (dbOk && Storage.loadFromCloud) await Storage.loadFromCloud();
                 } catch (e) {
                     console.error('Cloud Load Error:', e);
                 }
@@ -349,7 +385,7 @@ function initGlobalSync() {
     clearInterval(globalSyncTimer);
     pollSystemState();
     // Bewusst nur alle 30 s abfragen, nur bei sichtbarem Tab
-    globalSyncTimer = setInterval(() => { if (!document.hidden && auth.currentUser) pollSystemState(); }, 30000);
+    globalSyncTimer = setInterval(() => { if (!document.hidden && auth.currentUser) pollSystemState(); }, 60000);
 }
 
 async function pollSystemState() {
@@ -1506,13 +1542,15 @@ let hiddenAt = 0;
 document.addEventListener('visibilitychange', async () => {
     if (document.hidden) { hiddenAt = Date.now(); return; }
     if (!appInitialized) return;
-    if (hiddenAt && Date.now() - hiddenAt > 30000 && !streams.size) {
+    // Erst nach längerer Pause neu laden: jedes Laden liest alle Chats aus der Datenbank
+    if (hiddenAt && Date.now() - hiddenAt > 10 * 60_000 && !streams.size && dbState.ok) {
         if (await Storage.loadFromCloud()) { const keep = activeSessionId; sessions = Storage.getSessions(); if (!sessions.length) sessions = [Storage.createNewSession()]; const s = sessions.find(x => x.id === keep) || sessions[0]; loadSession(s.id); }
     }
-    resumeRuns();
+    if (hiddenAt && Date.now() - hiddenAt > 20000) resumeRuns();
 });
 window.addEventListener('online', () => resumeRuns());
-setInterval(() => { if (!document.hidden) resumeRuns(); }, 30000);
+// Laufende Antworten anderer Geräte/Tabs: selten nachsehen (jede Abfrage kostet Datenbank-Lesezugriffe)
+setInterval(() => { if (!document.hidden) resumeRuns(); }, 5 * 60_000);
 // Vorschlag oder Antwort-Knopf angetippt -> als nächste Nachricht senden
 document.addEventListener('codenFollowup', (e) => { if (!chatInput || curStream()) return; chatInput.value = String(e.detail || ''); handleSend(); });
 

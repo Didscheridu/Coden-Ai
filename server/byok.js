@@ -30,6 +30,12 @@ const PROVIDERS = {
   openrouter: {
     name: 'OpenRouter', link: 'https://openrouter.ai/keys', keyHint: 'sk-or-…',
     levels: ['minimal', 'low', 'medium', 'high', 'xhigh'], suggest: []
+  },
+  // Numes: Marktplatz mit OpenAI-kompatibler Schnittstelle (https://api.numes.ai/api/v1), viele Gratismodelle
+  numes: {
+    name: 'Numes', link: 'https://numes.ai/dashboard/keys', keyHint: 'Inference-Key',
+    levels: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+    suggest: [{ id: 'deepseek/deepseek-v4.1-flash:free', label: 'DeepSeek V4.1 Flash (gratis)' }, { id: 'moonshotai/kimi-k3.1-pro:free', label: 'Kimi K3.1 Pro (gratis)' }]
   }
 };
 const MAX_MODELS = 40;
@@ -245,6 +251,11 @@ async function listProviderModels(provider, key) {
   if (provider === 'anthropic') {
     const d = await fetchJson('https://api.anthropic.com/v1/models?limit=100', { 'x-api-key': key, 'anthropic-version': '2023-06-01' });
     return (d.data || []).map(m => ({ id: m.id, label: m.display_name || m.id }));
+  }
+  if (provider === 'numes') {
+    const d = await fetchJson('https://api.numes.ai/api/v1/models', { Authorization: `Bearer ${key}` });
+    const list = Array.isArray(d) ? d : (d.data || d.models || []);
+    return list.map(m => (typeof m === 'string' ? { id: m, label: m } : { id: m.id, label: m.name || m.id })).filter(m => m.id);
   }
   const d = await fetchJson('https://openrouter.ai/api/v1/models', { Authorization: `Bearer ${key}` });
   return (d.data || []).map(m => ({ id: m.id, label: m.name || m.id }));

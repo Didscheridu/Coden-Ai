@@ -69,6 +69,8 @@ export function handleFirestoreError(error, operationType, path) {
 let lastConnectedAt = 0;
 let retryWakeup = null;
 let inflightConnect = null;
+// Zustand der Datenbank für die Oberfläche: reason = 'quota' (Tageskontingent aufgebraucht), 'denied', 'offline' oder null
+export const dbState = { ok: false, reason: null, message: '' };
 
 export async function testConnection({ timeoutMs = 4500 } = {}) {
   try {
@@ -77,11 +79,15 @@ export async function testConnection({ timeoutMs = 4500 } = {}) {
       new Promise((_, reject) => setTimeout(() => reject(new Error('timeout: the client is offline')), timeoutMs))
     ]);
     lastConnectedAt = Date.now();
+    Object.assign(dbState, { ok: true, reason: null, message: '' });
     return true;
   } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Please check your Firebase configuration or network connectivity.');
-    }
+    const code = String(error?.code || ''); const msg = String(error?.message || error || '');
+    const reason = code === 'resource-exhausted' || /quota|resource.exhausted/i.test(msg) ? 'quota'
+      : code === 'permission-denied' ? 'denied' : 'offline';
+    Object.assign(dbState, { ok: false, reason, message: msg.slice(0, 200) });
+    if (reason === 'offline') console.warn('Firestore nicht erreichbar:', msg);
+    else console.warn('Firestore meldet:', code || msg);
     return false;
   }
 }
@@ -94,7 +100,10 @@ export function retryDbNow() {
   }
 }
 
-export async function ensureDbConnection({ onAttempt, maxFreshMs = 4000 } = {}) {
+// Wartet kurz auf die Datenbank. Gibt true (verbunden) oder false zurück – blockiert aber nie endlos:
+// Bei aufgebrauchtem Kontingent oder fehlender Berechtigung sofort false (weiter probieren kostet nur weitere Lesezugriffe),
+// bei Netzproblemen nach maxAttempts/maxWaitMs. Die App läuft dann mit dem Speicher auf dem Gerät weiter.
+export async function ensureDbConnection({ onAttempt, maxFreshMs = 4000, maxAttempts = 4, maxWaitMs = 12000 } = {}) {
   if (lastConnectedAt && Date.now() - lastConnectedAt < maxFreshMs) {
     return true;
   }
@@ -108,6 +117,8 @@ export async function ensureDbConnection({ onAttempt, maxFreshMs = 4000 } = {}) 
       onAttempt?.({ attempt, elapsedMs: Date.now() - startedAt, online: navigator.onLine !== false });
       const ok = await testConnection();
       if (ok) return true;
+      if (dbState.reason === 'quota' || dbState.reason === 'denied') return false;
+      if (attempt >= maxAttempts || Date.now() - startedAt >= maxWaitMs) return false;
       const delay = Math.min(4000, 600 + attempt * 500);
       await new Promise((resolve) => {
         const timer = setTimeout(() => {
