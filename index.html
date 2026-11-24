@@ -49,6 +49,8 @@
     <link rel="stylesheet" href="css/assistants.css">
     <link rel="stylesheet" href="css/responsive.css">
     <link rel="stylesheet" href="css/v4-layout.css">
+    <link rel="stylesheet" href="css/skills.css">
+    <link rel="stylesheet" href="css/menus.css">
 
     <style>
         .sidebar.collapsed { display: none; }
@@ -187,12 +189,22 @@
             </nav>
             <div class="sidebar-scroll-area"></div>
             <div class="sidebar-footer">
-                <div class="user-menu hidden" id="user-menu">
-                    <a href="#" class="sb-item" id="open-settings-btn"><span class="material-symbols-outlined">settings</span><span class="sb-label">Einstellungen</span></a>
-                    <a href="#" class="sb-item" id="open-email-settings-btn"><span class="material-symbols-outlined">mail</span><span class="sb-label">Email Setup</span></a>
-                    <a href="#" class="sb-item danger" id="logout-btn"><span class="material-symbols-outlined">logout</span><span class="sb-label">Abmelden</span></a>
+                <div class="user-menu cm-panel hidden" id="user-menu" role="menu" aria-label="Konto">
+                    <div id="user-email-display" class="cm-head"></div>
+                    <button type="button" class="cm-item" id="open-settings-btn" role="menuitem"><span class="material-symbols-outlined cm-ic">settings</span><span class="cm-label">Einstellungen</span><span class="cm-kbd" data-kbd="Strg+,">Strg+,</span></button>
+                    <button type="button" class="cm-item" id="um-usage" role="menuitem"><span class="material-symbols-outlined cm-ic">data_usage</span><span class="cm-label">Nutzung</span></button>
+                    <button type="button" class="cm-item" id="um-skills" role="menuitem"><span class="material-symbols-outlined cm-ic">auto_awesome</span><span class="cm-label">Skills</span></button>
+                    <button type="button" class="cm-item" id="um-help" role="menuitem"><span class="material-symbols-outlined cm-ic">help</span><span class="cm-label">Hilfe &amp; Tastenkürzel</span><span class="cm-kbd" data-kbd="Strg+/">Strg+/</span></button>
+                    <button type="button" class="cm-item" id="um-more" role="menuitem" aria-haspopup="menu"><span class="material-symbols-outlined cm-ic">info</span><span class="cm-label">Mehr erfahren</span><span class="material-symbols-outlined cm-chev">chevron_right</span></button>
+                    <div class="cm-sep" role="separator"></div>
+                    <button type="button" class="cm-item accent um-owner" id="um-owner" role="menuitem"><span class="material-symbols-outlined cm-ic">terminal</span><span class="cm-label">Owner-Befehle</span></button>
+                    <button type="button" class="cm-item um-install hidden" id="um-install" role="menuitem"><span class="material-symbols-outlined cm-ic">install_desktop</span><span class="cm-label">App installieren</span></button>
+                    <button type="button" class="cm-item" id="um-keys" role="menuitem"><span class="material-symbols-outlined cm-ic">key</span><span class="cm-label">Modelle &amp; API-Schlüssel</span></button>
+                    <button type="button" class="cm-item" id="open-email-settings-btn" role="menuitem"><span class="material-symbols-outlined cm-ic">mail</span><span class="cm-label">E-Mail einrichten</span></button>
+                    <div class="cm-sep" role="separator"></div>
+                    <button type="button" class="cm-item" id="logout-btn" role="menuitem"><span class="material-symbols-outlined cm-ic">logout</span><span class="cm-label">Abmelden</span></button>
                 </div>
-                <button class="user-chip" id="user-chip"><span class="uc-avatar" id="uc-avatar">K</span><span class="uc-name" id="uc-name">Konto</span><span class="uc-plan">Coden</span><span class="material-symbols-outlined uc-caret">expand_more</span></button>
+                <button class="user-chip" id="user-chip"><span class="uc-avatar" id="uc-avatar">K</span><span class="uc-name" id="uc-name">Konto</span><span class="uc-plan" id="uc-plan">Coden</span><span class="material-symbols-outlined uc-caret">expand_more</span></button>
             </div>
         </aside>
 
@@ -210,16 +222,12 @@
                         <button type="button" class="icon-btn" id="tb-more-btn" title="Chat-Optionen" aria-label="Chat-Optionen" aria-haspopup="true" aria-expanded="false">
                             <span class="material-symbols-outlined">more_horiz</span>
                         </button>
-                        <div class="tb-more-menu hidden" id="tb-more-menu" role="menu">
-                            <div id="user-email-display" class="tb-menu-email"></div>
-                            <button type="button" class="tb-menu-item" id="temp-chat-btn" role="menuitem" title="Temporärer Chat (wird nicht gespeichert)" aria-label="Temporärer Chat" aria-pressed="false">
-                                <span class="material-symbols-outlined">history_toggle_off</span>
-                                <span class="tb-mi-label">Temporärer Chat</span>
-                            </button>
-                            <button type="button" class="tb-menu-item" id="export-chat-btn" role="menuitem" title="Chat als Datei speichern" aria-label="Chat exportieren">
-                                <span class="material-symbols-outlined">download</span>
-                                <span class="tb-mi-label">Chat exportieren</span>
-                            </button>
+                        <div class="tb-more-menu cm-panel hidden" id="tb-more-menu" role="menu" aria-label="Chat-Optionen">
+                            <button type="button" class="cm-item" id="temp-chat-btn" role="menuitemcheckbox" aria-checked="false" data-keep="1" title="Temporärer Chat (wird nicht gespeichert)"><span class="material-symbols-outlined cm-ic">history_toggle_off</span><span class="cm-label">Temporärer Chat</span><span class="material-symbols-outlined cm-check off">check</span></button>
+                            <button type="button" class="cm-item" id="tb-pin-btn" role="menuitem"><span class="material-symbols-outlined cm-ic">keep</span><span class="cm-label">Anheften</span></button>
+                            <button type="button" class="cm-item" id="export-chat-btn" role="menuitem"><span class="material-symbols-outlined cm-ic">download</span><span class="cm-label">Chat exportieren</span></button>
+                            <div class="cm-sep" role="separator"></div>
+                            <button type="button" class="cm-item danger" id="tb-delete-btn" role="menuitem"><span class="material-symbols-outlined cm-ic">delete</span><span class="cm-label">Chat löschen</span></button>
                         </div>
                     </div>
                 </div>
@@ -234,16 +242,17 @@
             <div class="input-section">
                 <div class="input-box" style="position: relative;">
                     <div id="command-popup" class="command-popup hidden"></div>
-                    <div id="assistant-popup" class="assistant-popup hidden" role="menu" aria-label="Assistent wählen"></div>
-                    <div id="composer-tools-menu" class="composer-tools-menu hidden" role="menu" aria-label="Werkzeuge &amp; Anhänge">
-                        <button type="button" class="ct-item" id="attachment-btn" role="menuitem">
-                            <span class="material-symbols-outlined">attach_file</span>
-                            <span class="ct-label">Datei oder Bild anhängen</span>
-                        </button>
-                        <button type="button" class="ct-item" id="assistant-btn" role="menuitem" title="Assistent wählen" aria-label="Assistent wählen" aria-haspopup="true">
-                            <span class="material-symbols-outlined">smart_toy</span>
-                            <span class="ct-label">Assistent wählen</span>
-                        </button>
+                    
+                    <div id="composer-tools-menu" class="composer-tools-menu cm-panel hidden" role="menu" aria-label="Hinzufügen">
+                        <button type="button" class="cm-item" id="attachment-btn" role="menuitem"><span class="material-symbols-outlined cm-ic">attach_file</span><span class="cm-label">Dateien hochladen</span><span class="cm-kbd" data-kbd="Strg+U">Strg+U</span></button>
+                        <button type="button" class="cm-item" id="ct-skill-new" role="menuitem"><span class="material-symbols-outlined cm-ic">auto_awesome</span><span class="cm-label">Einen Skill erstellen</span></button>
+                        <div class="cm-sep" role="separator"></div>
+                        <button type="button" class="cm-item" id="ct-skills" role="menuitem" aria-haspopup="menu"><span class="material-symbols-outlined cm-ic">category</span><span class="cm-label">Skills</span><span class="material-symbols-outlined cm-chev">chevron_right</span></button>
+                        <button type="button" class="cm-item" id="assistant-btn" role="menuitem" aria-haspopup="menu"><span class="material-symbols-outlined cm-ic">smart_toy</span><span class="cm-label">Assistent</span><span class="material-symbols-outlined cm-chev">chevron_right</span></button>
+                        <button type="button" class="cm-item" id="ct-apps" role="menuitem" aria-haspopup="menu"><span class="material-symbols-outlined cm-ic">apps</span><span class="cm-label">Eigene Apps</span><span class="material-symbols-outlined cm-chev">chevron_right</span></button>
+                        <button type="button" class="cm-item" id="ct-mcp" role="menuitem" aria-haspopup="menu"><span class="material-symbols-outlined cm-ic">hub</span><span class="cm-label">Verbindungen</span><span class="material-symbols-outlined cm-chev">chevron_right</span></button>
+                        <div class="cm-sep" role="separator"></div>
+                        <button type="button" class="cm-item" id="ct-temp" role="menuitemcheckbox" aria-checked="false" data-keep="1"><span class="material-symbols-outlined cm-ic">history_toggle_off</span><span class="cm-label">Temporärer Chat</span><span class="material-symbols-outlined cm-check off">check</span></button>
                     </div>
                     <input type="file" id="file-upload-input" multiple style="display: none;">
                     <textarea id="main-input" rows="1" placeholder="Nachricht an Coden … ('/' für Befehle)"></textarea>
@@ -324,6 +333,7 @@
                     <button type="button" data-st="general" class="active"><span class="material-symbols-outlined">person</span><span>Allgemein</span></button>
                     <button type="button" data-st="personal"><span class="material-symbols-outlined">psychology</span><span>Persönlich</span></button>
                     <button type="button" data-st="assistants"><span class="material-symbols-outlined">smart_toy</span><span>Assistenten</span></button>
+                    <button type="button" data-st="skills"><span class="material-symbols-outlined">auto_awesome</span><span>Skills</span></button>
                     <button type="button" data-st="models"><span class="material-symbols-outlined">key</span><span>Modelle &amp; Keys</span></button>
                     <button type="button" data-st="notify"><span class="material-symbols-outlined">notifications</span><span>Benachrichtigungen</span></button>
                     <button type="button" data-st="mail"><span class="material-symbols-outlined">mail</span><span>E-Mail</span></button>
@@ -349,8 +359,13 @@
                     </section>
                     <section class="st-pane hidden" data-pane="assistants">
                         <h4>Eigene Assistenten</h4>
-                        <p class="settings-hint">Ein Assistent ist eine Rolle mit eigenen Anweisungen. Du wählst ihn pro Chat über den Roboter-Knopf neben dem Eingabefeld.</p>
+                        <p class="settings-hint">Ein Assistent ist eine Rolle mit eigenen Anweisungen. Du wählst ihn pro Chat über <b>+ → Assistent</b> am Eingabefeld.</p>
                         <div id="assistants-ui"></div>
+                    </section>
+                    <section class="st-pane hidden" data-pane="skills">
+                        <h4>Skills</h4>
+                        <p class="settings-hint">Skills sind Anleitungen für bestimmte Aufgaben (wie bei Claude). Coden lädt einen Skill automatisch, wenn er zu deiner Nachricht passt. Du kannst ihn auch mit <b>/name</b> oder über <b>+ → Skills</b> gezielt nutzen. Claude-Skills (.zip, .skill oder SKILL.md) lassen sich direkt importieren.</p>
+                        <div id="skills-ui"></div>
                     </section>
                     <section class="st-pane hidden" data-pane="models">
                         <h4>Modelle &amp; Keys</h4>
@@ -452,6 +467,7 @@
     <script src="shared/app-bundle.js"></script>
     <script src="shared/agent-core.js"></script>
     <script src="shared/assist-core.js"></script>
+    <script src="shared/skills-core.js"></script>
     <script src="shared/upload-check.js"></script>
     <script src="js/vendor/qrcode.js"></script>
     <script type="module" src="js/app.js"></script>

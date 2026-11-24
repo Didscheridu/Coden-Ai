@@ -1,4 +1,5 @@
 // js/layout.js – Layout: Begrüßung, Artefakt-Galerie, Tabs (Apps, Artefakte, Code Buddy), Konto-Menü
+import { mountAccountMenu } from './account-menu.js';
 import { McpView } from './mcp.js';
 import { ProjectsView } from './projects.js';
 import { collectArtifacts, thumbFor, Artifacts } from './artifacts.js';
@@ -94,9 +95,7 @@ export const Layout = {
             // Das Artefakt-Fenster gehört zum Chat: beim Wechsel in einen anderen Tab schließen
             window.addEventListener('hashchange', () => { if (Router.parse().name !== 'chat') Artifacts.close(); });
             // Konto-Menü
-            const chip = $('user-chip'), menu = $('user-menu');
-            chip?.addEventListener('click', (e) => { e.stopPropagation(); menu.classList.toggle('hidden'); chip.classList.toggle('open', !menu.classList.contains('hidden')); });
-            document.addEventListener('click', (e) => { if (menu && !menu.classList.contains('hidden') && !e.target.closest('#user-menu')) { menu.classList.add('hidden'); chip?.classList.remove('open'); } });
+            mountAccountMenu();
         }
         refreshGallery();
         Router.init();

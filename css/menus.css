@@ -1,0 +1,202 @@
+/* css/menus.css – Ein Stil für alle Menüs in Coden (Aufbau wie bei Claude): dunkle, runde Fläche, Symbol links,
+   Text hell, Kurzbefehl/Pfeil rechts in Grau, feine Trennlinien, E-Mail als graue Kopfzeile. Lädt als letzte CSS-Datei. */
+:root {
+  --cm-bg: #20242d;
+  --cm-border: rgba(255, 255, 255, 0.10);
+  --cm-hover: rgba(255, 255, 255, 0.065);
+  --cm-text: #eceff4;
+  --cm-icon: #b9c1cf;
+  --cm-muted: #8a93a3;
+  --cm-radius: 14px;
+  --cm-shadow: 0 14px 38px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* ---------- Fläche ---------- */
+.cm-panel,
+.sb-ctx-menu,
+.tb-more-menu,
+.composer-tools-menu,
+.user-menu,
+.model-dropdown-menu,
+.command-popup,
+.ap-menu,
+.bl-menu,
+.assistant-popup,
+.ca-pop {
+  background: var(--cm-bg) !important;
+  border: 1px solid var(--cm-border) !important;
+  border-radius: var(--cm-radius) !important;
+  box-shadow: var(--cm-shadow) !important;
+  padding: 6px !important;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  color: var(--cm-text);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  animation: cm-in 0.14s var(--ease-ui, ease) both;
+}
+.cm-panel.hidden, .tb-more-menu.hidden, .composer-tools-menu.hidden, .user-menu.hidden,
+.model-dropdown-menu.hidden, .command-popup.hidden, .ap-menu.hidden, .assistant-popup.hidden, .ca-pop.hidden { display: none !important; }
+@keyframes cm-in { from { opacity: 0; transform: translateY(4px) scale(0.985); } to { opacity: 1; transform: none; } }
+
+.composer-tools-menu { min-width: 300px; max-width: min(340px, calc(100vw - 24px)); max-height: min(70vh, 520px); }
+.tb-more-menu { min-width: 236px; }
+.user-menu { right: auto !important; min-width: 100%; width: 296px; max-width: calc(100vw - 16px); max-height: min(80vh, 600px); }
+
+/* Untermenüs (fliegen seitlich auf) */
+.cm-flyout {
+  position: fixed;
+  z-index: 10050;
+  min-width: 240px;
+  max-width: min(340px, calc(100vw - 16px));
+}
+.cm-flyout:not(.overlay) .cm-back { display: none !important; }
+.cm-flyout.overlay .cm-back { color: var(--cm-muted) !important; }
+.cm-flyout.overlay .cm-back + .cm-body { border-top: 1px solid var(--cm-border); margin-top: 4px; padding-top: 4px; }
+.cm-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+
+/* ---------- Einträge ---------- */
+.cm-item,
+.sb-ctx-item,
+.tb-menu-item,
+.ap-mi,
+.bl-mi,
+.model-option,
+.as-opt,
+.ca-row {
+  display: flex !important;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 10px !important;
+  border: 0;
+  border-radius: 8px !important;
+  background: transparent !important;
+  color: var(--cm-text) !important;
+  font: 400 14px/1.3 var(--font-main) !important;
+  letter-spacing: 0;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.cm-item:hover, .cm-item:focus-visible, .cm-item.open,
+.sb-ctx-item:hover, .tb-menu-item:hover, .ap-mi:hover, .bl-mi:hover,
+.model-option:hover, .as-opt:hover, .ca-row:hover {
+  background: var(--cm-hover) !important;
+  outline: none;
+}
+.cm-item:focus-visible { box-shadow: inset 0 0 0 1px rgba(124, 179, 255, 0.45); }
+.cm-item:disabled { opacity: 0.45; cursor: default; }
+
+.cm-item .cm-ic,
+.cm-item > .material-symbols-outlined:first-child,
+.sb-ctx-item .material-symbols-outlined,
+.tb-menu-item .material-symbols-outlined,
+.ap-mi .material-symbols-outlined,
+.bl-mi .material-symbols-outlined,
+.model-option .material-symbols-outlined {
+  flex: none;
+  width: 20px;
+  font-size: 20px !important;
+  color: var(--cm-icon) !important;
+  font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20;
+  text-align: center;
+}
+.cm-emoji { font-size: 16px !important; line-height: 20px; font-variation-settings: normal; }
+.cm-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.cm-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.cm-text .cm-label { white-space: nowrap; }
+.cm-desc { color: var(--cm-muted); font-size: 12.5px; line-height: 1.35; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.cm-item:has(.cm-desc) { align-items: flex-start; }
+.cm-item:has(.cm-desc) .cm-ic { margin-top: 1px; }
+.cm-meta { flex: none; max-width: 42%; overflow: hidden; text-overflow: ellipsis; color: var(--cm-muted); font-size: 13px; }
+.cm-kbd { flex: none; margin-left: auto; padding-left: 14px; color: var(--cm-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.cm-chev { flex: none; margin-left: auto; font-size: 18px !important; color: var(--cm-muted) !important; font-variation-settings: 'wght' 300; }
+.cm-meta + .cm-chev { margin-left: 0; }
+.cm-check { flex: none; margin-left: auto; font-size: 18px !important; color: var(--accent-blue) !important; }
+.cm-check.off { visibility: hidden; }
+
+.cm-item.accent, .cm-item.accent .cm-ic { color: var(--accent-blue) !important; }
+.cm-item.danger, .cm-item.danger .cm-ic,
+.sb-ctx-item.danger, .sb-ctx-item.danger .material-symbols-outlined,
+.bl-mi.danger, .bl-mi.danger .material-symbols-outlined { color: var(--accent-red) !important; }
+
+/* Kopfzeile, Trenner, Gruppen, Hinweise */
+.cm-head,
+.user-menu #user-email-display {
+  display: block;
+  padding: 7px 10px 6px;
+  color: var(--cm-muted);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 0 !important;
+  margin: 0 !important;
+}
+.cm-head:empty { display: none; }
+.cm-sep { height: 1px; margin: 5px 6px; background: var(--cm-border); flex: none; }
+.cm-group { padding: 8px 10px 4px; color: var(--cm-muted); font-size: 12px; font-weight: 500; }
+.cm-note { padding: 8px 10px; color: var(--cm-muted); font-size: 13px; line-height: 1.45; white-space: normal; }
+
+/* ---------- Bestehende Menüs angleichen ---------- */
+.model-option { justify-content: flex-start; }
+.model-option .name { flex: 1; }
+.model-option.active { background: transparent !important; color: var(--cm-text) !important; }
+.model-option.active::after { content: 'check'; font-family: 'Material Symbols Outlined'; font-size: 18px; color: var(--accent-blue); margin-left: auto; -webkit-font-feature-settings: 'liga'; font-feature-settings: 'liga'; }
+.model-option.disabled { opacity: 0.5; }
+.model-dropdown-menu .effort-row { border-top: 1px solid var(--cm-border); margin: 5px -6px 0; padding: 10px 16px 6px; color: var(--cm-muted); }
+
+.command-popup { gap: 1px; max-height: 300px; }
+.command-item { border: 0 !important; border-radius: 8px; padding: 8px 10px !important; gap: 12px; align-items: center !important; }
+.command-item:hover, .command-item.selected { background: var(--cm-hover) !important; }
+.command-name { color: var(--cm-text); }
+.command-desc { color: var(--cm-muted); font-size: 12.5px; }
+.command-owner-badge { font-size: 10.5px; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--cm-border); color: var(--cm-muted); background: transparent; }
+.command-owner-badge.skill { color: var(--accent-blue); border-color: rgba(124, 179, 255, 0.35); }
+
+.ap-mi.ap-toapp .material-symbols-outlined { color: var(--accent-blue) !important; }
+.ap-ver-wrap { padding: 6px 10px; color: var(--cm-muted); }
+.ca-pop .ca-note { padding: 8px 10px; color: var(--cm-muted); font-size: 13px; }
+
+/* Konto-Knopf unten in der Seitenleiste (wie „Kayden · Pro“) */
+.user-chip .uc-plan::before { content: '· '; }
+.user-chip .uc-name { flex: 0 1 auto; }
+.user-chip .uc-plan { flex: 1 1 auto; }
+.um-owner { display: none !important; }
+body.is-owner .um-owner { display: flex !important; }
+.um-install.hidden { display: none !important; }
+
+/* Gewählte Skills über dem Eingabefeld */
+.sk-picked { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px 0; }
+.sk-picked.hidden { display: none; }
+.sk-pill { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 6px 0 10px; border-radius: 999px; background: var(--accent-blue-soft); color: var(--accent-blue); font: 500 13px var(--font-main); border: 1px solid rgba(124, 179, 255, 0.25); }
+.sk-pill .material-symbols-outlined { font-size: 16px; }
+.sk-pill button { border: 0; background: none; color: inherit; cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 4px; border-radius: 6px; }
+.sk-pill button:hover { background: rgba(124, 179, 255, 0.18); }
+
+/* Hilfe-Fenster: Tastenkürzel */
+.kb-list { display: grid; grid-template-columns: 1fr auto; gap: 8px 18px; font-size: 14px; }
+.kb-list kbd { font: 500 12.5px var(--font-mono); color: var(--cm-text); background: rgba(255, 255, 255, 0.06); border: 1px solid var(--cm-border); border-radius: 6px; padding: 2px 7px; white-space: nowrap; }
+
+@media (max-width: 600px) {
+  .cm-item, .sb-ctx-item, .tb-menu-item, .ap-mi, .bl-mi, .model-option, .as-opt { min-height: 42px; font-size: 15px !important; }
+  .composer-tools-menu { min-width: min(300px, calc(100vw - 24px)); }
+  .cm-kbd { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .cm-panel, .cm-flyout { animation: none !important; } }
+
+/* Der Assistent-Knopf ist jetzt ein Eintrag im +-Menü */
+#assistant-btn.cm-item { width: 100%; min-width: 0; gap: 12px; padding: 7px 10px !important; }
+
+/* Dialoge (Bestätigen, Import …) liegen über den Einstellungen (z-index 9999), sonst wären sie von dort aus nicht klickbar */
+.cd-overlay { z-index: 10010 !important; }
+.toasts { z-index: 10030 !important; }
+.command-item > div:first-child { flex: none; }
+.command-desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

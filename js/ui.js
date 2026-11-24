@@ -269,6 +269,7 @@ export const UI = {
             };
             menu.append(
                 mk(sess.pinned ? 'keep_off' : 'keep', sess.pinned ? 'Lösen' : 'Anheften', '', () => document.dispatchEvent(new CustomEvent('togglePinSession', { detail: sess.id }))),
+                Object.assign(document.createElement('div'), { className: 'cm-sep' }),
                 mk('delete', 'Chat löschen', 'danger', () => document.dispatchEvent(new CustomEvent('deleteChatSession', { detail: sess.id })))
             );
             document.body.append(menu);
