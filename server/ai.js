@@ -243,7 +243,7 @@ async function callAnthropic(m, messages, { stream, onDelta, onThink, signal, ma
 // ---------- Ein Modell aufrufen (stream=true: Stücke an onDelta) ----------
 async function callModel(m, messages, { stream, onDelta, onThink, signal, maxTokens, effort, info = {} }) {
   if (m.provider === 'google') {
-    const key = m.apiKey || process.env.GOOGLE_API_KEY;
+    const key = m.apiKey || process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
     if (!key) throw new Error('GOOGLE_API_KEY fehlt');
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${m.id}:${stream ? 'streamGenerateContent?alt=sse' : 'generateContent'}`;
     const level = m.own ? m.level : null; // Denkstufe nur bei eigenen Modellen; kennt das Modell sie nicht, noch einmal ohne
@@ -298,7 +298,7 @@ const keyOf = (m) => `${m.provider}:${m.id}`;
 function listModels() {
   const seen = new Map();
   for (const tier of ['ultra', 'pro', 'normal', 'flash']) for (const m of CASCADES[tier]) if (!seen.has(keyOf(m))) seen.set(keyOf(m), { key: keyOf(m), provider: m.provider, providerName: PROVIDER_NAMES[m.provider] || m.provider, id: m.id,
-    ready: m.provider === 'google' ? !!process.env.GOOGLE_API_KEY : !!process.env[OPENAI_COMPAT[m.provider]?.env], limited: !!QUOTAS[m.id] });
+    ready: m.provider === 'google' ? !!(process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY) : !!process.env[OPENAI_COMPAT[m.provider]?.env], limited: !!QUOTAS[m.id] });
   return [...seen.values()];
 }
 const findModel = (key) => listModels().find(m => m.key === key) || null;

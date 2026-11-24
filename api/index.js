@@ -254,7 +254,7 @@ api.post('/send-email', requireAuth, rateLimit('mail', 5, 300), async (req, res)
 
 // ---------- Live-Call: kurzlebiges Token statt echtem Google-Key ----------
 api.post('/live-token', requireAuth, rateLimit('live', 5, 300), async (req, res) => {
-  const key = process.env.GOOGLE_API_KEY;
+  const key = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
   if (!key) return res.status(500).json({ error: 'Live-Server nicht konfiguriert.' });
   try {
     const r = await fetch('https://generativelanguage.googleapis.com/v1alpha/auth_tokens', {
