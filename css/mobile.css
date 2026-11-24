@@ -61,10 +61,10 @@
 
     /* 5. POP-UP FENSTER (Einstellungen, E-Mail, Rechtliches) */
     .modal-content {
-        width: 95vw;
-        max-height: 90vh;
+        width: 100%;
+        max-height: 100%;
         padding: 16px;
-        margin: 10px;
+        margin: 0;
     }
 
     /* 6. MODELL-DROPDOWN (Coden Flash, Pro etc.) */

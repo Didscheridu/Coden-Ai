@@ -206,7 +206,7 @@ export const UI = {
         // Neues Artefakt im Text? -> Fenster sofort öffnen und live mitschreiben lassen (wie bei Claude); auf dem Handy nur die Karte
         const autoOpen = (items) => { const it = items[items.length - 1]; if (!it || opened.has(it.key) || window.innerWidth < 900 || !row.isConnected) return; opened.add(it.key); Artifacts.open(it); };
         const paint = () => { raf = 0; const follow = stick(); autoOpen(UI.renderRich(answer, latest, key)); if (follow) chatContainer.scrollTop = chatContainer.scrollHeight; };
-        const end = () => { if (!info) { info = panel.done(); if (!(info.secs >= 2 || info.steps.length)) panel.remove(); } return info; };
+        const end = () => { if (!info) { info = panel.done(); if (!(info.secs >= 2 || info.steps.length || info.text)) panel.remove(); } return info; };
         return {
             row, attached: () => row.isConnected,
             think: (k) => panel.think(k), model: (n) => panel.model(n),

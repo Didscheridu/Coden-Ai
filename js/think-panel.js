@@ -22,7 +22,7 @@ export function createThinkPanel({ label = 'Coden denkt nach …', startedAt = D
     el.append(sum, steps, body, note);
 
     const t0 = typeof startedAt === 'string' ? Date.parse(startedAt) : startedAt;
-    const seen = []; let cur = ''; let ended = false;
+    const seen = []; const notes = new Map(); let cur = ''; let lastText = ''; let ended = false;
     const secs = () => Math.max(0, Math.round((Date.now() - t0) / 1000));
     const tick = () => {
         if (ended) return; const s = secs(); time.textContent = s >= 1 ? '· ' + fmt(s) : '';
@@ -40,6 +40,14 @@ export function createThinkPanel({ label = 'Coden denkt nach …', startedAt = D
             note.append(b);
         }
     }
+    function buildSummaryText() {
+        const entries = [...notes.entries()].filter(([, v]) => v && v.trim());
+        if (entries.length > 1) {
+            return entries.map(([k, v]) => (k ? `${k}:\n${v}` : v)).join('\n\n').slice(-3000);
+        }
+        if (entries.length === 1) return entries[0][1].slice(-3000);
+        return lastText.slice(-3000);
+    }
     function drawSteps() {
         steps.replaceChildren(...seen.map(s => { const li = document.createElement('li'); li.className = 'done'; li.textContent = s; return li; }));
         if (cur && !ended) { const li = document.createElement('li'); li.className = 'now'; li.textContent = cur; steps.append(li); }
@@ -51,17 +59,31 @@ export function createThinkPanel({ label = 'Coden denkt nach …', startedAt = D
             if (!k || ended) return;
             if (Array.isArray(k.steps)) { k.steps.forEach(s => { if (!seen.includes(s)) seen.push(s); }); }
             if (k.h) { if (k.h !== cur && cur && !QUIET.test(cur) && !seen.includes(cur)) seen.push(cur); cur = k.h; head.textContent = k.h; }
-            body.textContent = k.v || ''; el.classList.toggle('has-body', !!k.v); drawSteps();
+            const val = typeof k.v === 'string' ? k.v.trim() : '';
+            if (val) {
+                lastText = val;
+                if (!QUIET.test(cur)) notes.set(cur || 'Überlege', val);
+            }
+            body.textContent = val;
+            el.classList.toggle('has-body', !!val);
+            drawSteps();
         },
         model(name) { if (!name) return; model.textContent = name; model.hidden = false; },
-        // Antwort fertig: kompakt "Hat 12 s nachgedacht" (aufklappbar mit den Schritten). Liefert {secs, steps}
+        // Antwort fertig: kompakt "Hat 12 s nachgedacht" (aufklappbar mit Schritten & Gedanken). Liefert {secs, steps, text?}
         done() {
-            if (ended) return { secs: secs(), steps: seen.slice() };
+            if (ended) { const txt = buildSummaryText(); return { secs: secs(), steps: seen.slice(), ...(txt ? { text: txt } : {}) }; }
             ended = true; clearInterval(timer);
             if (cur && !QUIET.test(cur) && !seen.includes(cur)) seen.push(cur);
-            const s = secs(); el.classList.remove('live'); el.open = false; note.hidden = true; body.textContent = '';
-            head.textContent = s >= 2 ? `Hat ${fmt(s)} nachgedacht` : 'Kurz nachgedacht'; time.textContent = ''; drawSteps();
-            return { secs: s, steps: seen.slice() };
+            const s = secs();
+            const txt = buildSummaryText();
+            el.classList.remove('live');
+            note.hidden = true;
+            body.textContent = txt;
+            el.classList.toggle('has-body', !!txt);
+            head.textContent = s >= 2 ? `Hat ${fmt(s)} nachgedacht` : 'Kurz nachgedacht';
+            time.textContent = '';
+            drawSteps();
+            return { secs: s, steps: seen.slice(), ...(txt ? { text: txt } : {}) };
         },
         remove() { clearInterval(timer); el.remove(); }
     };
@@ -69,7 +91,7 @@ export function createThinkPanel({ label = 'Coden denkt nach …', startedAt = D
 
 // Gespeicherte Denk-Info einer fertigen Antwort (beim Neuladen des Chats)
 export function thinkSummary(info) {
-    if (!info || !(info.secs >= 2 || info.steps?.length)) return null;
+    if (!info || !(info.secs >= 2 || info.steps?.length || info.text)) return null;
     const p = createThinkPanel({ hint: false, startedAt: Date.now() - (info.secs || 0) * 1000 });
-    p.think({ steps: info.steps || [] }); p.done(); return p.el;
+    p.think({ steps: info.steps || [], v: info.text || '' }); p.done(); return p.el;
 }

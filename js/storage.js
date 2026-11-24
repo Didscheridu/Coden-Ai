@@ -70,7 +70,8 @@ function sanitizeMessage(m) {
   if (m.think && typeof m.think === 'object') {
     out.think = {
       ...(Number.isFinite(m.think.secs) ? { secs: m.think.secs } : {}),
-      ...(Array.isArray(m.think.steps) ? { steps: m.think.steps.slice(0, 40).map(x => String(x).slice(0, 300)) } : {})
+      ...(Array.isArray(m.think.steps) ? { steps: m.think.steps.slice(0, 40).map(x => String(x).slice(0, 300)) } : {}),
+      ...(typeof m.think.text === 'string' && m.think.text.trim() ? { text: m.think.text.slice(0, 3000) } : {})
     };
   }
   return out;

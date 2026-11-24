@@ -1368,7 +1368,7 @@ function liveFor(sid, { startedAt } = {}) {
         }
         return st.view;
     };
-    const fallback = () => ({ secs: Math.round((Date.now() - st.t0) / 1000), steps: st.steps.filter(x => !QUIET_STEP.test(x)) });
+    const fallback = () => ({ secs: Math.round((Date.now() - st.t0) / 1000), steps: st.steps.filter(x => !QUIET_STEP.test(x)), ...(st.think?.v ? { text: String(st.think.v).slice(0, 3000) } : {}) });
     const p = {
         think(k) { if (!k) return; st.started = true; st.think = k; (k.steps || []).forEach(x => { if (!st.steps.includes(x)) st.steps.push(x); }); if (k.h && !st.steps.includes(k.h) && !QUIET_STEP.test(k.h)) st.steps.push(k.h); view()?.think(k); },
         model(m) { st.started = true; st.model = m; view()?.model(m); },
@@ -1454,7 +1454,7 @@ async function collectRun(r, live) {
     if (run.status === 'error' && !text.trim()) text = '⚠️ Coden konnte nicht antworten: ' + (run.error || 'unbekannter Fehler');
     const done = await processAnswer(text, (t) => live?.update(t), { ...run.meta?.extra, temp: !!run.meta?.temp, project: sess.projectId || null }); text = done.text;
     if (run.status === 'error' && run.text) text += '\n\n⚠️ Die Antwort wurde unterbrochen.';
-    const think = live ? live.finish(text) : { secs: Math.max(0, Math.round((Date.parse(run.updatedAt) - Date.parse(run.startedAt)) / 1000)), steps: run.think?.steps || [] };
+    const think = live ? live.finish(text) : { secs: Math.max(0, Math.round((Date.parse(run.updatedAt) - Date.parse(run.startedAt)) / 1000)), steps: run.think?.steps || [], ...(run.think?.v ? { text: String(run.think.v).slice(0, 3000) } : {}) };
     if (!text.trim()) return;
     sess.messages.push({ text, isUser: false, think });
     if (sess.id !== activeSessionId) sess.unread = true;
