@@ -158,8 +158,11 @@ function appsRouter(requireAuth) {
     apk: apk.publicState(a.apk), updatedAt: iso(a.updated_at), publishedAt: iso(a.published_at)
   });
 
-  async function membersOf(id, uid) {
-    const rows = await db.listDocs(`apps/${id}/members`);
+  async function membersOf(id, uid, ownerUid = null) {
+    const rows = await db.listDocs(`apps/${id}/members`).catch(() => []);
+    if (!rows.length && ownerUid) {
+      rows.push({ uid: ownerUid, role: 'owner', last_seen: null });
+    }
     const enriched = await Promise.all(rows.map(async (m) => {
       const p = await db.getDoc(`profiles/${m.uid}`).catch(() => null);
       return {
@@ -208,7 +211,7 @@ function appsRouter(requireAuth) {
       });
     }
     // Über Server geteilte Apps
-    const mySrvs = await db.runQuery('servers', { where: [['memberUids', 'ARRAY_CONTAINS', req.user.uid]] });
+    const mySrvs = await db.runQuery('servers', { where: [['memberUids', 'ARRAY_CONTAINS', req.user.uid]] }).catch(() => []);
     const srvRoles = new Map();
     for (const s of mySrvs) {
       const [sm, shares] = await Promise.all([
@@ -248,6 +251,9 @@ function appsRouter(requireAuth) {
   });
 
   r.post('/', rateLimit('apps-create', 15, 600), async (req, res) => {
+    if (!db.isMemoryDb() && !process.env.FIREBASE_SERVICE_ACCOUNT && req.user?.emailVerified === false) {
+      return bad(res, 403, 'Bitte bestätige zuerst deine E-Mail-Adresse (Link in deinem Postfach), um Apps zu erstellen.', { code: 'EMAIL_NOT_VERIFIED' });
+    }
     const name = String(req.body?.name || '').trim().slice(0, 60);
     const kind = String(req.body?.kind || '');
     const style = String(req.body?.style || '');
@@ -257,14 +263,23 @@ function appsRouter(requireAuth) {
     if (!KINDS.includes(kind)) return bad(res, 400, 'Unbekannter App-Typ.');
     if (style && !Styles.byId(style)) return bad(res, 400, 'Unbekannter Stil.');
     const err = checkFiles(files); if (err) return bad(res, 400, err);
+    if (!db.isMemoryDb() && Buffer.byteLength(JSON.stringify(files), 'utf8') > 900_000) {
+      return bad(res, 400, 'Die App ist zu groß für die Datenbank (max. 900 KB).');
+    }
     const mine = await db.runQuery('apps', { where: [['memberUids', 'ARRAY_CONTAINS', req.user.uid]] });
     if (mine.filter(a => a.owner === req.user.uid).length >= LIMITS.apps && !req.user.isOwner) {
       return bad(res, 400, `Du hast schon ${LIMITS.apps} Apps. Lösche eine alte, um eine neue anzulegen.`);
     }
     let slug = null;
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 6; i++) {
       const candidate = randomSlug(name);
-      const taken = await db.getDoc(`app_routes/${candidate}`, { preferAdmin: true }).catch(() => null);
+      let taken = false;
+      try {
+        const existing = await db.getDoc(`app_routes/${candidate}`, { preferAdmin: true });
+        taken = !!existing;
+      } catch (e) {
+        taken = e?.code === 'PERMISSION_DENIED' || e?.status === 403;
+      }
       if (!taken) { slug = candidate; break; }
     }
     if (!slug) return bad(res, 500, 'Konnte keine Adresse vergeben.');
@@ -292,8 +307,13 @@ function appsRouter(requireAuth) {
       published_at: null
     };
     await db.createDoc(`apps/${id}`, doc);
-    await db.createDoc(`apps/${id}/members/${req.user.uid}`, { app_id: id, uid: req.user.uid, role: 'owner', last_seen: now });
-    await syncPublicDocs(doc);
+    try {
+      await db.createDoc(`apps/${id}/members/${req.user.uid}`, { app_id: id, uid: req.user.uid, role: 'owner', last_seen: now });
+      await syncPublicDocs(doc);
+    } catch (e) {
+      await db.deleteTree(`apps/${id}`, ['members', 'messages']).catch(() => {});
+      throw e;
+    }
     doc.role = 'owner';
     res.json({ app: meta(doc, req), files: doc.files });
   });
@@ -301,7 +321,7 @@ function appsRouter(requireAuth) {
   r.get('/:id', async (req, res) => {
     const a = await memberOf(req, res, req.params.id); if (!a) return;
     touch(a.id, req.user.uid);
-    res.json({ app: meta(a, req), files: a.files, members: await membersOf(a.id, req.user.uid) });
+    res.json({ app: meta(a, req), files: a.files || {}, members: await membersOf(a.id, req.user.uid, a.owner) });
   });
 
   r.patch('/:id', async (req, res) => {
@@ -368,6 +388,9 @@ function appsRouter(requireAuth) {
       for (const n of remove) delete files[n];
       for (const [n, c] of Object.entries(set)) files[n] = c;
       const err = checkFiles(files); if (err) return bad(res, 400, err);
+      if (!db.isMemoryDb() && Buffer.byteLength(JSON.stringify(files), 'utf8') > 900_000) {
+        return bad(res, 400, 'Die App ist zu groß für die Datenbank (max. 900 KB).');
+      }
       try {
         const u = await db.updateDoc(`apps/${a.id}`, {
           files, version: (a.version || 1) + 1, updated_at: db.nowIso()
@@ -389,8 +412,8 @@ function appsRouter(requireAuth) {
     const a = await memberOf(req, res, req.params.id); if (!a) return;
     touch(a.id, req.user.uid);
     const after = toInt(req.query.after);
-    const messages = after ? await loadMessages(a.id, req.user.uid, after) : [];
-    res.json({ version: a.version, name: a.name, published: a.published, apk: apk.publicState(a.apk), messages, members: await membersOf(a.id, req.user.uid), agentRun: await activeRun(a.id, req.user.uid) });
+    const messages = after ? await loadMessages(a.id, req.user.uid, after).catch(() => []) : [];
+    res.json({ version: a.version, name: a.name, published: a.published, apk: apk.publicState(a.apk), messages, members: await membersOf(a.id, req.user.uid, a.owner), agentRun: await activeRun(a.id, req.user.uid) });
   });
 
   async function loadMessages(appId, uid, after = 0, limit = 120) {

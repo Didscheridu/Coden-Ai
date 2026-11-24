@@ -90,8 +90,8 @@ export function mountBuilder(host, appId) {
         resizer.addEventListener('pointermove', mv); resizer.addEventListener('pointerup', up); });
 
     // ---------- Laden ----------
-    (async () => {
-        log.append(h('div', { class: 'bl-empty' }, h('span', { class: 'cd-spin' })));
+    async function loadBuilder() {
+        log.replaceChildren(h('div', { class: 'bl-empty' }, h('span', { class: 'cd-spin' })));
         try {
             const r = await apiJson('/apps/' + appId);
             if (!st.alive) return;
@@ -106,9 +106,17 @@ export function mountBuilder(host, appId) {
             poll();
         } catch (e) {
             if (!st.alive) return;
-            root.replaceChildren(h('div', { class: 'ap-empty' }, icon('error'), h('h2', { text: 'App nicht gefunden' }), h('p', { text: e.message }), h('button', { type: 'button', class: 'bl-btn primary', onclick: () => Router.go('apps') }, icon('arrow_back'), ' Zu deinen Apps')));
+            const notFound = e?.status === 404 || /nicht gefunden/i.test(e?.message || '');
+            root.replaceChildren(h('div', { class: 'ap-empty' },
+                icon(notFound ? 'search_off' : 'cloud_off'),
+                h('h2', { text: notFound ? 'App nicht gefunden' : 'App konnte nicht geladen werden' }),
+                h('p', { text: e?.message || 'Verbindung zur Datenbank fehlgeschlagen.' }),
+                h('div', { class: 'ap-actions' },
+                    !notFound ? h('button', { type: 'button', class: 'bl-btn primary', onclick: () => { root.replaceChildren(head, mtabs, h('div', { class: 'bl-body' }, chat, resizer, stage)); loadBuilder(); } }, icon('refresh'), ' Erneut versuchen') : null,
+                    h('button', { type: 'button', class: notFound ? 'bl-btn primary' : 'bl-btn', onclick: () => Router.go('apps') }, icon('arrow_back'), ' Zu deinen Apps'))));
         }
-    })();
+    }
+    loadBuilder();
 
     function setApp(app) {
         if (!app) return;

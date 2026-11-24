@@ -21,6 +21,6 @@ export async function apiJson(path, options) {
     const res = await apiFetch(path, options);
     let data = {};
     try { data = await res.json(); } catch (e) { /* leere Antwort */ }
-    if (!res.ok) { const err = new Error(data.error || `HTTP ${res.status}`); err.code = data.code; throw err; }
+    if (!res.ok) { const err = new Error(data.error || `HTTP ${res.status}`); err.code = data.code; err.status = res.status; throw err; }
     return data;
 }

@@ -132,7 +132,21 @@
 </head>
 <body>
 
-    <div id="login-screen" class="login-screen">
+    <div id="db-boot-overlay" class="db-boot-overlay" role="status" aria-live="polite">
+        <div class="db-boot-card">
+            <div class="db-boot-orbit" aria-hidden="true">
+                <span class="db-boot-ring"></span>
+                <span class="db-boot-ring db-boot-ring-inner"></span>
+                <img src="./images/coden_logo.jpg" alt="" onerror="this.style.display='none'">
+            </div>
+            <h2 id="db-boot-title">Verbinde mit Datenbank …</h2>
+            <p id="db-boot-sub">Firebase Firestore wird verbunden</p>
+            <div class="db-boot-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+            <button type="button" id="db-boot-retry" class="btn-cancel db-boot-retry hidden">Erneut verbinden</button>
+        </div>
+    </div>
+
+    <div id="login-screen" class="login-screen hidden">
         <div class="login-box">
             <img src="./images/coden_logo.jpg" onerror="this.style.display='none'">
             <h2>Coden AI Login</h2>

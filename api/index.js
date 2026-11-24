@@ -377,6 +377,25 @@ app.use('/api', api);
 app.use('/a', hostedRouter()); // veröffentlichte Apps: /a/<adresse>/
 app.use((err, req, res, next) => {
   console.error(err);
+  if (res.headersSent) return next(err);
+  if (err?.code === 'PERMISSION_DENIED' || err?.status === 403) {
+    const msg = req.user && req.user.emailVerified === false
+      ? 'Bitte bestätige zuerst deine E-Mail-Adresse, um diese Aktion durchzuführen.'
+      : 'Zugriff in der Datenbank verweigert.';
+    return res.status(403).json({ error: msg, code: 'PERMISSION_DENIED' });
+  }
+  if (err?.code === 'UNAUTHENTICATED' || err?.status === 401) {
+    return res.status(401).json({ error: 'Sitzung abgelaufen. Bitte erneut anmelden.', code: 'UNAUTHENTICATED' });
+  }
+  if (err?.code === 'ALREADY_EXISTS' || err?.status === 409) {
+    return res.status(409).json({ error: 'Eintrag existiert bereits.', code: 'ALREADY_EXISTS' });
+  }
+  if (err?.code === 'NOT_FOUND' || err?.status === 404) {
+    return res.status(404).json({ error: 'Nicht gefunden.', code: 'NOT_FOUND' });
+  }
+  if (err?.status >= 400 && err?.status < 500) {
+    return res.status(err.status).json({ error: err.message || 'Ungültige Anfrage.' });
+  }
   res.status(500).json({ error: 'Serverfehler.' });
 });
 

@@ -24,6 +24,7 @@ import { renderMemory } from './memory-ui.js';
 import { Router } from './router.js';
 import { Storage } from './storage.js';
 import { initGoogleLogin, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, resendVerificationEmail, refreshAuth, auth } from './auth.js';
+import { ensureDbConnection, retryDbNow } from './firebase.js';
 import { apiFetch, apiJson } from './backend.js';
 import { checkRateLimit } from './Limit-Spamschutz.js';
 import { MultimodalLivePrototype } from './multimodal-live-prototype.js'; // 🔥 NEU: Der Live Client 🔥
@@ -34,6 +35,10 @@ import { ChessEngine } from './Chess.js'; // 🔥 NEU HINZUGEFÜGT
 // ==========================================
 const loginScreen = document.getElementById('login-screen');
 const appContainer = document.getElementById('app');
+const dbBootOverlay = document.getElementById('db-boot-overlay');
+const dbBootTitle = document.getElementById('db-boot-title');
+const dbBootSub = document.getElementById('db-boot-sub');
+const dbBootRetry = document.getElementById('db-boot-retry');
 const errorMsg = document.getElementById('auth-error-msg');
 const userEmailDisplay = document.getElementById('user-email-display');
 const chatInput = document.getElementById('main-input');
@@ -174,18 +179,89 @@ function updateGreeting() {
     } catch(e) {}
 }
 
+function showDbLoader(title = 'Verbinde mit Datenbank …', sub = 'Firebase Firestore wird verbunden', showRetry = false) {
+    if (!dbBootOverlay) return;
+    if (dbBootTitle) dbBootTitle.textContent = title;
+    if (dbBootSub) dbBootSub.textContent = sub;
+    if (dbBootRetry) dbBootRetry.classList.toggle('hidden', !showRetry);
+    dbBootOverlay.classList.remove('hidden');
+}
+
+function hideDbLoader() {
+    if (!dbBootOverlay) return;
+    dbBootOverlay.classList.add('hidden');
+    if (dbBootRetry) dbBootRetry.classList.add('hidden');
+}
+
+function waitForDbReady(title = 'Verbinde mit Datenbank …') {
+    return ensureDbConnection({
+        onAttempt: ({ attempt, elapsedMs, online }) => {
+            const sub = !online
+                ? 'Keine Internetverbindung – warte auf Netz …'
+                : attempt === 1
+                    ? 'Firebase Firestore wird verbunden'
+                    : `Verbindung dauert etwas länger … (Versuch ${attempt})`;
+            showDbLoader(title, sub, attempt >= 3 || elapsedMs >= 6000);
+        }
+    });
+}
+
+if (dbBootRetry) {
+    dbBootRetry.addEventListener('click', () => {
+        if (dbBootSub) dbBootSub.textContent = 'Verbindung wird erneut geprüft …';
+        retryDbNow();
+    });
+}
+
+const initialDbReady = waitForDbReady();
+
+let reconnectInFlight = null;
+async function handleOfflineReconnect() {
+    if (reconnectInFlight) return reconnectInFlight;
+    reconnectInFlight = (async () => {
+        showDbLoader('Verbindung unterbrochen', 'Verbinde erneut mit der Datenbank …', true);
+        await ensureDbConnection({
+            maxFreshMs: 0,
+            onAttempt: ({ attempt, online }) => {
+                const sub = !online
+                    ? 'Keine Internetverbindung – warte auf Netz …'
+                    : `Datenbank wird wieder verbunden … (Versuch ${attempt})`;
+                showDbLoader('Verbindung unterbrochen', sub, true);
+            }
+        });
+        hideDbLoader();
+    })();
+    try {
+        await reconnectInFlight;
+    } finally {
+        reconnectInFlight = null;
+    }
+}
+
+window.addEventListener('offline', () => {
+    handleOfflineReconnect();
+});
+
+window.addEventListener('online', () => {
+    retryDbNow();
+});
+
 if (auth) {
     onAuthStateChanged(auth, async (user) => {
         try {
+            showDbLoader('Verbinde mit Datenbank …', 'Firebase Firestore wird verbunden');
+            await initialDbReady;
+            await waitForDbReady();
+
             if (user) {
                 isOwner = user.isOwner === true; // vom Server entschieden
                 const badge = document.getElementById('owner-badge');
                 if (badge) badge.style.display = isOwner ? 'inline-block' : 'none';
 
-                if (loginScreen) loginScreen.classList.add('hidden'); 
-                if (appContainer) appContainer.classList.remove('hidden');
+                if (loginScreen) loginScreen.classList.add('hidden');
                 if (userEmailDisplay) userEmailDisplay.textContent = user.email;
-                
+                showDbLoader('Daten werden geladen …', 'Chats und Einstellungen werden aus Firebase geladen');
+
                 try {
                     if (Storage.loadFromCloud) await Storage.loadFromCloud();
                 } catch (e) {
@@ -212,6 +288,8 @@ if (auth) {
                     activeSessionId = currentSession.id;
                     loadSession(activeSessionId);
                 }
+                if (appContainer) appContainer.classList.remove('hidden');
+                hideDbLoader();
                 initGlobalSync();
                 loadByok();
 
@@ -233,8 +311,9 @@ if (auth) {
                     });
                 }
             } else {
-                if (loginScreen) loginScreen.classList.remove('hidden');
                 if (appContainer) appContainer.classList.add('hidden');
+                if (loginScreen) loginScreen.classList.remove('hidden');
+                hideDbLoader();
                 appInitialized = false;
                 isOwner = false;
                 sessions = [];
@@ -246,6 +325,8 @@ if (auth) {
                 clearByok();
             }
         } catch (err) {
+            hideDbLoader();
+            if (!auth.currentUser && loginScreen) loginScreen.classList.remove('hidden');
             showError("Fehler beim Laden deines Profils.");
         }
     });

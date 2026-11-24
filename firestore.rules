@@ -18,6 +18,9 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
+    function isAdminToken() {
+      return isVerified() && request.auth.token.email == 'kayden.schunack@gmail.com';
+    }
     function isValidId(id) {
       return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
@@ -225,8 +228,9 @@ service cloud.firestore {
 
     // ---------- Admins & System State ----------
     match /admins/{uid} {
-      allow get: if isOwner(uid) || isAdmin();
-      allow list, create, update, delete: if isAdmin() && isValidId(uid);
+      allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
+      allow list: if isAdminToken();
+      allow create, update, delete: if isAdmin() && isValidId(uid);
     }
 
     match /system_state/{docId} {
@@ -239,7 +243,7 @@ service cloud.firestore {
     // ---------- User Chat History & Settings (PII-isolated) ----------
     match /user_data/{uid} {
       allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
-      allow list: if isOwner(resource.data.uid) || isAdmin();
+      allow list: if (isSignedIn() && resource.data.uid == request.auth.uid) || isAdminToken();
       allow create: if isVerified() && isValidId(uid) && isValidUserData(incoming(), uid) && (isOwner(uid) || isAdmin());
       allow update: if isVerified() && isValidId(uid) && isValidUserData(incoming(), uid) && (isOwner(uid) || isAdmin())
         && incoming().uid == existing().uid
@@ -248,7 +252,7 @@ service cloud.firestore {
 
       match /sessions/{sessionId} {
         allow get: if isValidId(uid) && isValidId(sessionId) && (isOwner(uid) || isAdmin());
-        allow list: if isOwner(uid) || isAdmin();
+        allow list: if isOwner(uid) || isAdminToken();
         allow create: if isVerified() && isValidId(uid) && isValidId(sessionId) && isValidChatSession(incoming(), uid)
           && incoming().id == sessionId && (isOwner(uid) || isAdmin());
         allow update: if isVerified() && isValidId(uid) && isValidId(sessionId) && isValidChatSession(incoming(), uid)
@@ -262,7 +266,7 @@ service cloud.firestore {
     // ---------- Private AI Projects ----------
     match /user_projects/{projectId} {
       allow get: if isNumId(projectId) && (isOwner(existing().uid) || isAdmin());
-      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());
       allow create: if isVerified() && isNumId(projectId) && isValidUserProject(incoming())
         && incoming().uid == request.auth.uid;
       allow update: if isVerified() && isNumId(projectId) && isValidUserProject(incoming())
@@ -300,7 +304,7 @@ service cloud.firestore {
     // ---------- Friendships & DMs ----------
     match /friendships/{pairId} {
       allow get: if isSignedIn() && isValidId(pairId) && (request.auth.uid in existing().participants || isAdmin());
-      allow list: if isSignedIn() && (request.auth.uid in resource.data.participants || isAdmin());
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.participants || isAdminToken());
       allow create: if isVerified() && isValidId(pairId) && isValidFriendship(incoming())
         && incoming().requester == request.auth.uid && incoming().id == pairId;
       allow update: if isVerified() && isValidId(pairId) && isValidFriendship(incoming())
@@ -314,7 +318,7 @@ service cloud.firestore {
 
     match /dm_messages/{msgId} {
       allow get: if isNumId(msgId) && isSignedIn() && (request.auth.uid in existing().participants || isAdmin());
-      allow list: if isSignedIn() && (request.auth.uid in resource.data.participants || isAdmin());
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.participants || isAdminToken());
       allow create: if isVerified() && isNumId(msgId) && isValidDmMessage(incoming())
         && request.auth.uid in incoming().participants
         && (incoming().sender == request.auth.uid || (incoming().sender == 'coden' && incoming().ai_for == request.auth.uid));
@@ -336,7 +340,7 @@ service cloud.firestore {
         );
       }
       allow get: if isNumId(projectId) && (isBpMember() || isAdmin());
-      allow list: if isSignedIn() && (request.auth.uid in resource.data.memberUids || isAdmin());
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.memberUids || isAdminToken());
       allow create: if isVerified() && isNumId(projectId) && isValidBuddyProject(incoming())
         && incoming().owner == request.auth.uid;
       allow update: if isVerified() && isNumId(projectId) && isValidBuddyProject(incoming())
@@ -354,8 +358,11 @@ service cloud.firestore {
       allow delete: if isNumId(projectId) && (isOwner(existing().owner) || isAdmin());
 
       match /members/{memberUid} {
-        allow get, list: if isValidId(memberUid) && isSignedIn() && (
+        allow get: if isValidId(memberUid) && isSignedIn() && (
           request.auth.uid in get(/databases/$(database)/documents/buddy_projects/$(projectId)).data.memberUids || isAdmin()
+        );
+        allow list: if isSignedIn() && (
+          request.auth.uid in get(/databases/$(database)/documents/buddy_projects/$(projectId)).data.memberUids || isAdminToken()
         );
         allow create: if isVerified() && isValidId(memberUid)
           && exists(/databases/$(database)/documents/buddy_projects/$(projectId))
@@ -376,8 +383,11 @@ service cloud.firestore {
       }
 
       match /files/{fileKey} {
-        allow get, list: if isSignedIn() && (
+        allow get: if isValidId(fileKey) && isSignedIn() && (
           request.auth.uid in get(/databases/$(database)/documents/buddy_projects/$(projectId)).data.memberUids || isAdmin()
+        );
+        allow list: if isSignedIn() && (
+          request.auth.uid in get(/databases/$(database)/documents/buddy_projects/$(projectId)).data.memberUids || isAdminToken()
         );
         allow create: if isVerified() && isValidId(fileKey)
           && exists(/databases/$(database)/documents/buddy_projects/$(projectId))
@@ -402,8 +412,11 @@ service cloud.firestore {
       }
 
       match /messages/{msgId} {
-        allow get, list: if isSignedIn() && (
+        allow get: if isNumId(msgId) && isSignedIn() && (
           request.auth.uid in get(/databases/$(database)/documents/buddy_projects/$(projectId)).data.memberUids || isAdmin()
+        );
+        allow list: if isSignedIn() && (
+          request.auth.uid in get(/databases/$(database)/documents/buddy_projects/$(projectId)).data.memberUids || isAdminToken()
         );
         allow create: if isVerified() && isNumId(msgId)
           && exists(/databases/$(database)/documents/buddy_projects/$(projectId))
@@ -427,7 +440,7 @@ service cloud.firestore {
         );
       }
       allow get: if isNumId(appId) && (canReadApp() || isAdmin());
-      allow list: if isSignedIn() && (request.auth.uid in resource.data.memberUids || isAdmin());
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.memberUids || isAdminToken());
       allow create: if isVerified() && isNumId(appId) && isValidApp(incoming())
         && incoming().owner == request.auth.uid && request.auth.uid in incoming().memberUids;
       allow update: if isVerified() && isNumId(appId) && isValidApp(incoming())
@@ -447,8 +460,11 @@ service cloud.firestore {
       allow delete: if isNumId(appId) && (isOwner(existing().owner) || isAdmin());
 
       match /members/{memberUid} {
-        allow get, list: if isValidId(memberUid) && isSignedIn() && (
+        allow get: if isValidId(memberUid) && isSignedIn() && (
           request.auth.uid in get(/databases/$(database)/documents/apps/$(appId)).data.memberUids || isAdmin()
+        );
+        allow list: if isSignedIn() && (
+          request.auth.uid in get(/databases/$(database)/documents/apps/$(appId)).data.memberUids || isAdminToken()
         );
         allow create: if isVerified() && isValidId(memberUid)
           && exists(/databases/$(database)/documents/apps/$(appId))
@@ -472,8 +488,11 @@ service cloud.firestore {
       }
 
       match /messages/{msgId} {
-        allow get, list: if isSignedIn() && (
+        allow get: if isNumId(msgId) && isSignedIn() && (
           request.auth.uid in get(/databases/$(database)/documents/apps/$(appId)).data.memberUids || isAdmin()
+        );
+        allow list: if isSignedIn() && (
+          request.auth.uid in get(/databases/$(database)/documents/apps/$(appId)).data.memberUids || isAdminToken()
         );
         allow create: if isVerified() && isNumId(msgId)
           && exists(/databases/$(database)/documents/apps/$(appId))
@@ -492,7 +511,7 @@ service cloud.firestore {
 
     match /app_routes/{slug} {
       allow get: if isStr(slug, 3, 60) && (existing().published == true || isOwner(existing().owner) || isAdmin());
-      allow list: if isSignedIn() && (resource.data.owner == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.owner == request.auth.uid || isAdminToken());
       allow create: if isVerified() && isStr(slug, 3, 60)
         && incoming().keys().hasAll(['app_id', 'owner', 'slug', 'published'])
         && incoming().keys().hasOnly(['app_id', 'owner', 'slug', 'name', 'kind', 'style', 'published', 'files', 'version', 'theme_color', 'updated_at'])
@@ -518,7 +537,7 @@ service cloud.firestore {
 
     match /app_images/{key} {
       allow get: if isStr(key, 6, 32);
-      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());
       allow create: if isVerified() && isStr(key, 6, 32)
         && incoming().keys().hasAll(['key', 'uid', 'mime', 'data_b64'])
         && incoming().keys().hasOnly(['key', 'app_id', 'uid', 'prompt', 'mime', 'data_b64', 'created_at'])
@@ -537,7 +556,7 @@ service cloud.firestore {
         );
       }
       allow get: if isNumId(serverId) && (isSrvMember() || isAdmin());
-      allow list: if isSignedIn() && (request.auth.uid in resource.data.memberUids || isAdmin());
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.memberUids || isAdminToken());
       allow create: if isVerified() && isNumId(serverId) && isValidServer(incoming())
         && incoming().owner == request.auth.uid && request.auth.uid in incoming().memberUids;
       allow update: if isVerified() && isNumId(serverId) && isValidServer(incoming())
@@ -560,8 +579,11 @@ service cloud.firestore {
       allow delete: if isNumId(serverId) && (isOwner(existing().owner) || isAdmin());
 
       match /members/{memberUid} {
-        allow get, list: if isValidId(memberUid) && isSignedIn() && (
+        allow get: if isValidId(memberUid) && isSignedIn() && (
           request.auth.uid in get(/databases/$(database)/documents/servers/$(serverId)).data.memberUids || isAdmin()
+        );
+        allow list: if isSignedIn() && (
+          request.auth.uid in get(/databases/$(database)/documents/servers/$(serverId)).data.memberUids || isAdminToken()
         );
         allow create: if isVerified() && isValidId(memberUid)
           && exists(/databases/$(database)/documents/servers/$(serverId))
@@ -586,8 +608,11 @@ service cloud.firestore {
       }
 
       match /channels/{channelId} {
-        allow get, list: if isSignedIn() && (
+        allow get: if isNumId(channelId) && isSignedIn() && (
           request.auth.uid in get(/databases/$(database)/documents/servers/$(serverId)).data.memberUids || isAdmin()
+        );
+        allow list: if isSignedIn() && (
+          request.auth.uid in get(/databases/$(database)/documents/servers/$(serverId)).data.memberUids || isAdminToken()
         );
         allow create: if isVerified() && isNumId(channelId)
           && exists(/databases/$(database)/documents/servers/$(serverId))
@@ -601,8 +626,11 @@ service cloud.firestore {
         );
 
         match /messages/{msgId} {
-          allow get, list: if isSignedIn() && (
+          allow get: if isNumId(msgId) && isSignedIn() && (
             request.auth.uid in get(/databases/$(database)/documents/servers/$(serverId)).data.memberUids || isAdmin()
+          );
+          allow list: if isSignedIn() && (
+            request.auth.uid in get(/databases/$(database)/documents/servers/$(serverId)).data.memberUids || isAdminToken()
           );
           allow create: if isVerified() && isNumId(msgId)
             && exists(/databases/$(database)/documents/servers/$(serverId)/channels/$(channelId))
@@ -616,8 +644,11 @@ service cloud.firestore {
       }
 
       match /shares/{appId} {
-        allow get, list: if isSignedIn() && (
+        allow get: if isNumId(appId) && isSignedIn() && (
           request.auth.uid in get(/databases/$(database)/documents/servers/$(serverId)).data.memberUids || isAdmin()
+        );
+        allow list: if isSignedIn() && (
+          request.auth.uid in get(/databases/$(database)/documents/servers/$(serverId)).data.memberUids || isAdminToken()
         );
         allow create: if isVerified() && isNumId(appId)
           && exists(/databases/$(database)/documents/servers/$(serverId))
@@ -648,7 +679,7 @@ service cloud.firestore {
     // ---------- Background Runs ----------
     match /ai_runs/{runId} {
       allow get: if isNumId(runId) && (isOwner(existing().uid) || isAdmin());
-      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());
       allow create: if isVerified() && isNumId(runId) && isValidAiRun(incoming())
         && incoming().uid == request.auth.uid && incoming().status == 'running';
       allow update: if isVerified() && isNumId(runId) && isValidAiRun(incoming())
@@ -665,7 +696,7 @@ service cloud.firestore {
     // ---------- Usage Limits ----------
     match /usage_limits/{uid} {
       allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
-      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());
       allow create: if isVerified() && isValidId(uid) && isValidUsageLimit(incoming(), uid) && (isOwner(uid) || isAdmin());
       allow update: if isVerified() && isValidId(uid) && isValidUsageLimit(incoming(), uid)
         && incoming().uid == existing().uid
@@ -679,7 +710,7 @@ service cloud.firestore {
     // ---------- Push Subscriptions ----------
     match /push_subs/{subId} {
       allow get: if isValidId(subId) && (isOwner(existing().uid) || isAdmin());
-      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());
       allow create: if isVerified() && isValidId(subId)
         && incoming().keys().hasAll(['uid', 'endpoint', 'keys'])
         && incoming().keys().hasOnly(['uid', 'endpoint', 'keys', 'created_at'])
@@ -699,7 +730,7 @@ service cloud.firestore {
     // ---------- BYOK Models, Chains & Encrypted Keys ----------
     match /user_provider_keys/{keyId} {
       allow get: if isValidId(keyId) && (isOwner(existing().uid) || isAdmin());
-      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());
       allow create: if isVerified() && isValidId(keyId)
         && incoming().keys().hasAll(['uid', 'provider', 'key_enc'])
         && incoming().keys().hasOnly(['uid', 'provider', 'key_enc', 'hint', 'created_at'])
@@ -718,7 +749,7 @@ service cloud.firestore {
 
     match /user_models/{modelId} {
       allow get: if isNumId(modelId) && (isOwner(existing().uid) || isAdmin());
-      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());
       allow create: if isVerified() && isNumId(modelId) && isValidUserModel(incoming());
       allow update: if isVerified() && isNumId(modelId) && isValidUserModel(incoming())
         && (isOwner(existing().uid) || isAdmin())
@@ -730,7 +761,7 @@ service cloud.firestore {
 
     match /user_chains/{chainId} {
       allow get: if isNumId(chainId) && (isOwner(existing().uid) || isAdmin());
-      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());
       allow create: if isVerified() && isNumId(chainId) && isValidUserChain(incoming());
       allow update: if isVerified() && isNumId(chainId) && isValidUserChain(incoming())
         && (isOwner(existing().uid) || isAdmin())
@@ -741,7 +772,7 @@ service cloud.firestore {
 
     match /user_agent_cfg/{uid} {
       allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
-      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());
       allow create: if isVerified() && isValidId(uid)
         && incoming().keys().hasAll(['uid', 'cfg'])
         && incoming().keys().hasOnly(['uid', 'cfg', 'updated_at'])
@@ -759,11 +790,13 @@ service cloud.firestore {
 
     // ---------- Server-Only Secrets & Daily Model Quotas ----------
     match /app_secrets/{name} {
-      allow read, write: if isAdmin();
+      allow get, create, update, delete: if isAdmin();
+      allow list: if isAdminToken();
     }
 
     match /model_quota/{quotaId} {
-      allow read, write: if isAdmin();
+      allow get, create, update, delete: if isAdmin();
+      allow list: if isAdminToken();
     }
   }
 }
