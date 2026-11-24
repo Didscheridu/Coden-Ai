@@ -327,12 +327,17 @@ async function updateBadge() {
     try { const s = await api('/summary'); const n = (s.unread || 0) + (s.requests || 0); badge.textContent = n > 9 ? '9+' : String(n); badge.style.display = n ? 'inline-flex' : 'none'; } catch (_) {}
 }
 
+let buddyWired = false;
 export const Buddy = {
     init() {
         build();
         const btn = document.getElementById('open-buddy-btn'); if (!btn) return;
         badge = btn.querySelector('.bd-nav-badge');
-        setTimeout(updateBadge, 1500); setInterval(() => { if (!document.hidden && !root.isConnected) updateBadge(); }, 30000);
+        setTimeout(updateBadge, 1500);
+        if (!buddyWired) {
+            buddyWired = true;
+            setInterval(() => { if (!document.hidden && !root.isConnected) updateBadge(); }, 30000);
+        }
     },
     // Als Tab: #/buddy, #/buddy/projekte, #/buddy/apps
     open(opts = {}) { location.hash = '#/buddy' + (opts.tab === 'projects' ? '/projekte' : opts.tab === 'apps' ? '/apps' : ''); },

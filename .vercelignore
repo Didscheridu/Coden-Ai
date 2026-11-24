@@ -3,3 +3,4 @@ test/
 .github/
 scripts/
 .env.example
+.playwright-cli/

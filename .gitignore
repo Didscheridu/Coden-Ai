@@ -6,3 +6,4 @@ node_modules/
 android-shell/.gradle/
 android-shell/**/build/
 android-shell/app/src/main/res/mipmap-*/
+.playwright-cli/

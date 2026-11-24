@@ -43,10 +43,10 @@
 .ap-dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; box-shadow: 0 0 0 3px rgba(255, 255, 255, .06) }
 .ap-live { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; color: var(--accent-green); background: rgba(109, 213, 140, .12); padding: 2px 8px; border-radius: 999px }
 .ap-live i, .bl-badge.live i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-green); box-shadow: 0 0 8px var(--accent-green); animation: pulse 1.6s infinite }
-.ap-meta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted) } .ap-meta .material-symbols-outlined { font-size: 15px }
-.ap-shared { display: inline-flex; align-items: center; gap: 2px; margin-left: auto }
-.ap-actions { position: absolute; right: 10px; top: -44px; display: flex; gap: 6px; opacity: 0; transform: translateY(4px); transition: opacity .2s, transform .2s var(--ease) }
-.ap-card:hover .ap-actions, .ap-card:focus-within .ap-actions { opacity: 1; transform: none }
+.ap-meta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); min-width: 0; white-space: nowrap; overflow: hidden } .ap-meta .material-symbols-outlined { font-size: 15px; flex: 0 0 auto } .ap-meta > span:not(.material-symbols-outlined) { overflow: hidden; text-overflow: ellipsis }
+.ap-shared { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; flex: 0 0 auto }
+.ap-card .ap-actions, .ap-card-actions { position: absolute; right: 10px; top: -44px; display: flex; gap: 6px; opacity: 0; transform: translateY(4px); transition: opacity .2s, transform .2s var(--ease) }
+.ap-card:hover .ap-actions, .ap-card:focus-within .ap-actions, .ap-card:hover .ap-card-actions, .ap-card:focus-within .ap-card-actions { opacity: 1; transform: none }
 .ap-act { width: 34px; height: 34px; border-radius: 50%; border: 0; display: inline-flex; align-items: center; justify-content: center; background: rgba(20, 21, 23, .86); color: #fff; cursor: pointer; backdrop-filter: blur(8px); text-decoration: none } .ap-act .material-symbols-outlined { font-size: 18px } .ap-act:hover { background: #000 }
 .ap-empty { text-align: center; padding: 60px 20px; color: var(--text-secondary); display: flex; flex-direction: column; align-items: center; gap: 12px } .ap-empty.wide { grid-column: 1 / -1 }
 .ap-empty > .material-symbols-outlined { font-size: 48px; color: var(--text-muted) } .ap-empty h2 { font-weight: 500; color: var(--text-primary) } .ap-empty p { max-width: 520px; line-height: 1.55; color: var(--text-muted) }
@@ -284,16 +284,16 @@
 }
 @media (max-width: 768px) {
     .view-host { height: 100dvh } .ap-page { padding-top: 64px } .ap-kinds { grid-template-columns: 1fr 1fr } .ap-kind { min-height: 170px } .ka { transform: scale(.7); transform-origin: bottom right }
-    .ap-grid { grid-template-columns: 1fr 1fr; gap: 10px } .ap-card { min-height: 210px } .ap-thumb { height: 130px } .ap-actions { opacity: 1; transform: none }
+    .ap-grid { grid-template-columns: 1fr 1fr; gap: 10px } .ap-card { min-height: 210px } .ap-thumb { height: 130px } .ap-card .ap-actions, .ap-card-actions { opacity: 1; transform: none }
     .bl-head { padding-left: 56px } .ag-search { margin-left: 0; width: 100% }
 }
 @media (max-width: 480px) { .ap-grid { grid-template-columns: 1fr } .ap-styles { grid-template-columns: 1fr 1fr } .ap-kinds { grid-template-columns: 1fr } .ap-kind { min-height: 120px } .ka { display: none } }
 
-/* GitHub */
-.ap-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center }
+/* GitHub & Hero-Aktionen */
+.ap-hero .ap-actions, .ap-hero-actions { position: static; top: auto; right: auto; opacity: 1; transform: none; display: flex; gap: 10px; flex-wrap: wrap; align-items: center }
 .ap-gh { display: inline-flex; align-items: center; gap: 8px; padding: 11px 18px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .14); background: rgba(255, 255, 255, .04); color: var(--text-primary); font: 600 14px var(--font-main); cursor: pointer } .ap-gh:hover { background: rgba(255, 255, 255, .09) }
 .cd-sep { display: flex; align-items: center; gap: 10px; margin: 16px 0 10px; color: var(--text-muted); font-size: 12px } .cd-sep::before, .cd-sep::after { content: ''; flex: 1; height: 1px; background: rgba(255, 255, 255, .1) }
-.cd-link { all: unset; cursor: pointer; color: var(--accent-blue); font-size: 13px; text-decoration: underline }
+button.cd-link { all: unset; cursor: pointer; color: var(--accent-blue); font-size: 13px; text-decoration: underline }
 .cd-check { display: flex; align-items: center; gap: 8px; margin: 12px 0 6px; font-size: 14px }
 .gh-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; max-height: 50vh; overflow: auto }
 .gh-repo { display: flex; align-items: center; gap: 12px; text-align: left; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, .08); background: rgba(255, 255, 255, .03); color: var(--text-primary); font: 14px var(--font-main); cursor: pointer } .gh-repo:hover { background: rgba(255, 255, 255, .08) }

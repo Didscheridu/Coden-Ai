@@ -73,27 +73,31 @@ const ArtifactsView = {
     }
 };
 
+let layoutWired = false;
 export const Layout = {
     init({ sessionsGetter }) {
         getSessions = sessionsGetter;
-        document.addEventListener('sessionsRendered', refreshGallery);
-        Router.register('apps', AppsView);
-        Router.register('artefakte', ArtifactsView);
-        Router.register('verbindungen', McpView);
-        Router.register('projekte', ProjectsView);
-        Router.register('buddy', { mount: (host, params) => Buddy.mount(host, params), unmount: () => Buddy.unmount() });
-        const nav = (id, path) => $(id)?.addEventListener('click', (e) => { e.preventDefault(); Router.go(path); });
-        nav('open-apps-btn', 'apps'); nav('open-artifacts-btn', 'artefakte'); nav('open-mcp-btn', 'verbindungen'); nav('open-buddy-btn', 'buddy'); nav('open-projects-btn', 'projekte');
-        $('we-all')?.addEventListener('click', () => Router.go('artefakte'));
-        // "Neu" und Chats in der Seitenleiste führen immer zurück in den Chat
-        $('sb-new')?.addEventListener('click', () => Router.go('chat'));
-        document.addEventListener('loadChatSession', () => { if (Router.parse().name !== 'chat') Router.go('chat'); });
-        // Das Artefakt-Fenster gehört zum Chat: beim Wechsel in einen anderen Tab schließen
-        window.addEventListener('hashchange', () => { if (Router.parse().name !== 'chat') Artifacts.close(); });
-        // Konto-Menü
-        const chip = $('user-chip'), menu = $('user-menu');
-        chip?.addEventListener('click', (e) => { e.stopPropagation(); menu.classList.toggle('hidden'); chip.classList.toggle('open', !menu.classList.contains('hidden')); });
-        document.addEventListener('click', (e) => { if (menu && !menu.classList.contains('hidden') && !e.target.closest('#user-menu')) { menu.classList.add('hidden'); chip?.classList.remove('open'); } });
+        if (!layoutWired) {
+            layoutWired = true;
+            document.addEventListener('sessionsRendered', refreshGallery);
+            Router.register('apps', AppsView);
+            Router.register('artefakte', ArtifactsView);
+            Router.register('verbindungen', McpView);
+            Router.register('projekte', ProjectsView);
+            Router.register('buddy', { mount: (host, params) => Buddy.mount(host, params), unmount: () => Buddy.unmount() });
+            const nav = (id, path) => $(id)?.addEventListener('click', (e) => { e.preventDefault(); Router.go(path); });
+            nav('open-apps-btn', 'apps'); nav('open-artifacts-btn', 'artefakte'); nav('open-mcp-btn', 'verbindungen'); nav('open-buddy-btn', 'buddy'); nav('open-projects-btn', 'projekte');
+            $('we-all')?.addEventListener('click', () => Router.go('artefakte'));
+            // "Neu" und Chats in der Seitenleiste führen immer zurück in den Chat
+            $('sb-new')?.addEventListener('click', () => Router.go('chat'));
+            document.addEventListener('loadChatSession', () => { if (Router.parse().name !== 'chat') Router.go('chat'); });
+            // Das Artefakt-Fenster gehört zum Chat: beim Wechsel in einen anderen Tab schließen
+            window.addEventListener('hashchange', () => { if (Router.parse().name !== 'chat') Artifacts.close(); });
+            // Konto-Menü
+            const chip = $('user-chip'), menu = $('user-menu');
+            chip?.addEventListener('click', (e) => { e.stopPropagation(); menu.classList.toggle('hidden'); chip.classList.toggle('open', !menu.classList.contains('hidden')); });
+            document.addEventListener('click', (e) => { if (menu && !menu.classList.contains('hidden') && !e.target.closest('#user-menu')) { menu.classList.add('hidden'); chip?.classList.remove('open'); } });
+        }
         refreshGallery();
         Router.init();
     },

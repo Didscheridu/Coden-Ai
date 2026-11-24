@@ -129,7 +129,8 @@ body.ap-resizing iframe { pointer-events: none }
 .bl-tiers .bl-mode { margin-left: 4px }
 
 @media (max-width: 768px) {
-  body:has(.sidebar:not(.collapsed)) .main-content::after { content: ''; position: fixed; inset: 0; background: rgba(0, 0, 0, .5); z-index: 9998; animation: fade .2s both }
+  body:has(.sidebar:not(.collapsed)) .main-content::after,
+  body:has(.sidebar:not(.collapsed)) .view-host::after { content: ''; position: fixed; inset: 0; background: rgba(0, 0, 0, .5); z-index: 9998; animation: fade .2s both; pointer-events: auto }
 }
 
 /* App-Karte: Löschen / Verlassen */

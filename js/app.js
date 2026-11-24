@@ -308,6 +308,7 @@ function forceModelChange(newModel, msg) {
 // 🔥 NEU: Wir erstellen eine Instanz des Live-Clients 🔥
 const multimodalLive = new MultimodalLivePrototype();
 
+let appListenersWired = false;
 function initApp() {
     Buddy.init();
     Layout.init({ sessionsGetter: () => sessions });
@@ -332,47 +333,49 @@ function initApp() {
         loadSession(activeSessionId);
         setTimeout(resumeRuns, 400); // Antworten abholen, die im Hintergrund fertig geworden sind
 
-        // Event-Listener für Chats
-        document.addEventListener('loadChatSession', (e) => loadSession(e.detail)); 
-        document.addEventListener('deleteChatSession', (e) => deleteSession(e.detail));
-        document.addEventListener('togglePinSession', (e) => { const t = sessions.find(x => x.id === e.detail); if (!t) return; t.pinned = !t.pinned; Storage.saveSessions(sessions); UI.renderSidebar(sessions, activeSessionId); });
+        if (!appListenersWired) {
+            appListenersWired = true;
+            // Event-Listener für Chats
+            document.addEventListener('loadChatSession', (e) => loadSession(e.detail)); 
+            document.addEventListener('deleteChatSession', (e) => deleteSession(e.detail));
+            document.addEventListener('togglePinSession', (e) => { const t = sessions.find(x => x.id === e.detail); if (!t) return; t.pinned = !t.pinned; Storage.saveSessions(sessions); UI.renderSidebar(sessions, activeSessionId); });
 
-        // ♟️ Schach initialisieren
-        window.codenChess = new ChessEngine();
-        window.codenChess.init();
+            // ♟️ Schach initialisieren
+            window.codenChess = new ChessEngine();
+            window.codenChess.init();
 
-        // Live Call Button
-        const liveCallBtn = document.getElementById('live-call-btn');
-        const liveStatusIndicator = document.getElementById('live-status-indicator');
-        if (liveCallBtn && liveStatusIndicator) {
-            liveCallBtn.addEventListener('click', () => {
-                if (multimodalLive.isSessionActive) {
-                    multimodalLive.stopSession(liveCallBtn, liveStatusIndicator);
-                } else {
-                    if (!currentSelectedModel.includes('flash')) {
-                        toast('Der Live-Sprachmodus braucht Coden Flash. Wechsle unten rechts das Modell.', { type: 'warn' });
-                        return;
-                    }
-                    // 🔥 NEU: Wir übergeben das Gedächtnis an den Anruf!
-                    multimodalLive.initSession(liveCallBtn, liveStatusIndicator, currentSession.messages);
-                }
-            });
-        }
-
-        // 🔥 NEU: Wenn die Stimme im Call geändert wird, Anruf kurz neu starten
-        const voiceSelector = document.getElementById('live-voice-selector');
-        if (voiceSelector) {
-            voiceSelector.addEventListener('change', () => {
-                if (multimodalLive.isSessionActive) {
-                    // Legt unsichtbar auf und ruft sofort mit der neuen Stimme wieder an
-                    multimodalLive.stopSession(liveCallBtn, liveStatusIndicator);
-                    setTimeout(() => {
+            // Live Call Button
+            const liveCallBtn = document.getElementById('live-call-btn');
+            const liveStatusIndicator = document.getElementById('live-status-indicator');
+            if (liveCallBtn && liveStatusIndicator) {
+                liveCallBtn.addEventListener('click', () => {
+                    if (multimodalLive.isSessionActive) {
+                        multimodalLive.stopSession(liveCallBtn, liveStatusIndicator);
+                    } else {
+                        if (!currentSelectedModel.includes('flash')) {
+                            toast('Der Live-Sprachmodus braucht Coden Flash. Wechsle unten rechts das Modell.', { type: 'warn' });
+                            return;
+                        }
+                        // 🔥 NEU: Wir übergeben das Gedächtnis an den Anruf!
                         multimodalLive.initSession(liveCallBtn, liveStatusIndicator, currentSession.messages);
-                    }, 500);
-                }
-            });
-        }
+                    }
+                });
+            }
 
+            // 🔥 NEU: Wenn die Stimme im Call geändert wird, Anruf kurz neu starten
+            const voiceSelector = document.getElementById('live-voice-selector');
+            if (voiceSelector) {
+                voiceSelector.addEventListener('change', () => {
+                    if (multimodalLive.isSessionActive) {
+                        // Legt unsichtbar auf und ruft sofort mit der neuen Stimme wieder an
+                        multimodalLive.stopSession(liveCallBtn, liveStatusIndicator);
+                        setTimeout(() => {
+                            multimodalLive.initSession(liveCallBtn, liveStatusIndicator, currentSession.messages);
+                        }, 500);
+                    }
+                });
+            }
+        }
         
     } catch(e) { console.error("Fehler beim Init:", e); }
 }
@@ -1286,12 +1289,13 @@ async function handleSend() {
     let attachedImages = []; 
 
     if (pendingAttachments.length > 0) {
+        const escAtt = (s) => String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         pendingAttachments.forEach(att => {
             if (att.type === 'text') {
-                displayMessage += `\n\n<div style="display:inline-block; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); padding:4px 10px; border-radius:12px; font-size:12px; margin-top:8px;">📎 <b>Datei angehängt:</b> <code>${att.name}</code></div>`;
+                displayMessage += `\n\n<div style="display:inline-block; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); padding:4px 10px; border-radius:12px; font-size:12px; margin-top:8px;">📎 <b>Datei angehängt:</b> <code>${escAtt(att.name)}</code></div>`;
                 internalPrompt += `\n\n[Inhalt der angehängten Datei: ${att.name}]\n\`\`\`\n${att.content}\n\`\`\`\n`;
             } else if (att.type === 'image') {
-                displayMessage += `\n\n![${att.name}](${att.data})`;
+                displayMessage += `\n\n![${escAtt(att.name)}](${att.data})`;
                 internalPrompt += `\n\n[Der Nutzer hat dir ein Bild hochgeladen. Bitte beachte das Bild in deiner Antwort.]`; 
                 attachedImages.push(att.data); 
             }

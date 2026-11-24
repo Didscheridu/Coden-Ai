@@ -52,9 +52,13 @@ async function applyUser(fbUser) {
   listeners.forEach(cb => cb(auth.currentUser));
 }
 
+let authSubscribed = false;
 export function onAuthStateChanged(_auth, cb) {
   listeners.add(cb);
-  fbOnAuthStateChanged(fbAuth, applyUser);
+  if (!authSubscribed) {
+    authSubscribed = true;
+    fbOnAuthStateChanged(fbAuth, applyUser);
+  }
 }
 
 // Nach abgelaufener Sitzung o. Ä. neu bewerten

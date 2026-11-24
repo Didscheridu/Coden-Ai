@@ -36,8 +36,8 @@ export function promptBox(title, { label = '', value = '', placeholder = '', ok 
 }
 
 const linkRow = (url) => h('div', { class: 'cd-link' }, h('input', { class: 'cd-input', value: url, readonly: true, onfocus: (e) => e.target.select() }),
-    h('button', { class: 'cd-btn', title: 'Kopieren', onclick: async (e) => { if (await copy(url)) { toast('Link kopiert', { type: 'ok' }); } } }, icon('content_copy')),
-    h('a', { class: 'cd-btn', href: url, target: '_blank', rel: 'noopener', title: 'Öffnen' }, icon('open_in_new')));
+    h('button', { type: 'button', class: 'cd-btn', title: 'Kopieren', 'aria-label': 'Kopieren', onclick: async () => { if (await copy(url)) { toast('Link kopiert', { type: 'ok' }); } } }, icon('content_copy')),
+    h('a', { class: 'cd-btn', href: url, target: '_blank', rel: 'noopener noreferrer', title: 'Öffnen', 'aria-label': 'Öffnen' }, icon('open_in_new')));
 
 // ---------- Auf dem Handy testen ----------
 export function phoneTest(ctx) {

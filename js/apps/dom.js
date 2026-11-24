@@ -10,16 +10,34 @@ export const h = (tag, props = {}, ...kids) => {
     return el;
 };
 export const icon = (name, cls = '') => h('span', { class: 'material-symbols-outlined ' + cls, text: name, 'aria-hidden': 'true' });
-export const md = (text) => { const d = h('div', { class: 'md' }); d.innerHTML = DOMPurify.sanitize(marked.parse(String(text || '')), { ADD_ATTR: ['target'] }); d.querySelectorAll('a').forEach(a => { a.target = '_blank'; a.rel = 'noopener'; }); d.querySelectorAll('pre code').forEach(c => { try { hljs.highlightElement(c); } catch (_) {} }); return d; };
+export const md = (text) => {
+    const d = h('div', { class: 'md' });
+    const raw = String(text || '');
+    if (window.DOMPurify && window.marked) {
+        d.innerHTML = window.DOMPurify.sanitize(window.marked.parse(raw), { ADD_ATTR: ['target'] });
+        d.querySelectorAll('a').forEach(a => { a.target = '_blank'; a.rel = 'noopener noreferrer'; });
+        d.querySelectorAll('pre code').forEach(c => { try { window.hljs?.highlightElement(c); } catch (_) {} });
+    } else {
+        d.textContent = raw;
+    }
+    return d;
+};
 export const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 export function timeAgo(iso) {
-    const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+    const ms = new Date(iso).getTime();
+    if (!Number.isFinite(ms)) return 'gerade eben';
+    const s = Math.max(0, (Date.now() - ms) / 1000);
     if (s < 60) return 'gerade eben'; if (s < 3600) return `vor ${Math.floor(s / 60)} Min.`; if (s < 86400) return `vor ${Math.floor(s / 3600)} Std.`;
     if (s < 7 * 86400) return `vor ${Math.floor(s / 86400)} Tag${s < 2 * 86400 ? '' : 'en'}`;
-    return new Date(iso).toLocaleDateString('de-DE', { day: '2-digit', month: 'short' });
+    return new Date(ms).toLocaleDateString('de-DE', { day: '2-digit', month: 'short' });
 }
 export async function copy(text) { try { await navigator.clipboard.writeText(text); return true; } catch (_) { return false; } }
 export function qrSvg(text, cell = 5) {
-    const q = window.qrcode(0, 'M'); q.addData(String(text)); q.make();
-    const wrap = h('div', { class: 'qr' }); wrap.innerHTML = q.createSvgTag({ cellSize: cell, margin: 2, scalable: true }); return wrap;
+    const wrap = h('div', { class: 'qr' });
+    if (typeof window.qrcode !== 'function') return wrap;
+    try {
+        const q = window.qrcode(0, 'M'); q.addData(String(text || '')); q.make();
+        wrap.innerHTML = q.createSvgTag({ cellSize: cell, margin: 2, scalable: true });
+    } catch (_) {}
+    return wrap;
 }

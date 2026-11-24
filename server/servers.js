@@ -25,9 +25,11 @@ function serversRouter(requireAuth) {
   const sql = () => getSql();
 
   async function needProfile(req, res, next) {
-    const [p] = await sql()`SELECT uid, handle, display_name FROM profiles WHERE uid = ${req.user.uid}`;
-    if (!p) return bad(res, 409, 'Lege zuerst dein Code-Buddy-Profil an.');
-    req.profile = p; next();
+    try {
+      const [p] = await sql()`SELECT uid, handle, display_name FROM profiles WHERE uid = ${req.user.uid}`;
+      if (!p) return bad(res, 409, 'Lege zuerst dein Code-Buddy-Profil an.');
+      req.profile = p; next();
+    } catch (e) { next(e); }
   }
   r.use(needProfile);
 

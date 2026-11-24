@@ -32,7 +32,12 @@ process.on('uncaughtException', (e) => console.error('[uncaughtException]', e?.s
 const app = express();
 app.disable('x-powered-by');
 app.use(express.json({ limit: '4mb' }));
-app.use((req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+app.use((req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
 
 const api = express.Router();
 wrapRouter(api);

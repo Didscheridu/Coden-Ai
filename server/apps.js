@@ -351,7 +351,8 @@ function appsRouter(requireAuth) {
     const [x] = await getSql()`SELECT * FROM ai_runs WHERE id = ${id} AND kind = 'app' AND ref = ${String(a.id)}`;
     if (!x) return res.json({ run: null });
     const from = Math.max(0, parseInt(req.query.from, 10) || 0); const text = x.text || '';
-    res.json({ id: Number(x.id), status: x.status, from, len: text.length, text: text.slice(Math.min(from, text.length)), think: x.think || {}, agents: x.agents || [], model: req.user.isOwner ? x.model : undefined, error: x.error, meta: x.meta || {}, startedAt: iso(x.created_at), updatedAt: iso(x.updated_at) });
+    const { cont: _cont, ...safeRunMeta } = (x.meta && typeof x.meta === 'object' ? x.meta : {});
+    res.json({ id: Number(x.id), status: x.status, from, len: text.length, text: text.slice(Math.min(from, text.length)), think: x.think || {}, agents: x.agents || [], model: req.user.isOwner ? x.model : undefined, error: x.error, meta: safeRunMeta, startedAt: iso(x.created_at), updatedAt: iso(x.updated_at) });
   });
   r.post('/:id/agent/stop', async (req, res) => {
     const a = await memberOf(req, res, req.params.id, true); if (!a) return;

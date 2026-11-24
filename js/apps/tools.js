@@ -66,7 +66,7 @@ export function databaseCard(tool, { answered, onAnswer, current }) {
         const inputs = {}; const err = h('div', { class: 'tc-err' });
         const prev = current && current.provider === db.id ? current : {};
         form.replaceChildren(
-            db.help ? h('p', { class: 'tc-help' }, db.help, db.link ? h('a', { href: db.link, target: '_blank', rel: 'noopener' }, ' Öffnen ', icon('open_in_new')) : null) : null,
+            db.help ? h('p', { class: 'tc-help' }, db.help, db.link ? h('a', { href: db.link, target: '_blank', rel: 'noopener noreferrer' }, ' Öffnen ', icon('open_in_new')) : null) : null,
             ...db.fields.map(f => { const inp = h(f.area ? 'textarea' : 'input', { class: 'tc-input', placeholder: f.ph || '', value: prev[f.k] || '', spellcheck: 'false', autocomplete: 'off', rows: f.area ? 4 : null }); inputs[f.k] = inp; return h('label', { class: 'tc-field' }, h('span', { text: f.label }), inp); }),
             db.fields.length ? h('small', { class: 'tc-warn' }, icon('shield'), ' Nur öffentliche Schlüssel eingeben. Sie landen im Code deiner App. Geheime Schlüssel (service_role, Passwörter) niemals.') : null,
             err,
@@ -95,7 +95,8 @@ export function askCard(tool, { answered, onAnswer }) {
     if (answered) { card.append(doneRow(answered)); card.classList.add('answered'); return card; }
     const send = (t) => { if (t) onAnswer({ body: `[Antwort auf deine Frage "${tool.body}"] ${t}`, display: t }); };
     const free = h('input', { class: 'tc-input', placeholder: 'Eigene Antwort …' }); free.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(free.value.trim()); });
-    card.append(h('div', { class: 'tc-opts' }, tool.options.map(o => h('button', { class: 'tc-opt', text: o, onclick: () => send(o) }))), h('div', { class: 'tc-row' }, free, h('button', { class: 'tc-primary', onclick: () => send(free.value.trim()) }, icon('send'))));
+    const opts = Array.isArray(tool.options) ? tool.options : [];
+    card.append(h('div', { class: 'tc-opts' }, opts.map(o => h('button', { type: 'button', class: 'tc-opt', text: o, onclick: () => send(o) }))), h('div', { class: 'tc-row' }, free, h('button', { type: 'button', class: 'tc-primary', onclick: () => send(free.value.trim()) }, icon('send'))));
     return card;
 }
 
@@ -105,9 +106,9 @@ export function secretCard(tool, { answered, onAnswer }) {
     const inp = h('input', { class: 'tc-input', type: 'password', placeholder: 'Schlüssel einfügen', autocomplete: 'off', spellcheck: 'false' });
     const send = () => { const v = inp.value.trim(); if (!v) return inp.focus(); onAnswer({ body: `[Werkzeug secret] ${tool.key} = ${v}\nBaue ihn ein (z. B. in config.js) und mach weiter.`, display: `🔑 ${tool.label || tool.key} eingegeben`, integrations: { secrets: { [tool.key || 'KEY']: v } }, mergeSecrets: true }); };
     inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
-    card.append(tool.url ? h('p', { class: 'tc-help' }, 'Hier bekommst du ihn: ', h('a', { href: /^https:\/\//.test(tool.url) ? tool.url : '#', target: '_blank', rel: 'noopener', text: tool.url })) : null,
+    card.append(tool.url ? h('p', { class: 'tc-help' }, 'Hier bekommst du ihn: ', h('a', { href: /^https:\/\//.test(tool.url) ? tool.url : '#', target: '_blank', rel: 'noopener noreferrer', text: tool.url })) : null,
         h('small', { class: 'tc-warn' }, icon('shield'), ' Nur öffentliche Client-Schlüssel – er ist im Code der App sichtbar.'),
-        h('div', { class: 'tc-row' }, inp, h('button', { class: 'tc-btn', title: 'Anzeigen', onclick: () => { inp.type = inp.type === 'password' ? 'text' : 'password'; } }, icon('visibility')), h('button', { class: 'tc-primary', onclick: send }, icon('check'), ' Speichern')));
+        h('div', { class: 'tc-row' }, inp, h('button', { type: 'button', class: 'tc-btn', title: 'Anzeigen', onclick: () => { inp.type = inp.type === 'password' ? 'text' : 'password'; } }, icon('visibility')), h('button', { type: 'button', class: 'tc-primary', onclick: send }, icon('check'), ' Speichern')));
     return card;
 }
 

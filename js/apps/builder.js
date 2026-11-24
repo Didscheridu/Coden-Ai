@@ -14,8 +14,14 @@ import { KINDS } from './templates.js';
 import { databaseCard, askCard, secretCard, publishCard } from './tools.js';
 import { modal, confirmBox, promptBox, phoneTest, publish, invite } from './dialogs.js';
 
-const S = () => window.CodenStyles; const B = () => window.CodenBundle;
-let kitP; const getKit = () => kitP || (kitP = Promise.all(['kit/coden-kit.css', 'kit/coden-kit.js'].map(u => fetch(u).then(r => r.text()))).then(([css, js]) => ({ css, js })));
+const FALLBACK_STYLES = { STYLES: [], byId: () => null, themeCss: () => '', fontsHref: () => '' };
+const S = () => window.CodenStyles || FALLBACK_STYLES;
+const B = () => window.CodenBundle;
+const kindOf = (k) => KINDS[k] || KINDS.web;
+let kitP = null;
+const getKit = () => kitP || (kitP = Promise.all(['kit/coden-kit.css', 'kit/coden-kit.js'].map(u =>
+    fetch(u).then(r => { if (!r.ok) throw new Error(`Kit-Datei ${u} konnte nicht geladen werden.`); return r.text(); })
+)).then(([css, js]) => ({ css, js })).catch((e) => { kitP = null; throw e; }));
 const TIERS = [{ id: 'ultra', label: 'Ultra', tip: 'Nur die allerbesten Modelle (nur Owner)' }, { id: 'pro', label: 'Pro', tip: 'Stärkste Modelle – am besten für Apps' }, { id: 'normal', label: 'Thinking', tip: 'Denkt länger nach' }, { id: 'flash', label: 'Flash', tip: 'Am schnellsten, für kleine Änderungen' }];
 const DEVICES = { ios: { w: 393, h: 852, label: 'iPhone', icon: 'phone_iphone' }, android: { w: 412, h: 915, label: 'Android', icon: 'android' }, desktop: { w: 0, h: 0, label: 'Desktop', icon: 'desktop_windows' }, tablet: { w: 834, h: 1112, label: 'Tablet', icon: 'tablet_mac' }, phone: { w: 390, h: 844, label: 'Handy', icon: 'smartphone' }, landscape: { w: 844, h: 390, label: 'Handy quer', icon: 'stay_current_landscape' } };
 const FILE_ICON = (n) => /\.html?$/.test(n) ? 'html' : /\.css$/.test(n) ? 'css' : /\.js$/.test(n) ? 'javascript' : /\.json$/.test(n) ? 'data_object' : /\.svg$/.test(n) ? 'image' : 'description';
@@ -60,8 +66,8 @@ export function mountBuilder(host, appId) {
     const viewSeg = h('div', { class: 'bl-seg' });
     const stage = h('div', { class: 'bl-stage' },
         h('div', { class: 'bl-toolbar' }, viewSeg, h('span', { class: 'bl-sep' }), deviceBtns, pageSel, h('span', { class: 'grow' }),
-            h('button', { class: 'bl-tbtn', title: 'Neu laden', onclick: () => render() }, icon('refresh')), consoleBtn,
-            h('button', { class: 'bl-tbtn', title: 'Im neuen Tab öffnen (Testlink)', onclick: () => st.app && window.open(st.app.testUrl, '_blank', 'noopener') }, icon('open_in_new'))),
+            h('button', { type: 'button', class: 'bl-tbtn', title: 'Neu laden', 'aria-label': 'Vorschau neu laden', onclick: () => render() }, icon('refresh')), consoleBtn,
+            h('button', { type: 'button', class: 'bl-tbtn', title: 'Im neuen Tab öffnen (Testlink)', 'aria-label': 'Testlink öffnen', onclick: () => st.app?.testUrl && window.open(st.app.testUrl, '_blank', 'noopener,noreferrer') }, icon('open_in_new'))),
         canvas, codeBox, consoleBox);
     const chat = h('div', { class: 'bl-chat' }, log, h('div', { class: 'bl-composer' }, input, h('div', { class: 'bl-crow' }, tierBox, h('span', { class: 'grow' }), stopBtn, sendBtn)));
     const mtabs = h('div', { class: 'bl-mtabs' });
@@ -88,32 +94,37 @@ export function mountBuilder(host, appId) {
         log.append(h('div', { class: 'bl-empty' }, h('span', { class: 'cd-spin' })));
         try {
             const r = await apiJson('/apps/' + appId);
+            if (!st.alive) return;
             setApp(r.app); st.files = r.files || {}; st.members = r.members || []; st.version = r.app.version;
-            const msgs = (await apiJson(`/apps/${appId}/messages`)).messages;
+            const msgs = (await apiJson(`/apps/${appId}/messages`)).messages || [];
+            if (!st.alive) return;
             log.replaceChildren(); msgs.forEach(addMessage); if (!msgs.length) log.append(welcome());
-            drawPeople(); drawTiers(); loadByok().then(() => { if (st.alive) drawTiers(); }); drawDevices(); drawViewSeg(); drawMobileTabs(); render(); scrollLog(true);
+            drawPeople(); drawTiers(); loadByok().then(() => { if (st.alive) drawTiers(); }).catch(() => {}); drawDevices(); drawViewSeg(); drawMobileTabs(); render(); scrollLog(true);
             const pending = sessionStorage.getItem('coden_app_prompt_' + appId);
             if (pending) { sessionStorage.removeItem('coden_app_prompt_' + appId); input.value = pending; send(); }
-            else setTimeout(() => input.focus(), 100);
+            else setTimeout(() => { if (st.alive) input.focus(); }, 100);
             poll();
         } catch (e) {
-            root.replaceChildren(h('div', { class: 'ap-empty' }, icon('error'), h('h2', { text: 'App nicht gefunden' }), h('p', { text: e.message }), h('button', { class: 'bl-btn primary', onclick: () => Router.go('apps') }, icon('arrow_back'), ' Zu deinen Apps')));
+            if (!st.alive) return;
+            root.replaceChildren(h('div', { class: 'ap-empty' }, icon('error'), h('h2', { text: 'App nicht gefunden' }), h('p', { text: e.message }), h('button', { type: 'button', class: 'bl-btn primary', onclick: () => Router.go('apps') }, icon('arrow_back'), ' Zu deinen Apps')));
         }
     })();
 
     function setApp(app) {
+        if (!app) return;
+        const kd = kindOf(app.kind);
         st.app = app; if (document.activeElement !== nameIn) nameIn.value = app.name;
         const ro = app.role === 'viewer'; input.disabled = ro; sendBtn.disabled = ro; nameIn.disabled = ro; if (ro) input.placeholder = 'Du darfst diese App nur ansehen (Rolle: Zuschauer).';
-        if (!st.device) st.device = KINDS[app.kind].devices[0];
+        if (!st.device) st.device = kd.devices[0];
         const style = S().byId(app.style);
-        badges.replaceChildren(h('span', { class: 'bl-badge' }, icon(KINDS[app.kind].icon), KINDS[app.kind].label), h('button', { class: 'bl-badge btn', title: 'Stil ändern', onclick: () => changeStyle() }, icon('palette'), style ? style.name : 'Eigener Stil'),
-            app.published ? h('a', { class: 'bl-badge live', href: app.url, target: '_blank', rel: 'noopener', title: app.url }, h('i'), 'Live') : null);
+        badges.replaceChildren(h('span', { class: 'bl-badge' }, icon(kd.icon), kd.label), h('button', { type: 'button', class: 'bl-badge btn', title: 'Stil ändern', onclick: () => changeStyle() }, icon('palette'), style ? style.name : 'Eigener Stil'),
+            app.published ? h('a', { class: 'bl-badge live', href: app.url, target: '_blank', rel: 'noopener noreferrer', title: app.url }, h('i'), 'Live') : null);
         const pub = root.querySelector('#bl-pub span:last-child'); if (pub) pub.textContent = app.published ? 'Veröffentlicht' : 'Veröffentlichen';
         root.querySelector('#bl-pub')?.classList.toggle('done', app.published);
         document.title = app.name + ' · Coden Apps';
     }
-    nameIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') nameIn.blur(); if (e.key === 'Escape') { nameIn.value = st.app.name; nameIn.blur(); } });
-    nameIn.addEventListener('blur', async () => { const n = nameIn.value.trim(); if (!n || n === st.app.name) { nameIn.value = st.app.name; return; } try { setApp((await apiJson('/apps/' + appId, { method: 'PATCH', body: JSON.stringify({ name: n }) })).app); st.version = st.app.version; toast('Umbenannt', { type: 'ok' }); } catch (e) { toast(e.message, { type: 'error' }); nameIn.value = st.app.name; } });
+    nameIn.addEventListener('keydown', (e) => { if (!st.app) return; if (e.key === 'Enter') nameIn.blur(); if (e.key === 'Escape') { nameIn.value = st.app.name; nameIn.blur(); } });
+    nameIn.addEventListener('blur', async () => { if (!st.app) return; const n = nameIn.value.trim(); if (!n || n === st.app.name) { nameIn.value = st.app.name; return; } try { setApp((await apiJson('/apps/' + appId, { method: 'PATCH', body: JSON.stringify({ name: n }) })).app); st.version = st.app.version; toast('Umbenannt', { type: 'ok' }); } catch (e) { toast(e.message, { type: 'error' }); if (st.app) nameIn.value = st.app.name; } });
 
     function drawPeople() {
         people.replaceChildren(...st.members.slice(0, 5).map(m => h('span', { class: 'bl-ava' + (m.online ? ' on' : ''), title: `${m.displayName}${m.handle ? ' (@' + m.handle + ')' : ''}${m.me ? ' – du' : ''}${m.online ? ' · online' : ''}`, text: (m.displayName || '?')[0].toUpperCase() })));
@@ -135,11 +146,12 @@ export function mountBuilder(host, appId) {
         tierBox.replaceChildren(...[...TIERS.filter(t => t.id !== 'ultra' || auth.currentUser?.isOwner).map(t => h('button', { class: 'bl-tier' + (st.tier === t.id ? ' active' : ''), title: t.tip, text: t.label, onclick: () => pick(t.id) })), ownSel, cfgBtn, isByokTier(st.tier) ? null : drawEffort(), mode].filter(Boolean));
     }
     function drawDevices() {
-        const list = KINDS[st.app.kind].devices; deviceBtns.classList.toggle('hidden', list.length < 2 || st.view !== 'preview');
-        deviceBtns.replaceChildren(...list.map(d => h('button', { class: st.device === d ? 'active' : '', title: DEVICES[d].label, onclick: () => { st.device = d; drawDevices(); render(); } }, icon(DEVICES[d].icon), h('span', { text: DEVICES[d].label }))));
+        if (!st.app) return;
+        const list = kindOf(st.app.kind).devices; deviceBtns.classList.toggle('hidden', list.length < 2 || st.view !== 'preview');
+        deviceBtns.replaceChildren(...list.map(d => h('button', { type: 'button', class: st.device === d ? 'active' : '', title: DEVICES[d].label, onclick: () => { st.device = d; drawDevices(); render(); } }, icon(DEVICES[d].icon), h('span', { text: DEVICES[d].label }))));
     }
     function drawViewSeg() {
-        viewSeg.replaceChildren(...[['preview', 'visibility', 'Vorschau'], ['code', 'code', 'Code']].map(([v, ic, l]) => h('button', { class: st.view === v ? 'active' : '', onclick: () => setView(v) }, icon(ic), h('span', { text: l }))));
+        viewSeg.replaceChildren(...[['preview', 'visibility', 'Vorschau'], ['code', 'code', 'Code']].map(([v, ic, l]) => h('button', { type: 'button', class: st.view === v ? 'active' : '', onclick: () => setView(v) }, icon(ic), h('span', { text: l }))));
     }
     function setView(v) {
         if (st.view === 'code' && v !== 'code' && st.dirty) { saveCode(); }
@@ -147,7 +159,7 @@ export function mountBuilder(host, appId) {
         if (v === 'code') drawCode(); else render();
     }
     function drawMobileTabs() {
-        mtabs.replaceChildren(...[['chat', 'forum', 'Chat'], ['preview', 'visibility', 'Vorschau'], ['code', 'code', 'Code']].map(([p, ic, l]) => h('button', { class: st.pane === p ? 'active' : '', onclick: () => { st.pane = p; root.dataset.pane = p; if (p !== 'chat') setView(p); drawMobileTabs(); } }, icon(ic), l)));
+        mtabs.replaceChildren(...[['chat', 'forum', 'Chat'], ['preview', 'visibility', 'Vorschau'], ['code', 'code', 'Code']].map(([p, ic, l]) => h('button', { type: 'button', class: st.pane === p ? 'active' : '', onclick: () => { st.pane = p; root.dataset.pane = p; if (p !== 'chat') setView(p); drawMobileTabs(); } }, icon(ic), l)));
         root.dataset.pane = st.pane;
     }
 
@@ -159,16 +171,21 @@ export function mountBuilder(host, appId) {
         return new Promise((resolve) => { renderTimer = setTimeout(async () => { await doRender(); resolve(); }, immediate ? 0 : 60); });
     }
     async function doRender() {
-        if (!st.app || st.view !== 'preview') return;
-        const kit = await getKit(); const style = S().byId(st.app.style);
+        if (!st.alive || !st.app || st.view !== 'preview') return;
+        const bundle = B();
+        if (!bundle) { toast('Vorschau-Modul fehlt. Bitte Seite neu laden.', { type: 'error' }); return; }
+        let kit;
+        try { kit = await getKit(); } catch (e) { toast(e.message || 'Vorschau konnte nicht geladen werden.', { type: 'error' }); return; }
+        if (!st.alive || !st.app || st.view !== 'preview') return;
+        const style = S().byId(st.app.style);
         const platform = st.app.kind === 'web' || st.app.kind === 'game' ? 'web' : st.device === 'android' ? 'android' : 'ios';
-        const b = B().build(st.files, { kit, themeCss: S().themeCss(style), fontsHref: S().fontsHref(style), platform });
+        const b = bundle.build(st.files, { kit, themeCss: S().themeCss(style), fontsHref: S().fontsHref(style), platform });
         if (!b.pages[st.page]) st.page = b.entry;
         const pages = Object.keys(b.pages); pageSel.replaceChildren(...pages.map(p => h('option', { value: p, text: p, selected: p === st.page }))); pageSel.classList.toggle('hidden', pages.length < 2);
         drawFrame(style);
         st.renderErrors = []; st.logs = []; drawConsole(); renderSeq++;
         loading.classList.remove('hidden');
-        frame.srcdoc = B().withStore(b.pages[st.page], snapshot());
+        frame.srcdoc = bundle.withStore(b.pages[st.page], snapshot());
     }
     pageSel.addEventListener('change', () => { st.page = pageSel.value; render(); });
 
@@ -212,11 +229,14 @@ export function mountBuilder(host, appId) {
 
     // Nachrichten aus der Vorschau (Fehler, Konsole, Seitenwechsel, Speicher)
     const onMsg = (e) => {
-        if (!frame || e.source !== frame.contentWindow || !e.data || e.data.__coden !== 1) return; const m = e.data;
-        if (m.t === 'error') { const msg = `${m.message}${m.line ? ` (Zeile ${m.line})` : ''}`; st.renderErrors.push(msg); st.logs.push({ level: 'error', text: msg }); drawConsole(); }
-        else if (m.t === 'console') { st.logs.push({ level: m.level, text: m.text }); if (st.logs.length > 200) st.logs.shift(); if (m.level === 'error') st.renderErrors.push(m.text); drawConsole(); }
+        if (!st.alive || !frame || e.source !== frame.contentWindow || !e.data || e.data.__coden !== 1) return; const m = e.data;
+        if (m.t === 'error') { const msg = `${String(m.message || 'Unbekannter Fehler')}${m.line ? ` (Zeile ${m.line})` : ''}`; st.renderErrors.push(msg); st.logs.push({ level: 'error', text: msg }); drawConsole(); }
+        else if (m.t === 'console') { st.logs.push({ level: m.level, text: String(m.text ?? '') }); if (st.logs.length > 200) st.logs.shift(); if (m.level === 'error') st.renderErrors.push(String(m.text ?? '')); drawConsole(); }
         else if (m.t === 'nav') { const p = String(m.page || '').replace(/^\.?\//, ''); st.page = p || 'index.html'; render(); }
-        else if (m.t === 'store') { try { if (m.v === null) localStorage.removeItem(ns + m.k); else if (String(m.v).length < 400000) localStorage.setItem(ns + m.k, String(m.v)); } catch (_) {} }
+        else if (m.t === 'store') {
+            if (typeof m.k !== 'string' || !m.k || m.k.length > 200) return;
+            try { if (m.v === null) localStorage.removeItem(ns + m.k); else if (String(m.v).length < 400000) localStorage.setItem(ns + m.k, String(m.v)); } catch (_) {}
+        }
         else if (m.t === 'store-clear') { Object.keys(snapshot()).forEach(k => localStorage.removeItem(ns + k)); }
         else if (m.t === 'ready') loading.classList.add('hidden');
     };
@@ -278,7 +298,7 @@ export function mountBuilder(host, appId) {
     }
 
     function welcome() {
-        const kind = KINDS[st.app?.kind || 'web'];
+        const kind = kindOf(st.app?.kind);
         const ideas = st.app?.kind === 'game' ? ['Füge Level mit steigender Schwierigkeit und einen Bossgegner hinzu', 'Mach Power-ups: Schild, Doppelsprung, Magnet', 'Gestalte alles im Pixel-Art-Stil mit Retro-Sound'] : st.app?.kind === 'web' ? ['Eine Webseite für mein Café mit Speisekarte und Öffnungszeiten', 'Ein Portfolio mit meinen Projekten und Kontaktformular', 'Eine Landingpage für meine App mit Preisen'] : ['Eine To-do-App mit Kategorien und Erinnerungen', 'Ein Habit-Tracker mit Statistiken', 'Eine Rezept-App mit Favoriten und Einkaufsliste'];
         return h('div', { class: 'bl-welcome' }, h('div', { class: 'bl-wicon' }, icon(kind.icon)), h('h3', { text: 'Was soll ' + (st.app?.name || 'deine App') + ' können?' }),
             h('p', { text: 'Coden baut die App direkt hier – du siehst rechts jede Änderung live. Je genauer du beschreibst, desto besser.' }),
@@ -317,7 +337,7 @@ export function mountBuilder(host, appId) {
             else if (s.kind === 'plan') { if (si === lastPlan) frag.push(h('div', { class: 'bl-plan' }, h('b', {}, icon('checklist'), ' Plan'), ...s.plan.items.map(it => h('div', { class: 'bl-pi' + (it.done ? ' done' : '') }, icon(it.done ? 'check_circle' : 'radio_button_unchecked'), h('span', { text: it.text }))))); }
             else if (s.kind === 'sql') frag.push(h('div', { class: 'bl-sql' }, h('div', { class: 'bl-sqlh' }, icon('database'), h('b', { text: 'SQL' }), h('span', { class: 'grow' }),
                 h('button', { class: 'bl-btn sm', onclick: async () => { if (await copy(s.sql.code)) toast('SQL kopiert – füge es im SQL-Editor ein', { type: 'ok' }); } }, icon('content_copy'), ' Kopieren'),
-                st.app?.integrations?.database?.provider === 'supabase' ? h('a', { class: 'bl-btn sm', href: 'https://supabase.com/dashboard/project/' + ((st.app.integrations.database.url || '').match(/https:\/\/([a-z0-9-]+)\./)?.[1] || '') + '/sql/new', target: '_blank', rel: 'noopener' }, icon('open_in_new'), ' SQL-Editor') : null),
+                st.app?.integrations?.database?.provider === 'supabase' ? h('a', { class: 'bl-btn sm', href: 'https://supabase.com/dashboard/project/' + ((st.app.integrations.database.url || '').match(/https:\/\/([a-z0-9-]+)\./)?.[1] || '') + '/sql/new', target: '_blank', rel: 'noopener noreferrer' }, icon('open_in_new'), ' SQL-Editor') : null),
                 h('pre', {}, h('code', { class: 'language-sql', text: s.sql.code }))));
             else if (s.kind === 'result') frag.push(h('div', { class: 'bl-result' + (s.ok ? '' : ' bad') + ' r-' + s.name }, icon(RESULT_IC[s.name] || (s.ok ? 'subdirectory_arrow_right' : 'error')), h('span', { text: s.text })));
             else if (s.kind === 'tool' && AGENT_TOOLS[s.tool.name]) { if (s.tool.name !== 'done') frag.push(agentToolChip(s.tool)); }
@@ -501,24 +521,28 @@ export function mountBuilder(host, appId) {
 
     // ---------- Zusammenarbeit (Abfrage alle 3 s) ----------
     async function pollOnce() {
-        if (!st.app) return;
+        if (!st.alive || !st.app) return;
         try {
             const r = await apiJson(`/apps/${appId}/poll?after=${st.lastId}`);
-            st.members = r.members; drawPeople();
-            r.messages.forEach(m => { if (!st.seen.has(m.id)) addMessage(m); });
+            if (!st.alive || !st.app) return;
+            st.members = r.members || []; drawPeople();
+            (r.messages || []).forEach(m => { if (!st.seen.has(m.id)) addMessage(m); });
             if (r.published !== st.app.published || r.name !== st.app.name) setApp({ ...st.app, published: r.published, name: r.name });
             if (r.version > st.version) {
-                const full = await apiJson('/apps/' + appId); st.version = full.app.version; setApp(full.app);
+                const full = await apiJson('/apps/' + appId);
+                if (!st.alive) return;
+                st.version = full.app.version; setApp(full.app);
                 const changed = JSON.stringify(full.files) !== JSON.stringify(st.files); st.files = full.files;
                 if (changed) { if (st.view === 'code' && !st.dirty) drawCode(); else if (st.view === 'code') codeStatus.textContent = '⚠ Jemand hat Dateien geändert – speichern überschreibt'; render(); }
             }
             // Ein Agent arbeitet (von einem anderen Gerät oder Mitglied gestartet)? -> live mit anschauen
-            if (r.agentRun && !st.running && st.alive) { const x = await apiJson(`/apps/${appId}/agent?run=${r.agentRun}`); if (x.status === 'running') runAgent({ attach: x }); }
+            if (r.agentRun && !st.running && st.alive) { const x = await apiJson(`/apps/${appId}/agent?run=${r.agentRun}`); if (st.alive && x.status === 'running') runAgent({ attach: x }); }
         } catch (_) {}
     }
     async function poll() {
         if (!st.alive) return;
         if (!document.hidden) await pollOnce();
+        if (!st.alive) return;
         st.timers.push(setTimeout(poll, 3000));
     }
 
@@ -529,8 +553,9 @@ export function mountBuilder(host, appId) {
     function openInvite() { if (st.app) invite(ctx()); }
 
     async function changeStyle() {
-        const list = S().STYLES; const cur = st.app.style;
-        const grid = h('div', { class: 'ap-styles compact' }, [{ id: '', name: 'Eigener Stil', desc: 'Coden gestaltet frei' }, ...list].map(s => h('button', { class: 'ap-style' + (s.id === cur ? ' active' : ''), onclick: async () => {
+        if (!st.app) return;
+        const list = S().STYLES || []; const cur = st.app.style;
+        const grid = h('div', { class: 'ap-styles compact' }, [{ id: '', name: 'Eigener Stil', desc: 'Coden gestaltet frei' }, ...list].map(s => h('button', { type: 'button', class: 'ap-style' + (s.id === cur ? ' active' : ''), onclick: async () => {
             try { setApp((await apiJson('/apps/' + appId, { method: 'PATCH', body: JSON.stringify({ style: s.id, ...(s.v && /^#/.test(s.v.primary) ? { themeColor: s.v.primary } : {}) }) })).app); st.version = st.app.version; m.close(); render(); toast(`Stil: ${s.name}`, { type: 'ok' }); } catch (e) { toast(e.message, { type: 'error' }); }
         } }, stylePreview(s), h('b', { text: s.name }), h('small', { text: s.desc }))));
         loadStyleFonts();
@@ -538,9 +563,10 @@ export function mountBuilder(host, appId) {
     }
 
     function openMenu(anchor) {
+        if (!st.app) return;
         const close = () => { menu.remove(); document.removeEventListener('pointerdown', out, true); };
         const out = (e) => { if (!menu.contains(e.target)) close(); };
-        const item = (ic, label, fn, danger) => h('button', { class: 'bl-mi' + (danger ? ' danger' : ''), onclick: () => { close(); fn(); } }, icon(ic), h('span', { text: label }));
+        const item = (ic, label, fn, danger) => h('button', { type: 'button', class: 'bl-mi' + (danger ? ' danger' : ''), onclick: () => { close(); fn(); } }, icon(ic), h('span', { text: label }));
         const owner = st.app.role === 'owner';
         const narrow = window.innerWidth <= 360; // dort sind „Einladen“ und „Auf dem Handy testen“ aus der Kopfzeile ausgeblendet
         const menu = h('div', { class: 'bl-menu' },
@@ -561,13 +587,15 @@ export function mountBuilder(host, appId) {
         setTimeout(() => document.addEventListener('pointerdown', out, true), 0);
     }
     async function changeKind() {
-        const body = h('div', { class: 'ap-kinds compact' }, Object.entries(KINDS).map(([k, v]) => h('button', { class: 'ap-kind' + (k === st.app.kind ? ' active' : ''), onclick: async () => {
-            try { setApp((await apiJson('/apps/' + appId, { method: 'PATCH', body: JSON.stringify({ kind: k }) })).app); st.version = st.app.version; st.device = KINDS[k].devices[0]; drawDevices(); m.close(); render();
+        if (!st.app) return;
+        const body = h('div', { class: 'ap-kinds compact' }, Object.entries(KINDS).map(([k, v]) => h('button', { type: 'button', class: 'ap-kind' + (k === st.app.kind ? ' active' : ''), onclick: async () => {
+            try { setApp((await apiJson('/apps/' + appId, { method: 'PATCH', body: JSON.stringify({ kind: k }) })).app); st.version = st.app.version; st.device = kindOf(k).devices[0]; drawDevices(); m.close(); render();
                 toast(`Typ: ${v.label}. Sag Coden, ob er die Oberfläche anpassen soll.`, { type: 'ok', ms: 4500 }); } catch (e) { toast(e.message, { type: 'error' }); }
         } }, h('span', { class: 'ap-kic' }, icon(v.icon)), h('b', { text: v.label }), h('small', { text: v.desc }))));
         const m = modal('App-Typ ändern', body, { wide: true });
     }
     async function downloadZip() {
+        if (!st.app) return;
         try {
             if (!window.JSZip) await new Promise((ok, fail) => { const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js'; s.onload = ok; s.onerror = () => fail(new Error('ZIP-Bibliothek nicht erreichbar')); document.head.appendChild(s); });
             const zip = new window.JSZip(); const kit = await getKit();
@@ -577,9 +605,12 @@ export function mountBuilder(host, appId) {
         } catch (e) { toast(e.message, { type: 'error' }); }
     }
     async function downloadHtml() {
-        const kit = await getKit(); const style = S().byId(st.app.style);
-        const b = B().build(st.files, { kit, themeCss: S().themeCss(style), fontsHref: S().fontsHref(style), platform: st.app.kind === 'both' ? null : st.app.kind === 'game' ? 'web' : st.app.kind });
-        dl(new Blob([B().withStore(b.pages[b.entry], {})], { type: 'text/html' }), (st.app.slug || 'app') + '.html');
+        if (!st.app || !B()) return;
+        try {
+            const kit = await getKit(); const style = S().byId(st.app.style);
+            const b = B().build(st.files, { kit, themeCss: S().themeCss(style), fontsHref: S().fontsHref(style), platform: st.app.kind === 'both' ? null : st.app.kind === 'game' ? 'web' : st.app.kind });
+            dl(new Blob([B().withStore(b.pages[b.entry], {})], { type: 'text/html' }), (st.app.slug || 'app') + '.html');
+        } catch (e) { toast(e.message || 'Export fehlgeschlagen.', { type: 'error' }); }
     }
     const dl = (blob, name) => { const u = URL.createObjectURL(blob); const a = h('a', { href: u, download: name }); document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 2000); };
 
@@ -587,8 +618,15 @@ export function mountBuilder(host, appId) {
     document.addEventListener('keydown', onKey);
     return {
         unmount() {
-            st.alive = false; st.abort?.abort(); // trennt nur die Verbindung – der Agent baut auf dem Server weiter st.timers.forEach(clearTimeout); clearTimeout(renderTimer); ro.disconnect();
-            window.removeEventListener('message', onMsg); document.removeEventListener('keydown', onKey); document.title = 'Coden AI';
+            st.alive = false;
+            st.abort?.abort(); // trennt nur die Verbindung – der Agent baut auf dem Server weiter
+            st.timers.forEach(clearTimeout);
+            st.timers.length = 0;
+            clearTimeout(renderTimer);
+            ro.disconnect();
+            window.removeEventListener('message', onMsg);
+            document.removeEventListener('keydown', onKey);
+            document.title = 'Coden AI';
             if (st.dirty && st.codeFile) saveFiles({ [st.codeFile]: editor.value }, []).catch(() => {});
             document.querySelectorAll('.cd-overlay, .bl-menu').forEach(x => x.remove());
         }
@@ -607,7 +645,8 @@ export function stylePreview(s) {
 }
 let fontsLoaded = false;
 export function loadStyleFonts() {
-    if (fontsLoaded) return; fontsLoaded = true;
+    if (fontsLoaded || !window.CodenStyles?.STYLES) return;
+    fontsLoaded = true;
     const fams = new Set(); window.CodenStyles.STYLES.forEach(s => [s.v.font, s.v.fontHead].forEach(f => f !== '-apple-system' && fams.add(f)));
     const href = 'https://fonts.googleapis.com/css2?' + [...fams].map(f => 'family=' + f.replace(/ /g, '+') + (/(VT323|Press Start 2P)/.test(f) ? '' : ':wght@600')).join('&') + '&display=swap';
     document.head.appendChild(h('link', { rel: 'stylesheet', href }));

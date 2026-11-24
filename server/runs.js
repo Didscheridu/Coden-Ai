@@ -119,10 +119,15 @@ async function serveRun(res, run, done) {
 }
 
 const iso = (d) => (d instanceof Date ? d.toISOString() : d);
+function safeMeta(m) {
+  if (!m || typeof m !== 'object') return {};
+  const { cont, ...rest } = m;
+  return rest;
+}
 function shape(r, isOwner, from = 0) {
   const text = r.text || '';
   return { id: Number(r.id), kind: r.kind, ref: r.ref, status: r.status, from, len: text.length, text: text.slice(Math.max(0, Math.min(from, text.length))),
-    think: r.think || {}, agents: r.agents || [], model: isOwner ? r.model : undefined, error: r.error, meta: r.meta || {}, claimed: r.claimed,
+    think: r.think || {}, agents: r.agents || [], model: isOwner ? r.model : undefined, error: r.error, meta: safeMeta(r.meta), claimed: r.claimed,
     startedAt: iso(r.created_at), updatedAt: iso(r.updated_at) };
 }
 // Läuft ein Lauf laut Datenbank noch, obwohl der Server ihn längst nicht mehr bearbeitet? -> als abgebrochen markieren
