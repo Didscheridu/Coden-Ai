@@ -1,6 +1,7 @@
 // js/chat-apps.js – Der Chat greift auf eigene Apps zu: ansehen, Feedback geben und (nach Bestätigung) Dateien ändern.
 // Apps werden über @Name oder die App-Auswahl am Eingabefeld hinzugezogen. Inhalte gehen nur als Daten ins Modell.
 import { apiJson } from './backend.js';
+import * as M from './menu.js';
 
 const BUDGET = 60000, PER_FILE = 24000, MAX_APPS = 3, FILE_RE = /^[A-Za-z0-9_][A-Za-z0-9_.\- \/]{0,79}$/;
 const st = { attached: new Map(), list: null, ctx: '', loaded: new Map() };
@@ -98,27 +99,22 @@ ${st.ctx}
     }
 };
 
-// ---------- Auswahl am Eingabefeld ----------
-export function mountAppPicker({ anchor, chipsHost, toast }) {
-    const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'icon-btn'; btn.id = 'chat-apps-btn'; btn.title = 'Eigene Apps hinzuziehen';
-    btn.innerHTML = '<span class="material-symbols-outlined">apps</span>';
-    anchor.after(btn);
-    const pop = document.createElement('div'); pop.className = 'ca-pop hidden'; document.body.append(pop);
+// ---------- Auswahl im +-Menü (Untermenü „Eigene Apps“) + Chips über dem Eingabefeld ----------
+export function mountAppPicker({ item, chipsHost }) {
     const chips = chipsHost;
     const drawChips = () => {
         chips.replaceChildren(...ChatApps.attached().map(a => { const c = document.createElement('span'); c.className = 'ca-chip'; c.append(document.createTextNode('📱 ' + a.name + ' ')); const x = document.createElement('button'); x.type = 'button'; x.textContent = '×'; x.setAttribute('aria-label', 'Entfernen'); x.onclick = () => { ChatApps.toggle(a); drawChips(); }; c.append(x); return c; }));
         chips.classList.toggle('hidden', !chips.children.length);
     };
-    const open = async () => {
-        pop.replaceChildren(Object.assign(document.createElement('div'), { className: 'ca-note', textContent: 'Lade …' })); pop.classList.remove('hidden');
-        const r = btn.getBoundingClientRect(); pop.style.left = Math.max(8, Math.min(r.left, innerWidth - 280)) + 'px'; pop.style.bottom = (innerHeight - r.top + 8) + 'px';
-        let apps = []; try { apps = await ChatApps.apps(true); } catch (e) { pop.replaceChildren(Object.assign(document.createElement('div'), { className: 'ca-note', textContent: 'Apps konnten nicht geladen werden.' })); return; }
-        if (!apps.length) { pop.replaceChildren(Object.assign(document.createElement('div'), { className: 'ca-note', textContent: 'Du hast noch keine Apps. Erstelle eine im Apps-Tab.' })); return; }
-        const rows = apps.map(a => { const b = document.createElement('button'); b.type = 'button'; b.className = 'ca-row' + (ChatApps.attached().some(x => x.id === a.id) ? ' on' : ''); b.textContent = (b.className.includes('on') ? '✓ ' : '') + a.name; b.onclick = () => { ChatApps.toggle(a); drawChips(); b.classList.toggle('on'); b.textContent = (b.classList.contains('on') ? '✓ ' : '') + a.name; }; return b; });
-        const h = Object.assign(document.createElement('div'), { className: 'ca-note', textContent: 'Coden darf die App lesen und, wenn du es willst, ändern.' });
-        pop.replaceChildren(h, ...rows);
-    };
-    btn.addEventListener('click', (e) => { e.stopPropagation(); pop.classList.contains('hidden') ? open() : pop.classList.add('hidden'); });
-    document.addEventListener('click', (e) => { if (!pop.contains(e.target) && e.target !== btn && !btn.contains(e.target)) pop.classList.add('hidden'); });
+    M.attachSub(item, async (panel) => {
+        let apps = [];
+        try { apps = await ChatApps.apps(true); } catch (_) { panel.append(M.note('Apps konnten nicht geladen werden.')); return; }
+        if (!apps.length) panel.append(M.note('Du hast noch keine Apps.'));
+        else {
+            panel.append(M.group('Coden darf diese Apps lesen'));
+            for (const a of apps.slice(0, 30)) panel.append(M.item({ icon: 'web_asset', label: a.name, checked: ChatApps.attached().some(x => x.id === a.id), keep: true, onClick: (e, b) => { ChatApps.toggle(a); drawChips(); M.setChecked(b, ChatApps.attached().some(x => x.id === a.id)); } }));
+        }
+        panel.append(M.sep(), M.item({ icon: 'add', label: 'Neue App bauen', onClick: () => { location.hash = '#/apps/neu'; } }));
+    });
     return { redraw: drawChips };
 }

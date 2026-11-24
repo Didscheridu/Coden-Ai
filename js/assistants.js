@@ -5,6 +5,7 @@ import { Storage } from './storage.js';
 import { toast } from './toast.js';
 import { h, icon } from './apps/dom.js';
 import { confirmBox } from './apps/dialogs.js';
+import * as M from './menu.js';
 
 const A = () => window.CodenAssist;
 const changed = () => document.dispatchEvent(new CustomEvent('assistantsChanged'));
@@ -69,11 +70,11 @@ export const Assistants = {
     }
 };
 
-// ---------- Auswahl im Chat: im +-Menü + kompakter Hinweis-Chip wenn aktiv ----------
+// ---------- Auswahl im Chat: Untermenü „+ → Assistent“ + kompakter Hinweis-Chip, wenn einer aktiv ist ----------
 export function mountAssistantPicker({ session, persist }) {
-    const btn = document.getElementById('assistant-btn'), pop = document.getElementById('assistant-popup');
-    if (!btn || !pop) return { redraw() {} };
-    const inputBox = btn.closest('.input-box') || pop.parentElement;
+    const btn = document.getElementById('assistant-btn');
+    if (!btn) return { redraw() {} };
+    const inputBox = btn.closest('.input-box');
     let activeChip = document.getElementById('assistant-active-chip');
     if (!activeChip && inputBox) {
         activeChip = document.createElement('div');
@@ -82,74 +83,43 @@ export function mountAssistantPicker({ session, persist }) {
         const ta = inputBox.querySelector('#main-input');
         if (ta) ta.before(activeChip); else inputBox.prepend(activeChip);
     }
-
     const active = () => Assistants.get(session()?.assistantId);
-    const closeTools = () => {
-        document.getElementById('composer-tools-menu')?.classList.add('hidden');
-        document.getElementById('composer-plus-btn')?.setAttribute('aria-expanded', 'false');
-    };
-
     const choose = (id) => {
         const s = session();
         if (!s) return;
-        if (id) s.assistantId = id;
-        else delete s.assistantId;
+        if (id) s.assistantId = id; else delete s.assistantId;
         persist();
         redraw();
-        pop.classList.add('hidden');
     };
-
+    const build = (panel) => {
+        const cur = session()?.assistantId, list = Assistants.list();
+        panel.append(M.item({ icon: 'person', label: 'Kein Assistent', desc: 'Coden wie gewohnt', checked: !cur, onClick: () => choose(null) }));
+        for (const a of list) panel.append(M.item({ emoji: a.emoji, label: a.name, desc: a.desc || a.instructions.slice(0, 70), checked: a.id === cur, onClick: () => choose(a.id) }));
+        const free = list.length ? [] : A().TEMPLATES.slice(0, 4);
+        if (free.length) {
+            panel.append(M.sep(), M.group('Vorlagen zum Ausprobieren'));
+            for (const t of free) panel.append(M.item({ emoji: t.emoji, label: t.name, desc: t.desc, onClick: () => { const r = Assistants.save({ ...t, id: undefined }); if (r.error) { toast(r.error, { type: 'warn' }); return; } choose(r.assistant.id); toast(`„${t.name}“ ist jetzt aktiv. Bearbeiten kannst du ihn in den Einstellungen.`, { type: 'ok' }); } }));
+        }
+        panel.append(M.sep(), M.item({ icon: 'tune', label: 'Assistenten verwalten', onClick: () => window.dispatchEvent(new CustomEvent('coden:settings', { detail: { tab: 'assistants' } })) }));
+    };
+    M.attachSub(btn, build);
     const redraw = () => {
         const a = active();
-        btn.classList.toggle('on', !!a);
-        btn.replaceChildren(
-            a ? h('span', { className: 'as-btn-emoji', text: a.emoji, 'aria-hidden': 'true' }) : icon('smart_toy'),
-            h('span', { className: 'ct-label', textContent: a ? `Assistent: ${a.name}` : 'Assistent wählen' })
-        );
-        btn.title = a ? `Assistent: ${a.name} (zum Wechseln tippen)` : 'Assistent wählen';
-        btn.setAttribute('aria-label', btn.title);
-
+        const meta = btn.querySelector('.cm-meta') || (() => { const m = h('span', { class: 'cm-meta' }); btn.querySelector('.cm-chev')?.before(m); return m; })();
+        meta.textContent = a ? a.name : '';
+        btn.title = a ? `Assistent: ${a.name}` : 'Assistent wählen';
         if (activeChip) {
             if (a) {
                 activeChip.classList.remove('hidden');
-                const openBtn = h('button', { type: 'button', className: 'ca-chip as-chip-pill', title: 'Assistent wechseln', onclick: (e) => { e.stopPropagation(); open(); } },
-                    h('span', { className: 'as-btn-emoji', text: a.emoji, 'aria-hidden': 'true' }),
-                    h('span', { className: 'ca-chip-name', text: a.name })
-                );
-                const clearBtn = h('button', { type: 'button', className: 'as-chip-clear', title: 'Assistent deaktivieren', 'aria-label': 'Assistent entfernen', onclick: (e) => { e.stopPropagation(); choose(null); } }, '×');
+                const openBtn = h('button', { type: 'button', class: 'ca-chip as-chip-pill', title: 'Assistent wechseln', onclick: (e) => { e.stopPropagation(); document.getElementById('composer-plus-btn')?.click(); setTimeout(() => btn.click(), 30); } },
+                    h('span', { class: 'as-btn-emoji', text: a.emoji, 'aria-hidden': 'true' }),
+                    h('span', { class: 'ca-chip-name', text: a.name }));
+                const clearBtn = h('button', { type: 'button', class: 'as-chip-clear', title: 'Assistent deaktivieren', 'aria-label': 'Assistent entfernen', onclick: (e) => { e.stopPropagation(); choose(null); } }, '×');
                 openBtn.append(clearBtn);
                 activeChip.replaceChildren(openBtn);
-            } else {
-                activeChip.classList.add('hidden');
-                activeChip.replaceChildren();
-            }
+            } else { activeChip.classList.add('hidden'); activeChip.replaceChildren(); }
         }
     };
-
-    const open = () => {
-        closeTools();
-        const cur = session()?.assistantId, list = Assistants.list();
-        const item = (a) => h('button', { type: 'button', class: 'as-opt' + ((a && a.id === cur) || (!a && !cur) ? ' on' : ''), onclick: () => choose(a?.id) },
-            a ? h('span', { class: 'as-opt-emoji', text: a.emoji, 'aria-hidden': 'true' }) : icon('person'),
-            h('span', { class: 'as-opt-t' }, h('b', { text: a ? a.name : 'Kein Assistent' }), h('small', { text: a ? (a.desc || a.instructions.slice(0, 60)) : 'Coden wie gewohnt' })),
-            (a && a.id === cur) || (!a && !cur) ? icon('check', 'as-check') : null);
-        const addTpl = (t) => { const r = Assistants.save({ ...t, id: undefined }); if (r.error) { toast(r.error, { type: 'warn' }); return; } choose(r.assistant.id); toast(`„${t.name}“ ist jetzt aktiv. Bearbeiten kannst du ihn in den Einstellungen.`, { type: 'ok' }); };
-        const free = list.length ? [] : A().TEMPLATES.slice(0, 4);
-        pop.replaceChildren(
-            item(null), ...list.map(item),
-            free.length ? h('div', { class: 'as-sep', text: 'Vorlagen zum Ausprobieren' }) : null,
-            ...free.map(t => h('button', { type: 'button', class: 'as-opt', onclick: () => addTpl(t) }, h('span', { class: 'as-opt-emoji', text: t.emoji, 'aria-hidden': 'true' }), h('span', { class: 'as-opt-t' }, h('b', { text: t.name }), h('small', { text: t.desc })), icon('add'))),
-            h('button', { type: 'button', class: 'as-opt manage', onclick: () => { pop.classList.add('hidden'); window.dispatchEvent(new CustomEvent('coden:settings', { detail: { tab: 'assistants' } })); } }, icon('tune'), h('span', { class: 'as-opt-t' }, h('b', { text: 'Assistenten verwalten' }))));
-        pop.classList.remove('hidden');
-        const box = pop.parentElement.getBoundingClientRect();
-        const above = box.top - 12, below = window.innerHeight - box.bottom - 12;
-        const down = above < 340 && below > above;
-        pop.classList.toggle('down', down);
-        pop.style.maxHeight = Math.max(160, Math.min(420, down ? below : above)) + 'px';
-    };
-    btn.addEventListener('click', (e) => { e.stopPropagation(); pop.classList.contains('hidden') ? open() : pop.classList.add('hidden'); });
-    document.addEventListener('click', (e) => { if (!pop.classList.contains('hidden') && !pop.contains(e.target) && !btn.contains(e.target) && (!activeChip || !activeChip.contains(e.target))) pop.classList.add('hidden'); });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') pop.classList.add('hidden'); });
     document.addEventListener('assistantsChanged', redraw);
     redraw();
     return { redraw };

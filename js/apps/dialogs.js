@@ -16,10 +16,10 @@ export function modal(title, body, { wide = false, onClose } = {}) {
     return { close, el: ov };
 }
 
-export function confirmBox(text, { ok = 'OK', danger = false } = {}) {
+export function confirmBox(text, { ok = 'OK', danger = false, title = 'Bist du sicher?' } = {}) {
     return new Promise((resolve) => {
         let done = false; const fin = (v) => { if (done) return; done = true; m.close(); resolve(v); };
-        const m = modal('Bist du sicher?', h('div', {}, h('p', { class: 'cd-text', text: text }),
+        const m = modal(title, h('div', {}, h('p', { class: 'cd-text', text: text }),
             h('div', { class: 'cd-row end' }, h('button', { class: 'cd-btn', text: 'Abbrechen', onclick: () => fin(false) }), h('button', { class: 'cd-primary' + (danger ? ' danger' : ''), text: ok, onclick: () => fin(true) }))), { onClose: () => fin(false) });
     });
 }

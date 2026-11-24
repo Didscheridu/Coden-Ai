@@ -8,7 +8,7 @@
 const MEM = { max: 100, len: 200 };
 const AS = { max: 20, name: 30, desc: 90, instr: 4000 };
 // Steuer-Tags, die ein Nutzer in eigenen Texten nicht einschleusen soll (sie lösen in der Antwort Aktionen aus).
-const CONTROL = /<\/?(remember|artifact|generate_image|choices|suggestions|mcp_call|app_write)\b[^>]*>/gi;
+const CONTROL = /<\/?(remember|artifact|generate_image|choices|suggestions|mcp_call|app_write|use_skill|skill_draft)\b[^>]*>/gi;
 const clean = (t, n) => String(t ?? '').replace(/[\u0000-\u0008\u000B-\u001F]/g, '').replace(CONTROL, '').trim().slice(0, n);
 const oneLine = (t, n) => clean(t, n * 2).replace(/\s+/g, ' ').trim().slice(0, n);
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);

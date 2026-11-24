@@ -21,6 +21,8 @@ import { Personal, exportChat, mountDictation, mountMessageActions } from './cha
 import { Projects } from './projects.js';
 import { Assistants, mountAssistantPicker } from './assistants.js';
 import { renderMemory } from './memory-ui.js';
+import { Skills } from './skills.js';
+import * as Menu from './menu.js';
 import { Router } from './router.js';
 import { Storage } from './storage.js';
 import { initGoogleLogin, loginWithEmail, registerWithEmail, logoutUser, onAuthStateChanged, resendVerificationEmail, refreshAuth, auth } from './auth.js';
@@ -257,6 +259,8 @@ if (auth) {
                 isOwner = user.isOwner === true; // vom Server entschieden
                 const badge = document.getElementById('owner-badge');
                 if (badge) badge.style.display = isOwner ? 'inline-block' : 'none';
+                document.body.classList.toggle('is-owner', isOwner);
+                const plan = document.getElementById('uc-plan'); if (plan) plan.textContent = isOwner ? 'Owner' : 'Coden';
 
                 if (loginScreen) loginScreen.classList.add('hidden');
                 if (userEmailDisplay) userEmailDisplay.textContent = user.email;
@@ -531,8 +535,10 @@ if (chatInput) {
         chatInput.style.height = (chatInput.scrollHeight) + 'px';
         const text = e.target.value;
 
+        // Skills per /name (für alle), Owner-Befehle zusätzlich nur für den Owner
+        const skillHits = text.startsWith('/') && !text.includes(' ') ? Skills.slashMatches(text).map(s => ({ name: '/' + s.name, desc: s.desc, skill: true })) : [];
         if (!isOwner && text.startsWith('/')) { 
-            if (commandPopup) commandPopup.classList.add('hidden'); 
+            if (skillHits.length) renderPopup(skillHits, true); else if (commandPopup) commandPopup.classList.add('hidden'); 
             return; 
         }
 
@@ -542,7 +548,7 @@ if (chatInput) {
             const hasSpace = text.includes(' ');
             
             if (!hasSpace) {
-                renderPopup(commands.filter(c => c.name.startsWith(cmdSearch)), true);
+                renderPopup([...skillHits, ...commands.filter(c => c.name.startsWith(cmdSearch))], true);
             } else {
                 const exactCmd = commands.find(c => c.name === cmdSearch);
                 if (exactCmd && exactCmd.opts) {
@@ -566,13 +572,14 @@ if (chatInput) {
 function renderPopup(items, isCmdList) {
     if (!commandPopup) return;
     if (items.length > 0) {
+        const esc = (v) => String(v ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
         commandPopup.innerHTML = items.map(c => `
-            <div class="command-item" data-cmd="${c.name}">
+            <div class="command-item" data-cmd="${esc(c.name)}">
                 <div>
-                    <span class="command-name">${c.name}</span> 
-                    <span class="command-owner-badge">OWNER</span>
+                    <span class="command-name">${esc(c.name)}</span> 
+                    <span class="command-owner-badge${c.skill ? ' skill' : ''}">${c.skill ? 'SKILL' : 'OWNER'}</span>
                 </div>
-                <div class="command-desc">${c.desc}</div>
+                <div class="command-desc">${esc(String(c.desc).slice(0, 90))}</div>
             </div>
         `).join('');
         commandPopup.classList.remove('hidden');
@@ -877,7 +884,7 @@ if (document.getElementById('open-settings-btn')) {
         document.getElementById('user-name-input').value = s.userName || ''; 
         document.getElementById('font-size-slider').value = s.fontSize || 15; 
         document.getElementById('custom-instructions').value = s.instructions || ''; 
-        renderMemory(); Assistants.renderSettings();
+        renderMemory(); Assistants.renderSettings(); Skills.renderSettings();
         document.getElementById('memory-on').checked = s.memoryOn !== false; 
         
         if (s.emailConfig) { 
@@ -961,9 +968,8 @@ function markTemp() {
         b.classList.toggle('on', on);
         b.title = on ? 'Temporären Chat beenden' : 'Temporärer Chat (wird nicht gespeichert)';
         b.setAttribute('aria-pressed', String(on));
-        const lbl = b.querySelector('.tb-mi-label');
-        if (lbl) lbl.textContent = on ? 'Temporären Chat beenden' : 'Temporärer Chat';
     }
+    for (const id of ['temp-chat-btn', 'ct-temp']) { const x = document.getElementById(id); if (x) Menu.setChecked(x, on); }
 }
 function startTempChat(on = true) {
     dropTemp();
@@ -980,34 +986,36 @@ document.getElementById('temp-chat-btn')?.addEventListener('click', () => {
     startTempChat(!currentSession?.temp);
 });
 
-// Top-Bar & Composer Overflow-Menüs (reduziert sichtbare Knöpfe auf das Wesentliche)
+// Menüs oben rechts (Chat-Optionen) und am Eingabefeld (+): gleicher Aufbau und Stil wie bei Claude (js/menu.js, css/menus.css)
 {
-    const tbBtn = document.getElementById('tb-more-btn');
-    const tbMenu = document.getElementById('tb-more-menu');
-    const closeTb = () => { tbMenu?.classList.add('hidden'); tbBtn?.setAttribute('aria-expanded', 'false'); };
-    if (tbBtn && tbMenu) {
-        tbBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const open = tbMenu.classList.toggle('hidden') === false;
-            tbBtn.setAttribute('aria-expanded', String(open));
-        });
-        document.addEventListener('click', (e) => { if (!tbMenu.contains(e.target) && !tbBtn.contains(e.target)) closeTb(); });
-        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeTb(); });
-    }
-
-    const plusBtn = document.getElementById('composer-plus-btn');
-    const toolsMenu = document.getElementById('composer-tools-menu');
-    const closeTools = () => { toolsMenu?.classList.add('hidden'); plusBtn?.setAttribute('aria-expanded', 'false'); };
-    if (plusBtn && toolsMenu) {
-        plusBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            document.getElementById('assistant-popup')?.classList.add('hidden');
-            const open = toolsMenu.classList.toggle('hidden') === false;
-            plusBtn.setAttribute('aria-expanded', String(open));
-        });
-        document.addEventListener('click', (e) => { if (!toolsMenu.contains(e.target) && !plusBtn.contains(e.target)) closeTools(); });
-        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeTools(); });
-    }
+    Menu.bindMenu(document.getElementById('tb-more-btn'), document.getElementById('tb-more-menu'), {
+        onOpen: () => {
+            const pin = document.getElementById('tb-pin-btn'), del = document.getElementById('tb-delete-btn');
+            const real = currentSession && !currentSession.temp && currentSession.messages?.length;
+            if (pin) { Menu.fill(pin, { icon: currentSession?.pinned ? 'keep_off' : 'keep', label: currentSession?.pinned ? 'Lösen' : 'Anheften' }); pin.disabled = !real; }
+            if (del) del.disabled = !real;
+        }
+    });
+    document.getElementById('tb-pin-btn')?.addEventListener('click', () => { if (currentSession) document.dispatchEvent(new CustomEvent('togglePinSession', { detail: currentSession.id })); });
+    document.getElementById('tb-delete-btn')?.addEventListener('click', async () => { if (currentSession && await showCustomConfirm('Diesen Chat wirklich löschen?')) deleteSession(currentSession.id); });
+    Menu.bindMenu(document.getElementById('composer-plus-btn'), document.getElementById('composer-tools-menu'));
+    document.getElementById('ct-temp')?.addEventListener('click', () => document.getElementById('temp-chat-btn')?.click());
+    document.getElementById('ct-skill-new')?.addEventListener('click', () => Skills.openCreate());
+    Menu.attachSub(document.getElementById('ct-skills'), (panel) => Skills.fillMenu(panel));
+    Menu.attachSub(document.getElementById('ct-mcp'), async (panel) => {
+        await MCP.syncFromCloud().catch(() => {});
+        const list = MCP.list();
+        if (!list.length) panel.append(Menu.note('Noch keine Verbindungen. Verbinde z. B. GitHub, Notion oder eigene MCP-Server.'));
+        for (const sv of list.slice(0, 20)) panel.append(Menu.item({ icon: 'hub', label: sv.name, title: sv.enabled ? 'Eingeschaltet' : 'Ausgeschaltet', checked: !!sv.enabled, keep: true, onClick: async (e, b) => { try { await MCP.toggleEnabled(sv, !sv.enabled); sv.enabled = !sv.enabled; Menu.setChecked(b, sv.enabled); } catch (err) { toast('Konnte nicht umschalten: ' + err.message, { type: 'error' }); } } }));
+        panel.append(Menu.sep(), Menu.item({ icon: 'add_link', label: 'Verbindungen verwalten', onClick: () => Router.go('verbindungen') }));
+    });
+    if (chatInput) Skills.mountPicked(chatInput);
+    // „Mit Coden einen Skill erstellen“ u. a.: Text ins Eingabefeld legen
+    document.addEventListener('coden:compose', (e) => {
+        document.getElementById('settings-modal')?.classList.add('hidden');
+        Router.go('chat');
+        if (chatInput) { chatInput.value = e.detail?.text || ''; chatInput.dispatchEvent(new Event('input')); setTimeout(() => { chatInput.focus(); chatInput.setSelectionRange(chatInput.value.length, chatInput.value.length); }, 60); }
+    });
 }
 
 if (newChatBtn) {
@@ -1190,7 +1198,7 @@ let appPicker = null;
 if (attachmentBtn && chatInput) {
     const chipsHost = document.createElement('div'); chipsHost.className = 'ca-chips hidden'; chipsHost.id = 'chat-app-chips';
     chatInput.before(chipsHost);
-    appPicker = mountAppPicker({ anchor: attachmentBtn, chipsHost });
+    appPicker = mountAppPicker({ item: document.getElementById('ct-apps'), chipsHost });
 }
 function blobToDataUrl(blob) {
     return new Promise((res, rej) => {
@@ -1245,8 +1253,7 @@ async function prepareImageDataUrl(bytes, mime) {
 if (attachmentBtn && fileUploadInput) {
     attachmentBtn.addEventListener('click', (e) => {
         e.preventDefault();
-        document.getElementById('composer-tools-menu')?.classList.add('hidden');
-        document.getElementById('composer-plus-btn')?.setAttribute('aria-expanded', 'false');
+        Menu.closeAll();
         fileUploadInput.click(); // Öffnet Dateidialog
     });
 
@@ -1352,7 +1359,7 @@ function renderAttachmentPreviews() {
 // ==========================================
 // Bild-Befehl der KI: <generate_image prompt="…"/>
 const IMAGE_TAG = /<generate_image\s+([^>]*?)\/?>/gi;
-const hideImageTags = (t) => Personal.hide(ChatApps.hide(hideCalls(String(t || '').replace(/<generate_image\s+[^>]*?\/?>/gi, '').replace(/<generate_image[^>]*$/i, ''))));
+const hideImageTags = (t) => Skills.hide(Personal.hide(ChatApps.hide(hideCalls(String(t || '').replace(/<generate_image\s+[^>]*?\/?>/gi, '').replace(/<generate_image[^>]*$/i, '')))));
 // ---------- Live-Anzeige je Chat ----------
 // Eine laufende Antwort gehört zu einem Chat, nicht zum Bildschirm: wechselt der Nutzer den Chat und kommt zurück,
 // wird die Anzeige mit dem aktuellen Stand neu aufgebaut. Die Antwort selbst läuft auf dem Server weiter.
@@ -1489,7 +1496,10 @@ async function handleSend() {
     const text = chatInput.value.trim(); 
     if (!text && pendingAttachments.length === 0) return;
     
-    if (text.startsWith('/')) { 
+    // /skill-name …: Skill gezielt für diese Nachricht nutzen (für alle Nutzer)
+    const slashSkill = text.startsWith('/') ? Skills.parseSlash(text) : null;
+    if (slashSkill) Skills.pick(slashSkill.skill.id, true);
+    if (text.startsWith('/') && !slashSkill) { 
         if (!isOwner) { chatInput.value = ''; UI.appendMessage("❌ Administrator-Befehle sind gesperrt.", false); return; } 
         chatInput.value = ''; chatInput.style.height = 'auto'; if (commandPopup) commandPopup.classList.add('hidden'); handleCommand(text); return; 
     }
@@ -1606,7 +1616,7 @@ async function handleSend() {
     const initialLive = liveFor(sessionAtSend.id);
     UI.showLoading(true, 'Coden startet …');
 
-    let aiResponse = '', lastThink = null;
+    let aiResponse = '', lastThink = null, lastRaw = '';
     try {
       const proj = await Projects.promptFor(sessionAtSend.projectId);
       let appNames = [];
@@ -1615,7 +1625,10 @@ async function handleSend() {
       const personal = sessionAtSend.temp
           ? (Personal.instructions() ? `\nPERSÖNLICHE ANWEISUNGEN DES NUTZERS (vom Nutzer selbst in den Einstellungen geschrieben, befolge sie):\n${Personal.instructions()}\n` : '') + '\nDies ist ein TEMPORÄRER CHAT: Er wird nicht gespeichert. Merke dir nichts (kein <remember>) und beziehe dich nicht auf frühere Chats.\n'
           : Personal.prompt(sessionAtSend.projectId || null, projName);
-      const systemPrompt = buildChatPrompt({ userName, extras: `${MCP.prompt()}${ChatApps.prompt()}${personal}${Assistants.prompt(sessionAtSend.assistantId)}${proj.text}` });
+      const skillInfo = Skills.forMessage(text); Skills.clearPicked();
+      const loadedSkills = [...skillInfo.loaded];
+      if (loadedSkills.length) live0Steps(initialLive, loadedSkills);
+      const systemPrompt = buildChatPrompt({ userName, extras: `${MCP.prompt()}${ChatApps.prompt()}${personal}${Assistants.prompt(sessionAtSend.assistantId)}${skillInfo.text}${proj.text}` });
       context.unshift({ role: 'system', content: systemPrompt });
 
       Storage.syncNow(); // Frage sofort sichern, damit andere Geräte sie sehen
@@ -1625,6 +1638,27 @@ async function handleSend() {
         let extra = {};
         try {
             aiResponse = await runAiResponse(context, currentSelectedModel, { ref: sessionAtSend.id, meta: { title: sessionAtSend.title, userText: text.slice(0, 2000), temp: !!sessionAtSend.temp }, signal: ac.signal, model: pinnedModel?.key, effort: isByokTier(currentSelectedModel) ? byokEffort(currentSelectedModel) : undefined, onExtra: (x) => { extra = { ...extra, ...x }; }, onThink: (k) => live.think(k), onModel: (m) => live.model(m), onDelta: (t) => { aiResponse = t; live.update(hideImageTags(t)); } });
+            lastRaw = aiResponse;
+            // Das Modell möchte einen Skill nachladen (<use_skill>name</use_skill>): Anleitung schicken und weiterlaufen lassen
+            const askedSkills = round < 4 && !parseCall(aiResponse) ? Skills.requested(aiResponse) : [];
+            const newSkills = askedSkills.filter(n => !loadedSkills.includes(n));
+            const preText = hideImageTags(aiResponse).trim();
+            const skillMsg = newSkills.length ? Skills.loadedMessage(newSkills)
+                : (askedSkills.length && !preText ? { names: [], text: `Der Skill „${askedSkills[0]}“ ist schon oben geladen. Befolge ihn und beantworte jetzt die letzte Nachricht des Nutzers vollständig.` } : null);
+            if (skillMsg) {
+                loadedSkills.push(...skillMsg.names);
+                if (preText) { lastThink = live.finish(preText); sessionAtSend.messages.push({ text: preText, isUser: false, think: lastThink || undefined }); }
+                else live.remove();
+                context.push({ role: 'assistant', content: preText || `<use_skill>${askedSkills[0]}</use_skill>` });
+                if (skillMsg.names.length) {
+                    const shown = `✦ *Skill **${skillMsg.names.join(', ')}** geladen*`;
+                    if (activeSessionId === sessionAtSend.id) UI.appendMessage(shown, false, false);
+                    sessionAtSend.messages.push({ text: shown, isUser: false });
+                }
+                context.push({ role: 'user', content: skillMsg.text });
+                aiResponse = ''; lastThink = null;
+                continue;
+            }
             const done = await processAnswer(aiResponse, (t) => live.update(t), { ...extra, temp: !!sessionAtSend.temp });
             const call = done.call; aiResponse = done.text;
             lastThink = live.finish(aiResponse);
@@ -1676,8 +1710,12 @@ async function handleSend() {
         UI.renderSidebar(sessions, activeSessionId);
     }
     refreshUsageBanner(true);
+    const skillDraft = Skills.draft(lastRaw); // Coden hat einen Skill entworfen → speichern anbieten
+    if (skillDraft && activeSessionId === sessionAtSend.id) setTimeout(() => Skills.offerDraft(skillDraft), 500);
     if (queued && chatInput?.value.trim()) setTimeout(handleSend, 50);
 }
+// Geladene Skills im Denk-Panel zeigen
+function live0Steps(live, names) { try { live.think({ h: 'Skill geladen: ' + names.join(', ') }); } catch (_) { /* nur Anzeige */ } }
 async function generateChatTitle(firstMessage) {
     try {
         // FIX: Ein extrem strikter Prompt, der der KI verbietet, höflich zu sein!

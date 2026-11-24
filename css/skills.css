@@ -1,0 +1,76 @@
+/* css/skills.css – Skills in den Einstellungen, Import-Fenster und Auswahl. Ruhig, gleiche Farben wie der Rest. */
+.sk-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0 14px; }
+.sk-count { flex: 1; color: var(--text-muted); font-size: 13px; min-width: 140px; }
+.sk-list { display: flex; flex-direction: column; gap: 8px; }
+.sk-card { display: flex; align-items: center; gap: 12px; padding: 12px 12px 12px 14px; border: 1px solid var(--border-color); border-radius: 12px; background: rgba(255, 255, 255, 0.02); }
+.sk-card.off { opacity: 0.62; }
+.sk-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.sk-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sk-name { font: 600 14px var(--font-mono); color: var(--text-primary); }
+.sk-src { font-size: 11.5px; color: var(--text-muted); border: 1px solid var(--border-color); border-radius: 6px; padding: 1px 6px; }
+.sk-info small { color: var(--text-secondary); font-size: 13px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.sk-btns { display: flex; align-items: center; gap: 2px; flex: none; }
+.sk-switch { appearance: none; -webkit-appearance: none; width: 34px; height: 20px; border-radius: 999px; background: rgba(255, 255, 255, 0.14); position: relative; cursor: pointer; margin-left: 6px; transition: background 0.15s; flex: none; }
+.sk-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform 0.15s var(--ease-ui, ease); }
+.sk-switch:checked { background: var(--accent-blue-strong); }
+.sk-switch:checked::after { transform: translateX(14px); }
+.sk-switch:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 2px; }
+.sk-empty { display: flex; gap: 12px; align-items: flex-start; padding: 16px; border: 1px dashed var(--border-strong); border-radius: 12px; color: var(--text-secondary); font-size: 14px; line-height: 1.5; }
+.sk-empty .material-symbols-outlined { color: var(--accent-blue); }
+.sk-tpl { margin-top: 18px; }
+.sk-tpl h5, .sk-edit h5 { font-size: 13px; font-weight: 600; color: var(--text-secondary); margin: 0 0 8px; }
+.sk-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.sk-chips .material-symbols-outlined { font-size: 16px; vertical-align: -3px; }
+
+.sk-edit { display: flex; flex-direction: column; gap: 6px; }
+.sk-edit .cd-label { margin-top: 8px; }
+.sk-mono { font-family: var(--font-mono) !important; font-size: 13px !important; }
+.sk-ins { min-height: 220px; resize: vertical; line-height: 1.5; }
+.sk-chars { color: var(--text-muted); font-size: 12px; }
+.sk-files-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; margin-top: 6px; }
+.sk-files-head .cd-btn { padding: 6px 10px; font-size: 12.5px; }
+.sk-files { display: flex; flex-direction: column; gap: 4px; }
+.sk-file { display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 10px; border: 1px solid var(--border-color); border-radius: 9px; font-size: 13px; }
+.sk-file span.sk-mono { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sk-file small { color: var(--text-muted); }
+.sk-file .material-symbols-outlined { font-size: 18px; color: var(--text-muted); }
+.sk-file .cd-x { width: 30px; height: 30px; }
+
+/* Import-Fenster */
+.sk-import { display: flex; flex-direction: column; gap: 8px; }
+.sk-drop { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 22px 16px; border: 1.5px dashed var(--border-strong); border-radius: 14px; background: rgba(255, 255, 255, 0.02); color: var(--text-primary); cursor: pointer; font: inherit; transition: border-color 0.15s, background 0.15s; }
+.sk-drop:hover, .sk-drop.over { border-color: var(--accent-blue); background: var(--accent-blue-soft); }
+.sk-drop.busy { opacity: 0.6; pointer-events: none; }
+.sk-drop .material-symbols-outlined { font-size: 28px; color: var(--accent-blue); }
+.sk-drop small { color: var(--text-muted); font-size: 12.5px; }
+.sk-row { display: flex; gap: 8px; }
+.sk-row .cd-input { flex: 1; min-width: 0; }
+.sk-paste { font-family: var(--font-mono); font-size: 12.5px; resize: vertical; }
+.sk-hint { color: var(--text-muted); font-size: 12.5px; line-height: 1.5; margin-top: 4px; }
+.cd-btn.busy { opacity: 0.6; pointer-events: none; }
+.sk-dirs { display: flex; flex-direction: column; gap: 1px; max-height: 55vh; overflow: auto; }
+.sk-dirs .cm-item { color: var(--text-primary); }
+
+/* Vorschau vor dem Import */
+.sk-preview { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.sk-pv-name { display: flex; align-items: center; gap: 8px; font: 600 15px var(--font-mono); }
+.sk-pv-name .material-symbols-outlined { color: var(--accent-blue); }
+.sk-pv-meta { color: var(--text-muted); font-size: 12.5px; }
+.sk-pv-files { display: flex; flex-wrap: wrap; gap: 4px; }
+.sk-pv-files span { font: 12px var(--font-mono); color: var(--text-secondary); background: rgba(255, 255, 255, 0.05); border-radius: 6px; padding: 2px 7px; }
+.sk-pv-skip { color: var(--accent-amber); font-size: 12.5px; line-height: 1.45; }
+
+/* „Einen Skill erstellen“ */
+.sk-choices { display: flex; flex-direction: column; gap: 8px; }
+.sk-choice { display: flex; align-items: flex-start; gap: 12px; padding: 14px; border: 1px solid var(--border-color); border-radius: 12px; background: rgba(255, 255, 255, 0.02); color: var(--text-primary); text-align: left; cursor: pointer; font: inherit; transition: background 0.12s, border-color 0.12s; }
+.sk-choice:hover { background: rgba(255, 255, 255, 0.05); border-color: var(--border-strong); }
+.sk-choice .material-symbols-outlined { color: var(--accent-blue); font-size: 22px; }
+.sk-choice span { display: flex; flex-direction: column; gap: 3px; }
+.sk-choice b { font-size: 14.5px; font-weight: 600; }
+.sk-choice small { color: var(--text-muted); font-size: 13px; line-height: 1.45; }
+
+@media (max-width: 600px) {
+  .sk-card { flex-wrap: wrap; }
+  .sk-btns { width: 100%; justify-content: flex-end; }
+  .sk-row { flex-direction: column; }
+}
