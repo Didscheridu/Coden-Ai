@@ -131,7 +131,7 @@ function appsRouter(requireAuth) {
       else if (a.owner === req.user.uid) role = 'owner';
     }
     if (!role) {
-      const mySrvs = await db.runQuery('servers', { where: [['memberUids', 'ARRAY_CONTAINS', req.user.uid]] });
+      const mySrvs = await db.runQuery('servers', { where: [['memberUids', 'ARRAY_CONTAINS', req.user.uid]] }).catch(() => []);
       let serverRole = null;
       for (const s of mySrvs) {
         const sh = await db.getDoc(`servers/${s.id}/shares/${id}`).catch(() => null);
@@ -158,8 +158,16 @@ function appsRouter(requireAuth) {
     apk: apk.publicState(a.apk), updatedAt: iso(a.updated_at), publishedAt: iso(a.published_at)
   });
 
-  async function membersOf(id, uid, ownerUid = null) {
-    const rows = await db.listDocs(`apps/${id}/members`).catch(() => []);
+  async function membersOf(id, uid, ownerUid = null, memberUids = null) {
+    let rows = [];
+    if (Array.isArray(memberUids) && memberUids.length) {
+      rows = (await Promise.all(memberUids.map(u => db.getDoc(`apps/${id}/members/${u}`).catch(() => null)))).filter(Boolean);
+    } else if (db.isMemoryDb() || process.env.FIREBASE_SERVICE_ACCOUNT) {
+      rows = await db.listDocs(`apps/${id}/members`).catch(() => []);
+    } else {
+      rows = await db.runQuery(`apps/${id}/members`, { where: [['memberUids', 'ARRAY_CONTAINS', uid]] }).catch(() => []);
+      if (!rows.length) rows = await db.runQuery(`apps/${id}/members`, { where: [['uid', '==', uid]] }).catch(() => []);
+    }
     if (!rows.length && ownerUid) {
       rows.push({ uid: ownerUid, role: 'owner', last_seen: null });
     }
@@ -308,10 +316,13 @@ function appsRouter(requireAuth) {
     };
     await db.createDoc(`apps/${id}`, doc);
     try {
-      await db.createDoc(`apps/${id}/members/${req.user.uid}`, { app_id: id, uid: req.user.uid, role: 'owner', last_seen: now });
+      await db.createDoc(`apps/${id}/members/${req.user.uid}`, {
+        app_id: id, uid: req.user.uid, owner: req.user.uid, memberUids: [req.user.uid], role: 'owner', last_seen: now
+      });
       await syncPublicDocs(doc);
     } catch (e) {
-      await db.deleteTree(`apps/${id}`, ['members', 'messages']).catch(() => {});
+      await db.deleteDoc(`apps/${id}/members/${req.user.uid}`).catch(() => {});
+      await db.deleteDoc(`apps/${id}`).catch(() => {});
       throw e;
     }
     doc.role = 'owner';
@@ -321,7 +332,7 @@ function appsRouter(requireAuth) {
   r.get('/:id', async (req, res) => {
     const a = await memberOf(req, res, req.params.id); if (!a) return;
     touch(a.id, req.user.uid);
-    res.json({ app: meta(a, req), files: a.files || {}, members: await membersOf(a.id, req.user.uid, a.owner) });
+    res.json({ app: meta(a, req), files: a.files || {}, members: await membersOf(a.id, req.user.uid, a.owner, a.memberUids) });
   });
 
   r.patch('/:id', async (req, res) => {
@@ -362,7 +373,28 @@ function appsRouter(requireAuth) {
     for (const sid of a.sharedServerIds || []) {
       await db.deleteDoc(`servers/${sid}/shares/${a.id}`, { preferAdmin: true }).catch(() => {});
     }
-    await db.deleteTree(`apps/${a.id}`, ['members', 'messages']);
+    if (db.isMemoryDb() || process.env.FIREBASE_SERVICE_ACCOUNT) {
+      await db.deleteTree(`apps/${a.id}`, ['members', 'messages']);
+    } else {
+      const memberIds = new Set([...(Array.isArray(a.memberUids) ? a.memberUids : []), a.owner, req.user.uid].filter(Boolean));
+      for (const muid of memberIds) {
+        await db.deleteDoc(`apps/${a.id}/members/${muid}`).catch(() => {});
+      }
+      const msgSeen = new Set();
+      const msgSets = await Promise.all([
+        db.runQuery(`apps/${a.id}/messages`, { where: [['owner', '==', req.user.uid]], limit: 500 }).catch(() => []),
+        db.runQuery(`apps/${a.id}/messages`, { where: [['memberUids', 'ARRAY_CONTAINS', req.user.uid]], limit: 500 }).catch(() => []),
+        db.runQuery(`apps/${a.id}/messages`, { where: [['sender', '==', req.user.uid]], limit: 500 }).catch(() => [])
+      ]);
+      for (const list of msgSets) {
+        for (const msg of list) {
+          if (msgSeen.has(msg._id)) continue;
+          msgSeen.add(msg._id);
+          await db.deleteDoc(`apps/${a.id}/messages/${msg._id}`).catch(() => {});
+        }
+      }
+      await db.deleteDoc(`apps/${a.id}`);
+    }
     res.json({ ok: true });
   });
 
@@ -413,11 +445,28 @@ function appsRouter(requireAuth) {
     touch(a.id, req.user.uid);
     const after = toInt(req.query.after);
     const messages = after ? await loadMessages(a.id, req.user.uid, after).catch(() => []) : [];
-    res.json({ version: a.version, name: a.name, published: a.published, apk: apk.publicState(a.apk), messages, members: await membersOf(a.id, req.user.uid, a.owner), agentRun: await activeRun(a.id, req.user.uid) });
+    res.json({ version: a.version, name: a.name, published: a.published, apk: apk.publicState(a.apk), messages, members: await membersOf(a.id, req.user.uid, a.owner, a.memberUids), agentRun: await activeRun(a.id, req.user.uid) });
   });
 
   async function loadMessages(appId, uid, after = 0, limit = 120) {
-    const all = await db.listDocs(`apps/${appId}/messages`, { orderBy: 'id' });
+    let all;
+    if (db.isMemoryDb() || process.env.FIREBASE_SERVICE_ACCOUNT) {
+      all = await db.listDocs(`apps/${appId}/messages`, { orderBy: 'id' });
+    } else {
+      const seen = new Map();
+      const queries = await Promise.all([
+        db.runQuery(`apps/${appId}/messages`, { where: [['memberUids', 'ARRAY_CONTAINS', uid]] }).catch(() => []),
+        db.runQuery(`apps/${appId}/messages`, { where: [['sender', '==', uid]] }).catch(() => []),
+        db.runQuery(`apps/${appId}/messages`, { where: [['owner', '==', uid]] }).catch(() => [])
+      ]);
+      for (const list of queries) {
+        for (const m of list) {
+          const k = String(m._id || m.id);
+          if (!seen.has(k)) seen.set(k, m);
+        }
+      }
+      all = [...seen.values()].sort((a, b) => Number(a.id) - Number(b.id));
+    }
     const rows = after ? all.filter(m => Number(m.id) > after).slice(0, limit) : all.slice(-limit);
     const profMap = new Map();
     for (const s of new Set(rows.map(m => m.sender).filter(Boolean))) {
@@ -543,8 +592,9 @@ function appsRouter(requireAuth) {
         const m = JSON.stringify(meta).length > LIMITS.meta ? { ...meta, changed: (meta.changed || []).slice(0, 20), agents: undefined } : meta;
         const mid = db.nextId();
         const now = db.nowIso();
+        const memberUids = Array.isArray(a.memberUids) && a.memberUids.length ? a.memberUids : [a.owner];
         await db.createDoc(`apps/${appId}/messages/${mid}`, {
-          id: mid, app_id: appId, sender: uid, role, body: String(body).slice(0, LIMITS.msg), meta: m, created_at: now
+          id: mid, app_id: appId, sender: uid, owner: a.owner, memberUids, role, body: String(body).slice(0, LIMITS.msg), meta: m, created_at: now
         });
         db.updateDoc(`apps/${appId}`, { updated_at: now }).catch(() => {});
       },
@@ -647,17 +697,53 @@ function appsRouter(requireAuth) {
     if (JSON.stringify(m).length > LIMITS.meta) return bad(res, 400, 'Zu viele Zusatzdaten.');
     const mid = db.nextId();
     const now = db.nowIso();
+    const memberUids = Array.isArray(a.memberUids) && a.memberUids.length ? a.memberUids : [a.owner];
     await db.createDoc(`apps/${a.id}/messages/${mid}`, {
-      id: mid, app_id: a.id, sender: req.user.uid, role, body, meta: m, created_at: now
+      id: mid, app_id: a.id, sender: req.user.uid, owner: a.owner, memberUids, role, body, meta: m, created_at: now
     });
     db.updateDoc(`apps/${a.id}`, { updated_at: now }).catch(() => {});
     res.json({ message: { id: Number(mid), role, body, meta: m, mine: true, createdAt: now } });
   });
 
+  async function syncSubcollectionMembers(appId, ownerUid, memberUids, actorUid) {
+    for (const muid of memberUids) {
+      await db.updateDoc(`apps/${appId}/members/${muid}`, { owner: ownerUid, memberUids }).catch(() => {});
+    }
+    const msgSeen = new Set();
+    const msgSets = await Promise.all([
+      db.runQuery(`apps/${appId}/messages`, { where: [['owner', '==', ownerUid]], limit: 500 }).catch(() => []),
+      db.runQuery(`apps/${appId}/messages`, { where: [['sender', '==', actorUid]], limit: 500 }).catch(() => []),
+      db.runQuery(`apps/${appId}/messages`, { where: [['memberUids', 'ARRAY_CONTAINS', actorUid]], limit: 500 }).catch(() => [])
+    ]);
+    for (const list of msgSets) {
+      for (const msg of list) {
+        if (msgSeen.has(msg._id)) continue;
+        msgSeen.add(msg._id);
+        await db.updateDoc(`apps/${appId}/messages/${msg._id}`, { owner: ownerUid, memberUids }).catch(() => {});
+      }
+    }
+  }
+
   r.delete('/:id/messages', async (req, res) => {
     const a = await memberOf(req, res, req.params.id); if (!a) return;
     if (a.role !== 'owner') return bad(res, 403, 'Nur der Besitzer kann den Verlauf leeren.');
-    await db.deleteCollection(`apps/${a.id}/messages`);
+    if (db.isMemoryDb() || process.env.FIREBASE_SERVICE_ACCOUNT) {
+      await db.deleteCollection(`apps/${a.id}/messages`);
+    } else {
+      const msgSeen = new Set();
+      const msgSets = await Promise.all([
+        db.runQuery(`apps/${a.id}/messages`, { where: [['owner', '==', req.user.uid]], limit: 500 }).catch(() => []),
+        db.runQuery(`apps/${a.id}/messages`, { where: [['memberUids', 'ARRAY_CONTAINS', req.user.uid]], limit: 500 }).catch(() => []),
+        db.runQuery(`apps/${a.id}/messages`, { where: [['sender', '==', req.user.uid]], limit: 500 }).catch(() => [])
+      ]);
+      for (const list of msgSets) {
+        for (const msg of list) {
+          if (msgSeen.has(msg._id)) continue;
+          msgSeen.add(msg._id);
+          await db.deleteDoc(`apps/${a.id}/messages/${msg._id}`).catch(() => {});
+        }
+      }
+    }
     res.json({ ok: true });
   });
 
@@ -675,13 +761,17 @@ function appsRouter(requireAuth) {
     if (curMembers.length >= LIMITS.members) return bad(res, 400, `Höchstens ${LIMITS.members} Personen pro App.`);
     const existingMember = await db.getDoc(`apps/${a.id}/members/${hdoc.uid}`);
     if (existingMember) return bad(res, 409, 'Ist schon dabei.');
-    await db.updateDoc(`apps/${a.id}`, { memberUids: [...new Set([...curMembers, hdoc.uid])] });
-    await db.createDoc(`apps/${a.id}/members/${hdoc.uid}`, { app_id: a.id, uid: hdoc.uid, role: 'editor', last_seen: db.nowIso() });
+    const nextMembers = [...new Set([...curMembers, hdoc.uid])];
+    await db.updateDoc(`apps/${a.id}`, { memberUids: nextMembers });
+    await db.createDoc(`apps/${a.id}/members/${hdoc.uid}`, {
+      app_id: a.id, uid: hdoc.uid, owner: a.owner, memberUids: nextMembers, role: 'editor', last_seen: db.nowIso()
+    });
+    await syncSubcollectionMembers(a.id, a.owner, nextMembers, req.user.uid);
     const mid = db.nextId();
     await db.createDoc(`apps/${a.id}/messages/${mid}`, {
-      id: mid, app_id: a.id, sender: req.user.uid, role: 'event', body: `@${hdoc.handle} ist jetzt dabei.`, meta: { kind: 'member' }, created_at: db.nowIso()
+      id: mid, app_id: a.id, sender: req.user.uid, owner: a.owner, memberUids: nextMembers, role: 'event', body: `@${hdoc.handle} ist jetzt dabei.`, meta: { kind: 'member' }, created_at: db.nowIso()
     });
-    res.json({ ok: true, members: await membersOf(a.id, req.user.uid) });
+    res.json({ ok: true, members: await membersOf(a.id, req.user.uid, a.owner, nextMembers) });
   });
 
   r.delete('/:id/members/:handle', async (req, res) => {
@@ -691,8 +781,10 @@ function appsRouter(requireAuth) {
     if (!m) return bad(res, 404, 'Nicht in dieser App.');
     if (m.role === 'owner') return bad(res, 400, 'Der Besitzer kann nicht entfernt werden.');
     if (a.role !== 'owner' && hdoc.uid !== req.user.uid) return bad(res, 403, 'Nur der Besitzer kann andere entfernen.');
+    const nextMembers = (a.memberUids || []).filter(u => u !== hdoc.uid);
     await db.deleteDoc(`apps/${a.id}/members/${hdoc.uid}`);
-    await db.updateDoc(`apps/${a.id}`, { memberUids: (a.memberUids || []).filter(u => u !== hdoc.uid) });
+    await db.updateDoc(`apps/${a.id}`, { memberUids: nextMembers });
+    if (a.role === 'owner') await syncSubcollectionMembers(a.id, a.owner, nextMembers, req.user.uid).catch(() => {});
     res.json({ ok: true });
   });
 

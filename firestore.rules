@@ -439,7 +439,7 @@ service cloud.firestore {
           exists(/databases/$(database)/documents/apps/$(appId)/members/$(request.auth.uid))
         );
       }
-      allow get: if isNumId(appId) && (canReadApp() || isAdmin());
+      allow get: if isNumId(appId) && (resource == null || canReadApp() || isAdmin());
       allow list: if isSignedIn() && (request.auth.uid in resource.data.memberUids || isAdminToken());
       allow create: if isVerified() && isNumId(appId) && isValidApp(incoming())
         && incoming().owner == request.auth.uid && request.auth.uid in incoming().memberUids;
@@ -461,56 +461,88 @@ service cloud.firestore {
 
       match /members/{memberUid} {
         allow get: if isValidId(memberUid) && isSignedIn() && (
-          request.auth.uid in get(/databases/$(database)/documents/apps/$(appId)).data.memberUids || isAdmin()
+          isOwner(memberUid) ||
+          resource == null ||
+          (exists(/databases/$(database)/documents/apps/$(appId)) && request.auth.uid in get(/databases/$(database)/documents/apps/$(appId)).data.memberUids) ||
+          isAdmin()
         );
         allow list: if isSignedIn() && (
-          request.auth.uid in get(/databases/$(database)/documents/apps/$(appId)).data.memberUids || isAdminToken()
+          resource.data.uid == request.auth.uid ||
+          resource.data.owner == request.auth.uid ||
+          ('memberUids' in resource.data && resource.data.memberUids is list && request.auth.uid in resource.data.memberUids) ||
+          isAdminToken()
         );
         allow create: if isVerified() && isValidId(memberUid)
           && exists(/databases/$(database)/documents/apps/$(appId))
           && incoming().keys().hasAll(['app_id', 'uid', 'role'])
-          && incoming().keys().hasOnly(['app_id', 'uid', 'role', 'last_seen'])
+          && incoming().keys().hasOnly(['app_id', 'uid', 'owner', 'memberUids', 'role', 'last_seen'])
           && incoming().uid == memberUid && incoming().role in ['owner', 'editor', 'viewer']
+          && isOptStr(incoming(), 'owner', 128)
+          && (!('memberUids' in incoming()) || (incoming().memberUids is list && incoming().memberUids.size() <= 8))
           && (get(/databases/$(database)/documents/apps/$(appId)).data.owner == request.auth.uid || isAdmin());
         allow update: if isVerified() && isValidId(memberUid)
           && incoming().keys().hasAll(['app_id', 'uid', 'role'])
-          && incoming().keys().hasOnly(['app_id', 'uid', 'role', 'last_seen'])
+          && incoming().keys().hasOnly(['app_id', 'uid', 'owner', 'memberUids', 'role', 'last_seen'])
           && incoming().uid == existing().uid && incoming().app_id == existing().app_id
           && incoming().role in ['owner', 'editor', 'viewer']
+          && isOptStr(incoming(), 'owner', 128)
+          && (!('memberUids' in incoming()) || (incoming().memberUids is list && incoming().memberUids.size() <= 8))
           && (
-            (get(/databases/$(database)/documents/apps/$(appId)).data.owner == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'last_seen'])) ||
+            (get(/databases/$(database)/documents/apps/$(appId)).data.owner == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'last_seen', 'owner', 'memberUids'])) ||
             (isOwner(memberUid) && incoming().diff(existing()).affectedKeys().hasOnly(['last_seen'])) ||
             isAdmin()
           );
         allow delete: if isValidId(memberUid) && (
-          isOwner(memberUid) || get(/databases/$(database)/documents/apps/$(appId)).data.owner == request.auth.uid || isAdmin()
+          isOwner(memberUid) ||
+          (exists(/databases/$(database)/documents/apps/$(appId)) && get(/databases/$(database)/documents/apps/$(appId)).data.owner == request.auth.uid) ||
+          isAdmin()
         );
       }
 
       match /messages/{msgId} {
         allow get: if isNumId(msgId) && isSignedIn() && (
-          request.auth.uid in get(/databases/$(database)/documents/apps/$(appId)).data.memberUids || isAdmin()
+          resource == null ||
+          isOwner(existing().sender) ||
+          (exists(/databases/$(database)/documents/apps/$(appId)) && request.auth.uid in get(/databases/$(database)/documents/apps/$(appId)).data.memberUids) ||
+          isAdmin()
         );
         allow list: if isSignedIn() && (
-          request.auth.uid in get(/databases/$(database)/documents/apps/$(appId)).data.memberUids || isAdminToken()
+          resource.data.sender == request.auth.uid ||
+          resource.data.owner == request.auth.uid ||
+          ('memberUids' in resource.data && resource.data.memberUids is list && request.auth.uid in resource.data.memberUids) ||
+          isAdminToken()
         );
         allow create: if isVerified() && isNumId(msgId)
           && exists(/databases/$(database)/documents/apps/$(appId))
           && incoming().keys().hasAll(['id', 'app_id', 'sender', 'role', 'body'])
-          && incoming().keys().hasOnly(['id', 'app_id', 'sender', 'role', 'body', 'meta', 'created_at'])
+          && incoming().keys().hasOnly(['id', 'app_id', 'sender', 'owner', 'memberUids', 'role', 'body', 'meta', 'created_at'])
           && incoming().sender == request.auth.uid
           && incoming().role in ['user', 'assistant', 'tool', 'event']
           && isStr(incoming().body, 0, 65000)
+          && isOptStr(incoming(), 'owner', 128)
+          && (!('memberUids' in incoming()) || (incoming().memberUids is list && incoming().memberUids.size() <= 8))
           && request.auth.uid in get(/databases/$(database)/documents/apps/$(appId)).data.memberUids;
-        allow update: if false;
+        allow update: if isVerified() && isNumId(msgId)
+          && exists(/databases/$(database)/documents/apps/$(appId))
+          && (get(/databases/$(database)/documents/apps/$(appId)).data.owner == request.auth.uid || isAdmin())
+          && incoming().keys().hasAll(['id', 'app_id', 'sender', 'role', 'body'])
+          && incoming().keys().hasOnly(['id', 'app_id', 'sender', 'owner', 'memberUids', 'role', 'body', 'meta', 'created_at'])
+          && incoming().id == existing().id && incoming().app_id == existing().app_id
+          && incoming().sender == existing().sender && incoming().role == existing().role
+          && incoming().body == existing().body
+          && isOptStr(incoming(), 'owner', 128)
+          && (!('memberUids' in incoming()) || (incoming().memberUids is list && incoming().memberUids.size() <= 8))
+          && incoming().diff(existing()).affectedKeys().hasOnly(['owner', 'memberUids']);
         allow delete: if isNumId(msgId) && (
-          get(/databases/$(database)/documents/apps/$(appId)).data.owner == request.auth.uid || isAdmin()
+          isOwner(existing().sender) ||
+          (exists(/databases/$(database)/documents/apps/$(appId)) && get(/databases/$(database)/documents/apps/$(appId)).data.owner == request.auth.uid) ||
+          isAdmin()
         );
       }
     }
 
     match /app_routes/{slug} {
-      allow get: if isStr(slug, 3, 60) && (existing().published == true || isOwner(existing().owner) || isAdmin());
+      allow get: if isStr(slug, 3, 60) && (resource == null || existing().published == true || isOwner(existing().owner) || isAdmin());
       allow list: if isSignedIn() && (resource.data.owner == request.auth.uid || isAdminToken());
       allow create: if isVerified() && isStr(slug, 3, 60)
         && incoming().keys().hasAll(['app_id', 'owner', 'slug', 'published'])

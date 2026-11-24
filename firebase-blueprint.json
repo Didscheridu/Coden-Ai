@@ -225,6 +225,8 @@
       "properties": {
         "app_id": { "type": "number" },
         "uid": { "type": "string", "maxLength": 128 },
+        "owner": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
         "role": { "type": "string", "enum": ["owner", "editor", "viewer"], "maxLength": 16 },
         "last_seen": { "type": "string", "format": "date-time", "maxLength": 64 }
       },
@@ -238,6 +240,8 @@
         "id": { "type": "number" },
         "app_id": { "type": "number" },
         "sender": { "type": "string", "maxLength": 128 },
+        "owner": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
         "role": { "type": "string", "enum": ["user", "assistant", "tool", "event"], "maxLength": 16 },
         "body": { "type": "string", "maxLength": 65000 },
         "meta": { "type": "object" },

@@ -28,7 +28,7 @@ process.on('uncaughtException', (e) => console.error('[uncaughtException]', e?.s
 
 const app = express();
 app.disable('x-powered-by');
-app.use(express.json({ limit: '4mb' }));
+app.use(express.json({ limit: '12mb' }));
 app.use((req, res, next) => {
   res.set('Cache-Control', 'no-store');
   res.set('X-Content-Type-Options', 'nosniff');
@@ -249,7 +249,7 @@ const pinOf = (req) => (typeof req.body?.model === 'string' && req.user.isOwner 
 function validChat(body) {
   const { messages, tier } = body || {};
   if (!Array.isArray(messages) || !messages.length || messages.length > 60 || typeof tier !== 'string') return false;
-  return messages.every(m => ['system', 'user', 'assistant'].includes(m.role) && typeof m.content === 'string' && m.content.length <= 100_000
+  return messages.every(m => ['system', 'user', 'assistant'].includes(m.role) && typeof m.content === 'string' && m.content.length <= 2_500_000
     && (!m.images || (Array.isArray(m.images) && m.images.length <= 4 && m.images.every(i => typeof i === 'string' && CodenUpload.inspectImageDataUrl(i).ok))));
 }
 

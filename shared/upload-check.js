@@ -5,8 +5,8 @@
     const api = factory();
     if (typeof module === 'object' && module.exports) module.exports = api; else root.CodenUpload = api;
 })(typeof self !== 'undefined' ? self : this, function () {
-    const MAX_BYTES = 2 * 1024 * 1024;
-    const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
+    const MAX_BYTES = 15 * 1024 * 1024;
+    const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
     // Endungen, die auf Programme, Installer, Skripte zum Doppelklicken, Makro-Dokumente oder Archive hindeuten
     const BLOCKED_EXT = new Set(('exe dll sys drv ocx msi msp mst com scr pif cpl lnk bat cmd vbs vbe jse wsf wsh hta jar apk ipa dmg pkg app deb rpm iso img bin so dylib reg gadget chm cab ' +
@@ -60,7 +60,7 @@
         if (BLOCKED_EXT.has(last)) return fail(`.${last}-Dateien werden aus Sicherheitsgründen nicht angenommen.`);
         if (exts.slice(0, -1).some(x => BLOCKED_EXT.has(x) && x !== 'app')) return fail('Verdächtiger Dateiname mit doppelter Endung.');
         const len = typeof size === 'number' ? size : bytes.length;
-        if (len > MAX_BYTES || bytes.length > MAX_BYTES) return fail('Die Datei ist zu groß (höchstens 2 MB).');
+        if (len > MAX_BYTES || bytes.length > MAX_BYTES) return fail('Die Datei ist zu groß (höchstens 15 MB).');
         if (!bytes.length) return fail('Die Datei ist leer.');
         const real = sniff(bytes);
         if (real && IMAGE_MIME[real]) {
@@ -92,5 +92,5 @@
         return { ok: true, mime: 'image/' + m[1] };
     }
 
-    return { inspect, inspectImageDataUrl, sniff, looksLikeText, MAX_BYTES, BLOCKED_EXT };
+    return { inspect, inspectImageDataUrl, sniff, looksLikeText, MAX_BYTES, MAX_IMAGE_BYTES, BLOCKED_EXT };
 });

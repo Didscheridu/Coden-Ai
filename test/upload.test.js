@@ -31,7 +31,8 @@ chk('versteckte Zeichen im Namen (RLO)', run('foto‮gpj.exe', PNG).ok, false);
 chk('Binärdatei ohne Endung', run('blob', B(1, 2, 0, 3, 4, 0, 5)).ok, false);
 chk('Virus-Testdatei', run('eicar.txt', T('X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*')).ok, false);
 chk('leer', run('leer.txt', B()).ok, false);
-chk('zu groß', U.inspect({ name: 'a.txt', size: 3 * 1024 * 1024, bytes: T('a') }).ok, false);
+chk('über 2 MB ok', U.inspect({ name: 'a.txt', size: 3 * 1024 * 1024, bytes: T('a') }).ok, true);
+chk('zu groß (> 15 MB)', U.inspect({ name: 'a.txt', size: 16 * 1024 * 1024, bytes: T('a') }).ok, false);
 chk('Pfad im Namen wird gekürzt', run('../../etc/x.txt', T('a')).name, 'x.txt');
 
 const b64 = (u) => Buffer.from(u).toString('base64');

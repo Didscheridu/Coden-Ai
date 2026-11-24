@@ -1190,6 +1190,56 @@ if (attachmentBtn && chatInput) {
     chatInput.before(chipsHost);
     appPicker = mountAppPicker({ anchor: attachmentBtn, chipsHost });
 }
+function blobToDataUrl(blob) {
+    return new Promise((res, rej) => {
+        const reader = new FileReader();
+        reader.onload = () => res(reader.result);
+        reader.onerror = rej;
+        reader.readAsDataURL(blob);
+    });
+}
+
+async function prepareImageDataUrl(bytes, mime) {
+    const blob = new Blob([bytes], { type: mime });
+    const raw = await blobToDataUrl(blob).catch(() => null);
+    if (!raw) return null;
+    if (raw.length <= 2_400_000) return raw;
+    const objUrl = URL.createObjectURL(blob);
+    try {
+        const img = await new Promise((res, rej) => {
+            const el = new Image();
+            el.onload = () => res(el);
+            el.onerror = rej;
+            el.src = objUrl;
+        });
+        const attempts = [
+            [2048, 0.86],
+            [1600, 0.78],
+            [1280, 0.68],
+            [1024, 0.56]
+        ];
+        let best = raw;
+        for (const [maxSide, quality] of attempts) {
+            const scale = Math.min(1, maxSide / Math.max(img.naturalWidth || 1, img.naturalHeight || 1));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round((img.naturalWidth || 1) * scale));
+            canvas.height = Math.max(1, Math.round((img.naturalHeight || 1) * scale));
+            const ctx = canvas.getContext('2d');
+            if (!ctx) break;
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            best = canvas.toDataURL('image/jpeg', quality);
+            if (best.length <= 2_400_000) return best;
+        }
+        return best.length <= 3_800_000 ? best : null;
+    } catch (_) {
+        return raw.length <= 3_800_000 ? raw : null;
+    } finally {
+        URL.revokeObjectURL(objUrl);
+    }
+}
+
 if (attachmentBtn && fileUploadInput) {
     attachmentBtn.addEventListener('click', (e) => {
         e.preventDefault();
@@ -1201,18 +1251,20 @@ if (attachmentBtn && fileUploadInput) {
     fileUploadInput.addEventListener('change', async (e) => {
         const files = e.target.files;
         if (!files || files.length === 0) return;
+        const maxBytes = window.CodenUpload?.MAX_BYTES || 15 * 1024 * 1024;
+        const maxMbLabel = Math.round(maxBytes / (1024 * 1024));
 
         for (let file of files) {
             if (pendingAttachments.length >= 6) { toast('Höchstens 6 Anhänge pro Nachricht.', { type: 'warn' }); break; }
-            if (file.size > 2 * 1024 * 1024) { toast(`${file.name} ist zu groß (höchstens 2 MB).`, { type: 'warn' }); continue; }
+            if (file.size > maxBytes) { toast(`${file.name} ist zu groß (höchstens ${maxMbLabel} MB).`, { type: 'warn' }); continue; }
             // Sicherheitsprüfung: echter Dateityp (nicht nur die Endung), keine Programme/Archive/Binärdateien
             let bytes;
             try { bytes = new Uint8Array(await file.arrayBuffer()); } catch (err) { toast(`${file.name} konnte nicht gelesen werden.`, { type: 'error' }); continue; }
             const v = window.CodenUpload.inspect({ name: file.name, size: file.size, bytes, type: file.type });
             if (!v.ok) { toast(`🛡️ ${v.name || file.name}: ${v.reason}`, { type: 'error' }); continue; }
             if (v.kind === 'image') {
-                const data = await new Promise((res, rej) => { const reader = new FileReader(); reader.onload = () => res(reader.result); reader.onerror = rej; reader.readAsDataURL(new Blob([bytes], { type: v.mime })); }).catch(() => null);
-                if (!data) { toast(`${file.name} konnte nicht gelesen werden.`, { type: 'error' }); continue; }
+                const data = await prepareImageDataUrl(bytes, v.mime);
+                if (!data) { toast(`${file.name} ist nach der Komprimierung noch zu groß oder konnte nicht gelesen werden.`, { type: 'error' }); continue; }
                 pendingAttachments.push({ type: 'image', name: v.name, data });
             } else {
                 pendingAttachments.push({ type: 'text', name: v.name, content: new TextDecoder('utf-8').decode(bytes) });
@@ -1454,10 +1506,14 @@ async function handleSend() {
 
     if (pendingAttachments.length > 0) {
         const escAtt = (s) => String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const MAX_TEXT_PROMPT_CHARS = 1_200_000;
         pendingAttachments.forEach(att => {
             if (att.type === 'text') {
+                const body = att.content.length > MAX_TEXT_PROMPT_CHARS
+                    ? att.content.slice(0, MAX_TEXT_PROMPT_CHARS) + '\n\n[… Rest der Datei für den Chat-Versand gekürzt …]'
+                    : att.content;
                 displayMessage += `\n\n<div style="display:inline-block; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); padding:4px 10px; border-radius:12px; font-size:12px; margin-top:8px;">📎 <b>Datei angehängt:</b> <code>${escAtt(att.name)}</code></div>`;
-                internalPrompt += `\n\n[Inhalt der angehängten Datei: ${att.name}]\n\`\`\`\n${att.content}\n\`\`\`\n`;
+                internalPrompt += `\n\n[Inhalt der angehängten Datei: ${att.name}]\n\`\`\`\n${body}\n\`\`\`\n`;
             } else if (att.type === 'image') {
                 displayMessage += `\n\n![${escAtt(att.name)}](${att.data})`;
                 internalPrompt += `\n\n[Der Nutzer hat dir ein Bild hochgeladen. Bitte beachte das Bild in deiner Antwort.]`; 
@@ -1476,7 +1532,7 @@ async function handleSend() {
     const sessionsToSave = JSON.parse(JSON.stringify(sessions.filter(s => !s.temp)));
     sessionsToSave.forEach(s => {
         s.messages.forEach(m => {
-            if (m.images) delete m.images; // Löscht die 2MB Bilder aus dem lokalen Speicher!
+            if (m.images) delete m.images; // Löscht angehängte Bilder aus dem lokalen Speicher!
         });
     });
     Storage.saveSessions(sessionsToSave);
