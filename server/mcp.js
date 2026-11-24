@@ -246,6 +246,7 @@ async function registerDynamicClient(registrationEndpoint, redirectUri, clientUr
   const regUrl = parseServerUrl(registrationEndpoint);
   const attempts = ['none', 'client_secret_post'];
   let lastErr = null;
+  let redirectBlocked = false;
   for (const method of attempts) {
     const r = await requestJson(regUrl, {
       method: 'POST',
@@ -268,7 +269,16 @@ async function registerDynamicClient(registrationEndpoint, redirectUri, clientUr
         dcr: true
       };
     }
-    lastErr = r.json?.error_description || r.json?.error || `HTTP ${r.status}`;
+    const errCode = String(r.json?.error || '');
+    const errDesc = String(r.json?.error_description || '');
+    const rawSnippet = !errCode && !errDesc && r.text ? String(r.text).replace(/<[^>]+>/g, ' ').trim().slice(0, 140) : '';
+    lastErr = errDesc || errCode || rawSnippet || `HTTP ${r.status}`;
+    if (r.status === 403 || errCode === 'invalid_redirect_uri' || /redirect/i.test(lastErr)) {
+      redirectBlocked = true;
+    }
+  }
+  if (redirectBlocked) {
+    throw httpErr(400, `Dieser Dienst akzeptiert die Web-Callback-Adresse nicht automatisch (${String(lastErr).slice(0, 120)}). Nutze eine eigene OAuth Client-ID oder ein persönliches Zugriffstoken.`, { code: 'REDIRECT_NOT_ALLOWED' });
   }
   throw httpErr(502, `Automatische App-Registrierung (DCR) fehlgeschlagen: ${String(lastErr).slice(0, 180)}`, { code: 'DCR_FAILED' });
 }
@@ -310,7 +320,9 @@ function validRedirectUri(raw, req) {
   try { u = new URL(raw); } catch (_) { return null; }
   const cleanPath = u.pathname.replace(/\/+$/, '');
   if (cleanPath !== '/api/mcp/oauth/callback') return null;
-  const selfOrigin = `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.headers.host}`.replace(/\/$/, '').toLowerCase();
+  const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0].trim();
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  const selfOrigin = `${proto}://${host}`.replace(/\/$/, '').toLowerCase();
   const allowed = new Set([selfOrigin]);
   for (const envUrl of [process.env.PUBLIC_APP_BASE, process.env.APP_URL]) {
     if (envUrl) {
@@ -444,7 +456,7 @@ async function allocConnDoc(buildDoc) {
     try {
       return await db.createDoc(`mcp_connections/${id}`, doc);
     } catch (e) {
-      if (e.code === 'ALREADY_EXISTS' || e.code === 'PERMISSION_DENIED') continue;
+      if (e.code === 'ALREADY_EXISTS') continue;
       throw e;
     }
   }
@@ -493,16 +505,32 @@ function mcpOAuthCallbackHandler(req, res) {
   if (data.error) {
     document.getElementById('m').textContent = data.errorDescription || data.error;
   }
+  var sent = false;
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      var ch = new BroadcastChannel('coden_mcp_oauth');
+      ch.postMessage(data);
+      setTimeout(function () { try { ch.close(); } catch (e) {} }, 250);
+      sent = true;
+    }
+  } catch (e) {}
+  try {
+    localStorage.setItem('coden_mcp_oauth_bc', JSON.stringify({ data: data, ts: Date.now() }));
+    setTimeout(function () { try { localStorage.removeItem('coden_mcp_oauth_bc'); } catch (e) {} }, 1500);
+    sent = true;
+  } catch (e) {}
   try {
     if (window.opener && !window.opener.closed) {
       window.opener.postMessage(data, window.location.origin);
-      setTimeout(function () { window.close(); }, 400);
-      return;
+      sent = true;
     }
   } catch (e) {}
   try {
     sessionStorage.setItem('coden_mcp_oauth_pending', JSON.stringify(data));
   } catch (e) {}
+  if (sent) {
+    setTimeout(function () { try { window.close(); } catch (e) {} }, 450);
+  }
 })();
 </script>
 </body>
@@ -673,6 +701,27 @@ function mcpRouter(requireAuth) {
     authUrl.searchParams.set('state', state);
     if (scope) authUrl.searchParams.set('scope', scope);
     if (disc.resource) authUrl.searchParams.set('resource', disc.resource);
+
+    // Vorab-Check bei DCR (fängt Anbieter wie Canva ab, die /register erlauben aber /authorize mit 400 Invalid redirect URI ablehnen)
+    if (client.dcr) {
+      try {
+        const pre = await request(parseServerUrl(authUrl.toString()), {
+          method: 'GET',
+          headers: { Accept: 'text/html,application/json', 'User-Agent': 'Coden-MCP/1.0' },
+          redirects: true,
+          maxBody: 16384,
+          timeout: 4500
+        });
+        if (pre.status === 400 || pre.status === 403) {
+          const msg = String(pre.text || '').replace(/<[^>]+>/g, ' ').trim().slice(0, 140);
+          if (/redirect/i.test(msg) || (pre.status === 400 && msg.length > 0)) {
+            throw httpErr(400, `Dieser Dienst akzeptiert die Web-Callback-Adresse nicht automatisch (${msg || 'HTTP ' + pre.status}). Nutze ein persönliches Zugriffstoken oder eine eigene OAuth Client-ID.`, { code: 'REDIRECT_NOT_ALLOWED' });
+          }
+        }
+      } catch (e) {
+        if (e.code === 'REDIRECT_NOT_ALLOWED') throw e;
+      }
+    }
 
     res.json({
       authUrl: authUrl.toString(),

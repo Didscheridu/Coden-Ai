@@ -41,17 +41,17 @@ export const MCP_LIBRARY = [
     { id: 'gitlab', name: 'GitLab', cat: 'dev', icon: 'merge_type', auth: 'oauth', supportsDcr: true, url: 'https://gitlab.com/api/v4/mcp', desc: 'Merge Requests, Pipelines, Issues und Projekte in GitLab verwalten.', info: 'Anmeldung über GitLab OAuth 2.1.', link: 'https://docs.gitlab.com/user/gitlab_duo/model_context_protocol/' },
     { id: 'linear', name: 'Linear', cat: 'dev', icon: 'linear_scale', auth: 'oauth', supportsDcr: true, url: 'https://mcp.linear.app/mcp', desc: 'Tickets, Zyklen, Roadmaps und Projektstatus in Linear lesen und aktualisieren.', info: 'Offizielle OAuth-2.1-Anmeldung mit automatischer App-Registrierung.', link: 'https://linear.app/docs/mcp' },
     { id: 'sentry', name: 'Sentry', cat: 'dev', icon: 'bug_report', auth: 'oauth', supportsDcr: true, url: 'https://mcp.sentry.dev/mcp', desc: 'Fehlerberichte, Stacktraces und Performance-Daten aus Projekten analysieren.', info: 'Anmeldung direkt über dein Sentry-Konto.', link: 'https://docs.sentry.io/product/sentry-mcp/' },
-    { id: 'vercel', name: 'Vercel', cat: 'dev', icon: 'change_history', auth: 'oauth', supportsDcr: true, url: 'https://mcp.vercel.com', desc: 'Deployments, Build-Logs, Domains und Projekte auf Vercel prüfen.', info: 'Direkt per Vercel OAuth verbindbar.', link: 'https://vercel.com/docs/mcp' },
+    { id: 'vercel', name: 'Vercel', cat: 'dev', icon: 'change_history', auth: 'oauth', supportsDcr: false, url: 'https://mcp.vercel.com', desc: 'Deployments, Build-Logs, Domains und Projekte auf Vercel prüfen.', info: 'Eigene Vercel-OAuth-App (Client-ID) oder Vercel Access-Token eintragen.', link: 'https://vercel.com/account/tokens' },
     { id: 'netlify', name: 'Netlify', cat: 'dev', icon: 'deployed_code', auth: 'oauth', supportsDcr: true, url: 'https://netlify-mcp.netlify.app/mcp', desc: 'Webseiten deployen, Builds verwalten und Umgebungsvariablen steuern.', info: 'Anmeldung über Netlify OAuth.', link: 'https://docs.netlify.com/build/build-with-ai/overview/' },
     { id: 'context7', name: 'Context7', cat: 'dev', icon: 'library_books', auth: 'key', url: 'https://mcp.context7.com/mcp', desc: 'Aktuelle Dokumentation und Code-Beispiele zu Bibliotheken abrufen.', info: 'Kostenloser API-Schlüssel von context7.com.', link: 'https://context7.com/dashboard' },
     { id: 'deepwiki', name: 'DeepWiki', cat: 'dev', icon: 'menu_book', auth: 'none', url: 'https://mcp.deepwiki.com/mcp', desc: 'Fragen zu öffentlichen GitHub-Projekten beantworten und Dokus lesen.', info: 'Direkt ohne Anmeldung nutzbar.', link: 'https://docs.devin.ai/work-with-devin/deepwiki-mcp' },
     { id: 'semgrep', name: 'Semgrep', cat: 'dev', icon: 'security', auth: 'oauth', supportsDcr: true, url: 'https://mcp.semgrep.ai/mcp', desc: 'Code auf Sicherheitslücken und bekannte Schwachstellen prüfen.', info: 'OAuth-Anmeldung oder AppSec-Token.', link: 'https://semgrep.dev/docs/' },
-    { id: 'circleci', name: 'CircleCI', cat: 'dev', icon: 'autorenew', auth: 'oauth', supportsDcr: true, url: 'https://mcp.circleci.com/mcp', desc: 'CI/CD-Pipelines einsehen, fehlgeschlagene Tests analysieren und Builds starten.', info: 'OAuth-Anmeldung über CircleCI.', link: 'https://circleci.com/docs/' },
+    { id: 'circleci', name: 'CircleCI', cat: 'dev', icon: 'autorenew', auth: 'oauth', supportsDcr: false, url: 'https://mcp.circleci.com/mcp', desc: 'CI/CD-Pipelines einsehen, fehlgeschlagene Tests analysieren und Builds starten.', info: 'CircleCI Personal API Token oder eigene OAuth Client-ID.', link: 'https://app.circleci.com/settings/user/tokens' },
 
     // Produktivität & Doku (8)
     { id: 'notion', name: 'Notion', cat: 'prod', icon: 'article', auth: 'oauth', supportsDcr: true, url: 'https://mcp.notion.com/mcp', desc: 'Seiten, Datenbanken und Wissensbasen in Notion durchsuchen und bearbeiten.', info: 'Offizielle Notion-OAuth-Verbindung per Anmeldefenster.', link: 'https://developers.notion.com/docs/mcp' },
     { id: 'atlassian', name: 'Atlassian (Jira & Confluence)', cat: 'prod', icon: 'task_alt', auth: 'oauth', supportsDcr: true, url: 'https://mcp.atlassian.com/v1/mcp', desc: 'Jira-Vorgänge und Confluence-Seiten suchen, erstellen und kommentieren.', info: 'Anmeldung mit deinem Atlassian-Konto.', link: 'https://support.atlassian.com/rovo/docs/getting-started-with-the-atlassian-remote-mcp-server/' },
-    { id: 'asana', name: 'Asana', cat: 'prod', icon: 'checklist', auth: 'oauth', supportsDcr: true, url: 'https://mcp.asana.com/sse', desc: 'Aufgaben, Projekte, Fälligkeiten und Team-Kommentare in Asana verwalten.', info: 'Direkte OAuth-Anmeldung bei Asana.', link: 'https://developers.asana.com/docs/mcp-server' },
+    { id: 'asana', name: 'Asana', cat: 'prod', icon: 'checklist', auth: 'oauth', supportsDcr: false, url: 'https://mcp.asana.com/v2/mcp', desc: 'Aufgaben, Projekte, Fälligkeiten und Team-Kommentare in Asana verwalten.', info: 'Eigene Asana OAuth-App (Client-ID) oder Personal Access Token.', link: 'https://app.asana.com/0/my-apps' },
     { id: 'monday', name: 'monday.com', cat: 'prod', icon: 'view_kanban', auth: 'oauth', supportsDcr: true, url: 'https://mcp.monday.com/mcp', desc: 'Boards, Items und Workflows in monday.com lesen und aktualisieren.', info: 'Anmeldung über monday.com OAuth.', link: 'https://developer.monday.com/' },
     { id: 'todoist', name: 'Todoist', cat: 'prod', icon: 'check_circle', auth: 'oauth', supportsDcr: true, url: 'https://ai.todoist.net/mcp', desc: 'Aufgaben planen, Listen organisieren und Erinnerungen abhaken.', info: 'Anmeldung über dein Todoist-Konto.', link: 'https://todoist.com' },
     { id: 'clickup', name: 'ClickUp', cat: 'prod', icon: 'view_timeline', auth: 'oauth', supportsDcr: true, url: 'https://mcp.clickup.com/mcp', desc: 'Spaces, Listen, Aufgaben und Zeiterfassung in ClickUp ansteuern.', info: 'OAuth-Anmeldung über ClickUp.', link: 'https://developer.clickup.com/' },
@@ -60,11 +60,11 @@ export const MCP_LIBRARY = [
 
     // Kommunikation & CRM (6)
     { id: 'slack', name: 'Slack', cat: 'comm', icon: 'forum', auth: 'oauth', supportsDcr: false, url: 'https://mcp.slack.com/mcp', desc: 'Kanäle lesen, Nachrichten suchen und Updates in Slack posten.', info: 'OAuth über eigene Slack-App (Client-ID) oder Bot-Token.', link: 'https://api.slack.com/apps' },
-    { id: 'intercom', name: 'Intercom', cat: 'comm', icon: 'support_agent', auth: 'oauth', supportsDcr: true, url: 'https://mcp.intercom.com/mcp', desc: 'Kundenanfragen, Kontakte und Hilfeartikel in Intercom durchsuchen.', info: 'OAuth-Anmeldung direkt bei Intercom.', link: 'https://developers.intercom.com/' },
-    { id: 'hubspot', name: 'HubSpot', cat: 'comm', icon: 'handshake', auth: 'oauth', supportsDcr: true, url: 'https://mcp.hubspot.com', desc: 'Kontakte, Deals, Unternehmen und Notizen im HubSpot CRM abrufen.', info: 'Anmeldung über HubSpot OAuth.', link: 'https://developers.hubspot.com/' },
-    { id: 'box', name: 'Box', cat: 'comm', icon: 'inventory_2', auth: 'oauth', supportsDcr: true, url: 'https://mcp.box.com/', desc: 'Dokumente, Ordner und freigegebene Dateien in Box suchen und lesen.', info: 'OAuth-Login über Box.', link: 'https://developer.box.com/' },
+    { id: 'intercom', name: 'Intercom', cat: 'comm', icon: 'support_agent', auth: 'oauth', supportsDcr: false, url: 'https://mcp.intercom.com/mcp', desc: 'Kundenanfragen, Kontakte und Hilfeartikel in Intercom durchsuchen.', info: 'Intercom Access-Token oder eigene OAuth Client-ID.', link: 'https://developers.intercom.com/' },
+    { id: 'hubspot', name: 'HubSpot', cat: 'comm', icon: 'handshake', auth: 'oauth', supportsDcr: false, url: 'https://mcp.hubspot.com', desc: 'Kontakte, Deals, Unternehmen und Notizen im HubSpot CRM abrufen.', info: 'Eigene HubSpot-App (Client-ID) oder Private-App-Token.', link: 'https://developers.hubspot.com/' },
+    { id: 'box', name: 'Box', cat: 'comm', icon: 'inventory_2', auth: 'oauth', supportsDcr: false, url: 'https://mcp.box.com/', desc: 'Dokumente, Ordner und freigegebene Dateien in Box suchen und lesen.', info: 'Eigene Box OAuth-App (Client-ID) oder Developer-Token.', link: 'https://developer.box.com/' },
     { id: 'calcom', name: 'Cal.com', cat: 'comm', icon: 'calendar_month', auth: 'key', url: 'https://mcp.cal.com/mcp', desc: 'Termine, Verfügbarkeiten und Buchungen über Cal.com verwalten.', info: 'API-Schlüssel aus deinen Cal.com-Einstellungen.', link: 'https://app.cal.com/settings/developer/api-keys' },
-    { id: 'calendly', name: 'Calendly', cat: 'comm', icon: 'event', auth: 'oauth', supportsDcr: true, url: 'https://mcp.calendly.com/mcp', desc: 'Meeting-Links, gebuchte Termine und Event-Typen einsehen.', info: 'OAuth-Anmeldung mit Calendly.', link: 'https://developer.calendly.com/' },
+    { id: 'calendly', name: 'Calendly', cat: 'comm', icon: 'event', auth: 'oauth', supportsDcr: true, url: 'https://mcp.calendly.com/', desc: 'Meeting-Links, gebuchte Termine und Event-Typen einsehen.', info: 'OAuth-Anmeldung mit Calendly.', link: 'https://developer.calendly.com/' },
 
     // Daten & Cloud (7)
     { id: 'supabase', name: 'Supabase', cat: 'data', icon: 'database', auth: 'oauth', supportsDcr: true, url: 'https://mcp.supabase.com/mcp', desc: 'Datenbanken, Tabellen, Edge Functions und SQL-Abfragen steuern.', info: 'Offizielle OAuth-2.1-Anmeldung über Supabase.', link: 'https://supabase.com/docs/guides/getting-started/mcp' },
@@ -76,15 +76,15 @@ export const MCP_LIBRARY = [
     { id: 'huggingface', name: 'Hugging Face', cat: 'data', icon: 'psychology', auth: 'key', url: 'https://huggingface.co/mcp', desc: 'KI-Modelle, Datasets, Papers und Spaces auf Hugging Face suchen.', info: 'Zugriffstoken von huggingface.co/settings/tokens.', link: 'https://huggingface.co/settings/tokens' },
 
     // Design & Medien (4)
-    { id: 'figma', name: 'Figma', cat: 'design', icon: 'design_services', auth: 'oauth', supportsDcr: true, url: 'https://mcp.figma.com/mcp', desc: 'Figma-Designs, Frames, Variablen und Komponenten für Code auslesen.', info: 'Offizielle Figma-OAuth-Verbindung.', link: 'https://help.figma.com/hc/en-us/articles/32132100833559' },
-    { id: 'canva', name: 'Canva', cat: 'design', icon: 'palette', auth: 'oauth', supportsDcr: true, url: 'https://mcp.canva.com/mcp', desc: 'Canva-Vorlagen suchen, Designs erstellen und Inhalte exportieren.', info: 'OAuth-Anmeldung über dein Canva-Konto.', link: 'https://www.canva.dev/docs/connect/' },
+    { id: 'figma', name: 'Figma', cat: 'design', icon: 'design_services', auth: 'oauth', supportsDcr: false, url: 'https://mcp.figma.com/mcp', desc: 'Figma-Designs, Frames, Variablen und Komponenten für Code auslesen.', info: 'Persönlicher Figma-Token (PAT) oder eigene OAuth Client-ID.', link: 'https://www.figma.com/developers/api#access-tokens' },
+    { id: 'canva', name: 'Canva', cat: 'design', icon: 'palette', auth: 'oauth', supportsDcr: false, url: 'https://mcp.canva.com/mcp', desc: 'Canva-Vorlagen suchen, Designs erstellen und Inhalte exportieren.', info: 'Eigene Canva Connect-App (Client-ID + Callback-URL) oder Token.', link: 'https://www.canva.com/developers/' },
     { id: 'miro', name: 'Miro', cat: 'design', icon: 'dashboard_customize', auth: 'oauth', supportsDcr: true, url: 'https://mcp.miro.com/', desc: 'Whiteboards, Diagramme, Notizen und Karten auf Miro-Boards bearbeiten.', info: 'OAuth-Anmeldung über Miro.', link: 'https://developers.miro.com/' },
     { id: 'webflow', name: 'Webflow', cat: 'design', icon: 'web', auth: 'oauth', supportsDcr: true, url: 'https://mcp.webflow.com/mcp', desc: 'CMS-Einträge, Seiten und Komponenten in Webflow verwalten.', info: 'Anmeldung über Webflow OAuth.', link: 'https://developers.webflow.com/' },
 
     // Web, Suche & Finanzen (5)
     { id: 'stripe', name: 'Stripe', cat: 'web', icon: 'payments', auth: 'oauth', supportsDcr: true, url: 'https://mcp.stripe.com', desc: 'Produkte, Zahlungen, Kunden, Rechnungen und Abos in Stripe einsehen.', info: 'Offizielle Stripe-OAuth-Anmeldung.', link: 'https://docs.stripe.com/mcp' },
     { id: 'paypal', name: 'PayPal', cat: 'web', icon: 'account_balance_wallet', auth: 'oauth', supportsDcr: true, url: 'https://mcp.paypal.com/mcp', desc: 'Rechnungen, Bestellungen, Zahlungslinks und Transaktionen verwalten.', info: 'OAuth-Anmeldung über PayPal.', link: 'https://mcp.paypal.com/' },
-    { id: 'square', name: 'Square', cat: 'web', icon: 'point_of_sale', auth: 'oauth', supportsDcr: true, url: 'https://mcp.squareup.com/sse', desc: 'Kataloge, Bestellungen und Zahlungen über Square steuern.', info: 'OAuth-Anmeldung bei Square.', link: 'https://developer.squareup.com/docs/mcp' },
+    { id: 'square', name: 'Square', cat: 'web', icon: 'point_of_sale', auth: 'oauth', supportsDcr: false, url: 'https://mcp.squareup.com/sse', desc: 'Kataloge, Bestellungen und Zahlungen über Square steuern.', info: 'Eigene Square OAuth Client-ID oder Access-Token.', link: 'https://developer.squareup.com/docs/mcp' },
     { id: 'firecrawl', name: 'Firecrawl', cat: 'web', icon: 'travel_explore', auth: 'key', url: 'https://mcp.firecrawl.dev/mcp', desc: 'Webseiten sauber auslesen, crawlen und als Markdown für Coden laden.', info: 'API-Schlüssel von firecrawl.dev.', link: 'https://www.firecrawl.dev/app/api-keys' },
     { id: 'exa', name: 'Exa Search', cat: 'web', icon: 'search', auth: 'key', url: 'https://mcp.exa.ai/mcp', desc: 'Präzise Echtzeit-Websuche und Recherche für aktuelle Informationen.', info: 'API-Schlüssel von dashboard.exa.ai.', link: 'https://dashboard.exa.ai/api-keys' }
 ];
@@ -102,43 +102,75 @@ function openCenteredPopup() {
 function waitForOAuthCallback(popup) {
     return new Promise((resolve, reject) => {
         let done = false;
-        const cleanup = () => {
-            done = true;
-            window.removeEventListener('message', onMsg);
-            clearInterval(timer);
-            clearTimeout(timeout);
-        };
-        const onMsg = (ev) => {
-            if (ev.origin !== window.location.origin) return;
-            const d = ev.data;
-            if (!d || d.type !== 'CODEN_MCP_OAUTH_CALLBACK') return;
+        let bc = null;
+        let closedAt = 0;
+
+        const finishPayload = (d) => {
+            if (done || !d || d.type !== 'CODEN_MCP_OAUTH_CALLBACK') return;
             cleanup();
             if (d.error) reject(new Error(d.errorDescription || d.error || 'Anmeldung abgebrochen.'));
             else if (!d.code || !d.state) reject(new Error('Keine gültigen Anmeldedaten erhalten.'));
             else resolve({ code: d.code, state: d.state });
         };
+
+        const onMsg = (ev) => {
+            if (ev.origin !== window.location.origin) return;
+            finishPayload(ev.data);
+        };
+        const onStorage = (ev) => {
+            if (ev.key !== 'coden_mcp_oauth_bc' || !ev.newValue) return;
+            try {
+                const parsed = JSON.parse(ev.newValue);
+                try { localStorage.removeItem('coden_mcp_oauth_bc'); } catch (_) {}
+                finishPayload(parsed?.data);
+            } catch (_) {}
+        };
+        const cleanup = () => {
+            done = true;
+            window.removeEventListener('message', onMsg);
+            window.removeEventListener('storage', onStorage);
+            try { if (bc) bc.close(); } catch (_) {}
+            clearInterval(timer);
+            clearTimeout(timeout);
+        };
+
         window.addEventListener('message', onMsg);
+        window.addEventListener('storage', onStorage);
+        try {
+            if (typeof BroadcastChannel !== 'undefined') {
+                bc = new BroadcastChannel('coden_mcp_oauth');
+                bc.onmessage = (ev) => finishPayload(ev.data);
+            }
+        } catch (_) {}
 
         const timer = setInterval(() => {
             if (done) return;
-            // Fallback falls Mobile-Browser window.opener blockiert hat
+            try {
+                const bcRaw = localStorage.getItem('coden_mcp_oauth_bc');
+                if (bcRaw) {
+                    localStorage.removeItem('coden_mcp_oauth_bc');
+                    const parsed = JSON.parse(bcRaw);
+                    if (parsed?.data) { finishPayload(parsed.data); return; }
+                }
+            } catch (_) {}
             try {
                 const pendingRaw = sessionStorage.getItem(PENDING_OAUTH_KEY);
                 if (pendingRaw) {
                     sessionStorage.removeItem(PENDING_OAUTH_KEY);
-                    const d = JSON.parse(pendingRaw);
-                    cleanup();
-                    if (d.error) reject(new Error(d.errorDescription || d.error || 'Anmeldung abgebrochen.'));
-                    else if (!d.code || !d.state) reject(new Error('Keine gültigen Anmeldedaten erhalten.'));
-                    else resolve({ code: d.code, state: d.state });
+                    finishPayload(JSON.parse(pendingRaw));
                     return;
                 }
             } catch (_) {}
             if (popup && popup.closed) {
-                cleanup();
-                reject(new Error('Anmeldefenster wurde geschlossen.'));
+                if (!closedAt) closedAt = Date.now();
+                if (Date.now() - closedAt >= 1200) {
+                    cleanup();
+                    reject(new Error('Anmeldefenster wurde geschlossen.'));
+                }
+            } else {
+                closedAt = 0;
             }
-        }, 450);
+        }, 350);
 
         const timeout = setTimeout(() => {
             if (done) return;
@@ -308,11 +340,25 @@ export const MCP = {
     },
 
     async completePendingOAuthIfAny() {
-        let raw = null;
-        try { raw = sessionStorage.getItem(PENDING_OAUTH_KEY); } catch (_) { return null; }
-        if (!raw) return null;
-        try { sessionStorage.removeItem(PENDING_OAUTH_KEY); } catch (_) {}
-        const d = JSON.parse(raw);
+        let d = null;
+        try {
+            const raw = sessionStorage.getItem(PENDING_OAUTH_KEY);
+            if (raw) {
+                sessionStorage.removeItem(PENDING_OAUTH_KEY);
+                d = JSON.parse(raw);
+            }
+        } catch (_) {}
+        if (!d) {
+            try {
+                const rawBc = localStorage.getItem('coden_mcp_oauth_bc');
+                if (rawBc) {
+                    localStorage.removeItem('coden_mcp_oauth_bc');
+                    const parsed = JSON.parse(rawBc);
+                    if (parsed?.data && (!parsed.ts || Date.now() - parsed.ts < 5 * 60_000)) d = parsed.data;
+                }
+            } catch (_) {}
+        }
+        if (!d) return null;
         if (d.error) throw new Error(d.errorDescription || d.error);
         if (!d.code || !d.state) return null;
         const done = await apiJson('/mcp/oauth/complete', {
@@ -366,6 +412,8 @@ export const McpView = {
         let activeCat = 'all';
         let query = '';
         let openPanelId = null; // ID der Karte mit offenem Inline-Setup
+        const inlineErrMap = {}; // item.id -> Fehlermeldung (überlebt Re-Renders)
+        const blockedUrlMap = {}; // item.id -> manuelle Auth-URL bei Popup-Blocker
         let unsub = null;
 
         const body = h('div', { class: 'mc-list' });
@@ -410,9 +458,9 @@ export const McpView = {
             err.textContent = '';
             blockedWrap.classList.add('hidden');
             const u = url.value.trim();
-            if (!/^https:\/\//i.test(u)) { err.textContent = 'Die Adresse muss mit https:// beginnen.'; return; }
+            if (!/^https:\/\//i.test(u)) { err.textContent = 'Die Adresse muss mit https:// beginnen.'; toast(err.textContent, { type: 'error' }); return; }
             let hostFallback = 'MCP-Server';
-            try { hostFallback = new URL(u).hostname; } catch (_) { err.textContent = 'Ungültige URL.'; return; }
+            try { hostFallback = new URL(u).hostname; } catch (_) { err.textContent = 'Ungültige URL.'; toast(err.textContent, { type: 'error' }); return; }
             const srvName = (name.value.trim() || hostFallback).slice(0, 40);
 
             add.disabled = true;
@@ -449,6 +497,7 @@ export const McpView = {
                 draw();
             } catch (e) {
                 err.textContent = e.message;
+                toast(e.message, { type: 'error' });
             }
             add.disabled = false;
             syncFormMode();
@@ -483,8 +532,17 @@ export const McpView = {
             const metaLine = `${catLabelOf(item.cat)} · ${authLabelOf(item.auth)}`;
             const inlineBox = h('div', { class: 'mc-inline' + (openPanelId === item.id ? '' : ' hidden') });
             const inlineErr = h('div', { class: 'cd-err' });
+            if (blockedUrlMap[item.id]) {
+                inlineErr.replaceChildren(
+                    h('a', { class: 'cd-link', href: blockedUrlMap[item.id], target: '_blank', rel: 'noopener noreferrer' }, 'Popup blockiert – hier klicken zum Anmelden')
+                );
+            } else if (inlineErrMap[item.id]) {
+                inlineErr.textContent = inlineErrMap[item.id];
+            }
 
             const runOAuth = async (cid, csec, customUrl) => {
+                delete inlineErrMap[item.id];
+                delete blockedUrlMap[item.id];
                 inlineErr.textContent = '';
                 try {
                     const conn = await MCP.connectOAuth({
@@ -494,20 +552,21 @@ export const McpView = {
                         clientId: cid || '',
                         clientSecret: csec || '',
                         onPopupBlocked: (authUrl) => {
-                            inlineErr.replaceChildren(
-                                h('a', { class: 'cd-link', href: authUrl, target: '_blank', rel: 'noopener noreferrer' }, 'Popup blockiert – hier klicken zum Anmelden')
-                            );
+                            blockedUrlMap[item.id] = authUrl;
+                            openPanelId = item.id;
+                            drawLib();
                         }
                     });
+                    delete inlineErrMap[item.id];
+                    delete blockedUrlMap[item.id];
                     openPanelId = null;
                     toast(`${item.name} verbunden (${conn.tools?.length || 0} Werkzeuge)`, { type: 'ok' });
                     draw();
                 } catch (e) {
-                    inlineErr.textContent = e.message;
-                    if (e.code === 'NEEDS_CLIENT_ID' || e.code === 'NO_OAUTH_DISCOVERY') {
-                        openPanelId = item.id;
-                        inlineBox.classList.remove('hidden');
-                    }
+                    inlineErrMap[item.id] = e.message;
+                    openPanelId = item.id;
+                    toast(e.message, { type: 'error' });
+                    drawLib();
                 }
             };
 
@@ -520,12 +579,15 @@ export const McpView = {
                 const saveManualBtn = h('button', {
                     class: 'cd-primary',
                     onclick: async () => {
+                        delete inlineErrMap[item.id];
                         inlineErr.textContent = '';
                         const tok = tokFallbackIn.value.trim();
                         saveManualBtn.disabled = true;
+                        saveManualBtn.textContent = 'Verbinde …';
                         try {
                             if (tok && !cidIn.value.trim()) {
                                 const conn = await MCP.saveDirect({ name: item.name, url: urlIn.value.trim(), token: tok, authType: 'key', catalogId: item.id });
+                                delete inlineErrMap[item.id];
                                 openPanelId = null;
                                 toast(`${item.name} per Token verbunden (${conn.tools?.length || 0} Werkzeuge)`, { type: 'ok' });
                                 draw();
@@ -533,9 +595,12 @@ export const McpView = {
                                 await runOAuth(cidIn.value.trim(), csecIn.value.trim(), urlIn.value.trim());
                             }
                         } catch (e) {
+                            inlineErrMap[item.id] = e.message;
                             inlineErr.textContent = e.message;
+                            toast(e.message, { type: 'error' });
                         }
                         saveManualBtn.disabled = false;
+                        saveManualBtn.textContent = 'Verbindung starten';
                     }
                 }, 'Verbindung starten');
 
@@ -551,30 +616,39 @@ export const McpView = {
                 const saveKeyBtn = h('button', {
                     class: 'cd-primary',
                     onclick: async () => {
+                        delete inlineErrMap[item.id];
                         inlineErr.textContent = '';
                         const tok = tokIn.value.trim();
                         if (!tok) { inlineErr.textContent = 'Bitte Schlüssel oder Token eingeben.'; return; }
                         saveKeyBtn.disabled = true;
+                        saveKeyBtn.textContent = 'Verbinde …';
                         try {
                             const conn = await MCP.saveDirect({ name: item.name, url: item.url, token: tok, authType: 'key', catalogId: item.id });
+                            delete inlineErrMap[item.id];
                             openPanelId = null;
                             toast(`${item.name} verbunden (${conn.tools?.length || 0} Werkzeuge)`, { type: 'ok' });
                             draw();
                         } catch (e) {
+                            inlineErrMap[item.id] = e.message;
                             inlineErr.textContent = e.message;
+                            toast(e.message, { type: 'error' });
                         }
                         saveKeyBtn.disabled = false;
+                        saveKeyBtn.textContent = 'Speichern & verbinden';
                     }
                 }, 'Speichern & verbinden');
                 inlineBox.append(tokIn, inlineErr, h('div', { class: 'mc-actions' }, saveKeyBtn));
             }
 
+            const btnIconName = isConnected ? 'check_circle' : item.auth === 'oauth' ? 'login' : item.auth === 'key' ? 'key' : 'add_link';
+            const btnLabel = isConnected ? ' Erneut verbinden' : item.auth === 'oauth' ? (item.supportsDcr === false ? ' Einrichten' : ' Mit App anmelden') : item.auth === 'key' ? ' Token eingeben' : ' Verbinden';
             const primaryBtn = h('button', {
                 class: 'cd-btn' + (isConnected ? '' : ' accent'),
                 onclick: async (e) => {
                     const btn = e.currentTarget;
                     if (item.auth === 'none') {
                         btn.disabled = true;
+                        btn.replaceChildren(icon('progress_activity'), ' Verbinde …');
                         try {
                             const conn = await MCP.saveDirect({ name: item.name, url: item.url, authType: 'none', catalogId: item.id });
                             toast(`${item.name} verbunden (${conn.tools?.length || 0} Werkzeuge)`, { type: 'ok' });
@@ -582,19 +656,20 @@ export const McpView = {
                         } catch (x) {
                             toast(x.message, { type: 'error' });
                         }
-                        btn.disabled = false;
+                        if (btn.isConnected) { btn.disabled = false; btn.replaceChildren(icon(btnIconName), btnLabel); }
                     } else if (item.auth === 'oauth' && item.supportsDcr !== false) {
                         btn.disabled = true;
+                        btn.replaceChildren(icon('progress_activity'), ' Verbinde …');
                         await runOAuth('', '', item.url);
-                        btn.disabled = false;
+                        if (btn.isConnected) { btn.disabled = false; btn.replaceChildren(icon(btnIconName), btnLabel); }
                     } else {
                         openPanelId = openPanelId === item.id ? null : item.id;
                         drawLib();
                     }
                 }
             },
-            icon(isConnected ? 'check_circle' : item.auth === 'oauth' ? 'login' : item.auth === 'key' ? 'key' : 'add_link'),
-            isConnected ? ' Erneut verbinden' : item.auth === 'oauth' ? (item.supportsDcr === false ? ' Einrichten' : ' Mit App anmelden') : item.auth === 'key' ? ' Token eingeben' : ' Verbinden');
+            icon(btnIconName),
+            btnLabel);
 
             const optBtn = item.auth !== 'none' ? h('button', {
                 class: 'cd-btn icon-only',

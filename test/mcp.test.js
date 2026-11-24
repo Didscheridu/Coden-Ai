@@ -17,6 +17,9 @@ const { setup } = require('./helpers');
   let pendingCode = null;
   let lastChallenge = null;
 
+  let failAuthorizeRedirect = false;
+  let failDcrRedirect = false;
+
   const srv = http.createServer((q, r) => {
     let body = '';
     q.on('data', c => body += c);
@@ -48,6 +51,11 @@ const { setup } = require('./helpers');
       }
       // RFC 7591 Dynamic Client Registration
       if (p === '/oauth/register' && q.method === 'POST') {
+        if (failDcrRedirect) {
+          r.statusCode = 400;
+          r.setHeader('Content-Type', 'application/json');
+          return r.end(JSON.stringify({ error: 'invalid_redirect_uri', error_description: 'Invalid redirect URI' }));
+        }
         const reg = JSON.parse(body || '{}');
         registeredClient = {
           client_id: 'dyn-client-42',
@@ -58,6 +66,16 @@ const { setup } = require('./helpers');
         r.statusCode = 201;
         r.setHeader('Content-Type', 'application/json');
         return r.end(JSON.stringify(registeredClient));
+      }
+      if (p === '/oauth/authorize' && q.method === 'GET') {
+        if (failAuthorizeRedirect) {
+          r.statusCode = 400;
+          r.setHeader('Content-Type', 'text/plain');
+          return r.end('Invalid redirect URI.');
+        }
+        r.statusCode = 200;
+        r.setHeader('Content-Type', 'text/html');
+        return r.end('<html>ok</html>');
       }
       // OAuth Token Endpoint (PKCE S256 + Refresh)
       if (p === '/oauth/token' && q.method === 'POST') {
@@ -197,6 +215,20 @@ const { setup } = require('./helpers');
   chk('Token-Verbindung Aufruf', [keyCall.s, keyCall.j.content?.[0]?.text], [200, 'Echo: Key']);
   const delRes = await call(`/mcp/connections/${saveKey.j.connection.id}`, undefined, T, 'DELETE');
   chk('Verbindung gelöscht', delRes.s, 200);
+
+  // Canva-Style Pre-flight & DCR invalid_redirect_uri Erkennung
+  failAuthorizeRedirect = true;
+  const canvaLike = await P('/mcp/oauth/start', { url: `${base}/oauth-mcp`, name: 'CanvaLike', redirectUri }, T);
+  chk('Authorize 400 Invalid redirect URI vorab abgefangen', [canvaLike.s, canvaLike.j.code], [400, 'REDIRECT_NOT_ALLOWED']);
+  failAuthorizeRedirect = false;
+
+  failDcrRedirect = true;
+  const vercelLike = await P('/mcp/oauth/start', { url: `${base}/oauth-mcp`, name: 'VercelLike', redirectUri }, T);
+  chk('DCR invalid_redirect_uri sauber klassifiziert', [vercelLike.s, vercelLike.j.code], [400, 'REDIRECT_NOT_ALLOWED']);
+  failDcrRedirect = false;
+
+  // Callback HTML enthält BroadcastChannel-Unterstützung
+  chk('Callback HTML enthält BroadcastChannel', cbHtml.includes('BroadcastChannel'), true);
 
   delete process.env.MCP_ALLOW_PRIVATE;
   chk('danach wieder gesperrt', (await P('/mcp/tools', { url: base + '/json' }, T)).s, 400);
