@@ -19,6 +19,7 @@ const { setup } = require('./helpers');
 
   let failAuthorizeRedirect = false;
   let failDcrRedirect = false;
+  let asMode = 'dcr'; // 'dcr' | 'cimd' (nur Client-ID-Dokument) | 'dcr+cimd' | 'none'
 
   const srv = http.createServer((q, r) => {
     let body = '';
@@ -44,7 +45,8 @@ const { setup } = require('./helpers');
           issuer: base,
           authorization_endpoint: `${base}/oauth/authorize`,
           token_endpoint: `${base}/oauth/token`,
-          registration_endpoint: `${base}/oauth/register`,
+          ...(asMode === 'dcr' || asMode === 'dcr+cimd' ? { registration_endpoint: `${base}/oauth/register` } : {}),
+          ...(asMode === 'cimd' || asMode === 'dcr+cimd' ? { client_id_metadata_document_supported: true } : {}),
           code_challenge_methods_supported: ['S256'],
           response_types_supported: ['code']
         }));
@@ -226,6 +228,33 @@ const { setup } = require('./helpers');
   const vercelLike = await P('/mcp/oauth/start', { url: `${base}/oauth-mcp`, name: 'VercelLike', redirectUri }, T);
   chk('DCR invalid_redirect_uri sauber klassifiziert', [vercelLike.s, vercelLike.j.code], [400, 'REDIRECT_NOT_ALLOWED']);
   failDcrRedirect = false;
+
+  // --- Ein-Klick ohne Registrierung: Client-ID-Dokument (CIMD) ---
+  const meta = await call('/mcp/oauth/client.json', undefined, undefined, 'GET');
+  chk('Client-ID-Dokument ohne Login abrufbar', [meta.s, meta.j.client_name, meta.j.client_id.endsWith('/api/mcp/oauth/client.json'), meta.j.redirect_uris[0].endsWith('/api/mcp/oauth/callback'), meta.j.token_endpoint_auth_method], [200, 'Coden AI', true, true, 'none']);
+  asMode = 'cimd';
+  const cimdStart = await P('/mcp/oauth/start', { url: `${base}/oauth-mcp`, name: 'CimdApp', redirectUri }, T);
+  const cimdClient = cimdStart.j.authUrl ? new URL(cimdStart.j.authUrl).searchParams.get('client_id') : '';
+  chk('Ohne DCR: Anmeldung über Client-ID-Dokument', [cimdStart.s, cimdStart.j.method, cimdClient.endsWith('/api/mcp/oauth/client.json')], [200, 'cimd', true]);
+  asMode = 'dcr+cimd'; failDcrRedirect = true;
+  const fallback = await P('/mcp/oauth/start', { url: `${base}/oauth-mcp`, name: 'FallbackApp', redirectUri }, T);
+  chk('DCR abgelehnt → Client-ID-Dokument als Ersatz', [fallback.s, fallback.j.method], [200, 'cimd']);
+  failDcrRedirect = false;
+  asMode = 'none';
+  const none = await P('/mcp/oauth/start', { url: `${base}/oauth-mcp`, name: 'NoneApp', redirectUri }, T);
+  chk('Weder DCR noch Client-ID-Dokument → verständlicher Fehler', [none.s, none.j.code], [400, 'NEEDS_CLIENT_ID']);
+
+  // --- Coden-App (vom Owner hinterlegt) gilt nur für die Adresse aus dem Katalog ---
+  process.env.MCP_OAUTH_GITHUB = 'coden-gh-id:coden-gh-secret';
+  const evil = await P('/mcp/oauth/start', { url: `${base}/oauth-mcp`, name: 'EvilGitHub', catalogId: 'github', redirectUri }, T);
+  chk('Coden-App nicht für fremde Adresse (Secret bleibt geheim)', [evil.s, evil.j.code], [400, 'NEEDS_CLIENT_ID']);
+  const { codenApp } = require('../server/mcp');
+  chk('Coden-App für die Katalog-Adresse', codenApp('github', 'https://api.githubcopilot.com/mcp/')?.clientId, 'coden-gh-id');
+  chk('Coden-App: unbekannter Dienst', codenApp('gibtsnicht', 'https://api.githubcopilot.com/mcp/'), null);
+  const st = await call('/mcp/catalog-status', undefined, T, 'GET');
+  chk('Katalog-Status nennt Dienste mit Coden-App', [st.s, st.j.apps], [200, ['github']]);
+  delete process.env.MCP_OAUTH_GITHUB;
+  asMode = 'dcr';
 
   // Callback HTML enthält BroadcastChannel-Unterstützung
   chk('Callback HTML enthält BroadcastChannel', cbHtml.includes('BroadcastChannel'), true);

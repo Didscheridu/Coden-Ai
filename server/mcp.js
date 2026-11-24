@@ -11,6 +11,7 @@ const db = require('./db');
 const byok = require('./byok');
 const { rateLimit } = require('./rateLimit');
 const { wrapRouter } = require('./util');
+const CATALOG = require('../shared/mcp-catalog');
 
 const ALLOW_PRIVATE = () => process.env.MCP_ALLOW_PRIVATE === '1'; // nur für Tests
 const MAX_BODY = 4 * 1024 * 1024, TIMEOUT = 30_000;
@@ -236,6 +237,7 @@ async function discoverOAuth(serverUrl, { authEndpoint: manualAuth, tokenEndpoin
     authorizationEndpoint,
     tokenEndpoint,
     registrationEndpoint: asMeta?.registration_endpoint || null,
+    cimd: asMeta?.client_id_metadata_document_supported === true,
     resource: prMeta?.resource || (prMeta ? u.toString() : ''),
     defaultScope: [...new Set(scopesArr.join(' ').split(/\s+/).filter(Boolean))].slice(0, 16).join(' '),
     codeChallengeMethods: Array.isArray(asMeta?.code_challenge_methods_supported) ? asMeta.code_challenge_methods_supported : ['S256']
@@ -537,12 +539,50 @@ function mcpOAuthCallbackHandler(req, res) {
 </html>`);
 }
 
+// ---------- Ein-Klick-Anmeldung: Coden-Apps und Client-ID-Dokument ----------
+// Coden-App: vom Owner einmal bei einem Dienst registriert (MCP_OAUTH_<ID>=clientId:clientSecret). Nur für die Adresse aus dem Katalog,
+// damit niemand das Client-Secret an einen fremden Server schicken lässt.
+function codenApp(catalogId, url) {
+  const item = catalogId ? CATALOG.byId(String(catalogId)) : null;
+  if (!item || !CATALOG.sameServer(item, url)) return null;
+  const raw = String(process.env[CATALOG.envName(item.id)] || '').trim();
+  if (!raw) return null;
+  const i = raw.indexOf(':');
+  const clientId = (i < 0 ? raw : raw.slice(0, i)).trim();
+  const clientSecret = i < 0 ? '' : raw.slice(i + 1).trim();
+  if (!clientId) return null;
+  return { clientId, clientSecret, tokenAuthMethod: clientSecret ? 'client_secret_post' : 'none', dcr: false, app: true, scope: item.scope || '' };
+}
+const configuredApps = () => CATALOG.LIBRARY.filter(x => String(process.env[CATALOG.envName(x.id)] || '').trim()).map(x => x.id);
+
+// Client-ID-Dokument (MCP-Standard „Client ID Metadata Document“): Die Client-ID ist eine https-Adresse von Coden,
+// der Anmeldeserver liest dort Name und Callback-Adresse. Keine Registrierung nötig.
+const cimdUrl = (redirectUri) => new URL(redirectUri).origin + '/api/mcp/oauth/client.json';
+const cimdAllowed = (redirectUri) => { try { const u = new URL(redirectUri); return u.protocol === 'https:' || ALLOW_PRIVATE(); } catch (_) { return false; } };
+function clientMetadataHandler(req, res) {
+  const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0].trim();
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  const origin = `${proto}://${host}`;
+  res.set('Cache-Control', 'public, max-age=3600');
+  res.json({
+    client_id: `${origin}/api/mcp/oauth/client.json`,
+    client_name: 'Coden AI',
+    client_uri: origin,
+    logo_uri: `${origin}/images/coden_logo.jpg`,
+    redirect_uris: [`${origin}/api/mcp/oauth/callback`],
+    grant_types: ['authorization_code', 'refresh_token'],
+    response_types: ['code'],
+    token_endpoint_auth_method: 'none'
+  });
+}
+
 function mcpRouter(requireAuth) {
   const r = wrapRouter(express.Router());
 
   // Unauthentifizierte Callback-Endpunkte (Browser-Redirect vom OAuth-Anbieter)
   r.get('/oauth/callback', mcpOAuthCallbackHandler);
   r.get('/oauth/callback/', mcpOAuthCallbackHandler);
+  r.get('/oauth/client.json', clientMetadataHandler);
 
   r.use(requireAuth);
   const guard = (fn) => async (req, res) => {
@@ -626,6 +666,11 @@ function mcpRouter(requireAuth) {
     res.json({ ok: true });
   }));
 
+  // Welche Dienste haben eine Coden-App (Ein-Klick auch ohne automatische Registrierung)?
+  r.get('/catalog-status', guard(async (req, res) => {
+    res.json({ apps: configuredApps(), ...(req.user.isOwner ? { envNames: Object.fromEntries(CATALOG.LIBRARY.filter(x => x.app).map(x => [x.id, CATALOG.envName(x.id)])) } : {}) });
+  }));
+
   // ---------- OAuth 2.1 + PKCE Start ----------
   r.post('/oauth/start', rateLimit('mcp-oauth', 20, 60), guard(async (req, res) => {
     const b = req.body || {};
@@ -651,59 +696,46 @@ function mcpRouter(requireAuth) {
 
     const userClientId = typeof b.clientId === 'string' ? b.clientId.trim() : '';
     const userClientSecret = typeof b.clientSecret === 'string' ? b.clientSecret.trim() : '';
-    let client;
-    if (userClientId) {
-      client = {
-        clientId: userClientId.slice(0, 300),
-        clientSecret: userClientSecret.slice(0, 500),
-        tokenAuthMethod: userClientSecret ? 'client_secret_post' : 'none',
-        dcr: false
-      };
-    } else if (disc.registrationEndpoint) {
-      const origin = new URL(redirectUri).origin;
-      client = await registerDynamicClient(disc.registrationEndpoint, redirectUri, origin);
-    } else {
-      throw httpErr(400, 'Dieser Dienst unterstützt keine automatische App-Registrierung (DCR). Trage eine eigene OAuth Client-ID ein oder nutze ein persönliches Zugriffstoken.', { code: 'NEEDS_CLIENT_ID' });
-    }
-
+    const catalogId = b.catalogId ? String(b.catalogId).slice(0, 64) : null;
+    const app = userClientId ? null : codenApp(catalogId, u.toString());
+    const scope = (typeof b.scope === 'string' && b.scope.trim() ? b.scope.trim() : app?.scope || disc.defaultScope || '').slice(0, 500);
     const codeVerifier = crypto.randomBytes(32).toString('base64url');
     const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
-    const nonce = crypto.randomBytes(16).toString('hex');
-    const scope = (typeof b.scope === 'string' && b.scope.trim() ? b.scope.trim() : disc.defaultScope || '').slice(0, 500);
 
-    const statePayload = {
-      v: 1,
-      uid: req.user.uid,
-      nonce,
-      exp: Date.now() + STATE_TTL_MS,
-      codeVerifier,
-      tokenEndpoint: disc.tokenEndpoint,
-      authEndpoint: disc.authorizationEndpoint,
-      clientId: client.clientId,
-      clientSecret: client.clientSecret || '',
-      tokenAuthMethod: client.tokenAuthMethod || 'none',
-      redirectUri,
-      scope,
-      serverUrl: u.toString().slice(0, 500),
-      resource: disc.resource || '',
-      name,
-      catalogId: b.catalogId ? String(b.catalogId).slice(0, 64) : null,
-      connectionId: connId || null
+    const buildAuthUrl = async (client) => {
+      const statePayload = {
+        v: 1,
+        uid: req.user.uid,
+        nonce: crypto.randomBytes(16).toString('hex'),
+        exp: Date.now() + STATE_TTL_MS,
+        codeVerifier,
+        tokenEndpoint: disc.tokenEndpoint,
+        authEndpoint: disc.authorizationEndpoint,
+        clientId: client.clientId,
+        clientSecret: client.clientSecret || '',
+        tokenAuthMethod: client.tokenAuthMethod || 'none',
+        redirectUri,
+        scope,
+        serverUrl: u.toString().slice(0, 500),
+        resource: disc.resource || '',
+        name,
+        catalogId,
+        connectionId: connId || null
+      };
+      const state = await byok.encrypt(JSON.stringify(statePayload));
+      const authUrl = new URL(disc.authorizationEndpoint);
+      authUrl.searchParams.set('response_type', 'code');
+      authUrl.searchParams.set('client_id', client.clientId);
+      authUrl.searchParams.set('redirect_uri', redirectUri);
+      authUrl.searchParams.set('code_challenge', codeChallenge);
+      authUrl.searchParams.set('code_challenge_method', 'S256');
+      authUrl.searchParams.set('state', state);
+      if (scope) authUrl.searchParams.set('scope', scope);
+      if (disc.resource) authUrl.searchParams.set('resource', disc.resource);
+      return authUrl;
     };
-    const state = await byok.encrypt(JSON.stringify(statePayload));
-
-    const authUrl = new URL(disc.authorizationEndpoint);
-    authUrl.searchParams.set('response_type', 'code');
-    authUrl.searchParams.set('client_id', client.clientId);
-    authUrl.searchParams.set('redirect_uri', redirectUri);
-    authUrl.searchParams.set('code_challenge', codeChallenge);
-    authUrl.searchParams.set('code_challenge_method', 'S256');
-    authUrl.searchParams.set('state', state);
-    if (scope) authUrl.searchParams.set('scope', scope);
-    if (disc.resource) authUrl.searchParams.set('resource', disc.resource);
-
-    // Vorab-Check bei DCR (fängt Anbieter wie Canva ab, die /register erlauben aber /authorize mit 400 Invalid redirect URI ablehnen)
-    if (client.dcr) {
+    // Vorab-Check (fängt Anbieter ab, die zwar registrieren, /authorize aber mit „Invalid redirect URI“ ablehnen)
+    const precheck = async (authUrl) => {
       try {
         const pre = await request(parseServerUrl(authUrl.toString()), {
           method: 'GET',
@@ -714,18 +746,43 @@ function mcpRouter(requireAuth) {
         });
         if (pre.status === 400 || pre.status === 403) {
           const msg = String(pre.text || '').replace(/<[^>]+>/g, ' ').trim().slice(0, 140);
-          if (/redirect/i.test(msg) || (pre.status === 400 && msg.length > 0)) {
-            throw httpErr(400, `Dieser Dienst akzeptiert die Web-Callback-Adresse nicht automatisch (${msg || 'HTTP ' + pre.status}). Nutze ein persönliches Zugriffstoken oder eine eigene OAuth Client-ID.`, { code: 'REDIRECT_NOT_ALLOWED' });
+          if (/redirect|client/i.test(msg) || (pre.status === 400 && msg.length > 0)) {
+            throw httpErr(400, `${name} lässt die Anmeldung im Moment nur für freigegebene Apps zu (${msg || 'HTTP ' + pre.status}). Verbinde dich mit einem Zugangsschlüssel.`, { code: 'REDIRECT_NOT_ALLOWED' });
           }
         }
       } catch (e) {
         if (e.code === 'REDIRECT_NOT_ALLOWED') throw e;
       }
+    };
+
+    // Reihenfolge: eigene Client-ID → Coden-App → automatische Registrierung (DCR) → Client-ID-Dokument (CIMD)
+    let chosen = null, lastErr = null;
+    if (userClientId) {
+      chosen = { clientId: userClientId.slice(0, 300), clientSecret: userClientSecret.slice(0, 500), tokenAuthMethod: userClientSecret ? 'client_secret_post' : 'none', dcr: false };
+    } else if (app) {
+      chosen = app;
+    } else {
+      const candidates = [];
+      if (disc.registrationEndpoint) candidates.push(async () => registerDynamicClient(disc.registrationEndpoint, redirectUri, new URL(redirectUri).origin));
+      if (disc.cimd && cimdAllowed(redirectUri)) candidates.push(async () => ({ clientId: cimdUrl(redirectUri), clientSecret: '', tokenAuthMethod: 'none', dcr: true, cimd: true }));
+      for (const make of candidates) {
+        try {
+          const c = await make();
+          await precheck(await buildAuthUrl(c));
+          chosen = c; break;
+        } catch (e) { lastErr = e; }
+      }
+      if (!chosen) {
+        if (lastErr) throw lastErr;
+        throw httpErr(400, `${name} erlaubt keine automatische Anmeldung für Coden. Verbinde dich mit einem Zugangsschlüssel${CATALOG.byId(catalogId || '')?.app ? ' oder hinterlege als Owner eine Coden-App' : ''}.`, { code: 'NEEDS_CLIENT_ID' });
+      }
     }
+    const authUrl = await buildAuthUrl(chosen);
 
     res.json({
       authUrl: authUrl.toString(),
-      dcr: !!client.dcr,
+      dcr: !!chosen.dcr,
+      method: chosen.app ? 'app' : chosen.cimd ? 'cimd' : chosen.dcr ? 'dcr' : 'client',
       scopes: scope
     });
   }));
@@ -888,6 +945,7 @@ function mcpRouter(requireAuth) {
 
 module.exports = {
   mcpRouter,
+  codenApp,
   mcpRequest,
   mcpOAuthCallbackHandler,
   discoverOAuth,

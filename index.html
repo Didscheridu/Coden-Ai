@@ -50,6 +50,7 @@
     <link rel="stylesheet" href="css/responsive.css">
     <link rel="stylesheet" href="css/v4-layout.css">
     <link rel="stylesheet" href="css/skills.css">
+    <link rel="stylesheet" href="css/connectors.css">
     <link rel="stylesheet" href="css/menus.css">
 
     <style>
@@ -183,7 +184,7 @@
                 <div id="search-container" class="sb-search"><input type="text" id="chat-search-input" placeholder="Chats durchsuchen…" autocomplete="off"></div>
                 <a href="#/apps" class="sb-item" id="open-apps-btn" data-route="apps"><span class="material-symbols-outlined">apps</span><span class="sb-label">Apps</span></a>
                 <a href="#/artefakte" class="sb-item" id="open-artifacts-btn" data-route="artefakte"><span class="material-symbols-outlined">deployed_code</span><span class="sb-label">Artefakte</span></a>
-                <a href="#/verbindungen" class="sb-item" id="open-mcp-btn" data-route="verbindungen"><span class="material-symbols-outlined">hub</span><span class="sb-label">Verbindungen</span></a>
+                <a href="#/verbindungen" class="sb-item" id="open-mcp-btn" data-route="verbindungen"><span class="material-symbols-outlined">hub</span><span class="sb-label">Konnektoren</span></a>
                 <a href="#/buddy" class="sb-item" id="open-buddy-btn" data-route="buddy"><span class="material-symbols-outlined">diversity_3</span><span class="sb-label">Code Buddy</span><span class="bd-nav-badge" style="display:none"></span></a>
                 <a href="#/projekte" class="sb-item" id="open-projects-btn" data-route="projekte"><span class="material-symbols-outlined">folder_open</span><span class="sb-label">Projekte</span></a>
             </nav>
@@ -250,7 +251,7 @@
                         <button type="button" class="cm-item" id="ct-skills" role="menuitem" aria-haspopup="menu"><span class="material-symbols-outlined cm-ic">category</span><span class="cm-label">Skills</span><span class="material-symbols-outlined cm-chev">chevron_right</span></button>
                         <button type="button" class="cm-item" id="assistant-btn" role="menuitem" aria-haspopup="menu"><span class="material-symbols-outlined cm-ic">smart_toy</span><span class="cm-label">Assistent</span><span class="material-symbols-outlined cm-chev">chevron_right</span></button>
                         <button type="button" class="cm-item" id="ct-apps" role="menuitem" aria-haspopup="menu"><span class="material-symbols-outlined cm-ic">apps</span><span class="cm-label">Eigene Apps</span><span class="material-symbols-outlined cm-chev">chevron_right</span></button>
-                        <button type="button" class="cm-item" id="ct-mcp" role="menuitem" aria-haspopup="menu"><span class="material-symbols-outlined cm-ic">hub</span><span class="cm-label">Verbindungen</span><span class="material-symbols-outlined cm-chev">chevron_right</span></button>
+                        <button type="button" class="cm-item" id="ct-mcp" role="menuitem" aria-haspopup="menu"><span class="material-symbols-outlined cm-ic">hub</span><span class="cm-label">Konnektoren</span><span class="material-symbols-outlined cm-chev">chevron_right</span></button>
                         <div class="cm-sep" role="separator"></div>
                         <button type="button" class="cm-item" id="ct-temp" role="menuitemcheckbox" aria-checked="false" data-keep="1"><span class="material-symbols-outlined cm-ic">history_toggle_off</span><span class="cm-label">Temporärer Chat</span><span class="material-symbols-outlined cm-check off">check</span></button>
                     </div>
@@ -468,6 +469,7 @@
     <script src="shared/agent-core.js"></script>
     <script src="shared/assist-core.js"></script>
     <script src="shared/skills-core.js"></script>
+    <script src="shared/mcp-catalog.js"></script>
     <script src="shared/upload-check.js"></script>
     <script src="js/vendor/qrcode.js"></script>
     <script type="module" src="js/app.js"></script>
