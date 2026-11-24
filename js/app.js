@@ -1305,7 +1305,7 @@ const hideImageTags = (t) => Personal.hide(ChatApps.hide(hideCalls(String(t || '
 const liveViews = new Map(); // Chat-ID -> Live-Anzeige
 const QUIET_STEP = /^(Anfrage läuft|Modell antwortet langsam|Anderes Modell)/;
 function liveFor(sid, { startedAt } = {}) {
-    const st = { text: '', think: null, steps: [], model: null, view: null, t0: startedAt ? Date.parse(startedAt) || Date.now() : Date.now() };
+    const st = { text: '', think: null, steps: [], model: null, view: null, started: false, t0: startedAt ? Date.parse(startedAt) || Date.now() : Date.now() };
     const view = () => {
         if (activeSessionId !== sid) return null;
         if (!st.view || !st.view.attached()) {
@@ -1318,13 +1318,13 @@ function liveFor(sid, { startedAt } = {}) {
     };
     const fallback = () => ({ secs: Math.round((Date.now() - st.t0) / 1000), steps: st.steps.filter(x => !QUIET_STEP.test(x)) });
     const p = {
-        think(k) { if (!k) return; st.think = k; (k.steps || []).forEach(x => { if (!st.steps.includes(x)) st.steps.push(x); }); if (k.h && !st.steps.includes(k.h) && !QUIET_STEP.test(k.h)) st.steps.push(k.h); view()?.think(k); },
-        model(m) { st.model = m; view()?.model(m); },
-        update(t) { st.text = t; view()?.update(t); },
-        finish(t) { liveViews.delete(sid); const v = view(); const info = v ? v.finish(t) : null; return info || fallback(); },
-        fail(msg) { liveViews.delete(sid); view()?.fail(msg); },
-        remove() { liveViews.delete(sid); st.view?.remove(); },
-        attach() { view(); }
+        think(k) { if (!k) return; st.started = true; st.think = k; (k.steps || []).forEach(x => { if (!st.steps.includes(x)) st.steps.push(x); }); if (k.h && !st.steps.includes(k.h) && !QUIET_STEP.test(k.h)) st.steps.push(k.h); view()?.think(k); },
+        model(m) { st.started = true; st.model = m; view()?.model(m); },
+        update(t) { st.started = true; st.text = t; view()?.update(t); },
+        finish(t) { liveViews.delete(sid); if (activeSessionId === sid) UI.showLoading(false); const v = view(); const info = v ? v.finish(t) : null; return info || fallback(); },
+        fail(msg) { liveViews.delete(sid); if (activeSessionId === sid) UI.showLoading(false); view()?.fail(msg); },
+        remove() { liveViews.delete(sid); if (activeSessionId === sid) UI.showLoading(false); st.view?.remove(); },
+        attach() { if (activeSessionId !== sid) return; if (st.started) view(); else UI.showLoading(true, 'Coden startet …'); }
     };
     liveViews.set(sid, p); return p;
 }
@@ -1519,9 +1519,15 @@ async function handleSend() {
         };
     }).reduce((acc, m) => { const l = acc[acc.length - 1]; if (l && l.role === m.role) { l.content += '\n\n' + m.content; l.images = [...(l.images || []), ...(m.images || [])]; } else acc.push(m); return acc; }, []);
 
+    const maybeEmail = ['mail', 'gmail', 'sende', 'schick', 'weiterleiten'].some(w => text.toLowerCase().includes(w));
+    if (!maybeEmail) {
+        UI.showLoading(true, 'Coden startet …');
+    }
+
     let isEmailCommand = false;
-    if (['mail', 'gmail', 'sende', 'schick', 'weiterleiten'].some(w => text.toLowerCase().includes(w))) {
+    if (maybeEmail) {
         if (await showCustomConfirm("Möchtest du eine E-Mail senden?")) isEmailCommand = true;
+        else UI.showLoading(true, 'Coden startet …');
     }
 
     if (isEmailCommand) {
@@ -1537,23 +1543,26 @@ async function handleSend() {
         } catch (err) { UI.showLoading(false); return UI.appendMessage("❌ Fehler: " + err.message, false); }
     }
 
-    const proj = await Projects.promptFor(currentSession.projectId);
-    let appNames = [];
-    try { appNames = await ChatApps.prepare(text); } catch (_) {}
-    const projName = proj.name || '';
-    const personal = currentSession.temp
-        ? (Personal.instructions() ? `\nPERSÖNLICHE ANWEISUNGEN DES NUTZERS (vom Nutzer selbst in den Einstellungen geschrieben, befolge sie):\n${Personal.instructions()}\n` : '') + '\nDies ist ein TEMPORÄRER CHAT: Er wird nicht gespeichert. Merke dir nichts (kein <remember>) und beziehe dich nicht auf frühere Chats.\n'
-        : Personal.prompt(currentSession.projectId || null, projName);
-    const systemPrompt = buildChatPrompt({ userName, extras: `${MCP.prompt()}${ChatApps.prompt()}${personal}${Assistants.prompt(currentSession.assistantId)}${proj.text}` });
-    context.unshift({ role: 'system', content: systemPrompt });
-
     const sessionAtSend = currentSession; // falls der Nutzer währenddessen den Chat wechselt
     const ac = new AbortController(); streams.set(sessionAtSend.id, ac); setStreaming(true); markBusy();
-    Storage.syncNow(); // Frage sofort sichern, damit andere Geräte sie sehen
+    const initialLive = liveFor(sessionAtSend.id);
+    UI.showLoading(true, 'Coden startet …');
+
     let aiResponse = '', lastThink = null;
     try {
+      const proj = await Projects.promptFor(sessionAtSend.projectId);
+      let appNames = [];
+      try { appNames = await ChatApps.prepare(text); } catch (_) {}
+      const projName = proj.name || '';
+      const personal = sessionAtSend.temp
+          ? (Personal.instructions() ? `\nPERSÖNLICHE ANWEISUNGEN DES NUTZERS (vom Nutzer selbst in den Einstellungen geschrieben, befolge sie):\n${Personal.instructions()}\n` : '') + '\nDies ist ein TEMPORÄRER CHAT: Er wird nicht gespeichert. Merke dir nichts (kein <remember>) und beziehe dich nicht auf frühere Chats.\n'
+          : Personal.prompt(sessionAtSend.projectId || null, projName);
+      const systemPrompt = buildChatPrompt({ userName, extras: `${MCP.prompt()}${ChatApps.prompt()}${personal}${Assistants.prompt(sessionAtSend.assistantId)}${proj.text}` });
+      context.unshift({ role: 'system', content: systemPrompt });
+
+      Storage.syncNow(); // Frage sofort sichern, damit andere Geräte sie sehen
       for (let round = 0; round < 5; round++) {
-        const live = liveFor(sessionAtSend.id);
+        const live = round === 0 ? initialLive : liveFor(sessionAtSend.id);
         aiResponse = '';
         let extra = {};
         try {
@@ -1592,7 +1601,13 @@ async function handleSend() {
             break;
         }
       }
-    } finally { streams.delete(sessionAtSend.id); if (activeSessionId === sessionAtSend.id) setStreaming(false); markBusy(); if (pinnedModel && !pinnedModel.keep) pinnedModel = null; }
+    } finally {
+        streams.delete(sessionAtSend.id);
+        liveViews.delete(sessionAtSend.id);
+        if (activeSessionId === sessionAtSend.id) { UI.showLoading(false); setStreaming(false); }
+        markBusy();
+        if (pinnedModel && !pinnedModel.keep) pinnedModel = null;
+    }
     const queued = sendWhenDone && activeSessionId === sessionAtSend.id; sendWhenDone = false;
 
     if (aiResponse.trim()) { sessionAtSend.messages.push({ text: aiResponse, isUser: false, think: lastThink || undefined }); if (sessionAtSend.id !== activeSessionId) sessionAtSend.unread = true; }

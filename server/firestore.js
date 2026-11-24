@@ -369,22 +369,23 @@ async function listDocs(collectionPath, { limit = 200, orderBy, desc = false, ..
     if (orderBy) out.sort((a, b) => cmpVal(a[orderBy], b[orderBy]) * (desc ? -1 : 1));
     return limit ? out.slice(0, limit) : out;
   }
+  const fetchLimit = orderBy ? (limit ? Math.max(limit, 1000) : 0) : limit;
   const out = [];
   let pageToken = '';
-  const pageSize = Math.min(limit || 300, 300);
+  const pageSize = Math.min(fetchLimit || 300, 300);
   do {
     const qs = new URLSearchParams({ pageSize: String(pageSize) });
     if (pageToken) qs.set('pageToken', pageToken);
-    if (orderBy) qs.set('orderBy', `${orderBy}${desc ? ' desc' : ''}`);
     const res = await restFetch(`${restBase()}/${encodePath(col)}?${qs.toString()}`, restOpts);
     for (const raw of res.documents || []) out.push(docFromRest(raw));
     pageToken = res.nextPageToken || '';
-  } while (pageToken && (!limit || out.length < limit));
+  } while (pageToken && (!fetchLimit || out.length < fetchLimit));
+  if (orderBy) out.sort((a, b) => cmpVal(a[orderBy], b[orderBy]) * (desc ? -1 : 1));
   return limit ? out.slice(0, limit) : out;
 }
 
-// Hinweis: Vermeidet zusammengesetzte Indizes! Filtert optional einen Primär-Filter über Firestore runQuery
-// (ohne serverseitiges orderBy bei mehreren Feldern) und filtert/sortiert den Rest in JavaScript.
+// Hinweis: Vermeidet zusammengesetzte Indizes und "order by is not supported" in Firestore Enterprise!
+// Filtert optional einen Primär-Filter über Firestore runQuery und filtert/sortiert den Rest in JavaScript.
 async function runQuery(collectionPath, { where = [], orderBy, desc = false, limit = 200, ...restOpts } = {}) {
   const col = cleanPath(collectionPath);
   if (memoryMode) {
@@ -400,8 +401,7 @@ async function runQuery(collectionPath, { where = [], orderBy, desc = false, lim
     ? `${restBase()}/${encodePath(parentPath)}:runQuery`
     : `${restBase()}:runQuery`;
 
-  // Wenn genau 1 einfacher Filter vorliegt (oder mehrere), nutzen wir den ersten für Firestore (keine Composite Indexes nötig),
-  // damit z. B. firestore.rules (`resource.data.uid == request.auth.uid` oder `memberUids ARRAY_CONTAINS uid`) direkt erfüllt ist.
+  // Nur ersten Filter serverseitig (keine Composite Indexes nötig), Sortierung immer in JS
   const structuredQuery = {
     from: [{ collectionId }]
   };
@@ -415,13 +415,8 @@ async function runQuery(collectionPath, { where = [], orderBy, desc = false, lim
       }
     };
   }
-  // Nur serverseitig sortieren, wenn kein zusätzlicher where-Filter aktiv ist (sonst Index-Pflicht)
-  if (orderBy && where.length === 0) {
-    structuredQuery.orderBy = [{
-      field: { fieldPath: orderBy },
-      direction: desc ? 'DESCENDING' : 'ASCENDING'
-    }];
-    if (limit) structuredQuery.limit = limit;
+  if (limit && !orderBy && where.length <= 1) {
+    structuredQuery.limit = limit;
   }
 
   const rows = await restFetch(queryUrl, { ...restOpts, method: 'POST', body: { structuredQuery } });
@@ -432,7 +427,7 @@ async function runQuery(collectionPath, { where = [], orderBy, desc = false, lim
   for (let i = 1; i < where.length; i++) {
     out = out.filter(d => matchCondition(d, where[i]));
   }
-  if (orderBy && where.length > 0) {
+  if (orderBy) {
     out.sort((a, b) => cmpVal(a[orderBy], b[orderBy]) * (desc ? -1 : 1));
   }
   return limit ? out.slice(0, limit) : out;

@@ -223,12 +223,17 @@ export const UI = {
         if (!chatContainer) return;
         const existing = document.getElementById('coden-loading-row');
         if (!show) { if (existing) existing.remove(); return; }
-        if (UI.welcomeScreen) UI.welcomeScreen.classList.add('hidden');
-        if (existing) return;
+        if (UI.welcomeScreen) UI.welcomeScreen.style.display = 'none';
+        if (existing) {
+            const label = existing.querySelector('.loading-text');
+            if (label) label.textContent = modelNameDisplay;
+            UI.scrollToBottom();
+            return;
+        }
         const row = document.createElement('div'); row.id = 'coden-loading-row'; row.className = 'loading-row';
         row.innerHTML = '<div class="spinner-container"><div class="spinner"></div><img class="spinner-logo" alt=""></div><span class="loading-text"></span>';
         row.querySelector('img').src = AI_PROFILE_PIC_SRC; row.querySelector('.loading-text').textContent = modelNameDisplay;
-        chatContainer.appendChild(row); UI.scrollToBottom();
+        chatContainer.appendChild(row); UI.scrollToBottom(true);
     },
 
     scrollToBottom: (instant) => {

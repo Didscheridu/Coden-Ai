@@ -319,7 +319,10 @@ export function mountBuilder(host, appId) {
     function addMessage(m) {
         if (st.seen.has(m.id)) return; st.seen.add(m.id); st.lastId = Math.max(st.lastId, m.id); st.messages.push(m);
         log.querySelector('.bl-welcome')?.remove();
-        const node = renderMessage(m); if (st.liveEl?.isConnected) log.insertBefore(node, st.liveEl); else log.append(node); scrollLog(m.mine);
+        const node = renderMessage(m);
+        const anchor = st.liveEl?.isConnected ? st.liveEl : log.querySelector('.bl-loading-row');
+        if (anchor) log.insertBefore(node, anchor); else log.append(node);
+        scrollLog(m.mine);
         if (m.role === 'tool' && m.meta?.toolFor) { const el = log.querySelector(`[data-mid="${m.meta.toolFor.split(':')[0]}"]`); if (el) el.replaceWith(renderMessage(st.messages.find(x => x.id === +m.meta.toolFor.split(':')[0]))); }
     }
     function who(m) { return m.mine ? null : (m.handle ? '@' + m.handle : 'Mitglied'); }
@@ -452,36 +455,63 @@ export function mountBuilder(host, appId) {
             await sleep(wait);
         }
     }
-    async function runAgent({ attach } = {}) {
-        if (st.running || !st.alive) return;
+    function showBuilderLoading(label = 'Coden startet …') {
+        let row = log.querySelector('.bl-loading-row');
+        if (!row) {
+            row = h('div', { class: 'bl-loading-row' },
+                h('div', { class: 'spinner-container' }, h('div', { class: 'spinner' }), h('img', { class: 'spinner-logo', src: './images/coden_logo.jpg', alt: '' })),
+                h('span', { class: 'loading-text', text: label }));
+            log.append(row);
+        } else {
+            const t = row.querySelector('.loading-text');
+            if (t) t.textContent = label;
+        }
+        scrollLog(true);
+        return row;
+    }
+    function hideBuilderLoading() {
+        log.querySelectorAll('.bl-loading-row').forEach(el => el.remove());
+    }
+
+    async function runAgent({ attach, force = false } = {}) {
+        if ((!force && st.running) || !st.alive) return;
         setBusy(true);
         const ac = new AbortController(); st.abort = ac;
         let view = null, runId = attach?.id || null, status = null, err = null;
+        if (!attach) showBuilderLoading('Coden startet …');
+        const ensureView = (startedAt) => {
+            if (!view) {
+                hideBuilderLoading();
+                view = liveView(startedAt);
+            }
+            return view;
+        };
         try {
-            if (attach) { view = liveView(attach.startedAt); status = await follow(runId, view); }
-            else {
-                view = liveView();
+            if (attach) {
+                status = await follow(runId, ensureView(attach.startedAt));
+            } else {
                 const res = await apiFetch(`/apps/${appId}/agent`, { method: 'POST', signal: ac.signal, body: JSON.stringify({ tier: st.tier, effort: isByokTier(st.tier) ? byokEffort(st.tier) : getEffort(), mode: st.mode }) });
-                if (res.status === 409) { const d = await res.json().catch(() => ({})); if (d.runId) { runId = d.runId; status = await follow(runId, view); } else throw new Error(d.error || 'Coden arbeitet schon.'); }
+                if (res.status === 409) { const d = await res.json().catch(() => ({})); if (d.runId) { runId = d.runId; status = await follow(runId, ensureView()); } else throw new Error(d.error || 'Coden arbeitet schon.'); }
                 else if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'HTTP ' + res.status); }
                 else {
                     let text = '';
                     try {
                         await readSse(res, (ev) => {
                             if (ev.t === 'run') { runId = ev.id; st.runId = runId; }
-                            else if (ev.t === 'd') { text += ev.v; view.set(text); }
-                            else if (ev.t === 'r') { text = ev.v; view.set(text); pollNow(); }
-                            else if (ev.t === 'k') view.think({ h: ev.h, v: ev.v });
-                            else if (ev.t === 'm') view.model(ev.model);
-                            else if (ev.t === 'a') view.agents(ev.agents);
+                            else if (ev.t === 'd') { text += ev.v; ensureView().set(text); }
+                            else if (ev.t === 'r') { text = ev.v; ensureView().set(text); pollNow(); }
+                            else if (ev.t === 'k') ensureView().think({ h: ev.h, v: ev.v });
+                            else if (ev.t === 'm') ensureView().model(ev.model);
+                            else if (ev.t === 'a') ensureView().agents(ev.agents);
                             else if (ev.t === 'done') status = ev.status || 'done';
                             else if (ev.t === 'e') { status = 'error'; err = ev.error; }
                         });
                     } catch (_) { /* Verbindung weg */ }
-                    if (!status && runId && st.alive) status = await follow(runId, view); // Server arbeitet weiter -> dranbleiben
+                    if (!status && runId && st.alive) status = await follow(runId, ensureView()); // Server arbeitet weiter -> dranbleiben
                 }
             }
         } catch (e) { err = e.message; status = 'error'; }
+        hideBuilderLoading();
         view?.remove(); st.abort = null; st.runId = null;
         await refresh();
         setBusy(false);
@@ -517,9 +547,25 @@ export function mountBuilder(host, appId) {
     async function runUser(text) {
         if (st.running) { toast('Coden arbeitet noch – kurz warten oder stoppen.', { type: 'warn' }); return; }
         st.autoFix = 0; st.imgRounds = 0;
-        try { addMessage(await postMessage('user', text)); } catch (e) { toast(e.message, { type: 'error' }); return; }
         if (window.innerWidth <= 900 && st.pane !== 'chat') { st.pane = 'chat'; drawMobileTabs(); }
-        runAgent();
+        setBusy(true);
+        log.querySelector('.bl-welcome')?.remove();
+        const pendingEl = h('div', { class: 'bl-msg user mine' }, h('div', { class: 'bl-bubble', text }));
+        log.append(pendingEl);
+        showBuilderLoading('Coden startet …');
+        try {
+            const msg = await postMessage('user', text);
+            pendingEl.remove();
+            addMessage(msg);
+        } catch (e) {
+            pendingEl.remove();
+            hideBuilderLoading();
+            setBusy(false);
+            if (!input.value) { input.value = text; autoGrow(); }
+            toast(e.message, { type: 'error' });
+            return;
+        }
+        runAgent({ force: true });
     }
     function send() { const t = input.value.trim(); if (!t || st.running) return; input.value = ''; autoGrow(); runUser(t); }
     const autoGrow = () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 220) + 'px'; };

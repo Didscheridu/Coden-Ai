@@ -128,6 +128,9 @@
 .bl-msg.user.tool .bl-bubble { background: rgba(109, 213, 140, .12); color: var(--accent-green); font-size: 13px; border-radius: 14px }
 .bl-aava { flex: 0 0 28px; width: 28px; height: 28px; border-radius: 50%; overflow: hidden; margin-top: 2px } .bl-aava img { width: 100%; height: 100%; object-fit: cover }
 .bl-msg.streaming .bl-aava { box-shadow: 0 0 0 2px rgba(138, 180, 248, .55), 0 0 14px rgba(138, 180, 248, .35); animation: pulse 1.6s infinite }
+.bl-loading-row { display: flex; align-items: center; gap: 10px; animation: msgIn .2s var(--ease) both; padding: 2px 0 }
+.bl-loading-row .spinner-container { width: 32px; height: 32px; flex: 0 0 32px }
+.bl-loading-row .loading-text { color: var(--text-muted); font-size: 13px }
 .bl-abody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; font-size: 14px; line-height: 1.6 } .bl-abody .md p { margin-bottom: 8px } .bl-abody .md ul { margin-left: 18px }
 .bl-thinking { display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 13px }
 .bl-op { display: flex; align-items: center; gap: 8px; padding: 7px 11px; border-radius: 10px; background: rgba(255, 255, 255, .04); border: 1px solid rgba(255, 255, 255, .06); font-size: 13px; color: var(--text-secondary); animation: pop .2s var(--ease) both }
