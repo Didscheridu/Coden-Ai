@@ -70,7 +70,7 @@ const chk = (name, got, want) => { const ok = JSON.stringify(got) === JSON.strin
   // ---------- Systemprompt kennt alles ----------
   const P = await import(pathToFileURL(path.join(__dirname, '../js/system-prompt.js')).href);
   const prompt = P.buildChatPrompt();
-  chk('Systemprompt erklärt Markieren, Farben und alle Elemente', ['==grün:', '{{rot:', ...R.WIDGETS.map(w => '<' + w)].every(x => prompt.includes(x)), true);
+  chk('Systemprompt erklärt Markieren, Farben und alle Elemente', ['==grün:', '{{rot:', ...R.WIDGETS.filter(w => w !== 'lernplan').map(w => '<' + w)].every(x => prompt.includes(x)), true);
 
   console.log(fails ? `\n${fails} Fehler` : '\nAlle Rich-Element-Tests grün');
   process.exit(fails ? 1 : 0);

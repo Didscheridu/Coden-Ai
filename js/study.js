@@ -8,6 +8,8 @@ import { Storage } from './storage.js';
 import { toast } from './toast.js';
 import { merkzettelPrompt, cleanMerkzettel, titleOf, renderSheet, printSheet, defaultPaper } from './merkzettel.js';
 import { loader } from './rich-elements.js';
+import { renderStudioTab, resetStudio } from './study-studio.js';
+import { StudyStore } from './study-store.js';
 
 const h = (tag, attrs = {}, ...kids) => {
     const el = document.createElement(tag);
@@ -53,8 +55,10 @@ function renderMd(text) {
     return window.DOMPurify ? window.DOMPurify.sanitize(raw) : raw;
 }
 
+const TABS = [['faecher', 'school', 'Fächer'], ['notizbuecher', 'menu_book', 'Notizbücher'], ['plan', 'event_note', 'Lernplan'], ['stundenplan', 'calendar_month', 'Stundenplan'], ['statistik', 'monitoring', 'Statistik']];
 const state = {
     host: null,
+    tab: 'faecher',
     activeId: null,
     mobPane: 'center', // sources | center | studio
     activeToolId: null, // null = Geführtes Lernen
@@ -715,13 +719,28 @@ function renderSheetView(tool, nb) {
 function render() {
     if (!state.host) return;
     const nb = currentNb();
-    state.host.replaceChildren(nb ? renderWorkspace(nb) : renderOverview());
+    if (nb) { state.host.replaceChildren(renderWorkspace(nb)); return; }
+    const scroll = state.host.scrollTop;
+    const wrap = h('div', { class: 'st-wrap st-home' });
+    wrap.append(h('div', { class: 'st-head' },
+        h('div', {}, h('h1', { text: 'Lern-Studio' }), h('p', { text: 'Fächer, Aufträge, Arbeiten und Hefte an einem Ort. Coden plant mit dir, korrigiert deine Seiten und erinnert dich rechtzeitig.' }))));
+    wrap.append(h('nav', { class: 'st-tabs', role: 'tablist' }, ...TABS.map(([k, icon, label]) => h('button', {
+        type: 'button', role: 'tab', class: state.tab === k ? 'active' : '', 'aria-selected': state.tab === k ? 'true' : 'false',
+        onclick: () => { if (state.tab === k) resetStudio(); state.tab = k; history.replaceState(null, '', '#/lernen/' + k); render(); }
+    }, ic(icon), h('span', { text: label })))));
+    if (state.tab === 'notizbuecher') { const ov = renderOverview(); ov.querySelector('.st-head')?.remove(); wrap.append(ov); }
+    else wrap.append(renderStudioTab(state.tab, render));
+    state.host.replaceChildren(wrap);
+    state.host.scrollTop = scroll;
 }
+document.addEventListener('studyChanged', () => { if (state.host && !currentNb() && state.tab !== 'notizbuecher' && !document.querySelector('.cd-overlay')) render(); });
 
 export const StudyView = {
-    mount(host) {
+    mount(host, params = []) {
         state.host = host;
+        if (TABS.some(t => t[0] === params[0])) { state.tab = params[0]; state.activeId = null; }
         render();
+        StudyStore.syncReminders();
     },
     unmount() {
         if (state.speaking && 'speechSynthesis' in window) { speechSynthesis.cancel(); state.speaking = false; }
