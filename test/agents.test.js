@@ -19,7 +19,9 @@ const { setup } = require('./helpers');
     ankuendigung: ['Ich sehe das Problem: die Initialisierung ist falsch. Let me fix the initialization order.', 'Hier die Korrektur.\n<file path="init.js">\nwindow.bereit = true;\n</file>\nBehoben – die App startet jetzt richtig.'],
     rennen: ['Ich teile das Rennspiel auf.\n' + ['A', 'B', 'C'].map(t => '<tool name="spawn">' + JSON.stringify({ contract: 'Jede Datei setzt ihre window-Variablen.', tasks: [{ title: 'Teil ' + t, agent: 'game', level: 'leicht', files: [t.toLowerCase() + '.js'], goal: 'Teil ' + t }] }) + '</tool>').join('\n'),
       'Alle Teile sind da und passen zusammen. Fertig!\n<tool name="done"/>'],
-    etappen: ['Schritt eins: Grundgerüst.\n<file path="etappe.js">\nwindow.e = 1;\n</file>\n<tool name="check"/>', 'Schritt zwei: erweitert.\n<file path="etappe.js">\nwindow.e = 2;\n</file>\n<tool name="check"/>', 'Alles fertig und geprüft.\n<tool name="done"/>']
+    etappen: ['Schritt eins: Grundgerüst.\n<file path="etappe.js">\nwindow.e = 1;\n</file>\n<tool name="check"/>', 'Schritt zwei: erweitert.\n<file path="etappe.js">\nwindow.e = 2;\n</file>\n<tool name="check"/>', 'Alles fertig und geprüft.\n<tool name="done"/>'],
+    werkzeuge: ['<tool name="tree"/>\n<tool name="outline" path="index.html"/>\n<tool name="copy" from="etappe.js" to="kopie.js"/>\n<tool name="move" from="kopie.js" to="js/neu.js"/>\n<tool name="insert" path="js/neu.js" line="1">// header</tool>',
+      'Geändert: js/neu.js erstellt.\n<tool name="done"/>']
   };
   global.fetch = async (url, opts = {}) => {
     if (String(url).startsWith('http://127.0.0.1')) return realFetch(url, opts);
@@ -43,7 +45,7 @@ const { setup } = require('./helpers');
       seen.main.push(sys);
       const users = body.messages.filter(m => m.role === 'user'); const results = users.filter(m => /^\[Werkzeug-Ergebnisse\]/.test(m.content)).length;
       const wish = [...body.messages].reverse().find(m => m.role === 'user' && !/^\[Werkzeug-Ergebnisse\]/.test(m.content)).content;
-      const key = /Weltraum/.test(wish) ? 'team' : /dunkel/.test(wish) ? 'dunkel' : /Hilfsdatei/.test(wish) ? 'kaputt' : /merk/.test(wish) ? 'merk' : /Repariere/.test(wish) ? 'ankuendigung' : /Etappen/.test(wish) ? 'etappen' : /Rennspiel/.test(wish) ? 'rennen' : 'solo';
+      const key = /Weltraum/.test(wish) ? 'team' : /dunkel/.test(wish) ? 'dunkel' : /Hilfsdatei/.test(wish) ? 'kaputt' : /merk/.test(wish) ? 'merk' : /Repariere/.test(wish) ? 'ankuendigung' : /Etappen/.test(wish) ? 'etappen' : /Rennspiel/.test(wish) ? 'rennen' : /Werkzeugkette/.test(wish) ? 'werkzeuge' : 'solo';
       seen.results.push(users[users.length - 1].content);
       return sse(MAIN[key][Math.min(results, MAIN[key].length - 1)]);
     }
@@ -171,6 +173,37 @@ const { setup } = require('./helpers');
   srv.close(); process.env.MCP_ALLOW_PRIVATE = '';
   chk('fetch: interne Adressen gesperrt', (await T.fetchUrl('http://127.0.0.1:1/')).ok, false);
   chk('Glob', T.list({ 'a.js': '1', 'b/c.js': '2', 'd.css': '' }, '**/*.js').summary, '2 Dateien für **/*.js');
+
+  // --- Neue Werkzeuge direkt: tree, outline, search (pattern/context), domMap, move, copy, insert, check JSON, cdnSearch ---
+  const tf = {
+    'index.html': '<html><head><title>TestApp</title><script src="app.js"></script></head><body><section id="hero"><button id="go" data-go="home"></button></section></body></html>',
+    'style.css': ':root { --bg: #000; }\n.hero { color: #fff; }',
+    'app.js': 'function initApp() {\n  document.getElementById("go");\n  document.getElementById("fehlt");\n}',
+    'bad.json': '{ broken }'
+  };
+  chk('tree: zählt Dateien und Zeilen', /4 Dateien · 8 Zeilen/.test(T.tree(tf).summary) && /\[Startseite\]/.test(T.tree(tf).text), true);
+  chk('outline: findet HTML/CSS/JS Symbole', /function initApp/.test(T.outline(tf, 'app.js').text) && /<section #hero>/.test(T.outline(tf, 'index.html').text) && /\.hero/.test(T.outline(tf, 'style.css').text), true);
+  chk('search: pattern & context', /app\.js:2:/.test(T.search(tf, 'getElementById', false, '*.js', 1).text) && !/index\.html/.test(T.search(tf, 'getElementById', false, '*.js', 1).text), true);
+  const dm = T.domMap(tf);
+  chk('domMap: findet fehlende ID und data-go', `${dm.ok} ${/app\.js → #fehlt/.test(dm.text)} ${/data-go Ziele: home/.test(dm.text)}`, 'false true true');
+  chk('check: erkennt JSON-Syntaxfehler', T.check(tf).issues.some(x => /JSON-Fehler in bad\.json/.test(x)), true);
+  const cp = T.copy(tf, 'app.js', 'js/app2.js');
+  chk('copy: dupliziert Datei', `${cp.ok} ${cp.set['js/app2.js'] === tf['app.js']}`, 'true true');
+  const mv = T.move(tf, 'app.js', 'js/main.js');
+  chk('move: verschiebt und schützt kit', `${mv.ok} ${mv.remove[0]} ${'js/main.js' in mv.set} ${T.move({ 'coden-kit.js': '1' }, 'coden-kit.js', 'x.js').ok}`, 'true app.js true false');
+  const ins = T.insert(tf, 'app.js', { line: '2', content: '  const x = 1;' });
+  chk('insert: fügt an Zeile ein', `${ins.ok} ${ins.set['app.js'].split('\n')[1]}`, 'true   const x = 1;');
+  const origCdn = T.cdnQuery;
+  T.cdnQuery = async () => [{ name: 'chart.js', latest: 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js', description: 'Charts' }];
+  const cs = await T.cdnSearch('chart');
+  T.cdnQuery = origCdn;
+  chk('cdnSearch: liefert CDN-URL', `${cs.ok} ${/chart\.umd\.min\.js/.test(cs.text)}`, 'true true');
+
+  // --- Neue Werkzeuge im echten Agenten-Lauf (copy, move, insert, tree, outline) ---
+  seen.main = []; await say(app.id, 'Teste die Werkzeugkette');
+  await agent(app.id, { tier: 'pro', mode: 'single' });
+  const fW = (await G('/apps/' + app.id, anna)).j.files;
+  chk('Agent-Werkzeugkette: kopiert, verschoben, eingefügt', `${'js/neu.js' in fW} ${'kopie.js' in fW} ${/^\/\/ header\nwindow\.e = 2;/.test(fW['js/neu.js'] || '')}`, 'true false true');
 
   // --- Läuft weiter, auch wenn der Browser die Verbindung trennt; nur ein Lauf pro App ---
   await call(`/apps/${app.id}/files`, { set: { 'style.css': 'body{margin:0}' } }, anna, 'PUT');

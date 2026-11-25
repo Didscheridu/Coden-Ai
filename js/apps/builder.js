@@ -27,12 +27,32 @@ const DEVICES = { ios: { w: 393, h: 852, label: 'iPhone', icon: 'phone_iphone' }
 const FILE_ICON = (n) => /\.html?$/.test(n) ? 'html' : /\.css$/.test(n) ? 'css' : /\.js$/.test(n) ? 'javascript' : /\.json$/.test(n) ? 'data_object' : /\.svg$/.test(n) ? 'image' : 'description';
 const MAX_AUTOFIX = 2;
 // Arbeits-Werkzeuge des Main Agents (laufen auf dem Server) – im Chat als kompakte Zeile wie bei Claude Code
-const AGENT_TOOLS = { list: ['folder_open', 'Dateien ansehen'], read: ['visibility', 'Liest'], search: ['search', 'Sucht'], check: ['fact_check', 'Prüft die App'], fetch: ['language', 'Liest Webseite'], web_search: ['travel_explore', 'Sucht im Web'], memory: ['bookmark_add', 'Merkt sich'], spawn: ['groups', 'Startet Sub-Agenten'], done: ['check', 'Fertig'] };
+const AGENT_TOOLS = {
+    list: ['folder_open', 'Dateien ansehen'],
+    tree: ['account_tree', 'Projektstruktur'],
+    read: ['visibility', 'Liest'],
+    outline: ['toc', 'Liest Gliederung'],
+    search: ['search', 'Sucht'],
+    dom_map: ['hub', 'Prüft DOM-Verbindungen'],
+    check: ['fact_check', 'Prüft die App'],
+    move: ['drive_file_move', 'Verschiebt'],
+    copy: ['file_copy', 'Kopiert'],
+    insert: ['playlist_add', 'Fügt Code ein'],
+    cdn_search: ['inventory_2', 'Sucht Bibliothek'],
+    fetch: ['language', 'Liest Webseite'],
+    web_search: ['travel_explore', 'Sucht im Web'],
+    memory: ['bookmark_add', 'Merkt sich'],
+    spawn: ['groups', 'Startet Sub-Agenten'],
+    done: ['check', 'Fertig']
+};
 const RESULT_IC = { leg: 'replay', nudge: 'bolt', review: 'task_alt' };
 function agentToolChip(t) {
     const [ic, label] = AGENT_TOOLS[t.name]; const a = t.attrs || {};
     let what = a.path || a.query || a.url || a.pattern || '';
     if (t.name === 'read' && a.start) what += ` (Zeilen ${a.start}–${a.end || '…'})`;
+    if (t.name === 'move' || t.name === 'copy') what = `${a.from || ''} → ${a.to || ''}`;
+    if (t.name === 'insert') what = `${a.path || ''}${a.line ? ':' + a.line : a.after ? ':nach ' + a.after : ''}`;
+    if (t.name === 'search' && a.pattern) what = `${a.query || ''} (${a.pattern})`;
     if (t.name === 'memory') what = (t.body || '').slice(0, 80);
     if (t.name === 'spawn') { try { const j = JSON.parse((t.body.match(/\{[\s\S]*\}/) || ['{}'])[0]); what = (j.tasks || []).map(x => x.title).filter(Boolean).join(' · '); } catch (_) { what = ''; } }
     return h('div', { class: 'bl-atool t-' + t.name }, icon(ic), h('b', { text: label }), what ? h('code', { text: String(what).slice(0, 120) }) : null);
@@ -40,7 +60,7 @@ function agentToolChip(t) {
 
 export function mountBuilder(host, appId) {
     const st = { id: appId, app: null, files: {}, members: [], messages: [], seen: new Set(), lastId: 0, version: 0, running: false, abort: null, autoFix: 0, imgRounds: 0,
-        tier: localStorage.getItem('coden_app_tier') || 'pro', mode: localStorage.getItem('coden_agent_mode') || 'auto', runId: null, liveEl: null, device: null, page: 'index.html', view: 'preview', pane: 'chat', logs: [], renderErrors: [], codeFile: null, dirty: false, alive: true, timers: [], live: null };
+        tier: localStorage.getItem('coden_app_tier') || 'pro', mode: localStorage.getItem('coden_agent_mode') || 'auto', runId: null, liveEl: null, device: null, page: 'index.html', view: 'preview', pane: 'chat', logs: [], renderErrors: [], codeFile: null, openFiles: [], dirty: false, alive: true, timers: [], live: null };
     const ns = `codenprev:${appId}:`;
 
     // ---------- Gerüst ----------
@@ -64,18 +84,23 @@ export function mountBuilder(host, appId) {
     const pageSel = h('select', { class: 'bl-page hidden', title: 'Seite' });
     const codeBox = h('div', { class: 'bl-code hidden' });
     const viewSeg = h('div', { class: 'bl-seg' });
+    const workspace = h('div', { class: 'bl-workspace' }, canvas, codeBox);
     const stage = h('div', { class: 'bl-stage' },
         h('div', { class: 'bl-toolbar' }, viewSeg, h('span', { class: 'bl-sep' }), deviceBtns, pageSel, h('span', { class: 'grow' }),
-            h('button', { type: 'button', class: 'bl-tbtn', title: 'Neu laden', 'aria-label': 'Vorschau neu laden', onclick: () => render() }, icon('refresh')), consoleBtn,
+            h('button', { type: 'button', class: 'bl-tbtn', title: 'Vorschau neu laden', 'aria-label': 'Vorschau neu laden', onclick: () => render() }, icon('refresh')), consoleBtn,
             h('button', { type: 'button', class: 'bl-tbtn', title: 'Im neuen Tab öffnen (Testlink)', 'aria-label': 'Testlink öffnen', onclick: () => st.app?.testUrl && window.open(st.app.testUrl, '_blank', 'noopener,noreferrer') }, icon('open_in_new'))),
-        canvas, codeBox, consoleBox);
-    const chat = h('div', { class: 'bl-chat' }, log, h('div', { class: 'bl-composer' }, input, h('div', { class: 'bl-crow' }, tierBox, h('span', { class: 'grow' }), stopBtn, sendBtn)));
+        workspace, consoleBox);
+    const paneControls = h('div', { class: 'bl-pane-ctrl' });
+    const paneHead = h('div', { class: 'bl-pane-head' },
+        h('div', { class: 'bl-pane-title' }, icon('build'), h('span', { text: 'Build' })),
+        paneControls);
+    const chat = h('div', { class: 'bl-chat' }, paneHead, log, h('div', { class: 'bl-composer' }, input, h('div', { class: 'bl-crow' }, tierBox, h('span', { class: 'grow' }), stopBtn, sendBtn)));
     const mtabs = h('div', { class: 'bl-mtabs' });
     const head = h('header', { class: 'bl-head' },
         h('button', { class: 'bl-ibtn', title: 'Zurück zu deinen Apps', onclick: () => Router.go('apps') }, icon('arrow_back')),
         h('div', { class: 'bl-title' }, nameIn, badges), people, h('span', { class: 'grow' }),
         h('button', { class: 'bl-btn', onclick: () => openInvite() }, icon('group_add'), h('span', { text: 'Einladen' })),
-        h('button', { class: 'bl-btn', onclick: () => openPhone() }, icon('qr_code_2'), h('span', { text: 'Auf dem Handy testen' })),
+        h('button', { class: 'bl-btn', onclick: () => openPhone() }, icon('qr_code_2'), h('span', { text: 'Handy-Test' })),
         h('button', { class: 'bl-btn primary', id: 'bl-pub', onclick: () => openPublish() }, icon('rocket_launch'), h('span', { text: 'Veröffentlichen' })),
         h('button', { class: 'bl-ibtn', title: 'Mehr', onclick: (e) => openMenu(e.currentTarget) }, icon('more_vert')));
     const resizer = h('div', { class: 'bl-resizer', title: 'Breite ändern' });
@@ -125,11 +150,15 @@ export function mountBuilder(host, appId) {
         const ro = app.role === 'viewer'; input.disabled = ro; sendBtn.disabled = ro; nameIn.disabled = ro; if (ro) input.placeholder = 'Du darfst diese App nur ansehen (Rolle: Zuschauer).';
         if (!st.device) st.device = kd.devices[0];
         const style = S().byId(app.style);
-        badges.replaceChildren(h('span', { class: 'bl-badge' }, icon(kd.icon), kd.label), h('button', { type: 'button', class: 'bl-badge btn', title: 'Stil ändern', onclick: () => changeStyle() }, icon('palette'), style ? style.name : 'Eigener Stil'),
-            app.published ? h('a', { class: 'bl-badge live', href: app.url, target: '_blank', rel: 'noopener noreferrer', title: app.url }, h('i'), 'Live') : null);
+        badges.replaceChildren(
+            h('span', { class: 'bl-badge' }, icon(kd.icon), kd.label),
+            h('span', { class: 'bl-dot-sep', text: '·', 'aria-hidden': 'true' }),
+            h('button', { type: 'button', class: 'bl-badge btn', title: 'Stil ändern', onclick: () => changeStyle() }, icon('palette'), style ? style.name : 'Eigener Stil'),
+            app.published ? h('a', { class: 'bl-badge live', href: app.url, target: '_blank', rel: 'noopener noreferrer', title: app.url }, h('i'), 'Live') : null
+        );
         const pub = root.querySelector('#bl-pub span:last-child'); if (pub) pub.textContent = app.published ? 'Veröffentlicht' : 'Veröffentlichen';
         root.querySelector('#bl-pub')?.classList.toggle('done', app.published);
-        document.title = app.name + ' · Coden Apps';
+        document.title = app.name + ' · Coden Studio';
     }
     nameIn.addEventListener('keydown', (e) => { if (!st.app) return; if (e.key === 'Enter') nameIn.blur(); if (e.key === 'Escape') { nameIn.value = st.app.name; nameIn.blur(); } });
     nameIn.addEventListener('blur', async () => { if (!st.app) return; const n = nameIn.value.trim(); if (!n || n === st.app.name) { nameIn.value = st.app.name; return; } try { setApp((await apiJson('/apps/' + appId, { method: 'PATCH', body: JSON.stringify({ name: n }) })).app); st.version = st.app.version; toast('Umbenannt', { type: 'ok' }); } catch (e) { toast(e.message, { type: 'error' }); if (st.app) nameIn.value = st.app.name; } });
@@ -150,21 +179,31 @@ export function mountBuilder(host, appId) {
         const pick = (t) => { st.tier = t; localStorage.setItem('coden_app_tier', t); drawTiers(); };
         const ownSel = own.length ? h('select', { class: 'bl-own' + (isOwnTier(st.tier) ? ' active' : ''), title: 'Eigene Modelle und Ketten (Bring your own Key)', onchange: (e) => { if (e.target.value) pick(e.target.value); } },
             h('option', { value: '', text: 'Eigene …' }), ...own.map(o => h('option', { value: o.tier, text: (o.kind === 'chain' ? '⛓ ' : '🔑 ') + o.label, selected: st.tier === o.tier || undefined }))) : null;
-        const cfgBtn = h('button', { type: 'button', class: 'bl-tier', title: 'Modelle der Sub-Agenten, Ketten und Key-Plätze einstellen', 'aria-label': 'Agenten-Modelle einstellen', onclick: () => window.dispatchEvent(new CustomEvent('coden:settings', { detail: { tab: 'models', sub: 'app' } })) }, icon('tune'));
-        tierBox.replaceChildren(...[...TIERS.filter(t => t.id !== 'ultra' || auth.currentUser?.isOwner).map(t => h('button', { class: 'bl-tier' + (st.tier === t.id ? ' active' : ''), title: t.tip, text: t.label, onclick: () => pick(t.id) })), ownSel, cfgBtn, isByokTier(st.tier) ? null : drawEffort(), mode].filter(Boolean));
+        const cfgBtn = h('button', { type: 'button', class: 'bl-ibtn sm', title: 'Modelle der Sub-Agenten, Ketten und Key-Plätze einstellen', 'aria-label': 'Agenten-Modelle einstellen', onclick: () => window.dispatchEvent(new CustomEvent('coden:settings', { detail: { tab: 'models', sub: 'app' } })) }, icon('tune'));
+        paneControls.replaceChildren(mode, cfgBtn);
+        tierBox.replaceChildren(...[...TIERS.filter(t => t.id !== 'ultra' || auth.currentUser?.isOwner).map(t => h('button', { class: 'bl-tier' + (st.tier === t.id ? ' active' : ''), title: t.tip, text: t.label, onclick: () => pick(t.id) })), ownSel, isByokTier(st.tier) ? null : drawEffort()].filter(Boolean));
     }
+    const showPreview = () => st.view === 'preview' || st.view === 'split';
+    const showCode = () => st.view === 'code' || st.view === 'split';
     function drawDevices() {
         if (!st.app) return;
-        const list = kindOf(st.app.kind).devices; deviceBtns.classList.toggle('hidden', list.length < 2 || st.view !== 'preview');
+        const list = kindOf(st.app.kind).devices; deviceBtns.classList.toggle('hidden', list.length < 2 || !showPreview());
         deviceBtns.replaceChildren(...list.map(d => h('button', { type: 'button', class: st.device === d ? 'active' : '', title: DEVICES[d].label, onclick: () => { st.device = d; drawDevices(); render(); } }, icon(DEVICES[d].icon), h('span', { text: DEVICES[d].label }))));
     }
     function drawViewSeg() {
-        viewSeg.replaceChildren(...[['preview', 'visibility', 'Vorschau'], ['code', 'code', 'Code']].map(([v, ic, l]) => h('button', { type: 'button', class: st.view === v ? 'active' : '', onclick: () => setView(v) }, icon(ic), h('span', { text: l }))));
+        viewSeg.replaceChildren(...[['preview', 'visibility', 'Vorschau'], ['code', 'code', 'Code'], ['split', 'vertical_split', 'Split']].map(([v, ic, l]) => h('button', { type: 'button', class: ((st.view === v ? 'active ' : '') + (v === 'split' ? 'hide-mobile' : '')).trim(), onclick: () => setView(v) }, icon(ic), h('span', { text: l }))));
     }
     function setView(v) {
-        if (st.view === 'code' && v !== 'code' && st.dirty) { saveCode(); }
-        st.view = v; drawViewSeg(); drawDevices(); canvas.classList.toggle('hidden', v !== 'preview'); codeBox.classList.toggle('hidden', v !== 'code'); pageSel.classList.toggle('hidden', v !== 'preview' || pageSel.options.length < 2);
-        if (v === 'code') drawCode(); else render();
+        if (showCode() && v === 'preview' && st.dirty) { saveCode(); }
+        st.view = v;
+        workspace.classList.toggle('split', v === 'split');
+        drawViewSeg(); drawDevices();
+        canvas.classList.toggle('hidden', !showPreview());
+        codeBox.classList.toggle('hidden', !showCode());
+        pageSel.classList.toggle('hidden', !showPreview() || pageSel.options.length < 2);
+        if (showCode()) drawCode();
+        if (showPreview()) render();
+        setTimeout(fit, 30);
     }
     function drawMobileTabs() {
         mtabs.replaceChildren(...[['chat', 'forum', 'Chat'], ['preview', 'visibility', 'Vorschau'], ['code', 'code', 'Code']].map(([p, ic, l]) => h('button', { type: 'button', class: st.pane === p ? 'active' : '', onclick: () => { st.pane = p; root.dataset.pane = p; if (p !== 'chat') setView(p); drawMobileTabs(); } }, icon(ic), l)));
@@ -179,12 +218,12 @@ export function mountBuilder(host, appId) {
         return new Promise((resolve) => { renderTimer = setTimeout(async () => { await doRender(); resolve(); }, immediate ? 0 : 60); });
     }
     async function doRender() {
-        if (!st.alive || !st.app || st.view !== 'preview') return;
+        if (!st.alive || !st.app || !showPreview()) return;
         const bundle = B();
         if (!bundle) { toast('Vorschau-Modul fehlt. Bitte Seite neu laden.', { type: 'error' }); return; }
         let kit;
         try { kit = await getKit(); } catch (e) { toast(e.message || 'Vorschau konnte nicht geladen werden.', { type: 'error' }); return; }
-        if (!st.alive || !st.app || st.view !== 'preview') return;
+        if (!st.alive || !st.app || !showPreview()) return;
         const style = S().byId(st.app.style);
         const platform = st.app.kind === 'web' || st.app.kind === 'game' ? 'web' : st.device === 'android' ? 'android' : 'ios';
         const b = bundle.build(st.files, { kit, themeCss: S().themeCss(style), fontsHref: S().fontsHref(style), platform });
@@ -263,35 +302,61 @@ export function mountBuilder(host, appId) {
     }
     consoleBtn.addEventListener('click', () => { consoleBox.classList.toggle('hidden'); drawConsole(); });
 
-    // ---------- Code-Ansicht ----------
+    // ---------- Code-Ansicht (AI Studio-Stil mit Dateibaum, Tabs & Zeilennummern) ----------
     const editor = h('textarea', { class: 'bl-editor', spellcheck: 'false', autocapitalize: 'off', autocomplete: 'off', wrap: 'off' });
+    const gutter = h('div', { class: 'bl-lines', 'aria-hidden': 'true' });
+    const lineMeta = h('small', { class: 'bl-clines-cnt' });
     const codeStatus = h('small', { class: 'bl-cstatus' });
-    editor.addEventListener('input', () => { st.dirty = true; codeStatus.textContent = 'Nicht gespeichert'; });
+    const updateLines = () => {
+        const count = Math.max(1, editor.value.split('\n').length);
+        lineMeta.textContent = `${count} ${count === 1 ? 'Zeile' : 'Zeilen'}`;
+        if (gutter.childElementCount !== count) {
+            gutter.textContent = Array.from({ length: count }, (_, i) => i + 1).join('\n');
+        }
+    };
+    editor.addEventListener('scroll', () => { gutter.scrollTop = editor.scrollTop; });
+    editor.addEventListener('input', () => { st.dirty = true; codeStatus.textContent = 'Nicht gespeichert'; updateLines(); if (st.view === 'split') { clearTimeout(splitSyncTimer); splitSyncTimer = setTimeout(() => { if (st.codeFile) { st.files[st.codeFile] = editor.value; render(true); } }, 450); } });
+    let splitSyncTimer = 0;
     editor.addEventListener('keydown', (e) => {
-        if (e.key === 'Tab') { e.preventDefault(); editor.setRangeText('  ', editor.selectionStart, editor.selectionEnd, 'end'); st.dirty = true; }
+        if (e.key === 'Tab') { e.preventDefault(); editor.setRangeText('  ', editor.selectionStart, editor.selectionEnd, 'end'); st.dirty = true; updateLines(); }
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); saveCode(); }
     });
     async function saveCode() {
         if (!st.dirty || !st.codeFile) return; const name = st.codeFile, content = editor.value;
-        try { await saveFiles({ [name]: content }, []); st.files[name] = content; st.dirty = false; codeStatus.textContent = 'Gespeichert'; toast(`${name} gespeichert`, { type: 'ok', ms: 1500 }); }
+        try { await saveFiles({ [name]: content }, []); st.files[name] = content; st.dirty = false; codeStatus.textContent = 'Gespeichert'; toast(`${name} gespeichert`, { type: 'ok', ms: 1500 }); if (showPreview()) render(true); drawCode(); }
         catch (e) { toast(e.message, { type: 'error' }); }
     }
+    const openFile = async (n) => {
+        if (st.codeFile === n) return;
+        if (st.dirty) await saveCode();
+        st.codeFile = n; st.dirty = false;
+        if (!st.openFiles.includes(n)) st.openFiles.push(n);
+        drawCode();
+    };
     function drawCode() {
         const names = Object.keys(st.files).sort((a, b) => (a === 'index.html' ? -1 : b === 'index.html' ? 1 : a.localeCompare(b)));
         if (!st.codeFile || !(st.codeFile in st.files)) { st.codeFile = names[0] || null; st.dirty = false; }
-        if (!st.dirty && st.codeFile) editor.value = st.files[st.codeFile];
+        st.openFiles = st.openFiles.filter(f => f in st.files);
+        if (st.codeFile && !st.openFiles.includes(st.codeFile)) st.openFiles.push(st.codeFile);
+        if (!st.dirty && st.codeFile) { editor.value = st.files[st.codeFile]; updateLines(); }
         const list = h('div', { class: 'bl-files' }, h('div', { class: 'bl-fhead' }, h('b', { text: 'Dateien' }), h('button', { class: 'bl-tbtn', title: 'Neue Datei', onclick: async () => {
             const n = await promptBox('Neue Datei', { label: 'Dateiname', placeholder: 'z. B. daten.js, kontakt.html, logo.svg', ok: 'Anlegen' }); if (!n) return;
             if (!/^(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9_.\-\/]{0,99}$/.test(n)) return toast('Ungültiger Dateiname', { type: 'error' });
             if (n in st.files) return toast('Die Datei gibt es schon', { type: 'warn' });
-            try { await saveFiles({ [n]: '' }, []); st.files[n] = ''; st.codeFile = n; st.dirty = false; drawCode(); } catch (e) { toast(e.message, { type: 'error' }); }
+            try { await saveFiles({ [n]: '' }, []); st.files[n] = ''; st.codeFile = n; st.dirty = false; if (!st.openFiles.includes(n)) st.openFiles.push(n); drawCode(); } catch (e) { toast(e.message, { type: 'error' }); }
         } }, icon('note_add'))),
-        ...names.map(n => h('div', { class: 'bl-file' + (n === st.codeFile ? ' active' : ''), onclick: async () => { if (st.dirty) await saveCode(); st.codeFile = n; st.dirty = false; drawCode(); } },
+        ...names.map(n => h('div', { class: 'bl-file' + (n === st.codeFile ? ' active' : ''), onclick: () => openFile(n) },
             icon(FILE_ICON(n)), h('span', { class: 'grow', text: n }), h('small', { text: (st.files[n].length / 1024).toFixed(1) + ' KB' }),
-            names.length > 1 ? h('button', { class: 'bl-x', title: 'Löschen', onclick: async (e) => { e.stopPropagation(); if (!(await confirmBox(`${n} löschen?`, { ok: 'Löschen', danger: true }))) return; try { await saveFiles({}, [n]); delete st.files[n]; if (st.codeFile === n) st.codeFile = null; st.dirty = false; drawCode(); } catch (er) { toast(er.message, { type: 'error' }); } } }, icon('delete')) : null)));
-        codeBox.replaceChildren(list, h('div', { class: 'bl-ecol' }, h('div', { class: 'bl-ebar' }, icon(FILE_ICON(st.codeFile || '')), h('b', { text: st.codeFile || '–' }), codeStatus, h('span', { class: 'grow' }),
-            h('button', { class: 'bl-btn sm', title: 'Kopieren', onclick: async () => { if (await copy(editor.value)) toast('Kopiert', { type: 'ok', ms: 1200 }); } }, icon('content_copy')),
-            h('button', { class: 'bl-btn sm primary', onclick: saveCode }, icon('save'), ' Speichern')), editor));
+            names.length > 1 ? h('button', { class: 'bl-x', title: 'Löschen', onclick: async (e) => { e.stopPropagation(); if (!(await confirmBox(`${n} löschen?`, { ok: 'Löschen', danger: true }))) return; try { await saveFiles({}, [n]); delete st.files[n]; st.openFiles = st.openFiles.filter(f => f !== n); if (st.codeFile === n) st.codeFile = null; st.dirty = false; drawCode(); if (showPreview()) render(true); } catch (er) { toast(er.message, { type: 'error' }); } } }, icon('delete')) : null)));
+        const tabs = h('div', { class: 'bl-tabs' }, ...st.openFiles.map(n => h('div', { class: 'bl-tab' + (n === st.codeFile ? ' active' : ''), onclick: () => openFile(n) },
+            icon(FILE_ICON(n)), h('span', { text: n }), n === st.codeFile && st.dirty ? h('i', { class: 'bl-tab-dirty', title: 'Ungespeichert' }) : null,
+            st.openFiles.length > 1 ? h('button', { type: 'button', class: 'bl-tab-x', title: 'Tab schließen', onclick: async (e) => { e.stopPropagation(); if (n === st.codeFile && st.dirty) await saveCode(); st.openFiles = st.openFiles.filter(f => f !== n); if (st.codeFile === n) { st.codeFile = st.openFiles[0] || names[0] || null; st.dirty = false; } drawCode(); } }, icon('close')) : null)));
+        codeBox.replaceChildren(list, h('div', { class: 'bl-ecol' },
+            tabs,
+            h('div', { class: 'bl-ebar' }, icon(FILE_ICON(st.codeFile || '')), h('b', { text: st.codeFile || '–' }), lineMeta, codeStatus, h('span', { class: 'grow' }),
+                h('button', { class: 'bl-btn sm', title: 'Kopieren', onclick: async () => { if (await copy(editor.value)) toast('Kopiert', { type: 'ok', ms: 1200 }); } }, icon('content_copy')),
+                h('button', { class: 'bl-btn sm primary', onclick: saveCode }, icon('save'), ' Speichern')),
+            h('div', { class: 'bl-codewrap' }, gutter, editor)));
         if (!st.dirty) codeStatus.textContent = '';
     }
 
@@ -363,7 +428,7 @@ export function mountBuilder(host, appId) {
                 else if (s.tool.name === 'publish') frag.push(publishCard(s.tool, { published: st.app?.published, onPublish: () => openPublish() }));
             }
         }
-        if (final && meta.changed?.length) frag.push(h('div', { class: 'bl-changes' }, meta.changed.filter(c => c.type !== 'same').map(c => h('button', { class: 'bl-chg ' + c.type, title: 'Im Code ansehen', onclick: () => { if (c.type === 'delete' || !(c.path in st.files)) return; st.codeFile = c.path; st.dirty = false; if (window.innerWidth <= 900) { st.pane = 'code'; drawMobileTabs(); } setView('code'); } },
+        if (final && meta.changed?.length) frag.push(h('div', { class: 'bl-changes' }, meta.changed.filter(c => c.type !== 'same').map(c => h('button', { class: 'bl-chg ' + c.type, title: 'Im Code ansehen', onclick: () => { if (c.type === 'delete' || !(c.path in st.files)) return; st.codeFile = c.path; st.dirty = false; if (!st.openFiles.includes(c.path)) st.openFiles.push(c.path); if (window.innerWidth <= 900) { st.pane = 'code'; drawMobileTabs(); setView('code'); } else setView(st.view === 'split' ? 'split' : 'code'); } },
             icon({ new: 'add_circle', write: 'edit_document', edit: 'edit', delete: 'delete' }[c.type] || 'description'), h('span', { text: c.path })))));
         if (final && meta.auto) frag.push(h('small', { class: 'bl-meta', text: 'automatische Korrektur' }));
         if (!frag.length && !final) frag.push(h('span', { class: 'typing-dots' }, h('i'), h('i'), h('i')));
@@ -522,7 +587,7 @@ export function mountBuilder(host, appId) {
         // Laufzeitfehler kann nur die echte Vorschau finden -> Coden korrigiert sich selbst (begrenzt)
         const lastAi = [...st.messages].reverse().find(m => m.role === 'assistant');
         const waits = /<tool\s+name="(database|ask|secret)"/.test(lastAi?.body || '');
-        if (waits || !lastAi?.meta?.changed?.length || st.view !== 'preview') { st.autoFix = 0; return; }
+        if (waits || !lastAi?.meta?.changed?.length || !showPreview()) { st.autoFix = 0; return; }
         const seq = renderSeq; await sleep(2200);
         const errs = seq === renderSeq ? [...new Set(st.renderErrors)].slice(0, 8) : [];
         if (errs.length && st.autoFix < MAX_AUTOFIX && st.alive) {
@@ -539,7 +604,7 @@ export function mountBuilder(host, appId) {
             const r = await apiJson(`/apps/${appId}/messages?after=${st.lastId}`); r.messages.forEach(addMessage);
             const full = await apiJson('/apps/' + appId); setApp(full.app);
             const changed = JSON.stringify(full.files) !== JSON.stringify(st.files); st.files = full.files; st.version = full.app.version;
-            if (changed) { if (st.view === 'code' && !st.dirty) drawCode(); await render(true); }
+            if (changed) { if (showCode() && !st.dirty) drawCode(); if (showPreview()) await render(true); }
         } catch (_) {}
     }
     let pollSoon = 0; const pollNow = () => { const n = Date.now(); if (n - pollSoon > 1500) { pollSoon = n; pollOnce(); } };
@@ -587,7 +652,7 @@ export function mountBuilder(host, appId) {
                 if (!st.alive) return;
                 st.version = full.app.version; setApp(full.app);
                 const changed = JSON.stringify(full.files) !== JSON.stringify(st.files); st.files = full.files;
-                if (changed) { if (st.view === 'code' && !st.dirty) drawCode(); else if (st.view === 'code') codeStatus.textContent = '⚠ Jemand hat Dateien geändert – speichern überschreibt'; render(); }
+                if (changed) { if (showCode() && !st.dirty) drawCode(); else if (showCode()) codeStatus.textContent = '⚠ Jemand hat Dateien geändert – speichern überschreibt'; if (showPreview()) render(); }
             }
             // Ein Agent arbeitet (von einem anderen Gerät oder Mitglied gestartet)? -> live mit anschauen
             if (r.agentRun && !st.running && st.alive) { const x = await apiJson(`/apps/${appId}/agent?run=${r.agentRun}`); if (st.alive && x.status === 'running') runAgent({ attach: x }); }

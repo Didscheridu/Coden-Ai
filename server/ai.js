@@ -72,6 +72,7 @@ const OPENAI_COMPAT = {
   openai: { url: 'https://api.openai.com/v1/chat/completions', env: null }, // nur mit eigenem Key (Bring your own Key)
   numes: { url: 'https://api.numes.ai/api/v1/chat/completions', env: null }, // nur mit eigenem Key (numes.ai)
   kilo: { url: 'https://ai-gateway.kilo.ai/api/v1/chat/completions', env: null }, // nur mit eigenem Key (ai-gateway.kilo.ai)
+  aihubmix: { url: 'https://aihubmix.com/v1/chat/completions', env: null }, // nur mit eigenem Key (aihubmix.com)
 };
 
 // ---------- Tageskontingent ----------
@@ -390,7 +391,7 @@ async function callModel(m, messages, { stream, onDelta, onThink, signal, maxTok
 }
 
 // ---------- Modellliste (für den Befehl /modelle) ----------
-const PROVIDER_NAMES = { groq: 'Groq', openrouter: 'OpenRouter', google: 'Google', openai: 'OpenAI', anthropic: 'Anthropic', numes: 'Numes', kilo: 'Kilo' };
+const PROVIDER_NAMES = { groq: 'Groq', openrouter: 'OpenRouter', google: 'Google', openai: 'OpenAI', anthropic: 'Anthropic', numes: 'Numes', kilo: 'Kilo', aihubmix: 'AIHubMix' };
 const keyOf = (m) => `${m.provider}:${m.id}`;
 function listModels() {
   const seen = new Map();

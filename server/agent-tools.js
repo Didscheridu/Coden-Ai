@@ -41,23 +41,183 @@ function read(files, path, start, end) {
   return { ok: done.length > 0, summary: done.length ? 'gelesen: ' + done.join(', ') : 'Datei nicht gefunden', text: out.join('\n\n') };
 }
 
-function search(files, query, regex) {
+function search(files, query, regex, pattern, context) {
   const q = String(query || ''); if (!q) return { ok: false, summary: 'keine Suche angegeben', text: 'Fehler: search braucht query="…".' };
   let re;
   try { re = regex === 'true' || regex === true ? new RegExp(q, 'i') : new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'); }
   catch (e) { return { ok: false, summary: 'ungültiger regulärer Ausdruck', text: 'Fehler im regulären Ausdruck: ' + e.message }; }
+  const pat = pattern ? globToRe(pattern) : null;
+  const ctxN = Math.max(0, Math.min(4, parseInt(context, 10) || 0));
   const hits = []; const perFile = {};
   for (const n of Object.keys(files).sort()) {
-    String(files[n]).split('\n').forEach((l, i) => { if (re.test(l)) { perFile[n] = (perFile[n] || 0) + 1; if (hits.length < MAX_HITS) hits.push(`${n}:${i + 1}: ${l.trim().slice(0, 200)}`); } });
+    if (pat && !pat.test(n)) continue;
+    const lines = String(files[n]).split('\n');
+    lines.forEach((l, i) => {
+      if (!re.test(l)) return;
+      perFile[n] = (perFile[n] || 0) + 1;
+      if (hits.length >= MAX_HITS) return;
+      if (!ctxN) {
+        hits.push(`${n}:${i + 1}: ${l.trim().slice(0, 200)}`);
+      } else {
+        const a = Math.max(0, i - ctxN), b = Math.min(lines.length - 1, i + ctxN);
+        const block = [];
+        for (let k = a; k <= b; k++) block.push(`${k === i ? '>' : ' '} ${n}:${k + 1}: ${lines[k].slice(0, 180)}`);
+        hits.push(block.join('\n'));
+      }
+    });
   }
   const total = Object.values(perFile).reduce((a, b) => a + b, 0);
   return { ok: true, summary: `„${q.slice(0, 40)}“: ${plural(total, 'Treffer', 'Treffer')}${total ? ' in ' + plural(Object.keys(perFile).length, 'Datei', 'Dateien') : ''}`,
-    text: total ? `Fundstellen für "${q}" (${total}${total > MAX_HITS ? ', die ersten ' + MAX_HITS : ''}):\n${hits.join('\n')}` : `Keine Fundstellen für "${q}".` };
+    text: total ? `Fundstellen für "${q}" (${total}${total > MAX_HITS ? ', die ersten ' + MAX_HITS : ''}):\n${hits.join(ctxN ? '\n---\n' : '\n')}` : `Keine Fundstellen für "${q}".` };
+}
+
+function tree(files) {
+  const names = Object.keys(files || {}).sort();
+  if (!names.length) return { ok: true, summary: 'leeres Projekt', text: 'Projekt hat noch keine Dateien.' };
+  let totalLines = 0, totalBytes = 0;
+  const rows = names.map(n => {
+    const s = String(files[n]); const lines = s.split('\n').length; const bytes = s.length;
+    totalLines += lines; totalBytes += bytes;
+    const ext = (n.split('.').pop() || '').toLowerCase();
+    const role = n === 'index.html' ? 'Startseite' : ext === 'html' ? 'Seite' : ext === 'css' ? 'Styles' : ext === 'js' ? 'Skript' : ext === 'json' ? 'Daten' : ext === 'svg' ? 'Grafik' : ext === 'md' ? 'Notizen' : 'Datei';
+    return `- ${n} [${role}] · ${lines} Zeilen · ${(bytes / 1024).toFixed(1)} KB`;
+  });
+  return { ok: true, summary: `${plural(names.length, 'Datei', 'Dateien')} · ${totalLines} Zeilen`, text: `Projektstruktur (${names.length} Dateien, ${totalLines} Zeilen, ${(totalBytes / 1024).toFixed(1)} KB):\n${rows.join('\n')}` };
+}
+
+function outlineOfFile(name, content) {
+  const lines = String(content).split('\n'); const out = [];
+  if (/\.html?$/i.test(name)) {
+    lines.forEach((l, i) => {
+      const t = l.match(/<title[^>]*>([^<]+)<\/title>/i); if (t) out.push(`Z.${i + 1}: title "${t[1].trim()}"`);
+      const s = l.match(/<(section|header|nav|main|footer|canvas|dialog|form)\b([^>]*)>/i);
+      if (s) { const id = (s[2].match(/\bid=["']([^"']+)["']/i) || [])[1]; out.push(`Z.${i + 1}: <${s[1].toLowerCase()}${id ? ' #' + id : ''}>`); }
+      const inc = l.match(/<(?:script|link)\b[^>]*?\b(?:src|href)=["']([^"']+)["']/i);
+      if (inc) out.push(`Z.${i + 1}: lädt ${inc[1]}`);
+    });
+  } else if (/\.css$/i.test(name)) {
+    lines.forEach((l, i) => {
+      const m = l.match(/^\s*(@media[^{]+|@keyframes\s+[\w-]+|:root|[.#a-zA-Z\[][^{;\n]{1,70})\s*\{/);
+      if (m) out.push(`Z.${i + 1}: ${m[1].trim()}`);
+    });
+  } else if (/\.js$/i.test(name)) {
+    lines.forEach((l, i) => {
+      let m = l.match(/^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)/);
+      if (m) { out.push(`Z.${i + 1}: function ${m[1]}(${m[2].slice(0, 40)})`); return; }
+      m = l.match(/^\s*class\s+([A-Za-z_$][\w$]*)/);
+      if (m) { out.push(`Z.${i + 1}: class ${m[1]}`); return; }
+      m = l.match(/^\s*(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>/);
+      if (m) { out.push(`Z.${i + 1}: const ${m[1]} = () =>`); return; }
+      m = l.match(/^\s*(?:window\.)?([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?function/);
+      if (m) { out.push(`Z.${i + 1}: ${m[1]} = function`); return; }
+      m = l.match(/addEventListener\(\s*['"]([^'"]+)['"]/);
+      if (m) out.push(`Z.${i + 1}: listener(${m[1]})`);
+    });
+  } else if (/\.json$/i.test(name)) {
+    try { const obj = JSON.parse(content); if (obj && typeof obj === 'object') out.push(`Keys: ${Object.keys(obj).slice(0, 20).join(', ')}`); }
+    catch (e) { out.push(`JSON-Fehler: ${e.message}`); }
+  }
+  return out.slice(0, 60);
+}
+
+function outline(files, path) {
+  const targets = path
+    ? String(path).split(',').map(x => x.trim().replace(/^\.?\//, '')).filter(Boolean).slice(0, 5)
+    : Object.keys(files || {}).filter(n => /\.(html?|css|js|json)$/i.test(n)).sort().slice(0, 10);
+  if (!targets.length) return { ok: false, summary: 'keine passenden Dateien', text: 'Keine Code-Dateien vorhanden.' };
+  const parts = []; let hits = 0;
+  for (const p of targets) {
+    if (!(p in files)) { parts.push(`=== ${p} ===\nFehler: Datei gibt es nicht.`); continue; }
+    const sym = outlineOfFile(p, files[p]);
+    hits += sym.length;
+    parts.push(`=== ${p} (${String(files[p]).split('\n').length} Zeilen) ===\n${sym.length ? sym.join('\n') : '(keine Top-Level-Symbole)'}`);
+  }
+  return { ok: true, summary: `${plural(targets.length, 'Datei', 'Dateien')} · ${plural(hits, 'Symbol', 'Symbole')}`, text: parts.join('\n\n') };
+}
+
+const SAFE_PATH = /^(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9_.\-/]{0,99}$/;
+function move(files, from, to, overwrite) {
+  const src = String(from || '').trim().replace(/^\.?\//, '');
+  const dst = String(to || '').trim().replace(/^\.?\//, '');
+  if (!SAFE_PATH.test(src) || !SAFE_PATH.test(dst)) return { ok: false, summary: 'ungültiger Dateipfad', text: 'Fehler: move braucht gültige Pfade from="…" und to="…".' };
+  if (/^coden-kit\./i.test(src) || /^coden-kit\./i.test(dst)) return { ok: false, summary: 'Kit-Datei geschützt', text: 'Fehler: coden-kit.* darf nicht verschoben werden.' };
+  if (!(src in files)) return { ok: false, summary: 'Quelldatei fehlt', text: `Fehler: "${src}" gibt es nicht.` };
+  if (src === dst) return { ok: false, summary: 'gleicher Pfad', text: 'Quelle und Ziel sind identisch.' };
+  if (dst in files && overwrite !== 'true' && overwrite !== true) return { ok: false, summary: 'Zieldatei existiert schon', text: `Fehler: "${dst}" existiert bereits (setze overwrite="true" zum Überschreiben).` };
+  return { ok: true, summary: `${src} → ${dst}`, text: `Datei verschoben/umbenannt: ${src} → ${dst}.`, set: { [dst]: files[src] }, remove: [src] };
+}
+
+function copy(files, from, to, overwrite) {
+  const src = String(from || '').trim().replace(/^\.?\//, '');
+  const dst = String(to || '').trim().replace(/^\.?\//, '');
+  if (!SAFE_PATH.test(src) || !SAFE_PATH.test(dst)) return { ok: false, summary: 'ungültiger Dateipfad', text: 'Fehler: copy braucht gültige Pfade from="…" und to="…".' };
+  if (/^coden-kit\./i.test(dst)) return { ok: false, summary: 'Kit-Datei geschützt', text: 'Fehler: coden-kit.* darf nicht überschrieben werden.' };
+  if (!(src in files)) return { ok: false, summary: 'Quelldatei fehlt', text: `Fehler: "${src}" gibt es nicht.` };
+  if (dst in files && overwrite !== 'true' && overwrite !== true) return { ok: false, summary: 'Zieldatei existiert schon', text: `Fehler: "${dst}" existiert bereits (setze overwrite="true" zum Überschreiben).` };
+  return { ok: true, summary: `${src} → ${dst} kopiert`, text: `Datei kopiert: ${src} → ${dst}.`, set: { [dst]: files[src] } };
+}
+
+function insert(files, path, { line, after, content } = {}) {
+  const p = String(path || '').trim().replace(/^\.?\//, '');
+  if (!SAFE_PATH.test(p) || !(p in files)) return { ok: false, summary: 'Datei fehlt', text: `Fehler: "${p}" gibt es nicht.` };
+  const body = String(content ?? '').replace(/^\n/, '').replace(/\n$/, '');
+  if (!body) return { ok: false, summary: 'leerer Inhalt', text: 'Fehler: insert braucht Code zwischen <tool ...> und </tool>.' };
+  const lines = String(files[p]).split('\n');
+  let idx = lines.length;
+  if (after !== undefined && after !== '') {
+    const n = parseInt(after, 10);
+    if (Number.isFinite(n)) idx = Math.max(0, Math.min(lines.length, n));
+  } else if (line && String(line).toLowerCase() !== 'end') {
+    const n = parseInt(line, 10);
+    if (Number.isFinite(n)) idx = Math.max(0, Math.min(lines.length, n - 1));
+  }
+  const addLines = body.split('\n');
+  const next = [...lines.slice(0, idx), ...addLines, ...lines.slice(idx)].join('\n');
+  return { ok: true, summary: `${p} (+${addLines.length} Z. bei ${idx + 1})`, text: `${addLines.length} Zeile(n) in ${p} an Zeile ${idx + 1} eingefügt.`, set: { [p]: next } };
+}
+
+function domMap(files) {
+  const names = Object.keys(files || {}).sort();
+  const htmlFiles = names.filter(n => /\.html?$/i.test(n));
+  const jsFiles = names.filter(n => /\.js$/i.test(n));
+  const ids = new Set(); const gos = new Set(); const sheets = new Set();
+  const htmlSummary = [];
+  for (const n of htmlFiles) {
+    const c = String(files[n]);
+    const localIds = []; const scripts = [];
+    c.replace(/\bid\s*=\s*["']([\w-]+)["']/gi, (m, v) => { ids.add(v); localIds.push(v); return m; });
+    c.replace(/data-go\s*=\s*["']([\w-]+)["']/gi, (m, v) => { gos.add(v); return m; });
+    c.replace(/data-open-sheet\s*=\s*["']([\w-]+)["']/gi, (m, v) => { sheets.add(v); return m; });
+    c.replace(/<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']/gi, (m, s) => { scripts.push(s); return m; });
+    htmlSummary.push(`${n}:\n  IDs (${localIds.length}): ${localIds.slice(0, 40).join(', ') || 'keine'}\n  Scripts: ${scripts.join(', ') || 'keine'}`);
+  }
+  const refs = new Set(); const missing = [];
+  for (const n of jsFiles) {
+    const c = String(files[n]);
+    c.replace(/(?:getElementById|querySelector(?:All)?)\(\s*["'`]#?([\w-]+)["'`]\s*\)/g, (m, id, off) => {
+      const full = m;
+      if (full.includes('querySelector') && !full.includes('#')) return m;
+      refs.add(id);
+      if (!ids.has(id) && !new RegExp(`\\.id\\s*=\\s*["'\`]${id}["'\`]|id=\\\\?["']${id}`).test(c)) missing.push(`${n} → #${id}`);
+      return m;
+    });
+  }
+  return {
+    ok: !missing.length,
+    summary: `${ids.size} IDs · ${missing.length ? missing.length + ' fehlt' : 'alles verknüpft'}`,
+    text: `DOM-Karte:\n${htmlSummary.join('\n') || 'Keine HTML-Dateien.'}\nJS-ID-Zugriffe (${refs.size}): ${[...refs].slice(0, 40).join(', ') || 'keine'}${gos.size ? `\ndata-go Ziele: ${[...gos].join(', ')}` : ''}${sheets.size ? `\ndata-open-sheet: ${[...sheets].join(', ')}` : ''}${missing.length ? `\nFEHLENDE IDs: ${missing.join(', ')}` : ''}`
+  };
 }
 
 function check(files) {
   const issues = Agent.check(files, { syntax });
-  return { ok: !issues.length, issues, summary: issues.length ? plural(issues.length, 'Problem', 'Probleme') + ' gefunden' : 'keine Probleme', text: issues.length ? `Prüfung: ${issues.length} Problem(e):\n${issues.map(i => '- ' + i).join('\n')}` : 'Prüfung: keine Syntaxfehler, alle Dateien und Elemente gefunden.' };
+  for (const n of Object.keys(files || {})) {
+    if (/\.json$/i.test(n)) {
+      try { JSON.parse(String(files[n])); } catch (e) { issues.push(`JSON-Fehler in ${n}: ${e.message}`); }
+    }
+  }
+  const uniq = [...new Set(issues)].slice(0, 12);
+  return { ok: !uniq.length, issues: uniq, summary: uniq.length ? plural(uniq.length, 'Problem', 'Probleme') + ' gefunden' : 'keine Probleme', text: uniq.length ? `Prüfung: ${uniq.length} Problem(e):\n${uniq.map(i => '- ' + i).join('\n')}` : 'Prüfung: keine Syntaxfehler, alle Dateien und Elemente gefunden.' };
 }
 
 // ---------- Web ----------
@@ -88,7 +248,6 @@ async function fetchUrl(url) {
     return { ok: true, summary: `${body.title || new URL(r.url).hostname} · ${Math.round(body.text.length / 1000)}k Zeichen`, text: `Inhalt von ${r.url}${body.title ? ' – ' + body.title : ''}:\n${text}${body.text.length > FETCH_CHARS ? '\n… (gekürzt)' : ''}` };
   } catch (e) { return { ok: false, summary: 'nicht erreichbar', text: `Fehler beim Abrufen von ${url}: ${e.message}` }; }
 }
-// Websuche ohne API-Schlüssel (DuckDuckGo HTML)
 // Websuche ohne API-Schlüssel (DuckDuckGo HTML). Liefert eine Liste { title, url, snippet }.
 async function ddgResults(query) {
   const r = await get('https://html.duckduckgo.com/html/?q=' + encodeURIComponent(query), { maxBody: 1024 * 1024 });
@@ -110,6 +269,25 @@ async function webSearch(query) {
   } catch (e) { return { ok: false, summary: 'Suche nicht erreichbar', text: `Die Websuche ist gerade nicht erreichbar (${e.message}). Arbeite mit deinem Wissen weiter.` }; }
 }
 
+async function cdnQuery(query) {
+  const r = await get('https://api.cdnjs.com/libraries?search=' + encodeURIComponent(query) + '&fields=name,latest,description&limit=6', { maxBody: 512 * 1024 });
+  const d = JSON.parse(r.text || '{}');
+  return Array.isArray(d.results) ? d.results : [];
+}
+async function cdnSearch(query) {
+  const q = String(query || '').trim(); if (!q) return { ok: false, summary: 'kein Paket angegeben', text: 'Fehler: cdn_search braucht query="…".' };
+  try {
+    const list = (await module.exports.cdnQuery(q)).slice(0, 6);
+    if (!list.length) return { ok: false, summary: 'nichts gefunden', text: `Keine CDN-Bibliothek für "${q}" gefunden.` };
+    return {
+      ok: true,
+      summary: `„${q.slice(0, 30)}“: ${plural(list.length, 'Paket', 'Pakete')}`,
+      text: `CDN-Bibliotheken für "${q}" (einbinden als <script src="…"> oder <link rel="stylesheet" href="…">):\n` +
+        list.map((x, i) => `${i + 1}. ${x.name}: ${x.latest}${x.description ? ' — ' + String(x.description).slice(0, 120) : ''}`).join('\n')
+    };
+  } catch (e) { return { ok: false, summary: 'CDN-Suche nicht erreichbar', text: `CDN-Suche fehlgeschlagen (${e.message}).` }; }
+}
+
 // Projektgedächtnis (wie CLAUDE.md / AGENTS.md / GEMINI.md)
 function memory(files, note) {
   const n = String(note || '').trim().slice(0, 600); if (!n) return { ok: false, summary: 'leere Notiz', text: 'Fehler: memory braucht einen Text.' };
@@ -118,4 +296,4 @@ function memory(files, note) {
   return { ok: true, summary: 'gemerkt in CODEN.md', text: 'Notiz in CODEN.md gespeichert.', set: { 'CODEN.md': cur.replace(/\s*$/, '') + '\n- ' + n.replace(/\n+/g, ' ') + '\n' } };
 }
 
-module.exports = { list, read, search, check, fetchUrl, webSearch, ddgResults, memory, htmlToText, globToRe, syntax };
+module.exports = { list, tree, read, outline, search, check, domMap, move, copy, insert, fetchUrl, webSearch, ddgResults, cdnSearch, cdnQuery, memory, htmlToText, globToRe, syntax };

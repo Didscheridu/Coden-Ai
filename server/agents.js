@@ -98,11 +98,11 @@ function defaultTeam(ctx) {
     ] };
 }
 
-const MAX_STEPS = 40, MAX_SPAWNS = 3, MAX_TOOLS_PER_STEP = 6, MAX_IMG_ROUNDS = 2;
+const MAX_STEPS = 40, MAX_SPAWNS = 3, MAX_TOOLS_PER_STEP = 8, MAX_IMG_ROUNDS = 2;
 const Tools = require('./agent-tools');
 const WAIT_TOOLS = ['database', 'ask', 'secret'];
 const escAttr = (s) => String(s).replace(/[<>"&\n]/g, (c) => ({ '<': '‹', '>': '›', '"': '“', '&': '+', '\n': ' ' }[c]));
-const TOOL_VERB = { list: 'listet Dateien', read: 'liest', search: 'sucht', check: 'prüft die App', fetch: 'liest eine Webseite', web_search: 'sucht im Web', memory: 'merkt sich etwas', spawn: 'startet Sub-Agenten', image: 'erstellt Bilder' };
+const TOOL_VERB = { list: 'listet Dateien', tree: 'analysiert Struktur', read: 'liest', outline: 'liest Gliederung', search: 'sucht', check: 'prüft die App', dom_map: 'prüft DOM-Verbindungen', move: 'verschiebt', copy: 'kopiert', insert: 'fügt Code ein', fetch: 'liest eine Webseite', web_search: 'sucht im Web', cdn_search: 'sucht CDN-Paket', memory: 'merkt sich etwas', spawn: 'startet Sub-Agenten', image: 'erstellt Bilder' };
 
 // ---------- Etappen: ein Lauf darf auf Vercel höchstens 300 s dauern. Für große Aufgaben speichert der Agent
 // seinen Stand und startet sich selbst in einer neuen Server-Ausführung neu (bis MAX_LEGS, insgesamt MAX_TOTAL_STEPS).
@@ -243,7 +243,7 @@ async function runAppAgent(run, ctx) {
         // Abnahme: einmal pro Auftrag die Bitte Punkt für Punkt gegen den Code prüfen lassen
         if (!results.length && !reviewed && changed.size && (spawns || changed.size >= 2 || stepsTotal >= 3) && stepsTotal < MAX_TOTAL_STEPS - 1) {
           reviewed = true;
-          results.push({ name: 'review', ok: true, summary: 'Abnahme: prüft deine Bitte Punkt für Punkt', text: `[Abnahme] Bevor du fertig bist: Geh die Bitte des Nutzers Punkt für Punkt durch und prüfe jeden Punkt gegen den AKTUELLEN Code oben (nicht gegen deine Erinnerung). Denk auch an: Startet die App ohne Fehler? Hat jeder Knopf eine Funktion? Funktioniert es auf dem Handy (Touch)? Schreibe eine kurze Liste mit ✅/❌.\nBei ❌: behebe es SOFORT in diesem Schritt mit <file>/<edit>. Wenn alles ✅ ist: kurze Abschlussnachricht auf Deutsch und <tool name="done"/>.\n\nBitte des Nutzers:\n${wish.slice(0, 3000)}` });
+          results.push({ name: 'review', ok: true, summary: 'Abnahme: prüft deine Bitte Punkt für Punkt', text: `[Abnahme] Prüfe kurz die Bitte des Nutzers gegen den AKTUELLEN Code (Start ohne Fehler? Alle Buttons aktiv? Mobil/Touch?). Bei ❌: sofort mit <file>/<edit>/<insert> beheben. Wenn alles ✅ ist: antworte in 1–2 knappen Sätzen was geändert wurde und gib <tool name="done"/> aus.\n\nBitte des Nutzers:\n${wish.slice(0, 3000)}` });
         }
         if (!results.length) { finished = true; break; }
       }
@@ -282,13 +282,30 @@ async function runAppAgent(run, ctx) {
   // ---------- Werkzeuge ----------
   async function execTool(t) {
     const a = t.attrs;
+    const applyRes = async (r) => {
+      if (r.set || r.remove?.length) {
+        const prevFiles = files;
+        files = await ctx.save(r.set || {}, r.remove || []);
+        for (const p of Object.keys(r.set || {})) changed.set(p, { type: p in prevFiles ? 'edit' : 'new', path: p });
+        for (const p of r.remove || []) changed.set(p, { type: 'delete', path: p });
+        dirtySinceCheck = true;
+      }
+      return r;
+    };
     switch (t.name) {
       case 'list': return Tools.list(files, a.pattern);
+      case 'tree': return Tools.tree(files);
       case 'read': return Tools.read(files, a.path || a.file, a.start, a.end);
-      case 'search': return Tools.search(files, a.query || t.body, a.regex);
+      case 'outline': return Tools.outline(files, a.path || a.file);
+      case 'search': return Tools.search(files, a.query || t.body, a.regex, a.pattern, a.context);
       case 'check': { dirtySinceCheck = false; return Tools.check(files); }
+      case 'dom_map': return Tools.domMap(files);
+      case 'move': return applyRes(Tools.move(files, a.from, a.to, a.overwrite));
+      case 'copy': return applyRes(Tools.copy(files, a.from, a.to, a.overwrite));
+      case 'insert': return applyRes(Tools.insert(files, a.path || a.file, { line: a.line, after: a.after, content: t.body }));
       case 'fetch': return Tools.fetchUrl(a.url || t.body);
       case 'web_search': return Tools.webSearch(a.query || t.body);
+      case 'cdn_search': return Tools.cdnSearch(a.query || t.body);
       case 'memory': { const r = Tools.memory(files, t.body || a.text); if (r.set) { files = await ctx.save(r.set, []); changed.set('CODEN.md', { type: 'edit', path: 'CODEN.md' }); } return r; }
       case 'spawn': return spawn(t.body);
       default: return { ok: false, summary: 'unbekanntes Werkzeug', text: `Unbekanntes Werkzeug "${t.name}".` };
@@ -407,8 +424,8 @@ function withReply(text, p) {
   if (p.tools.length) return text;
   if (lastOp < 0) return hasText(0) ? text : text + (text.trim() ? '\n\n' : '') + 'Ich habe gerade nichts geändert. Sag mir gern genauer, was ich bauen oder anpassen soll.';
   if (hasText(lastOp + 1)) return text;
-  const names = [...new Set(p.ops.map(o => o.path))]; const list = names.slice(0, 4).join(', ') + (names.length > 4 ? ` und ${names.length - 4} weitere` : '');
-  return text.replace(/\s+$/, '') + `\n\nFertig – ich habe ${list} ${p.ops.some(o => o.type === 'file') ? 'geschrieben bzw. angepasst' : 'angepasst'}. Schau dir die Vorschau an und sag mir, was ich noch ändern soll.`;
+  const names = [...new Set(p.ops.map(o => o.path))]; const list = names.slice(0, 4).join(', ') + (names.length > 4 ? ` (+${names.length - 4})` : '');
+  return text.replace(/\s+$/, '') + `\n\nGeändert: ${list}.`;
 }
 
 module.exports = { runAppAgent, historyFrom, parsePlan, tierFor, defaultTeam, MAX_STEPS, _progress: progress };

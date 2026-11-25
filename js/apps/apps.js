@@ -40,7 +40,7 @@ document.addEventListener('artifactToApp', async (e) => {
     catch (err) { toast(err.message, { type: 'error' }); }
 });
 
-// ---------- Übersicht ----------
+// ---------- Übersicht (Google AI Studio Build Stil) ----------
 async function gallery(host) {
     let alive = true;
     active = { unmount() { alive = false; } };
@@ -51,12 +51,63 @@ async function gallery(host) {
     let filter = localStorage.getItem('coden_apps_filter') || 'all';
     if (!VALID_FILTERS.includes(filter)) filter = 'all';
 
+    // Quick-Build Prompt Card (wie Google AI Studio Build)
+    let qKind = 'web';
+    const qInput = h('textarea', { class: 'ap-qinput', rows: 2, placeholder: 'Beschreibe deine App-Idee – z. B. „Ein elegantes Dashboard für persönliche Finanzen mit Diagrammen und Sparzielen“ …', 'aria-label': 'App-Idee beschreiben' });
+    const qTypes = h('div', { class: 'ap-qtypes' });
+    const qGo = h('button', { type: 'button', class: 'ap-new' }, icon('auto_awesome'), h('span', { text: 'Jetzt bauen' }));
+    const drawQTypes = () => qTypes.replaceChildren(...[['web', 'language', 'Webseite'], ['both', 'devices', 'Handy-App'], ['game', 'sports_esports', 'Spiel']].map(([k, ic, l]) =>
+        h('button', { type: 'button', class: 'ap-qtype' + (qKind === k ? ' active' : ''), onclick: () => { qKind = k; drawQTypes(); } }, icon(ic), h('span', { text: l }))));
+    drawQTypes();
+
+    const deriveName = (text, kind) => {
+        const clean = text.replace(/^(ein|eine|einen|baue|erstelle|mach|ich brauche|bitte)\s+/i, '').replace(/[^\p{L}\p{N}\s-]/gu, ' ').trim();
+        const words = clean.split(/\s+/).filter(Boolean).slice(0, 4).join(' ');
+        if (words.length >= 3) return words.slice(0, 42);
+        return kind === 'game' ? 'Neues Spiel' : kind === 'web' ? 'Neue Webseite' : 'Neue App';
+    };
+    const launchQuick = async () => {
+        const prompt = qInput.value.trim();
+        if (!prompt) { qInput.focus(); toast('Beschreibe kurz, was Coden bauen soll.', { type: 'warn' }); return; }
+        qGo.disabled = true;
+        qGo.replaceChildren(h('span', { class: 'cd-spin' }), h('span', { text: 'Wird gestartet …' }));
+        try {
+            await createApp({ name: deriveName(prompt, qKind), kind: qKind, prompt });
+        } catch (e) {
+            toast(e.message, { type: 'error' });
+            qGo.disabled = false;
+            qGo.replaceChildren(icon('auto_awesome'), h('span', { text: 'Jetzt bauen' }));
+        }
+    };
+    qGo.addEventListener('click', launchQuick);
+    qInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); launchQuick(); } });
+
+    const QUICK_IDEAS = [
+        ['Kanban-Board', 'web', 'Ein übersichtliches Kanban-Board mit Spalten, Drag-and-Drop und Labels'],
+        ['Café-Webseite', 'web', 'Eine moderne Webseite für ein Café mit Speisekarte, Öffnungszeiten und Reservierung'],
+        ['Habit-Tracker', 'both', 'Ein Habit-Tracker mit täglichen Zielen, Serien und Wochenstatistik'],
+        ['Weltraum-Shooter', 'game', 'Ein 2D-Weltraum-Shooter mit Wellen, Power-ups und Highscore']
+    ];
+    const quickBox = h('section', { class: 'ap-quick' },
+        h('div', { class: 'ap-qhead' },
+            h('span', { class: 'ap-qtitle' }, icon('code_blocks'), h('span', { text: 'Mit Prompt starten' })),
+            h('span', { class: 'ap-qhint', text: 'Erstellt direkt das Projekt und öffnet das Studio' })),
+        qInput,
+        h('div', { class: 'ap-qfoot' },
+            qTypes,
+            h('span', { class: 'grow' }),
+            h('button', { type: 'button', class: 'ap-gh sm', onclick: () => Router.go('apps/neu') }, icon('palette'), h('span', { text: 'Stil-Assistent' })),
+            qGo),
+        h('div', { class: 'ap-qideas' }, QUICK_IDEAS.map(([label, kind, prompt]) =>
+            h('button', { type: 'button', class: 'ap-qidea', onclick: () => { qKind = kind; drawQTypes(); qInput.value = prompt; qInput.focus(); } }, icon('bolt'), h('span', { text: label })))));
+
     const page = h('div', { class: 'ap-page' },
         h('div', { class: 'ap-hero' },
-            h('div', {}, h('h1', { text: 'Apps' }), h('p', { text: 'Baue Webseiten und Handy-Apps mit Coden – mit Live-Vorschau, eigener Adresse und zum Installieren aufs Handy.' })),
+            h('div', {}, h('h1', { text: 'App Studio' }), h('p', { text: 'Entwickle Webseiten, Handy-Apps und Spiele im Live-Workspace mit Vorschau, Code-Editor und eigenem Hosting.' })),
             h('div', { class: 'ap-actions ap-hero-actions' },
                 h('button', { type: 'button', class: 'ap-gh', title: 'Ein GitHub-Repository als App öffnen', onclick: () => ghImport((name, files) => createApp({ name, kind: 'web', files })) }, icon('code'), 'Von GitHub'),
                 h('button', { type: 'button', class: 'ap-new', onclick: () => Router.go('apps/neu') }, icon('add'), 'Neue App'))),
+        quickBox,
         filters, grid);
     host.replaceChildren(page);
 
@@ -70,12 +121,8 @@ async function gallery(host) {
         const list = all.filter(a => match(a, filter));
         if (!all.length) {
             grid.replaceChildren(h('div', { class: 'ap-empty wide' }, h('div', { class: 'ap-empty-art' }, icon('phone_iphone'), icon('language'), icon('android')),
-                h('h2', { text: 'Deine erste App wartet' }), h('p', { text: 'Wähle, ob es eine Webseite oder eine Handy-App wird, such dir einen Stil aus und beschreibe deine Idee. Coden baut sie live vor deinen Augen.' }),
-                h('button', { type: 'button', class: 'ap-new', onclick: () => Router.go('apps/neu') }, icon('add'), 'App erstellen'),
-                h('div', { class: 'ap-examples' }, [['Habit-Tracker', 'both', 'Ein Habit-Tracker mit täglichen Zielen, Serien und schönen Statistiken'], ['Café-Webseite', 'web', 'Eine Webseite für ein gemütliches Café mit Speisekarte, Öffnungszeiten und Karte'], ['Quiz-App', 'android', 'Eine Quiz-App mit Kategorien, Punkten und Bestenliste'], ['Jump & Run', 'game', 'Ein Jump & Run mit Leveln, Münzen und Gegnern']].map(([n, k, p]) => {
-                    const kd = kindOf(k);
-                    return h('button', { type: 'button', class: 'ap-example', onclick: () => { sessionStorage.setItem('coden_wizard', JSON.stringify({ name: n, kind: k, idea: p })); Router.go('apps/neu'); } }, icon(kd.icon), h('b', { text: n }), h('small', { text: kd.label }));
-                }))));
+                h('h2', { text: 'Deine erste App wartet' }), h('p', { text: 'Beschreibe oben direkt deine Idee oder starte den Assistenten für Typ und Design-Stil.' }),
+                h('button', { type: 'button', class: 'ap-new', onclick: () => Router.go('apps/neu') }, icon('add'), 'Mit Stil-Assistent starten')));
             filters.classList.add('hidden'); return;
         }
         filters.classList.remove('hidden');

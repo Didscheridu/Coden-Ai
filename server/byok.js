@@ -56,6 +56,19 @@ const PROVIDERS = {
       { id: 'reflection/beam-free', label: 'Reflection: Beam 1.0 (Free)' },
       { id: 'stealth/glyph-cluster', label: 'Glyph Cluster' }
     ]
+  },
+  // AIHubMix: einheitliche OpenAI-kompatible Schnittstelle (https://aihubmix.com/v1)
+  aihubmix: {
+    name: 'AIHubMix', link: 'https://aihubmix.com/token', keyHint: 'sk-…',
+    levels: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+    suggest: [
+      { id: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+      { id: 'gpt-4.1-mini', label: 'GPT-4.1 Mini' },
+      { id: 'claude-3-5-haiku-latest', label: 'Claude 3.5 Haiku' },
+      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+      { id: 'deepseek-chat', label: 'DeepSeek Chat' },
+      { id: 'deepseek-reasoner', label: 'DeepSeek Reasoner' }
+    ]
   }
 };
 const MAX_MODELS = 40;
@@ -281,6 +294,11 @@ async function listProviderModels(provider, key) {
     const d = await fetchJson('https://app.kilo.ai/api/gateway/models', { Authorization: `Bearer ${key}` });
     const list = (Array.isArray(d) ? d : (d.data || d.models || [])).filter(m => m && (typeof m === 'string' || m.id));
     list.sort((a, b) => Number(!!b?.isFree) - Number(!!a?.isFree));
+    return list.map(m => (typeof m === 'string' ? { id: m, label: m } : { id: m.id, label: m.name || m.id }));
+  }
+  if (provider === 'aihubmix') {
+    const d = await fetchJson('https://aihubmix.com/v1/models', { Authorization: `Bearer ${key}` });
+    const list = (Array.isArray(d) ? d : (d.data || d.models || [])).filter(m => m && (typeof m === 'string' || m.id));
     return list.map(m => (typeof m === 'string' ? { id: m, label: m } : { id: m.id, label: m.name || m.id }));
   }
   const d = await fetchJson('https://openrouter.ai/api/v1/models', { Authorization: `Bearer ${key}` });

@@ -203,7 +203,7 @@ service cloud.firestore {
         && data.keys().hasOnly(['id', 'uid', 'provider', 'model_id', 'label', 'levels', 'default_level', 'created_at'])
         && data.id is int && data.id > 0
         && isStr(data.uid, 1, 128) && data.uid == request.auth.uid
-        && data.provider in ['google', 'openai', 'anthropic', 'openrouter', 'numes', 'kilo']
+        && data.provider in ['google', 'openai', 'anthropic', 'openrouter', 'numes', 'kilo', 'aihubmix']
         && isStr(data.model_id, 1, 120) && isStr(data.label, 1, 60)
         && (!('levels' in data) || (data.levels is list && data.levels.size() <= 10))
         && isOptStr(data, 'default_level', 32)
@@ -867,7 +867,7 @@ service cloud.firestore {
         && incoming().keys().hasAll(['uid', 'provider', 'key_enc'])
         && incoming().keys().hasOnly(['uid', 'provider', 'key_enc', 'hint', 'created_at'])
         && incoming().uid == request.auth.uid
-        && incoming().provider in ['google', 'openai', 'anthropic', 'openrouter', 'numes', 'kilo']
+        && incoming().provider in ['google', 'openai', 'anthropic', 'openrouter', 'numes', 'kilo', 'aihubmix']
         && isStr(incoming().key_enc, 10, 2000) && isOptStr(incoming(), 'hint', 32);
       allow update: if isVerified() && isValidId(keyId)
         && (isOwner(existing().uid) || isAdmin())

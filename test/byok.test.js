@@ -16,6 +16,7 @@ const { setup } = require('./helpers');
     if (u === 'https://api.openai.com/v1/models') return new Response(JSON.stringify({ data: [{ id: 'gpt-x' }, { id: 'text-embedding-9' }, { id: 'whisper-1' }] }), { status: 200 });
     if (u.startsWith('https://api.anthropic.com/v1/models')) return new Response(JSON.stringify({ data: [{ id: 'claude-x', display_name: 'Claude X' }] }), { status: 200 });
     if (u === 'https://app.kilo.ai/api/gateway/models') return new Response(JSON.stringify({ data: [{ id: 'paid/model', name: 'Paid Model', isFree: false }, { id: 'inclusionai/ling-3.2-flash:free', name: 'inclusionAI: Ling 3.2 Flash (free)', isFree: true }, { id: 'kilo-auto/free', name: 'Auto Free', isFree: true }] }), { status: 200 });
+    if (u === 'https://aihubmix.com/v1/models') return new Response(JSON.stringify({ data: [{ id: 'gpt-4o-mini' }, { id: 'deepseek-chat', name: 'DeepSeek Chat' }] }), { status: 200 });
     return new Response('{}', { status: 500 });
   };
   const { call, chk, finish, token, base, db } = await setup();
@@ -30,7 +31,7 @@ const { setup } = require('./helpers');
 
   // 1) Start: vier voreingestellte Anbieter, kein Key
   let o = (await call('/byok', null, anna)).j;
-  chk('Anbieter voreingestellt', o.providers.map(p => p.id), ['google', 'openai', 'anthropic', 'openrouter', 'numes', 'kilo']);
+  chk('Anbieter voreingestellt', o.providers.map(p => p.id), ['google', 'openai', 'anthropic', 'openrouter', 'numes', 'kilo', 'aihubmix']);
   chk('Google AI Studio heißt so', o.providers[0].name, 'Google AI Studio');
   chk('Anfangs kein Key, keine Modelle', `${o.providers.some(p => p.hasKey)} ${o.models.length}`, 'false 0');
   chk('Ohne Login geht nichts', (await call('/byok')).s, 401);
@@ -157,6 +158,18 @@ const { setup } = require('./helpers');
   reply = () => sse([`data: ${JSON.stringify({ choices: [{ delta: { content: 'Hallo von Kilo' } }] })}\n\n`, 'data: [DONE]\n\n']);
   seen.length = 0; t = await stream(km.tier, anna, { effort: 'high' });
   chk('Kilo: eigener Key, Adresse, Modell und Antwort', [textOf(t), last().url, last().headers.Authorization, last().body.model, last().body.reasoning.effort, km.providerName], ['Hallo von Kilo', 'https://ai-gateway.kilo.ai/api/v1/chat/completions', 'Bearer kilo-test-key-8888', 'inclusionai/ling-3.2-flash:free', 'high', 'Kilo']);
+
+  // AIHubMix (aihubmix.com/v1): eigener Key, Modelle laden, Modell nutzen
+  reply = null;
+  const aihubProvider = o.providers.find(p => p.id === 'aihubmix');
+  chk('AIHubMix: als Anbieter mit Schnellauswahl da', [aihubProvider.name, aihubProvider.suggest.length > 0], ['AIHubMix', true]);
+  await call('/byok/keys/aihubmix', { key: 'sk-aihubmix-test-1111' }, anna, 'PUT');
+  const aihubList = await call('/byok/providers/aihubmix/models', null, anna);
+  chk('AIHubMix: Modelle geladen', aihubList.j.models.map(m => m.id), ['gpt-4o-mini', 'deepseek-chat']);
+  const hm = (await addModel('aihubmix', 'deepseek-chat', ['low', 'high'], anna, 'DeepSeek Chat')).j.models.find(m => m.provider === 'aihubmix');
+  reply = () => sse([`data: ${JSON.stringify({ choices: [{ delta: { content: 'Hallo von AIHubMix' } }] })}\n\n`, 'data: [DONE]\n\n']);
+  seen.length = 0; t = await stream(hm.tier, anna, { effort: 'high' });
+  chk('AIHubMix: eigener Key, Adresse, Modell und Antwort', [textOf(t), last().url, last().headers.Authorization, last().body.model, last().body.reasoning.effort, hm.providerName], ['Hallo von AIHubMix', 'https://aihubmix.com/v1/chat/completions', 'Bearer sk-aihubmix-test-1111', 'deepseek-chat', 'high', 'AIHubMix']);
 
   // 9) Fehler eines eigenen Modells: genaue Ursache, kein Ausweichen auf Coden-Modelle
   reply = () => new Response(JSON.stringify({ error: { message: 'Incorrect API key provided' } }), { status: 401 });
