@@ -69,6 +69,18 @@ const PROVIDERS = {
       { id: 'deepseek-chat', label: 'DeepSeek Chat' },
       { id: 'deepseek-reasoner', label: 'DeepSeek Reasoner' }
     ]
+  },
+  // OrcaRouter: OpenAI-kompatibles AI-Gateway (https://api.orcarouter.ai/v1)
+  orcarouter: {
+    name: 'OrcaRouter', link: 'https://orcarouter.ai', keyHint: 'sk-orca-…',
+    levels: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+    suggest: [
+      { id: 'orcarouter/free', label: 'OrcaRouter Free (Auto)' },
+      { id: 'orcarouter/auto', label: 'OrcaRouter Auto' },
+      { id: 'openai/gpt-4o-mini', label: 'GPT-4o Mini' },
+      { id: 'anthropic/claude-3.5-haiku', label: 'Claude 3.5 Haiku' },
+      { id: 'deepseek/deepseek-chat', label: 'DeepSeek Chat' }
+    ]
   }
 };
 const MAX_MODELS = 40;
@@ -299,6 +311,15 @@ async function listProviderModels(provider, key) {
   if (provider === 'aihubmix') {
     const d = await fetchJson('https://aihubmix.com/v1/models', { Authorization: `Bearer ${key}` });
     const list = (Array.isArray(d) ? d : (d.data || d.models || [])).filter(m => m && (typeof m === 'string' || m.id));
+    return list.map(m => (typeof m === 'string' ? { id: m, label: m } : { id: m.id, label: m.name || m.id }));
+  }
+  if (provider === 'orcarouter') {
+    const d = await fetchJson('https://api.orcarouter.ai/v1/models', { Authorization: `Bearer ${key}` });
+    const list = (Array.isArray(d) ? d : (d.data || d.models || [])).filter(m => m && (typeof m === 'string' || m.id));
+    const isFree = (m) => (typeof m === 'string'
+      ? /:free$|\/free$/i.test(m)
+      : (Boolean(m.isFree) || /:free$|\/free$/i.test(m.id || '') || (m.pricing && Number(m.pricing.prompt) === 0 && Number(m.pricing.completion) === 0)));
+    list.sort((a, b) => Number(isFree(b)) - Number(isFree(a)));
     return list.map(m => (typeof m === 'string' ? { id: m, label: m } : { id: m.id, label: m.name || m.id }));
   }
   const d = await fetchJson('https://openrouter.ai/api/v1/models', { Authorization: `Bearer ${key}` });

@@ -17,6 +17,7 @@ const { setup } = require('./helpers');
     if (u.startsWith('https://api.anthropic.com/v1/models')) return new Response(JSON.stringify({ data: [{ id: 'claude-x', display_name: 'Claude X' }] }), { status: 200 });
     if (u === 'https://app.kilo.ai/api/gateway/models') return new Response(JSON.stringify({ data: [{ id: 'paid/model', name: 'Paid Model', isFree: false }, { id: 'inclusionai/ling-3.2-flash:free', name: 'inclusionAI: Ling 3.2 Flash (free)', isFree: true }, { id: 'kilo-auto/free', name: 'Auto Free', isFree: true }] }), { status: 200 });
     if (u === 'https://aihubmix.com/v1/models') return new Response(JSON.stringify({ data: [{ id: 'gpt-4o-mini' }, { id: 'deepseek-chat', name: 'DeepSeek Chat' }] }), { status: 200 });
+    if (u === 'https://api.orcarouter.ai/v1/models') return new Response(JSON.stringify({ data: [{ id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini' }, { id: 'orcarouter/free', name: 'OrcaRouter Free' }] }), { status: 200 });
     return new Response('{}', { status: 500 });
   };
   const { call, chk, finish, token, base, db } = await setup();
@@ -31,7 +32,7 @@ const { setup } = require('./helpers');
 
   // 1) Start: vier voreingestellte Anbieter, kein Key
   let o = (await call('/byok', null, anna)).j;
-  chk('Anbieter voreingestellt', o.providers.map(p => p.id), ['google', 'openai', 'anthropic', 'openrouter', 'numes', 'kilo', 'aihubmix']);
+  chk('Anbieter voreingestellt', o.providers.map(p => p.id), ['google', 'openai', 'anthropic', 'openrouter', 'numes', 'kilo', 'aihubmix', 'orcarouter']);
   chk('Google AI Studio heißt so', o.providers[0].name, 'Google AI Studio');
   chk('Anfangs kein Key, keine Modelle', `${o.providers.some(p => p.hasKey)} ${o.models.length}`, 'false 0');
   chk('Ohne Login geht nichts', (await call('/byok')).s, 401);
@@ -170,6 +171,18 @@ const { setup } = require('./helpers');
   reply = () => sse([`data: ${JSON.stringify({ choices: [{ delta: { content: 'Hallo von AIHubMix' } }] })}\n\n`, 'data: [DONE]\n\n']);
   seen.length = 0; t = await stream(hm.tier, anna, { effort: 'high' });
   chk('AIHubMix: eigener Key, Adresse, Modell und Antwort', [textOf(t), last().url, last().headers.Authorization, last().body.model, last().body.reasoning.effort, hm.providerName], ['Hallo von AIHubMix', 'https://aihubmix.com/v1/chat/completions', 'Bearer sk-aihubmix-test-1111', 'deepseek-chat', 'high', 'AIHubMix']);
+
+  // OrcaRouter (api.orcarouter.ai/v1): eigener Key, Modelle laden, Modell nutzen
+  reply = null;
+  const orcaProvider = o.providers.find(p => p.id === 'orcarouter');
+  chk('OrcaRouter: als Anbieter mit Schnellauswahl da', [orcaProvider.name, orcaProvider.suggest.length > 0], ['OrcaRouter', true]);
+  await call('/byok/keys/orcarouter', { key: 'sk-orca-test-2222' }, anna, 'PUT');
+  const orcaList = await call('/byok/providers/orcarouter/models', null, anna);
+  chk('OrcaRouter: Modelle geladen (Free zuerst)', orcaList.j.models.map(m => m.id), ['orcarouter/free', 'openai/gpt-4o-mini']);
+  const omOrca = (await addModel('orcarouter', 'orcarouter/free', ['low', 'high'], anna, 'OrcaRouter Free')).j.models.find(m => m.provider === 'orcarouter');
+  reply = () => sse([`data: ${JSON.stringify({ choices: [{ delta: { content: 'Hallo von OrcaRouter' } }] })}\n\n`, 'data: [DONE]\n\n']);
+  seen.length = 0; t = await stream(omOrca.tier, anna, { effort: 'high' });
+  chk('OrcaRouter: eigener Key, Adresse, Modell und Antwort', [textOf(t), last().url, last().headers.Authorization, last().body.model, last().body.reasoning.effort, omOrca.providerName], ['Hallo von OrcaRouter', 'https://api.orcarouter.ai/v1/chat/completions', 'Bearer sk-orca-test-2222', 'orcarouter/free', 'high', 'OrcaRouter']);
 
   // 9) Fehler eines eigenen Modells: genaue Ursache, kein Ausweichen auf Coden-Modelle
   reply = () => new Response(JSON.stringify({ error: { message: 'Incorrect API key provided' } }), { status: 401 });
