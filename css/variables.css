@@ -1,99 +1,104 @@
-/* Standardmäßig Dark-Mode im Coden-Lila Gemini-Stil; Light-Mode über html[data-theme="light"] umschaltbar */
+/* Coden AI – Clean Studio Design System (inspiriert von ChatGPT, Claude, Linear & Perplexity):
+   Keine grellen Hintergründe, keine KI-Verläufe. Ruhige Graustufen-Hierarchie:
+   Sidebar (#141416) -> Canvas (#1C1C1F) -> Composer/Surface (#27272B) -> Hover (#323238). */
 :root,
 html[data-theme="dark"] {
     color-scheme: dark;
-    --bg-main: #0B0B0F;
-    --bg-sidebar: #131318;
-    --bg-input: #1A1A22;
-    --bg-surface: #181820;
-    --bg-surface-hover: #232330;
-    --bg-code: #0D0D12;
+    --bg-main: #1C1C1F;
+    --bg-sidebar: #141416;
+    --bg-input: #27272B;
+    --bg-surface: #252529;
+    --bg-surface-hover: #2F2F35;
+    --bg-code: #121215;
 
-    --text-primary: #F4F4F8;
-    --text-secondary: #B8B8C8;
-    --text-muted: #8E8EA4;
+    --text-primary: #ECECF1;
+    --text-secondary: #B4B4BE;
+    --text-muted: #82828E;
 
-    --border-color: rgba(255, 255, 255, 0.09);
-    --border-strong: rgba(255, 255, 255, 0.17);
+    --border-color: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.14);
     --hairline: rgba(255, 255, 255, 0.06);
 
-    /* Coden Lila (wie das Coden-Logo) */
-    --accent-blue: #A78BFA;
-    --accent-blue-strong: #8B5CF6;
-    --accent-blue-soft: rgba(167, 139, 250, 0.14);
-    --accent-amber: #C084FC;
-    --accent-amber-soft: rgba(192, 132, 252, 0.14);
-    --accent-green: #4ADE80;
+    /* Dezenter Marken-Akzent (nur für Fokus/Icons, nie als Hintergrund-Glow) */
+    --accent-blue: #ECECF1;
+    --accent-blue-strong: #FFFFFF;
+    --accent-blue-soft: rgba(236, 236, 241, 0.09);
+    --accent-amber: #A1A1AA;
+    --accent-amber-soft: rgba(161, 161, 170, 0.12);
+    --accent-brand: #8B7CF6;
+    --accent-brand-soft: rgba(139, 124, 246, 0.14);
+    --accent-green: #34D399;
     --accent-red: #F87171;
     --accent-purple: #A78BFA;
 
-    --btn-primary-bg: #8B5CF6;
-    --btn-primary-fg: #FFFFFF;
-    --btn-primary-hover: #7C3AED;
-    --ambient-glow: radial-gradient(ellipse 72% 62% at 50% 46%, rgba(124, 58, 237, 0.28) 0%, rgba(91, 33, 182, 0.13) 44%, rgba(11, 11, 15, 0) 78%);
-    --shadow-float: 0 12px 36px rgba(0, 0, 0, 0.58);
-    --glass: rgba(11, 11, 15, 0.72);
-    --overlay-scrim: rgba(0, 0, 0, 0.65);
+    /* Kontraststarke Primär-Buttons wie bei ChatGPT / Linear / Grok */
+    --btn-primary-bg: #ECECF1;
+    --btn-primary-fg: #141416;
+    --btn-primary-hover: #FFFFFF;
+    --user-bubble-bg: #2B2B31;
+    --shadow-float: 0 12px 32px rgba(0, 0, 0, 0.44);
+    --glass: rgba(28, 28, 31, 0.88);
+    --overlay-scrim: rgba(0, 0, 0, 0.60);
 
-    /* Einheitliche Typografie */
     --font-main: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
-    /* Klare Type Scale */
-    --text-h1: clamp(1.75rem, 2.4vw, 2.25rem);
-    --text-h2: clamp(1.25rem, 1.5vw, 1.5rem);
-    --text-h3: 1.0625rem;
-    --text-body: 1rem;
-    --text-small: 0.875rem;
+    /* Ausgewogene Type Scale */
+    --text-h1: clamp(1.5rem, 2vw, 1.875rem);
+    --text-h2: clamp(1.2rem, 1.4vw, 1.4rem);
+    --text-h3: 1.05rem;
+    --text-body: 0.96875rem;
+    --text-small: 0.84375rem;
 
-    /* Konsistente Radien & Abstände */
     --radius: 12px;
-    --radius-sm: 10px;
+    --radius-sm: 8px;
     --radius-md: 12px;
     --radius-lg: 16px;
-    --radius-xl: 20px;
+    --radius-xl: 24px;
 
-    --container-max: 1200px;
-    --content-reading: 780px;
-    --gutter: clamp(20px, 4vw, 40px);
-    --space-section: clamp(32px, 5vh, 56px);
-    --space-block: 24px;
+    --container-max: 1160px;
+    --content-reading: 760px;
+    --gutter: clamp(16px, 3.5vw, 36px);
+    --space-section: clamp(28px, 4.5vh, 48px);
+    --space-block: 20px;
     --ease-ui: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 html[data-theme="light"] {
     color-scheme: light;
-    --bg-main: #FAF9FC;
-    --bg-sidebar: #F3F0F9;
-    --bg-input: #FFFFFF;
+    --bg-main: #FFFFFF;
+    --bg-sidebar: #F7F7F8;
+    --bg-input: #F4F4F6;
     --bg-surface: #FFFFFF;
-    --bg-surface-hover: #ECE7F7;
-    --bg-code: #16151E;
+    --bg-surface-hover: #EFEFF2;
+    --bg-code: #16161A;
 
-    --text-primary: #181622;
-    --text-secondary: #433E56;
-    --text-muted: #655E7A;
+    --text-primary: #141417;
+    --text-secondary: #45454F;
+    --text-muted: #6E6E7A;
 
-    --border-color: rgba(34, 24, 68, 0.10);
-    --border-strong: rgba(34, 24, 68, 0.20);
-    --hairline: rgba(34, 24, 68, 0.06);
+    --border-color: rgba(20, 20, 23, 0.09);
+    --border-strong: rgba(20, 20, 23, 0.16);
+    --hairline: rgba(20, 20, 23, 0.06);
 
-    --accent-blue: #7C3AED;
-    --accent-blue-strong: #6D28D9;
-    --accent-blue-soft: rgba(124, 58, 237, 0.10);
-    --accent-amber: #7C3AED;
-    --accent-amber-soft: rgba(124, 58, 237, 0.10);
+    --accent-blue: #141417;
+    --accent-blue-strong: #000000;
+    --accent-blue-soft: rgba(20, 20, 23, 0.06);
+    --accent-amber: #52525B;
+    --accent-amber-soft: rgba(82, 82, 91, 0.09);
+    --accent-brand: #6D5CE7;
+    --accent-brand-soft: rgba(109, 92, 231, 0.10);
     --accent-green: #15803D;
-    --accent-red: #B91C1C;
-    --accent-purple: #7C3AED;
+    --accent-red: #DC2626;
+    --accent-purple: #6D5CE7;
 
-    --btn-primary-bg: #7C3AED;
+    --btn-primary-bg: #141417;
     --btn-primary-fg: #FFFFFF;
-    --btn-primary-hover: #6D28D9;
-    --ambient-glow: radial-gradient(ellipse 75% 65% at 50% 44%, rgba(139, 92, 246, 0.14) 0%, rgba(167, 139, 250, 0.06) 46%, rgba(250, 249, 252, 0) 80%);
-    --shadow-float: 0 8px 28px rgba(34, 24, 68, 0.10);
-    --glass: rgba(250, 249, 252, 0.82);
-    --overlay-scrim: rgba(24, 22, 34, 0.34);
+    --btn-primary-hover: #27272D;
+    --user-bubble-bg: #F2F2F5;
+    --shadow-float: 0 10px 28px rgba(20, 20, 23, 0.09);
+    --glass: rgba(255, 255, 255, 0.88);
+    --overlay-scrim: rgba(20, 20, 23, 0.32);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }

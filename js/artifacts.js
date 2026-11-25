@@ -21,8 +21,17 @@ export function splitArtifacts(text) {
         out.push({ kind: 'artifact', type, title: (attr(m[1], 'title') || 'Artefakt').slice(0, 80), language: attr(m[1], 'language').slice(0, 20), body: m[2].replace(/^\n/, '').replace(/\n$/, ''), closed: !!m[3] });
         last = RE.lastIndex; if (m[0].length === 0) RE.lastIndex++;
     }
-    // Block, dessen <artifact ...>-Tag noch nicht fertig gestreamt ist, nicht als Rohtext zeigen
-    let rest = text.slice(last); const half = rest.search(/<artifact[^>]*$/); if (half !== -1) rest = rest.slice(0, half);
+    // Block, dessen <artifact ...>-Tag noch nicht fertig gestreamt ist: als schreibende Karte zeigen statt unsichtbar zu warten
+    let rest = text.slice(last);
+    const half = rest.search(/<artifact\b[^>]*$/i);
+    if (half !== -1) {
+        const before = rest.slice(0, half);
+        const partialTag = rest.slice(half);
+        if (before) out.push({ kind: 'text', text: before });
+        let pType = attr(partialTag, 'type').toLowerCase(); pType = ALIAS[pType] || pType; if (!TYPES.includes(pType)) pType = 'html';
+        out.push({ kind: 'artifact', type: pType, title: (attr(partialTag, 'title') || 'Artefakt wird erstellt …').slice(0, 80), language: '', body: '', closed: false });
+        rest = '';
+    }
     if (rest) out.push({ kind: 'text', text: rest });
     return out;
 }
