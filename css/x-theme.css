@@ -21,14 +21,28 @@
   --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* ---------- Grundfläche, Typografie & Viewport-Schutz (ohne Menüs abzuschneiden!) ---------- */
+/* ---------- Grundfläche, Typografie & Gemini-Style Lila-Farbverlauf ---------- */
 html,
 body,
-.app-container,
+.app-container {
+  background: var(--bg) !important;
+  color: var(--ink) !important;
+  font-family: var(--font-main) !important;
+  max-width: 100%;
+}
+
 .main-content,
 .view-host,
-.chat-scroll-area {
-  background: var(--bg) !important;
+.login-screen {
+  background: var(--ambient-glow), var(--bg) !important;
+  color: var(--ink) !important;
+  font-family: var(--font-main) !important;
+  max-width: 100%;
+}
+
+.chat-scroll-area,
+.input-section {
+  background: transparent !important;
   color: var(--ink) !important;
   font-family: var(--font-main) !important;
   max-width: 100%;
@@ -673,11 +687,11 @@ img { max-width: 100%; }
   .x-starter-grid { grid-template-columns: 1fr !important; }
 }
 
-/* ---------- Eingabefeld / Composer ---------- */
+/* ---------- Eingabefeld / Composer (schwebt über dem Lila-Verlauf wie bei Gemini) ---------- */
 .input-section {
   position: relative;
   z-index: 30;
-  background: var(--bg) !important;
+  background: transparent !important;
   padding: 12px var(--gutter) 24px !important;
 }
 .input-box {
@@ -685,11 +699,11 @@ img { max-width: 100%; }
   margin: 0 auto !important;
   background: var(--surface) !important;
   border: 1px solid var(--line-control) !important;
-  border-radius: var(--radius) !important;
-  box-shadow: none !important;
+  border-radius: var(--radius-xl, 20px) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.24) !important;
 }
 .input-box:focus-within {
-  border-color: var(--ink) !important;
+  border-color: var(--accent-blue) !important;
 }
 .input-box textarea {
   color: var(--ink) !important;
@@ -882,7 +896,7 @@ pre.hljs,
   font-weight: 600 !important;
 }
 
-/* ---------- Garantierter Kontrast auf ALLEN Primary-Buttons (Dark & Light) ---------- */
+/* ---------- Garantierter Kontrast & perfekte Icon-Ausrichtung auf ALLEN Buttons ---------- */
 .btn-save,
 .cc-btn-primary,
 .btn-primary,
@@ -901,6 +915,11 @@ pre.hljs,
 .wz-step.active i,
 .byok-tabs .active .byok-step,
 #send-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  line-height: 1.2 !important;
   background: var(--btn-primary-bg) !important;
   color: var(--btn-primary-fg) !important;
   border: 1px solid var(--btn-primary-bg) !important;
@@ -924,6 +943,20 @@ pre.hljs,
 .choice.picked *,
 #send-btn * {
   color: var(--btn-primary-fg) !important;
+  line-height: 1 !important;
+}
+.btn-save .material-symbols-outlined,
+.btn-cancel .material-symbols-outlined,
+.cd-primary .material-symbols-outlined,
+.cd-btn .material-symbols-outlined,
+.ap-new .material-symbols-outlined,
+.bd-primary .material-symbols-outlined,
+.bd-btn .material-symbols-outlined {
+  font-size: 19px !important;
+  line-height: 1 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  vertical-align: middle !important;
 }
 .btn-save:hover,
 .cc-btn-primary:hover,
@@ -938,6 +971,7 @@ pre.hljs,
 .bl-send:hover,
 #send-btn:hover {
   background: var(--btn-primary-hover) !important;
+  border-color: var(--btn-primary-hover) !important;
 }
 
 /* Secondary-Buttons */
@@ -948,6 +982,11 @@ pre.hljs,
 .bd-btn:not(.primary),
 .cd-btn,
 .tc-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  line-height: 1.2 !important;
   background: var(--surface) !important;
   color: var(--ink) !important;
   border: 1px solid var(--line-control) !important;
