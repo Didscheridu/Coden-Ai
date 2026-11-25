@@ -194,7 +194,7 @@ export const UI = {
         row.querySelector('.content')?.append(box);
     },
 
-    // Live-Streaming: update(fullText) wird oft aufgerufen, gezeichnet wird höchstens einmal pro Bildschirm-Frame.
+    // Live-Streaming: glättet stoßweise SSE-Chunks per requestAnimationFrame zu einem flüssigen 60fps-Textfluss.
     // Oben die Denk-Anzeige (bleibt nach der Antwort als "Hat 12 s nachgedacht" stehen), darunter die Antwort.
     createStreamingMessage: ({ startedAt } = {}) => {
         const { row, content, chatContainer } = UI._newRow(false);
@@ -202,19 +202,69 @@ export const UI = {
         row.classList.add('streaming');
         const panel = createThinkPanel({ startedAt }); const answer = document.createElement('div'); answer.className = 'answer';
         content.replaceChildren(panel.el, answer);
-        let latest = '', raf = 0, started = false, info = null; const opened = new Set();
+        let target = '', shownLen = 0, raf = 0, lastFrame = 0, started = false, info = null; const opened = new Set();
         const stick = () => chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 140;
         // Neues Artefakt im Text? -> Fenster sofort öffnen und live mitschreiben lassen (wie bei Claude); auf dem Handy nur die Karte
         const autoOpen = (items) => { const it = items[items.length - 1]; if (!it || opened.has(it.key) || window.innerWidth < 900 || !row.isConnected) return; opened.add(it.key); Artifacts.open(it); };
-        const paint = () => { raf = 0; const follow = stick(); autoOpen(UI.renderRich(answer, latest, key)); if (follow) chatContainer.scrollTop = chatContainer.scrollHeight; };
+        const nextSliceEnd = (cur, goal, dtMs) => {
+            const backlog = goal - cur;
+            if (backlog <= 0) return goal;
+            // Adaptive Geschwindigkeit: ruhig bei kleinem Puffer, zieht bei großen Bursts nahtlos an
+            const stepBase = Math.max(1.5, dtMs / 16.67);
+            const chars = Math.max(2, Math.round(stepBase * (2.5 + backlog * 0.14)));
+            let next = Math.min(goal, cur + chars);
+            // Surrogate-Pairs nicht teilen
+            if (next < goal && target.charCodeAt(next - 1) >= 0xD800 && target.charCodeAt(next - 1) <= 0xDBFF) next++;
+            // Bei normalem Text möglichst bis zum nächsten Wortende/Leerzeichen gehen (max +5 Zeichen)
+            if (next < goal) {
+                for (let k = 0; k < 5 && next + k < goal; k++) {
+                    const ch = target.charCodeAt(next + k);
+                    if (ch === 32 || ch === 10) { next = next + k + 1; break; }
+                }
+            }
+            return Math.min(goal, next);
+        };
+        const paint = (ts) => {
+            raf = 0;
+            const dt = lastFrame ? Math.min(64, ts - lastFrame) : 16.67;
+            lastFrame = ts;
+            if (shownLen > target.length) shownLen = target.length;
+            const nextLen = nextSliceEnd(shownLen, target.length, dt);
+            if (nextLen !== shownLen || !answer.childNodes.length) {
+                shownLen = nextLen;
+                const follow = stick();
+                autoOpen(UI.renderRich(answer, target.slice(0, shownLen), key));
+                if (follow) chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
+            if (shownLen < target.length) {
+                raf = requestAnimationFrame(paint);
+            } else {
+                lastFrame = 0;
+            }
+        };
         const end = (minSecs = 2) => { if (!info) { info = panel.done(); if (!(info.secs >= minSecs || info.steps.length || info.text)) panel.remove(); } return info; };
         return {
             row, attached: () => row.isConnected,
             think: (k) => panel.think(k), model: (n) => panel.model(n),
-            update(text) { latest = text; if (!started && text.trim()) { started = true; end(); } if (started && !raf) raf = requestAnimationFrame(paint); },
-            finish(text) { cancelAnimationFrame(raf); raf = 0; latest = text; row.classList.remove('streaming'); const i = end(); if (!text.trim()) { row.remove(); return i; } UI.renderRich(answer, text, key); UI.addSuggestions(row, text); if (stick()) chatContainer.scrollTop = chatContainer.scrollHeight; return i; },
+            update(text) {
+                target = text;
+                if (text.length < shownLen) shownLen = text.length;
+                if (!started && text.trim()) { started = true; end(); }
+                if (started && !raf) { lastFrame = 0; raf = requestAnimationFrame(paint); }
+            },
+            finish(text) {
+                cancelAnimationFrame(raf); raf = 0; lastFrame = 0;
+                target = text; shownLen = text.length;
+                row.classList.remove('streaming');
+                const i = end();
+                if (!text.trim()) { row.remove(); return i; }
+                UI.renderRich(answer, text, key);
+                UI.addSuggestions(row, text);
+                if (stick()) chatContainer.scrollTop = chatContainer.scrollHeight;
+                return i;
+            },
             fail(msg, actions = []) {
-                cancelAnimationFrame(raf); raf = 0; row.classList.remove('streaming'); row.dataset.failed = '1';
+                cancelAnimationFrame(raf); raf = 0; lastFrame = 0; row.classList.remove('streaming'); row.dataset.failed = '1';
                 const i = end(1);
                 const note = document.createElement('div'); note.className = 'stream-error';
                 const tx = document.createElement('div'); tx.textContent = msg; note.appendChild(tx);
@@ -232,7 +282,7 @@ export const UI = {
                 return i;
             },
             info: () => info,
-            remove() { cancelAnimationFrame(raf); panel.remove(); row.remove(); }
+            remove() { cancelAnimationFrame(raf); raf = 0; panel.remove(); row.remove(); }
         };
     },
 
