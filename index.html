@@ -7,7 +7,7 @@
     <link rel="icon" href="./images/coden_logo.jpg" type="image/jpeg">
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="apple-touch-icon" href="/images/coden_logo.jpg">
-    <meta name="theme-color" content="#0b0d12">
+    <meta name="theme-color" content="#09090b">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Coden">
     
@@ -266,9 +266,17 @@
                         <button type="button" class="cm-item" id="ct-apps" role="menuitem" aria-haspopup="menu"><span class="material-symbols-outlined cm-ic">apps</span><span class="cm-label">Eigene Apps</span><span class="material-symbols-outlined cm-chev">chevron_right</span></button>
                         <button type="button" class="cm-item" id="ct-mcp" role="menuitem" aria-haspopup="menu"><span class="material-symbols-outlined cm-ic">hub</span><span class="cm-label">Konnektoren</span><span class="material-symbols-outlined cm-chev">chevron_right</span></button>
                         <div class="cm-sep" role="separator"></div>
+                        <button type="button" class="cm-item" id="ct-art-3d" role="menuitem" data-ct-prompt="Erstelle mir eine interaktive 3D-Szene als three-Artefakt: "><span class="material-symbols-outlined cm-ic">view_in_ar</span><span class="cm-label">3D-Szene erstellen</span></button>
+                        <button type="button" class="cm-item" id="ct-art-canvas" role="menuitem" data-ct-prompt="Erstelle mir eine interaktive 2D-Canvas-Animation als canvas-Artefakt: "><span class="material-symbols-outlined cm-ic">brush</span><span class="cm-label">2D-Canvas / Spiel</span></button>
+                        <button type="button" class="cm-item" id="ct-art-chart" role="menuitem" data-ct-prompt="Erstelle mir ein Diagramm oder eine sortierbare Tabelle zu: "><span class="material-symbols-outlined cm-ic">bar_chart</span><span class="cm-label">Diagramm / Tabelle</span></button>
+                        <button type="button" class="cm-item" id="ct-art-slides" role="menuitem" data-ct-prompt="Erstelle mir eine Präsentation als slides-Artefakt über: "><span class="material-symbols-outlined cm-ic">slideshow</span><span class="cm-label">Präsentation erstellen</span></button>
+                        <div class="cm-sep" role="separator"></div>
                         <button type="button" class="cm-item" id="ct-web" role="menuitemcheckbox" aria-checked="true" data-keep="1"><span class="material-symbols-outlined cm-ic">language</span><span class="cm-label">Websuche</span><span class="material-symbols-outlined cm-check off">check</span></button>
                         <button type="button" class="cm-item" id="ct-research" role="menuitemcheckbox" aria-checked="false"><span class="material-symbols-outlined cm-ic">travel_explore</span><span class="cm-label">Recherche</span><span class="material-symbols-outlined cm-check off">check</span></button>
                         <button type="button" class="cm-item" id="ct-temp" role="menuitemcheckbox" aria-checked="false" data-keep="1"><span class="material-symbols-outlined cm-ic">history_toggle_off</span><span class="cm-label">Temporärer Chat</span><span class="material-symbols-outlined cm-check off">check</span></button>
+                        <div class="cm-sep" role="separator"></div>
+                        <button type="button" class="cm-item" id="ct-export-chat" role="menuitem"><span class="material-symbols-outlined cm-ic">download</span><span class="cm-label">Chat exportieren</span></button>
+                        <button type="button" class="cm-item" id="ct-chess" role="menuitem"><span class="material-symbols-outlined cm-ic">chess</span><span class="cm-label">Schach vs. Coden</span></button>
                     </div>
                     <input type="file" id="file-upload-input" multiple style="display: none;">
                     <textarea id="main-input" rows="1" placeholder="Nachricht an Coden … ('/' für Befehle)"></textarea>

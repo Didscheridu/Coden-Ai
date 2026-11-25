@@ -1193,6 +1193,15 @@ document.getElementById('temp-chat-btn')?.addEventListener('click', () => {
     document.getElementById('tb-delete-btn')?.addEventListener('click', async () => { if (currentSession && await showCustomConfirm({ title: 'Chat löschen?', subtitle: currentSession.title || 'Unbenannter Chat', message: 'Dieser Chat wird dauerhaft aus deinem Verlauf entfernt.', icon: 'delete', danger: true, confirmLabel: 'Löschen', cancelLabel: 'Abbrechen' })) deleteSession(currentSession.id); });
     Menu.bindMenu(document.getElementById('composer-plus-btn'), document.getElementById('composer-tools-menu'));
     document.getElementById('ct-temp')?.addEventListener('click', () => document.getElementById('temp-chat-btn')?.click());
+    document.getElementById('ct-export-chat')?.addEventListener('click', () => document.getElementById('export-chat-btn')?.click());
+    document.getElementById('ct-chess')?.addEventListener('click', () => document.getElementById('chess-modal')?.classList.remove('hidden'));
+    document.querySelectorAll('#composer-tools-menu [data-ct-prompt]').forEach((b) => b.addEventListener('click', () => {
+        const inp = document.getElementById('main-input');
+        if (!inp) return;
+        inp.value = b.dataset.ctPrompt || '';
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+        inp.focus();
+    }));
     document.getElementById('ct-skill-new')?.addEventListener('click', () => Skills.openCreate());
     Menu.attachSub(document.getElementById('ct-skills'), (panel) => Skills.fillMenu(panel));
     Menu.attachSub(document.getElementById('ct-mcp'), async (panel) => {
