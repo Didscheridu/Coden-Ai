@@ -47,6 +47,7 @@ api.get('/health', async (req, res) => {
   const out = { ok: true, node: process.version, db: false, schema: false, push: false };
   try { await db.ping(); out.db = true; } catch (e) { out.ok = false; out.dbError = String(e.message).slice(0, 120); }
   try { out.schema = await ensureSchema(); } catch (_) { out.schema = false; }
+  try { out.supabase = await require('../server/supabase').ping(); } catch (e) { out.supabase = { configured: true, ok: false, error: String(e.message).slice(0, 120) }; }
   try { require('web-push'); out.push = true; } catch (e) { out.pushError = String(e.code || e.message).slice(0, 80); }
   res.status(out.ok ? 200 : 503).json(out);
 });
