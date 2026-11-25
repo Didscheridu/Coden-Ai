@@ -65,15 +65,70 @@
     const nt = e.target.closest('.nav-toggle'); if (nt) { $('.nav-links')?.classList.toggle('open'); return; }
     if (e.target.closest('.nav-links a')) $('.nav-links')?.classList.remove('open');
   });
+  // ---------- Automatisches Autoscaling & Responsive-Schutz ----------
+  function wrapTables() {
+    $$('table').forEach(t => {
+      if (t.closest('.ck-table-scroll')) return;
+      const w = document.createElement('div'); w.className = 'ck-table-scroll';
+      t.parentNode?.insertBefore(w, t); w.appendChild(t);
+    });
+  }
+  function fit(el, { maxWidth, minScale = 0.55 } = {}) {
+    const node = typeof el === 'string' ? $(el) : el;
+    if (!node) return 1;
+    node.style.zoom = '';
+    const parent = node.parentElement || document.body;
+    const avail = Math.max(240, (parent.clientWidth || window.innerWidth) - 8);
+    const need = maxWidth || node.scrollWidth || node.offsetWidth;
+    if (need > avail + 2) {
+      const s = Math.max(minScale, Math.min(1, avail / need));
+      node.style.zoom = s.toFixed(4);
+      return s;
+    }
+    return 1;
+  }
+  let autoTimer = 0;
+  function autoscale() {
+    if (document.documentElement.hasAttribute('data-no-autoscale') || document.body?.hasAttribute('data-no-autoscale')) return;
+    if (document.body?.classList.contains('game') || $('#game') || $('#scene')) return;
+    wrapTables();
+    const vw = window.innerWidth || document.documentElement.clientWidth || 390;
+    // Sanfte Grundskalierung für sehr schmale Ansichten (z. B. Split-Vorschau oder kleine Handys)
+    const rootStyle = getComputedStyle(document.documentElement);
+    if (!document.documentElement.dataset.ckScaleInit) {
+      document.documentElement.dataset.ckScaleInit = '1';
+      document.documentElement.dataset.ckBaseScale = rootStyle.getPropertyValue('--font-scale').trim() || '1';
+    }
+    const base = parseFloat(document.documentElement.dataset.ckBaseScale) || 1;
+    const autoFactor = vw < 360 ? Math.max(0.86, vw / 380) : vw < 480 ? Math.max(0.92, vw / 480) : 1;
+    document.documentElement.style.setProperty('--font-scale', (base * autoFactor).toFixed(3));
+    // Prüfen, ob ein Bereich breiter als das Fenster ist und sauber herunterskalieren
+    if (document.body && document.documentElement.scrollWidth > vw + 4) {
+      for (const ch of Array.from(document.body.children)) {
+        if (/^(SCRIPT|STYLE|LINK)$/i.test(ch.tagName) || ch.classList.contains('ck-toast') || ch.classList.contains('sheet')) continue;
+        ch.style.zoom = '';
+        if (ch.scrollWidth > vw + 4) {
+          const s = Math.max(0.55, Math.min(1, (vw - 2) / ch.scrollWidth));
+          ch.style.zoom = s.toFixed(4);
+        }
+      }
+    }
+  }
+  const scheduleAutoscale = () => { clearTimeout(autoTimer); autoTimer = setTimeout(autoscale, 40); };
+
   function start() {
     const first = $('.screen.active') || $('.screen'); if (first) go(first.id, { reset: true });
     const page = (location.pathname.split('/').pop() || 'index.html');
     $$('.nav-links a').forEach(a => { if ((a.getAttribute('href') || '') === page) a.classList.add('active'); });
+    autoscale();
+    if (window.ResizeObserver && document.body) new ResizeObserver(scheduleAutoscale).observe(document.body);
   }
+  window.addEventListener('resize', scheduleAutoscale);
+  window.addEventListener('load', scheduleAutoscale);
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 
   window.Coden = {
-    $, $$, go, back, toast, sheet, store, db, fmt, esc, loadScript, platform,
+    $, $$, go, back, toast, sheet, store, db, fmt, esc, loadScript, platform, fit, autoscale,
     onScreen(id, fn) { (listeners[id] ||= []).push(fn); },
     uid: () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
     haptic: (ms = 12) => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} }

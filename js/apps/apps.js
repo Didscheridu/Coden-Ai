@@ -5,7 +5,6 @@ import { Router } from '../router.js';
 import { toast } from '../toast.js';
 import { h, icon, timeAgo, copy } from './dom.js';
 import { KINDS, scaffold, fromArtifact } from './templates.js';
-import { GAME_TEMPLATES } from './games.js';
 import { mountBuilder, stylePreview, loadStyleFonts } from './builder.js';
 import { confirmBox } from './dialogs.js';
 import { auth } from '../auth.js';
@@ -28,8 +27,8 @@ export const AppsView = {
 };
 
 // Neue App direkt anlegen (z. B. aus einem Artefakt) und öffnen
-export async function createApp({ name, kind, style = '', files, prompt, template }) {
-    const r = await apiJson('/apps', { method: 'POST', body: JSON.stringify({ name, kind, style, files: files || scaffold(kind, name, template) }) });
+export async function createApp({ name, kind, style = '', files, prompt }) {
+    const r = await apiJson('/apps', { method: 'POST', body: JSON.stringify({ name, kind, style, files: files || scaffold(kind, name) }) });
     if (prompt) sessionStorage.setItem('coden_app_prompt_' + r.app.id, prompt);
     Router.go('apps/' + r.app.id);
     return r.app;
@@ -91,12 +90,12 @@ async function gallery(host) {
     const quickBox = h('section', { class: 'ap-quick' },
         h('div', { class: 'ap-qhead' },
             h('span', { class: 'ap-qtitle' }, icon('code_blocks'), h('span', { text: 'Mit Prompt starten' })),
-            h('span', { class: 'ap-qhint', text: 'Erstellt direkt das Projekt und öffnet das Studio' })),
+            h('span', { class: 'ap-qhint', text: 'Baut komplett von Grund auf (ohne Vorlage)' })),
         qInput,
         h('div', { class: 'ap-qfoot' },
             qTypes,
             h('span', { class: 'grow' }),
-            h('button', { type: 'button', class: 'ap-gh sm', onclick: () => Router.go('apps/neu') }, icon('palette'), h('span', { text: 'Stil-Assistent' })),
+            h('button', { type: 'button', class: 'ap-gh sm', onclick: () => Router.go('apps/neu') }, icon('tune'), h('span', { text: 'Erweitert' })),
             qGo),
         h('div', { class: 'ap-qideas' }, QUICK_IDEAS.map(([label, kind, prompt]) =>
             h('button', { type: 'button', class: 'ap-qidea', onclick: () => { qKind = kind; drawQTypes(); qInput.value = prompt; qInput.focus(); } }, icon('bolt'), h('span', { text: label })))));
@@ -121,8 +120,8 @@ async function gallery(host) {
         const list = all.filter(a => match(a, filter));
         if (!all.length) {
             grid.replaceChildren(h('div', { class: 'ap-empty wide' }, h('div', { class: 'ap-empty-art' }, icon('phone_iphone'), icon('language'), icon('android')),
-                h('h2', { text: 'Deine erste App wartet' }), h('p', { text: 'Beschreibe oben direkt deine Idee oder starte den Assistenten für Typ und Design-Stil.' }),
-                h('button', { type: 'button', class: 'ap-new', onclick: () => Router.go('apps/neu') }, icon('add'), 'Mit Stil-Assistent starten')));
+                h('h2', { text: 'Deine erste App wartet' }), h('p', { text: 'Beschreibe oben direkt deine Idee – Coden entwickelt alles komplett von Grund auf.' }),
+                h('button', { type: 'button', class: 'ap-new', onclick: () => Router.go('apps/neu') }, icon('add'), 'Neue App anlegen')));
             filters.classList.add('hidden'); return;
         }
         filters.classList.remove('hidden');
@@ -185,57 +184,47 @@ async function gallery(host) {
     await loadApps();
 }
 
-// ---------- Assistent: Typ → Stil → Idee ----------
+// ---------- Neue App: Typ → Idee (komplett From Scratch, ohne Vorlage) ----------
 function wizard(host) {
     loadStyleFonts();
     const pre = (() => { try { return JSON.parse(sessionStorage.getItem('coden_wizard') || 'null'); } catch (_) { return null; } })();
     try { sessionStorage.removeItem('coden_wizard'); } catch (_) {}
     const initKind = pre?.kind && KINDS[pre.kind] ? pre.kind : null;
-    const st = { step: initKind ? 1 : 0, kind: initKind, style: null, template: pre?.template || null, name: pre?.name || '', idea: pre?.idea || '' };
+    const st = { step: initKind ? 1 : 0, kind: initKind, style: '', name: pre?.name || '', idea: pre?.idea || '' };
     const body = h('div', { class: 'wz-body' }); const dots = h('div', { class: 'wz-steps' });
     const page = h('div', { class: 'ap-page wz' },
         h('div', { class: 'wz-top' }, h('button', { type: 'button', class: 'bl-ibtn', title: 'Abbrechen', 'aria-label': 'Abbrechen', onclick: () => Router.go('apps') }, icon('close')), dots, h('span', { class: 'grow' })), body);
     host.replaceChildren(page);
     const draw = () => {
-        const STEPS = ['Typ', st.kind === 'game' ? 'Vorlage' : 'Stil', 'Idee'];
+        const STEPS = ['Typ', 'Idee'];
         dots.replaceChildren(...STEPS.map((l, i) => h('button', { type: 'button', class: 'wz-step' + (i === st.step ? ' active' : '') + (i < st.step ? ' done' : ''), disabled: i > st.step || (i > 0 && !st.kind), onclick: () => { st.step = i; draw(); } }, h('i', { text: i < st.step ? '✓' : String(i + 1) }), l)));
         body.replaceChildren(); body.classList.remove('anim'); void body.offsetWidth; body.classList.add('anim');
         if (st.step === 0) {
-            body.append(h('h1', { text: 'Was möchtest du bauen?' }), h('p', { class: 'wz-sub', text: 'Den Typ kannst du später noch ändern.' }),
+            body.append(h('h1', { text: 'Was möchtest du bauen?' }), h('p', { class: 'wz-sub', text: 'Keine Vorlage – Coden programmiert alles von Grund auf nach deiner Idee.' }),
                 h('div', { class: 'ap-kinds' }, Object.entries(KINDS).map(([k, v]) => h('button', { type: 'button', class: 'ap-kind' + (st.kind === k ? ' active' : ''), onclick: () => { st.kind = k; st.step = 1; draw(); } },
                     h('span', { class: 'ap-kic' }, icon(v.icon)), h('b', { text: v.label }), h('small', { text: v.desc }), kindArt(k)))));
-        } else if (st.step === 1 && st.kind === 'game') {
-            body.append(h('h1', { text: 'Mit welchem Spiel startest du?' }), h('p', { class: 'wz-sub', text: 'Jede Vorlage ist sofort spielbar (Tastatur, Maus und Touch). Danach baut Coden sie nach deinen Ideen um.' }),
-                h('div', { class: 'gm-grid' }, GAME_TEMPLATES.map(t => h('button', { type: 'button', class: 'gm-card' + (st.template === t.id ? ' active' : ''), onclick: () => { st.template = t.id; st.style = ''; if (!st.name || GAME_TEMPLATES.some(x => x.name === st.name)) st.name = t.id === 'starter' ? '' : t.name; st.step = 2; draw(); } },
-                    h('div', { class: 'gm-art', style: { background: t.g }, text: t.emoji }), h('b', { text: t.name }), h('small', { text: t.desc })))));
-        } else if (st.step === 1) {
-            const styles = [{ id: '', name: 'Coden entscheidet', desc: 'Coden wählt ein passendes Design' }, ...(S().STYLES || [])];
-            body.append(h('h1', { text: 'Such dir einen Stil aus' }), h('p', { class: 'wz-sub' }, 'Farben, Schrift und Formen. Optional – du kannst ihn jederzeit wechseln. ', h('button', { type: 'button', class: 'wz-link', text: 'Überspringen', onclick: () => { st.style = ''; st.step = 2; draw(); } })),
-                h('div', { class: 'ap-styles' }, styles.map(s => h('button', { type: 'button', class: 'ap-style' + (st.style === s.id ? ' active' : ''), onclick: () => { st.style = s.id; st.step = 2; draw(); } }, stylePreview(s), h('b', { text: s.name }), h('small', { text: s.desc })))));
         } else {
             const kd = kindOf(st.kind);
             const name = h('input', { class: 'wz-input', placeholder: st.kind === 'web' ? 'z. B. Café Sonnenschein' : 'z. B. FitTrack', maxlength: 60, value: st.name });
-            const idea = h('textarea', { class: 'wz-input area', rows: 4, placeholder: 'Beschreibe deine Idee: Was soll die App können? Für wen ist sie? (optional)', value: st.idea });
+            const idea = h('textarea', { class: 'wz-input area', rows: 4, placeholder: 'Beschreibe deine Idee: Funktionen, Look und Verhalten …', value: st.idea });
             const err = h('div', { class: 'cd-err' });
-            const style = S().byId(st.style);
             const create = h('button', { type: 'button', class: 'ap-new big', onclick: async () => {
                 st.name = name.value.trim(); st.idea = idea.value.trim();
                 if (!st.name) { err.textContent = 'Gib deiner App einen Namen.'; name.focus(); return; }
                 create.disabled = true; create.replaceChildren(h('span', { class: 'cd-spin' }), 'Wird erstellt …');
-                try { await createApp({ name: st.name, kind: st.kind || 'web', style: st.style || '', prompt: st.idea || '', template: st.template }); }
-                catch (e) { err.textContent = e.message; create.disabled = false; create.replaceChildren(icon('auto_awesome'), 'App erstellen'); }
-            } }, icon('auto_awesome'), 'App erstellen');
+                try { await createApp({ name: st.name, kind: st.kind || 'web', style: '', prompt: st.idea || '' }); }
+                catch (e) { err.textContent = e.message; create.disabled = false; create.replaceChildren(icon('auto_awesome'), 'Von Grund auf bauen'); }
+            } }, icon('auto_awesome'), 'Von Grund auf bauen');
             name.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); idea.focus(); } });
             idea.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) create.click(); });
-            const examples = st.kind === 'game' ? ['Mach daraus ein Weltraum-Abenteuer mit Bossgegnern', 'Füge Level, Power-ups und eine Bestenliste hinzu', 'Pixel-Art-Stil mit Retro-Musik', 'Zwei Spieler an einer Tastatur'] : st.kind === 'web' ? ['Webseite für mein Café mit Speisekarte und Öffnungszeiten', 'Mein Portfolio mit Projekten und Kontaktformular', 'Landingpage für ein Produkt mit Preisen und FAQ'] : ['To-do-App mit Kategorien und Fälligkeitsdaten', 'Habit-Tracker mit Serien und Statistiken', 'Rezept-App mit Favoriten und Einkaufsliste', 'Budget-App mit Ausgaben nach Kategorie'];
-            const tpl = GAME_TEMPLATES.find(t => t.id === st.template);
+            const examples = st.kind === 'game' ? ['2D-Weltraum-Shooter mit Wellen, Bossgegnern und Bestenliste', 'Pixel-Art-Plattformer mit Münzen, Stacheln und Doppelsprung', 'Schnelles Neon-Breakout mit Power-ups und Partikeln'] : st.kind === 'web' ? ['Webseite für mein Café mit Speisekarte und Öffnungszeiten', 'Mein Portfolio mit Projekten und Kontaktformular', 'Landingpage für ein Produkt mit Preisen und FAQ'] : ['To-do-App mit Kategorien und Fälligkeitsdaten', 'Habit-Tracker mit Serien und Statistiken', 'Rezept-App mit Favoriten und Einkaufsliste', 'Budget-App mit Ausgaben nach Kategorie'];
             const ai = aiSettings();
             body.append(h('h1', { text: st.kind === 'game' ? 'Wie heißt dein Spiel?' : 'Wie heißt deine App?' }),
-                h('div', { class: 'wz-summary' }, h('span', { class: 'bl-badge' }, icon(kd.icon), kd.label), st.kind === 'game' ? h('span', { class: 'bl-badge' }, icon('extension'), tpl ? tpl.emoji + ' ' + tpl.name : 'Leeres Spiel') : h('span', { class: 'bl-badge' }, icon('palette'), style ? style.name : 'Coden entscheidet')),
+                h('div', { class: 'wz-summary' }, h('span', { class: 'bl-badge' }, icon(kd.icon), kd.label), h('span', { class: 'bl-dot-sep', text: '·' }), h('span', { class: 'bl-badge' }, icon('auto_awesome'), 'Ohne Vorlage (From Scratch)')),
                 h('label', { class: 'cd-label', text: 'Name' }), name, h('label', { class: 'cd-label', text: 'Idee' }), idea,
                 h('div', { class: 'wz-ex' }, examples.map(t => h('button', { type: 'button', class: 'ap-chip', text: t, onclick: () => { idea.value = t; idea.focus(); } }))), ai, err,
-                h('div', { class: 'wz-foot' }, h('button', { type: 'button', class: 'bl-btn', onclick: () => { st.name = name.value; st.idea = idea.value; st.step = 1; draw(); } }, icon('arrow_back'), 'Zurück'), h('span', { class: 'grow' }), create),
-                h('p', { class: 'wz-note' }, icon('info'), ' Coden legt sofort ein schickes Grundgerüst an und baut dann deine Idee. Du siehst alles live.'));
+                h('div', { class: 'wz-foot' }, h('button', { type: 'button', class: 'bl-btn', onclick: () => { st.name = name.value; st.idea = idea.value; st.step = 0; draw(); } }, icon('arrow_back'), 'Zurück'), h('span', { class: 'grow' }), create),
+                h('p', { class: 'wz-note' }, icon('info'), ' Coden startet mit einem leeren Projekt und entwickelt Layout, Design und Logik komplett neu für dich.'));
             setTimeout(() => (st.name ? idea : name).focus(), 60);
         }
     };

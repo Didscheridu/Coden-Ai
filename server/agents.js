@@ -49,7 +49,7 @@ function historyFrom(rows) {
   for (const m of rows.filter(r => ['user', 'assistant', 'tool'].includes(r.role)).slice(-HISTORY)) {
     const role = m.role === 'assistant' ? 'assistant' : 'user';
     let content = m.role === 'user' && m.handle && !m.mine ? `@${m.handle} schreibt: ${m.body}` : String(m.body || '');
-    if (role === 'assistant') content = content.replace(/\[Datei (geschrieben|geändert|gelöscht): ([^\]]+)\]/g, '<!-- (frühere Antwort: Datei $2 $1, Inhalt hier gekürzt) -->').replace(/\(Geänderte Dateien:[^)]*\)/g, '');
+    if (role === 'assistant') content = content.replace(/\[Datei (geschrieben|geändert|gelöscht): ([^\]]+)\]/g, '[Bereits gespeichert: $2 ($1) – aktueller Stand im System-Prompt]').replace(/\(Geänderte Dateien:[^)]*\)/g, '');
     if (out.length && out[out.length - 1].role === role) out[out.length - 1].content += '\n\n' + content; else out.push({ role, content });
   }
   while (out.length && out[0].role !== 'user') out.shift();
@@ -133,6 +133,7 @@ const isQuestion = (w) => /\?\s*$/.test(w.trim()) && w.length < 400 && !/\b(bau|
 async function runAppAgent(run, ctx) {
   const t0 = Date.now(); const elapsed = () => Date.now() - t0; const timeLeft = () => LEG_HARD_MS - elapsed();
   const S = ctx.state || {};                       // Stand aus der vorigen Etappe (oder leer beim Start)
+  const runStartedAt = S.startedAt || t0;
   const leg = (S.leg || 0) + 1;
   const agents = S.agents || [];
   const labels = ctx.uid ? await Byok.labels(ctx.uid).catch(() => ({})) : {}; // Namen eigener Modelle/Ketten für die Anzeige
@@ -258,7 +259,7 @@ async function runAppAgent(run, ctx) {
     // Eine Nachricht für den ganzen Auftrag (Dateiinhalte gekürzt, Werkzeug-Ergebnisse bleiben als kurze Zeilen)
     const reply = withReply(out.text, Agent.parse(out.text));
     if (reply !== out.text) { const suffix = reply.slice(out.text.replace(/\s+$/, '').length); if (suffix.trim()) emit(suffix); }
-    await ctx.post('assistant', Agent.condense(out.text) || '…', { changed: [...changed.values()], model: run.model || undefined, agents: agents.map(a => ({ title: a.title, status: a.status, tier: a.tier ? tn(a.tier) : undefined })).slice(0, 14), steps: stepsTotal, legs: leg });
+    await ctx.post('assistant', Agent.condense(out.text) || '…', { changed: [...changed.values()], model: run.model || undefined, agents: agents.map(a => ({ title: a.title, status: a.status, tier: a.tier ? tn(a.tier) : undefined })).slice(0, 14), steps: stepsTotal, legs: leg, durationMs: Math.max(0, Date.now() - runStartedAt) });
     run.setExtra({ done: true, steps: stepsTotal, legs: leg });
     if (run.subs.size === 0 && ctx.uid && !run.signal.aborted) await Push.notify(ctx.uid, { title: `Coden ist fertig: ${ctx.app?.name || 'App'}`, body: changed.size ? `${changed.size} Datei${changed.size > 1 ? 'en' : ''} geändert – tippe, um die App zu öffnen.` : Push.preview(out.text.replace(/<result[^>]*>[^<]*<\/result>/g, '').slice(-400)), url: `/#/apps/${ctx.app?.id || ''}`, tag: 'app-' + (ctx.app?.id || '') });
     return { files, summary: { steps: stepsTotal, legs: leg, changed: [...changed.keys()] } };
@@ -272,7 +273,7 @@ async function runAppAgent(run, ctx) {
     }
     set(main, { status: 'run', detail: `Etappe ${leg} fertig – startet Etappe ${leg + 1} …` });
     const keepSteps = steps.slice(-30).map(m => ({ role: m.role, content: String(m.content).slice(0, 12000) }));
-    const state = { leg, subResume, agents: agents.map(a => ({ ...a })), steps: keepSteps, changed: [...changed.entries()], dirty: dirtySinceCheck, fixes, spawns, imgRounds, stepsTotal, nudges, reviewed,
+    const state = { leg, startedAt: runStartedAt, subResume, agents: agents.map(a => ({ ...a })), steps: keepSteps, changed: [...changed.entries()], dirty: dirtySinceCheck, fixes, spawns, imgRounds, stepsTotal, nudges, reviewed,
       pending: deferred ? deferred.map(t => ({ name: t.name, attrs: t.attrs, body: t.body, id: t.id, prompt: t.prompt })) : null };
     const ok = await ctx.continueLeg(state).catch((e) => { console.warn('[agent] Etappe konnte nicht starten:', e.message); return false; });
     if (!ok) { ctx.continueLeg = null; return nextLeg(deferred); }

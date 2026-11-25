@@ -170,6 +170,50 @@
 .bl-changes { display: flex; flex-wrap: wrap; gap: 5px } .bl-chg { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--hairline); background: var(--bg-input); color: var(--text-secondary); padding: 4px 9px 4px 6px; border-radius: 7px; font: 12px var(--font-mono); cursor: pointer }
 .bl-chg:hover { background: var(--bg-surface); border-color: var(--border-color); color: #fff } .bl-chg .material-symbols-outlined { font-size: 14px } .bl-chg.new .material-symbols-outlined { color: var(--accent-green) } .bl-chg.edit .material-symbols-outlined, .bl-chg.write .material-symbols-outlined { color: var(--accent-blue) } .bl-chg.delete .material-symbols-outlined { color: var(--accent-red) }
 .bl-meta { color: var(--text-muted); font-size: 11px }
+.bl-livebody { display: flex; flex-direction: column; gap: 8px; min-width: 0 }
+.bl-runhead { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text-muted); margin-bottom: 2px }
+.bl-runhead-dot { opacity: .65 }
+.bl-ah { border: 1px solid rgba(255, 255, 255, .1); border-radius: 14px; background: rgba(255, 255, 255, .022); overflow: hidden; animation: pop .2s var(--ease) both }
+.bl-ah-head { list-style: none; display: flex; align-items: center; gap: 8px; padding: 10px 14px; cursor: pointer; user-select: none; font-size: 13px; color: var(--text-primary); border-bottom: 1px solid transparent; transition: background .15s, border-color .15s }
+.bl-ah-head::-webkit-details-marker { display: none }
+.bl-ah-head:hover { background: rgba(255, 255, 255, .03) }
+.bl-ah[open] > .bl-ah-head { border-bottom-color: var(--hairline) }
+.bl-ah-head .material-symbols-outlined { font-size: 17px; color: var(--text-secondary) }
+.bl-ah-head b { font-weight: 500; font-size: 13px }
+.bl-ah-cnt { margin-left: auto; font-size: 11.5px; color: var(--text-muted); font-variant-numeric: tabular-nums }
+.bl-ah-chev { transition: transform .18s var(--ease); color: var(--text-muted) }
+.bl-ah[open] .bl-ah-chev { transform: rotate(180deg) }
+.bl-ah-body { padding: 11px 14px 12px; display: flex; flex-direction: column; gap: 11px; max-height: 360px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #2f3542 transparent }
+.bl-ah-sub { font-size: 12.5px; color: var(--text-secondary) }
+.bl-ah-group { display: flex; flex-direction: column; gap: 2px }
+.bl-ah-ghead { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 500; color: var(--text-secondary); margin-bottom: 3px }
+.bl-ah-ghead .material-symbols-outlined { font-size: 15px; color: var(--text-muted) }
+.bl-ah-row { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: transparent; padding: 4px 6px 4px 22px; border-radius: 8px; text-align: left; font: 12.5px/1.45 var(--font-main); color: var(--text-secondary) }
+.bl-ah-row > .material-symbols-outlined { font-size: 15px; color: var(--accent-blue); flex: 0 0 auto }
+.bl-ah-row.tap { cursor: pointer; transition: background .12s, color .12s }
+.bl-ah-row.tap:hover { background: rgba(255, 255, 255, .055); color: #fff }
+.bl-ah-row.done .bl-ah-lbl { color: var(--text-muted) }
+.bl-ah-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12.5px var(--font-mono); color: var(--text-primary) }
+.bl-ah-meta { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; flex: 0 0 auto }
+.bl-ah-main { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px }
+.bl-ah-lbl { color: var(--text-primary); flex: 0 1 auto }
+.bl-ah-code { font: 11.5px var(--font-mono); color: var(--accent-blue); background: rgba(124, 179, 255, .09); padding: 1px 6px; border-radius: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100% }
+.bl-ah-det { width: 100%; font-size: 11.5px; color: var(--text-muted); line-height: 1.35 }
+.bl-ah-tier { font-style: normal; font-size: 11px; color: var(--accent-blue); background: rgba(124, 179, 255, .1); padding: 1px 6px; border-radius: 6px; flex: 0 0 auto }
+.bl-ah-st { margin-left: auto; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center }
+.bl-ah-st .material-symbols-outlined { font-size: 17px }
+.bl-ah-st.ok { color: #4ade80 }
+.bl-ah-st.err { color: #f87171 }
+.bl-ah-st.warn { color: #fbbf24 }
+.bl-ah-st.wait { color: var(--text-muted) }
+.cd-spin.xs { width: 15px; height: 15px; border-width: 2px }
+.bl-ah-foot { display: flex; align-items: center; gap: 8px; padding: 9px 14px; border-top: 1px solid var(--hairline); font-size: 12.5px; color: var(--text-secondary); background: rgba(255, 255, 255, .015) }
+.bl-ah-foot .material-symbols-outlined { font-size: 16px; color: var(--text-muted) }
+.bl-summary { color: var(--text-primary); font-size: 13.5px; line-height: 1.6 }
+.bl-ah-actions { display: flex; align-items: center; gap: 10px; padding-top: 2px; flex-wrap: wrap }
+.bl-viewchg { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border-color); background: rgba(255, 255, 255, .03); color: var(--text-primary); padding: 6px 12px; border-radius: 9px; font: 500 12.5px var(--font-main); cursor: pointer; transition: background .15s, border-color .15s }
+.bl-viewchg:hover { background: rgba(255, 255, 255, .08); border-color: var(--border-strong) }
+.bl-viewchg .material-symbols-outlined { font-size: 16px; color: var(--accent-blue) }
 .bl-event { align-self: center; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); background: rgba(255, 255, 255, .03); padding: 5px 12px; border-radius: 8px; animation: pop .2s var(--ease) both; text-align: center } .bl-event .material-symbols-outlined { font-size: 15px }
 .bl-event.err { color: var(--accent-red); background: rgba(248, 113, 113, .08) }
 .bl-composer { margin: 8px 12px 12px; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 14px; padding: 10px 10px 8px 12px; transition: border-color .18s, box-shadow .18s } .bl-composer:focus-within { border-color: rgba(124, 179, 255, .55); box-shadow: 0 0 0 3px rgba(124, 179, 255, .1) }

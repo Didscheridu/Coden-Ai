@@ -68,11 +68,12 @@
         for (const page of list) {
             let html = pages.length ? String(files[page]) : '<!doctype html><html><head><title>Neue App</title></head><body><p style="font:16px system-ui;padding:24px">Noch keine index.html.</p></body></html>';
             const moved = [];
+            let hasKitCss = false, hasKitJs = false;
             // Stylesheets einbetten
             html = html.replace(/<link\b[^>]*>/gi, (tag) => {
                 const rel = (attr(tag, 'rel') || '').toLowerCase(); const href = norm(attr(tag, 'href'));
                 if (rel.includes('stylesheet')) {
-                    if (/(^|\/)coden-kit\.css$/.test(href)) return `<style data-src="coden-kit.css">${escInline(kit.css, 'style')}</style>`;
+                    if (/(^|\/)coden-kit\.css$/.test(href)) { hasKitCss = true; return `<style data-src="coden-kit.css">${escInline(kit.css, 'style')}</style>`; }
                     if (has(href)) return `<style data-src="${esc(href)}">${escInline(fixCssUrls(files[href]), 'style')}</style>`;
                 }
                 if (rel.includes('icon') && svgUrl(href)) return tag.replace(attr(tag, 'href'), () => svgUrl(href));
@@ -82,7 +83,7 @@
             html = html.replace(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi, (m, attrs, body) => {
                 const src = attr('<s ' + attrs + '>', 'src'); if (src == null) return m;
                 const n = norm(src); let code = null;
-                if (/(^|\/)coden-kit\.js$/.test(n)) code = kit.js; else if (has(n)) code = files[n];
+                if (/(^|\/)coden-kit\.js$/.test(n)) { hasKitJs = true; code = kit.js; } else if (has(n)) code = files[n];
                 if (code == null) return m;
                 const rest = attrs.replace(/\s(src|defer|async)(\s*=\s*("[^"]*"|'[^']*'|[^\s>]+))?/gi, '');
                 const tag = `<script${rest} data-src="${esc(n)}">${escInline(code, 'script')}\n</script>`;
@@ -99,9 +100,15 @@
             let head = shim;
             if (!/<meta[^>]+charset/i.test(html)) head = '<meta charset="utf-8">' + head;
             if (!/<meta[^>]+name\s*=\s*["']?viewport/i.test(html)) head += '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">';
+            if (!hasKitCss && kit.css) head += `<style data-src="coden-kit.css">${escInline(kit.css, 'style')}</style>`;
             if (fonts) head += `<link rel="stylesheet" href="${esc(fonts)}">`;
             if (usesIcons) head += `<link rel="stylesheet" href="${ICONS_HREF}">`;
             if (theme) head += `<style id="coden-theme">${escInline(theme, 'style')}</style>`;
+            if (!hasKitJs && kit.js) {
+                const kitTag = `<script data-src="coden-kit.js">${escInline(kit.js, 'script')}\n</script>`;
+                if (/<body\b[^>]*>/i.test(html)) html = html.replace(/<body\b[^>]*>/i, (b) => b + kitTag);
+                else head += kitTag;
+            }
             if (/<head\b[^>]*>/i.test(html)) html = html.replace(/<head\b[^>]*>/i, (h) => h + head);
             else if (/<html\b[^>]*>/i.test(html)) html = html.replace(/<html\b[^>]*>/i, (h) => h + '<head>' + head + '</head>');
             else html = '<!doctype html><html><head>' + head + '</head><body>' + html + '</body></html>';

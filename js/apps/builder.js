@@ -26,36 +26,58 @@ const TIERS = [{ id: 'ultra', label: 'Ultra', tip: 'Nur die allerbesten Modelle 
 const DEVICES = { ios: { w: 393, h: 852, label: 'iPhone', icon: 'phone_iphone' }, android: { w: 412, h: 915, label: 'Android', icon: 'android' }, desktop: { w: 0, h: 0, label: 'Desktop', icon: 'desktop_windows' }, tablet: { w: 834, h: 1112, label: 'Tablet', icon: 'tablet_mac' }, phone: { w: 390, h: 844, label: 'Handy', icon: 'smartphone' }, landscape: { w: 844, h: 390, label: 'Handy quer', icon: 'stay_current_landscape' } };
 const FILE_ICON = (n) => /\.html?$/.test(n) ? 'html' : /\.css$/.test(n) ? 'css' : /\.js$/.test(n) ? 'javascript' : /\.json$/.test(n) ? 'data_object' : /\.svg$/.test(n) ? 'image' : 'description';
 const MAX_AUTOFIX = 2;
-// Arbeits-Werkzeuge des Main Agents (laufen auf dem Server) – im Chat als kompakte Zeile wie bei Claude Code
 const AGENT_TOOLS = {
-    list: ['folder_open', 'Dateien ansehen'],
-    tree: ['account_tree', 'Projektstruktur'],
-    read: ['visibility', 'Liest'],
-    outline: ['toc', 'Liest Gliederung'],
-    search: ['search', 'Sucht'],
-    dom_map: ['hub', 'Prüft DOM-Verbindungen'],
-    check: ['fact_check', 'Prüft die App'],
-    move: ['drive_file_move', 'Verschiebt'],
+    list: ['folder_open', 'Dateien aufgelistet'],
+    tree: ['account_tree', 'Projektstruktur analysiert'],
+    read: ['visibility', 'Gelesen'],
+    outline: ['toc', 'Gliederung gelesen'],
+    search: ['search', 'Gesucht'],
+    dom_map: ['hub', 'DOM-Verbindungen geprüft'],
+    check: ['fact_check', 'Code geprüft'],
+    move: ['drive_file_move', 'Verschoben'],
     copy: ['file_copy', 'Kopiert'],
-    insert: ['playlist_add', 'Fügt Code ein'],
-    cdn_search: ['inventory_2', 'Sucht Bibliothek'],
-    fetch: ['language', 'Liest Webseite'],
-    web_search: ['travel_explore', 'Sucht im Web'],
-    memory: ['bookmark_add', 'Merkt sich'],
-    spawn: ['groups', 'Startet Sub-Agenten'],
+    insert: ['playlist_add', 'Code eingefügt'],
+    cdn_search: ['inventory_2', 'Bibliothek gesucht'],
+    fetch: ['language', 'Webseite gelesen'],
+    web_search: ['travel_explore', 'Im Web gesucht'],
+    memory: ['bookmark_add', 'Projektnotiz gespeichert'],
+    spawn: ['groups', 'Sub-Agenten'],
     done: ['check', 'Fertig']
 };
-const RESULT_IC = { leg: 'replay', nudge: 'bolt', review: 'task_alt' };
-function agentToolChip(t) {
-    const [ic, label] = AGENT_TOOLS[t.name]; const a = t.attrs || {};
-    let what = a.path || a.query || a.url || a.pattern || '';
+const RESULT_META = {
+    check: ['fact_check', 'Automatische Prüfung'],
+    review: ['task_alt', 'Abnahme & Prüfung'],
+    leg: ['replay', 'Etappen-Fortsetzung'],
+    nudge: ['bolt', 'Nachbesserung'],
+    apply: ['warning', 'Änderung prüfen'],
+    spawn: ['groups', 'Sub-Agenten'],
+    image: ['image', 'Bild-Generierung']
+};
+function fmtDur(ms) {
+    const s = Math.max(1, Math.round((ms || 0) / 1000));
+    if (s < 60) return `${s} s`;
+    const m = Math.floor(s / 60), r = s % 60;
+    return r ? `${m}m ${r}s` : `${m}m`;
+}
+function toolDetail(t) {
+    const a = t.attrs || {};
+    let what = a.path || a.file || a.query || a.url || a.pattern || '';
     if (t.name === 'read' && a.start) what += ` (Zeilen ${a.start}–${a.end || '…'})`;
     if (t.name === 'move' || t.name === 'copy') what = `${a.from || ''} → ${a.to || ''}`;
-    if (t.name === 'insert') what = `${a.path || ''}${a.line ? ':' + a.line : a.after ? ':nach ' + a.after : ''}`;
-    if (t.name === 'search' && a.pattern) what = `${a.query || ''} (${a.pattern})`;
-    if (t.name === 'memory') what = (t.body || '').slice(0, 80);
+    if (t.name === 'insert') what = `${a.path || a.file || ''}${a.line ? ':' + a.line : a.after ? ':nach ' + a.after : ''}`;
+    if (t.name === 'search' && a.pattern) what = `${a.query || t.body || ''} (${a.pattern})`;
+    if (t.name === 'memory') what = (t.body || a.text || '').slice(0, 80);
     if (t.name === 'spawn') { try { const j = JSON.parse((t.body.match(/\{[\s\S]*\}/) || ['{}'])[0]); what = (j.tasks || []).map(x => x.title).filter(Boolean).join(' · '); } catch (_) { what = ''; } }
-    return h('div', { class: 'bl-atool t-' + t.name }, icon(ic), h('b', { text: label }), what ? h('code', { text: String(what).slice(0, 120) }) : null);
+    return String(what || '').trim().slice(0, 110);
+}
+function cleanProse(s) {
+    return String(s || '')
+        .replace(/<!--\s*\(frühere Antwort:[\s\S]*?-->/gi, '')
+        .replace(/<\/(?:tool|result|plan|file|edit|delete|sql)\s*>/gi, '')
+        .replace(/\[Datei (geschrieben|geändert|gelöscht): ([^\]]+)\]\n?/g, '')
+        .replace(/\(Geänderte Dateien:[^)]*\)/g, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
 }
 
 export function mountBuilder(host, appId) {
@@ -402,48 +424,238 @@ export function mountBuilder(host, appId) {
         return el;
     }
 
-    // Zeichnet eine Coden-Antwort (auch während sie geschrieben wird)
+    const openFileInCode = (path) => {
+        if (!path || !(path in st.files)) return;
+        st.codeFile = path; st.dirty = false;
+        if (!st.openFiles.includes(path)) st.openFiles.push(path);
+        if (window.innerWidth <= 900) { st.pane = 'code'; drawMobileTabs(); setView('code'); }
+        else setView(st.view === 'split' ? 'split' : 'code');
+    };
+
+    const statusBadge = (status) => {
+        if (status === 'run') return h('span', { class: 'bl-ah-st run', title: 'Läuft' }, h('span', { class: 'cd-spin xs' }));
+        if (status === 'wait') return h('span', { class: 'bl-ah-st wait', title: 'Wartet' }, icon('schedule'));
+        if (status === 'error') return h('span', { class: 'bl-ah-st err', title: 'Problem' }, icon('error'));
+        if (status === 'warn') return h('span', { class: 'bl-ah-st warn', title: 'Hinweis' }, icon('info'));
+        return h('span', { class: 'bl-ah-st ok', title: 'Erledigt' }, icon('check_circle'));
+    };
+
+    // Zeichnet eine Coden-Antwort im Stil von Google AI Studio Build (Aktionsverlauf + knappe Zusammenfassung)
     function fillAssistant(body, text, { meta = {}, msgId = null, final = false } = {}) {
         const p = parse(text); const done = answers(); const frag = [];
+        const wasOpen = body.querySelector('.bl-ah')?.open;
         if (body.firstElementChild && !body.firstElementChild._sig) body.replaceChildren();
-        let ti = 0; const lastPlan = p.segs.reduce((k, x, i) => x.kind === 'plan' ? i : k, -1); // nur den neuesten Plan zeigen
+
+        const proseSegs = [], sqlSegs = [], uiTools = [], actionItems = [];
+        const pendingByName = new Map();
+        const liveFilesMap = new Map();
+        const lastPlanIdx = p.segs.reduce((k, x, i) => x.kind === 'plan' ? i : k, -1);
+        let latestPlan = null, ti = 0;
+
         for (const [si, s] of p.segs.entries()) {
-            if (s.kind === 'text') { if (s.text.trim()) frag.push(md(s.text.replace(/\[Datei (geschrieben|geändert|gelöscht): ([^\]]+)\]\n?/g, '').replace(/\(Geänderte Dateien:[^)]*\)/g, ''))); }
-            else if (s.kind === 'op' && !final) frag.push(sig('op:' + s.op.type + ':' + s.op.path + ':' + (s.op.closed ? 1 : 0), h('div', { class: 'bl-op' + (s.op.closed ? ' done' : ' busy') }, icon(s.op.type === 'delete' ? 'delete' : s.op.closed ? 'check_circle' : 'edit'), h('span', { text: (s.op.type === 'delete' ? 'Löscht ' : s.op.type === 'edit' ? (s.op.closed ? 'Geändert: ' : 'Ändert ') : (s.op.closed ? 'Geschrieben: ' : 'Schreibt ')) + s.op.path }), s.op.type === 'file' ? h('small', { text: s.op.content.split('\n').length + ' Zeilen' }) : null)));
-            else if (s.kind === 'plan') { if (si === lastPlan) frag.push(h('div', { class: 'bl-plan' }, h('b', {}, icon('checklist'), ' Plan'), ...s.plan.items.map(it => h('div', { class: 'bl-pi' + (it.done ? ' done' : '') }, icon(it.done ? 'check_circle' : 'radio_button_unchecked'), h('span', { text: it.text }))))); }
-            else if (s.kind === 'sql') frag.push(h('div', { class: 'bl-sql' }, h('div', { class: 'bl-sqlh' }, icon('database'), h('b', { text: 'SQL' }), h('span', { class: 'grow' }),
-                h('button', { class: 'bl-btn sm', onclick: async () => { if (await copy(s.sql.code)) toast('SQL kopiert – füge es im SQL-Editor ein', { type: 'ok' }); } }, icon('content_copy'), ' Kopieren'),
-                st.app?.integrations?.database?.provider === 'supabase' ? h('a', { class: 'bl-btn sm', href: 'https://supabase.com/dashboard/project/' + ((st.app.integrations.database.url || '').match(/https:\/\/([a-z0-9-]+)\./)?.[1] || '') + '/sql/new', target: '_blank', rel: 'noopener noreferrer' }, icon('open_in_new'), ' SQL-Editor') : null),
-                h('pre', {}, h('code', { class: 'language-sql', text: s.sql.code }))));
-            else if (s.kind === 'result') frag.push(h('div', { class: 'bl-result' + (s.ok ? '' : ' bad') + ' r-' + s.name }, icon(RESULT_IC[s.name] || (s.ok ? 'subdirectory_arrow_right' : 'error')), h('span', { text: s.text })));
-            else if (s.kind === 'tool' && AGENT_TOOLS[s.tool.name]) { if (s.tool.name !== 'done') frag.push(agentToolChip(s.tool)); }
-            else if (s.kind === 'tool') {
-                const key = msgId ? `${msgId}:${ti++}` : null; const ans = key ? done[key] : null;
-                if (!final) { frag.push(sig('tool:' + s.tool.name + ':' + (s.tool.id || ''), h('div', { class: 'bl-op busy' }, icon(s.tool.name === 'image' ? 'image' : 'build'), h('span', { text: s.tool.name === 'image' ? 'Bild wird geplant: ' + (s.tool.id || '') : 'Werkzeug: ' + s.tool.name })))); continue; }
-                if (s.tool.name === 'image') { frag.push(h('div', { class: 'bl-op done' }, icon('image'), h('span', { text: 'Bild: ' + (s.tool.id || 'ohne Namen') }), h('small', { text: (s.tool.prompt || '').slice(0, 40) }))); continue; }
-                const onAnswer = (a) => answerTool(key, a);
-                if (s.tool.name === 'database') frag.push(databaseCard(s.tool, { answered: ans, onAnswer, current: st.app?.integrations?.database }));
-                else if (s.tool.name === 'ask') frag.push(askCard(s.tool, { answered: ans, onAnswer }));
-                else if (s.tool.name === 'secret') frag.push(secretCard(s.tool, { answered: ans, onAnswer }));
-                else if (s.tool.name === 'publish') frag.push(publishCard(s.tool, { published: st.app?.published, onPublish: () => openPublish() }));
+            if (s.kind === 'text') {
+                const cleaned = cleanProse(s.text);
+                if (cleaned) proseSegs.push(cleaned);
+            } else if (s.kind === 'op') {
+                liveFilesMap.set(s.op.path, {
+                    path: s.op.path,
+                    type: s.op.type === 'delete' ? 'delete' : s.op.type === 'edit' ? 'edit' : 'write',
+                    lines: s.op.type === 'file' ? s.op.content.split('\n').length : null,
+                    status: s.op.closed ? 'done' : 'run'
+                });
+            } else if (s.kind === 'plan') {
+                if (si === lastPlanIdx && s.plan?.items?.length) latestPlan = s.plan;
+            } else if (s.kind === 'sql') {
+                sqlSegs.push(s.sql);
+            } else if (s.kind === 'tool' && AGENT_TOOLS[s.tool.name]) {
+                if (s.tool.name === 'done') continue;
+                const [ic, label] = AGENT_TOOLS[s.tool.name];
+                const what = toolDetail(s.tool);
+                const item = { icon: ic, label: what ? `${label}:` : label, code: what, detail: '', status: final ? 'done' : 'run' };
+                actionItems.push(item);
+                if (!pendingByName.has(s.tool.name)) pendingByName.set(s.tool.name, []);
+                pendingByName.get(s.tool.name).push(item);
+            } else if (s.kind === 'tool' && s.tool.name === 'image') {
+                const item = { icon: 'image', label: 'Bild' + (s.tool.id ? ` (${s.tool.id})` : ''), code: (s.tool.prompt || '').slice(0, 60), detail: '', status: final ? 'done' : 'run' };
+                actionItems.push(item);
+                if (!pendingByName.has('image')) pendingByName.set('image', []);
+                pendingByName.get('image').push(item);
+            } else if (s.kind === 'result') {
+                const queue = pendingByName.get(s.name);
+                const matched = queue?.shift();
+                if (matched) {
+                    matched.status = s.ok ? 'done' : 'error';
+                    if (s.text) matched.detail = s.text;
+                } else {
+                    const [ic, lbl] = RESULT_META[s.name] || ['check_circle', s.name];
+                    actionItems.push({
+                        icon: ic,
+                        label: lbl,
+                        code: '',
+                        detail: s.text || '',
+                        status: s.ok ? 'done' : (s.name === 'nudge' ? 'warn' : 'error')
+                    });
+                }
+            } else if (s.kind === 'tool') {
+                uiTools.push({ tool: s.tool, key: msgId ? `${msgId}:${ti++}` : null });
             }
         }
-        if (final && meta.changed?.length) frag.push(h('div', { class: 'bl-changes' }, meta.changed.filter(c => c.type !== 'same').map(c => h('button', { class: 'bl-chg ' + c.type, title: 'Im Code ansehen', onclick: () => { if (c.type === 'delete' || !(c.path in st.files)) return; st.codeFile = c.path; st.dirty = false; if (!st.openFiles.includes(c.path)) st.openFiles.push(c.path); if (window.innerWidth <= 900) { st.pane = 'code'; drawMobileTabs(); setView('code'); } else setView(st.view === 'split' ? 'split' : 'code'); } },
-            icon({ new: 'add_circle', write: 'edit_document', edit: 'edit', delete: 'delete' }[c.type] || 'description'), h('span', { text: c.path })))));
-        if (final && meta.auto) frag.push(h('small', { class: 'bl-meta', text: 'automatische Korrektur' }));
+
+        // Dateiliste (bevorzugt meta.changed bei fertiger Antwort; Fallback auf Live-Ops oder gekürzte Marker)
+        let filesList = [];
+        if (final && meta.changed?.length) {
+            filesList = meta.changed.filter(c => c.type !== 'same').map(c => ({ path: c.path, type: c.type, status: 'done' }));
+        } else if (liveFilesMap.size) {
+            filesList = [...liveFilesMap.values()];
+        } else if (final) {
+            const mList = [...String(text || '').matchAll(/\[Datei (geschrieben|geändert|gelöscht): ([^\]]+)\]/g)];
+            const seenF = new Map();
+            mList.forEach(x => seenF.set(x[2], { path: x[2], type: x[1] === 'gelöscht' ? 'delete' : x[1] === 'geändert' ? 'edit' : 'write', status: 'done' }));
+            filesList = [...seenF.values()];
+        }
+        const editableFiles = filesList.filter(f => f.type !== 'delete' && (f.path in st.files));
+        const subAgents = (meta.agents || []).filter((a, idx) => idx > 0 || (meta.agents || []).length > 1);
+
+        // 1) Kopfzeile (Modell • Laufzeit)
+        const durMs = meta.durationMs ?? (meta.startedAt ? Math.max(0, Date.now() - (Date.parse(meta.startedAt) || meta.startedAt || Date.now())) : null);
+        if (meta.model || durMs != null || filesList.length || actionItems.length || subAgents.length) {
+            const headParts = [];
+            if (meta.model) headParts.push(h('span', { text: meta.model }));
+            if (durMs != null) {
+                if (headParts.length) headParts.push(h('span', { class: 'bl-runhead-dot', text: '•' }));
+                headParts.push(h('span', { class: 'bl-runhead-dur', text: (final ? 'Laufzeit ' : 'Läuft · ') + fmtDur(durMs) }));
+            }
+            if (headParts.length) frag.push(sig('runhead:' + (final ? 1 : 0), h('div', { class: 'bl-runhead' }, ...headParts)));
+        }
+
+        // 2) Einheitliche "Aktionsverlauf"-Karte (wie Google AI Studio Build)
+        const hasHistory = filesList.length || actionItems.length || latestPlan || subAgents.length > 1;
+        if (hasHistory) {
+            const ahBody = h('div', { class: 'bl-ah-body' }, h('div', { class: 'bl-ah-sub', text: 'Hier sind die wichtigsten Schritte für deine App:' }));
+
+            if (filesList.length) {
+                const nNew = filesList.filter(f => f.type === 'new').length;
+                const nAll = filesList.length;
+                const fileTitle = nNew === nAll ? `${nAll} Datei${nAll > 1 ? 'en' : ''} erstellt` : `${nAll} Datei${nAll > 1 ? 'en' : ''} bearbeitet`;
+                ahBody.append(h('div', { class: 'bl-ah-group' },
+                    h('div', { class: 'bl-ah-ghead' }, icon('edit'), h('span', { text: fileTitle })),
+                    ...filesList.map(f => {
+                        const clickable = final && f.type !== 'delete' && (f.path in st.files);
+                        return h(clickable ? 'button' : 'div', {
+                            type: clickable ? 'button' : undefined,
+                            class: 'bl-ah-row' + (clickable ? ' tap' : ''),
+                            title: clickable ? 'Im Code ansehen' : undefined,
+                            onclick: clickable ? () => openFileInCode(f.path) : undefined
+                        },
+                        h('code', { class: 'bl-ah-path', text: f.path }),
+                        f.lines ? h('small', { class: 'bl-ah-meta', text: f.lines + ' Z.' }) : null,
+                        statusBadge(f.status));
+                    })
+                ));
+            }
+
+            if (subAgents.length > 1) {
+                const doneSub = subAgents.filter(a => a.status === 'done').length;
+                ahBody.append(h('div', { class: 'bl-ah-group' },
+                    h('div', { class: 'bl-ah-ghead' }, icon('groups'), h('span', { text: `Agenten-Team (${doneSub}/${subAgents.length})` })),
+                    ...subAgents.map(a => h('div', { class: 'bl-ah-row' },
+                        h('span', { class: 'bl-ah-lbl', text: a.title }),
+                        a.tier ? h('em', { class: 'bl-ah-tier', text: a.tier }) : null,
+                        statusBadge(a.status)))
+                ));
+            }
+
+            if (latestPlan) {
+                const doneP = latestPlan.items.filter(x => x.done).length;
+                ahBody.append(h('div', { class: 'bl-ah-group' },
+                    h('div', { class: 'bl-ah-ghead' }, icon('checklist'), h('span', { text: `Plan (${doneP}/${latestPlan.items.length})` })),
+                    ...latestPlan.items.map(it => h('div', { class: 'bl-ah-row' + (it.done ? ' done' : '') },
+                        h('span', { class: 'bl-ah-lbl', text: it.text }),
+                        statusBadge(it.done ? 'done' : 'wait')))
+                ));
+            }
+
+            if (actionItems.length) {
+                ahBody.append(h('div', { class: 'bl-ah-group' },
+                    h('div', { class: 'bl-ah-ghead' }, icon('terminal'), h('span', { text: `Schritte & Prüfungen (${actionItems.length})` })),
+                    ...actionItems.map(it => h('div', { class: 'bl-ah-row' },
+                        icon(it.icon),
+                        h('div', { class: 'bl-ah-main' },
+                            h('span', { class: 'bl-ah-lbl', text: it.label }),
+                            it.code ? h('code', { class: 'bl-ah-code', text: it.code }) : null,
+                            it.detail ? h('small', { class: 'bl-ah-det', text: it.detail }) : null
+                        ),
+                        statusBadge(it.status)))
+                ));
+            }
+
+            const totalCount = filesList.length + actionItems.length + (latestPlan ? 1 : 0);
+            const footLabel = !final ? 'Wird gebaut …' : (filesList.length ? 'Gebaut' : 'Geprüft');
+            const detailsEl = h('details', { class: 'bl-ah', open: wasOpen !== false ? true : undefined },
+                h('summary', { class: 'bl-ah-head' },
+                    icon('list_alt'),
+                    h('b', { text: 'Aktionsverlauf' }),
+                    h('span', { class: 'bl-ah-cnt', text: `${totalCount} ${totalCount === 1 ? 'Aktion' : 'Aktionen'}` }),
+                    h('span', { class: 'material-symbols-outlined bl-ah-chev', text: 'expand_more' })),
+                ahBody,
+                h('div', { class: 'bl-ah-foot' }, icon(final ? 'build' : 'progress_activity'), h('span', { text: footLabel }))
+            );
+            frag.push(sig('ah:' + (final ? 'final' : 'live') + ':' + filesList.length + ':' + actionItems.length + ':' + (latestPlan ? 1 : 0), detailsEl));
+        }
+
+        // 3) Kompakte Zusammenfassung / Antworttext
+        const proseText = proseSegs.join('\n\n');
+        if (proseText) {
+            const sum = md(proseText); sum.classList.add('bl-summary');
+            frag.push(sum);
+        }
+
+        // 4) SQL-Blöcke
+        for (const s of sqlSegs) {
+            frag.push(h('div', { class: 'bl-sql' }, h('div', { class: 'bl-sqlh' }, icon('database'), h('b', { text: 'SQL' }), h('span', { class: 'grow' }),
+                h('button', { class: 'bl-btn sm', onclick: async () => { if (await copy(s.code)) toast('SQL kopiert – füge es im SQL-Editor ein', { type: 'ok' }); } }, icon('content_copy'), ' Kopieren'),
+                st.app?.integrations?.database?.provider === 'supabase' ? h('a', { class: 'bl-btn sm', href: 'https://supabase.com/dashboard/project/' + ((st.app.integrations.database.url || '').match(/https:\/\/([a-z0-9-]+)\./)?.[1] || '') + '/sql/new', target: '_blank', rel: 'noopener noreferrer' }, icon('open_in_new'), ' SQL-Editor') : null),
+                h('pre', {}, h('code', { class: 'language-sql', text: s.code }))));
+        }
+
+        // 5) Interaktive Werkzeuge (Datenbank, Rückfrage, Key, Veröffentlichen)
+        for (const { tool, key } of uiTools) {
+            const ans = key ? done[key] : null;
+            if (!final) { frag.push(sig('tool:' + tool.name, h('div', { class: 'bl-op busy' }, icon('build'), h('span', { text: 'Werkzeug wird vorbereitet: ' + tool.name })))); continue; }
+            const onAnswer = (a) => answerTool(key, a);
+            if (tool.name === 'database') frag.push(databaseCard(tool, { answered: ans, onAnswer, current: st.app?.integrations?.database }));
+            else if (tool.name === 'ask') frag.push(askCard(tool, { answered: ans, onAnswer }));
+            else if (tool.name === 'secret') frag.push(secretCard(tool, { answered: ans, onAnswer }));
+            else if (tool.name === 'publish') frag.push(publishCard(tool, { published: st.app?.published, onPublish: () => openPublish() }));
+        }
+
+        // 6) Fußleiste ("Änderungen ansehen") + autoFix Hinweis
+        if (final && editableFiles.length) {
+            frag.push(h('div', { class: 'bl-ah-actions' },
+                h('button', { type: 'button', class: 'bl-viewchg', onclick: () => openFileInCode(editableFiles[0].path) },
+                    icon('code'), h('span', { text: 'Änderungen ansehen' })),
+                meta.auto ? h('small', { class: 'bl-meta', text: 'automatische Korrektur' }) : null
+            ));
+        } else if (final && meta.auto) {
+            frag.push(h('small', { class: 'bl-meta', text: 'automatische Korrektur' }));
+        }
         if (!frag.length && !final) frag.push(h('span', { class: 'typing-dots' }, h('i'), h('i'), h('i')));
         reconcile(body, frag);
     }
 
-    // Stabile Signatur für Karten, die sich beim Streamen nur im Detail ändern (z. B. Zeilenzahl)
+    // Stabile Signatur für Karten, die sich beim Streamen nur im Detail ändern (z. B. Dauer)
     function sig(key, node) { node._sig = key; return node; }
     // Aktualisiert nur, was sich wirklich geändert hat – so flackern fertige Karten nicht mehr
     function reconcile(body, frag) {
         const nodes = [];
         frag.forEach((n, i) => {
             const o = body.children[i]; const k = n._sig || n.outerHTML;
-            if (o && o._sig === k) {
-                if (n._sig) { const so = o.querySelector('small'), sn = n.querySelector('small'); if (so && sn && so.textContent !== sn.textContent) so.textContent = sn.textContent; }
+            if (o && o._sig === k && n._sig?.startsWith('runhead:')) {
+                const d1 = o.querySelector('.bl-runhead-dur'), d2 = n.querySelector('.bl-runhead-dur');
+                if (d1 && d2 && d1.textContent !== d2.textContent) d1.textContent = d2.textContent;
+                if (o.children.length === n.children.length) { nodes.push(o); return; }
+            }
+            if (o && o._sig === k && !n._sig?.startsWith('ah:')) {
                 nodes.push(o);
             } else { n._sig = k; nodes.push(n); }
         });
@@ -469,32 +681,30 @@ export function mountBuilder(host, appId) {
     const stopAgent = () => apiJson(`/apps/${appId}/agent/stop`, { method: 'POST', body: '{}' }).catch(() => {}); // stoppt den Lauf auf dem Server (für alle)
     stopBtn.addEventListener('click', stopAgent);
 
-    // Live-Ansicht eines Agenten-Laufs: Denk-Anzeige, Team-Übersicht (Sub-Agenten) und der Text der aktuellen Runde
+    // Live-Ansicht eines Agenten-Laufs: Denk-Anzeige + Echtzeit-Aktionsverlauf im Google AI Studio Stil
     function liveView(startedAt) {
         const el = h('div', { class: 'bl-msg ai streaming' }, h('div', { class: 'bl-aava' }, h('img', { src: './images/coden_logo.jpg', alt: '' })));
         const col = h('div', { class: 'bl-abody' }); el.append(col);
-        const panel = createThinkPanel({ startedAt: startedAt || Date.now(), label: 'Coden arbeitet …' });
-        const team = h('div', { class: 'ag-team hidden' }); const body = h('div');
-        col.append(panel.el, team, body); log.append(el); st.liveEl = el; scrollLog(true);
-        let text = '', raf = 0, lastPaint = 0, t0 = Date.parse(startedAt) || Date.now(), tick = null;
-        const paint = () => { raf = 0; lastPaint = Date.now(); fillAssistant(body, text); scrollLog(); };
-        const ROLE_IC = { main: 'psychology', planner: 'account_tree', coder: 'code', reviewer: 'fact_check', fixer: 'build', designer: 'image' };
-        const ST = { wait: 'wartet', run: 'arbeitet', done: 'fertig', error: 'Problem' };
-        const drawTeam = (list) => {
-            if (!list?.length) return; team.classList.remove('hidden');
-            const doneN = list.filter(a => a.status === 'done').length;
-            const head = h('div', { class: 'ag-team-h' }, icon('groups'), h('span', { text: list.some(a => a.parent) ? 'Main Agent + Sub-Agenten' : 'Coden-Agent' }), h('small', { class: 'ag-clock', text: `${doneN}/${list.length} · ${Math.round((Date.now() - t0) / 1000)} s` }));
-            team.replaceChildren(head, ...list.map(a => h('div', { class: 'ag-row ' + a.status + (a.parent ? ' sub' : '') }, h('span', { class: 'ag-ic' }, icon(a.status === 'done' ? 'check' : a.status === 'error' ? 'priority_high' : ROLE_IC[a.role] || 'smart_toy')),
-                h('div', { class: 'ag-t' }, h('b', { text: a.title }), a.tier ? h('em', { class: 'ag-tier t-' + a.tier.toLowerCase(), title: 'Modell dieses Agenten' + (a.level ? ' · Schwierigkeit: ' + ({ easy: 'leicht', medium: 'mittel', hard: 'schwer' }[a.level] || a.level) : ''), text: a.tier }) : null, a.detail ? h('small', { text: a.detail }) : null), h('span', { class: 'ag-st', text: ST[a.status] || '' }))));
+        const t0 = Date.parse(startedAt) || Date.now();
+        const panel = createThinkPanel({ startedAt: t0, label: 'Coden arbeitet …' });
+        const body = h('div', { class: 'bl-livebody' });
+        col.append(panel.el, body); log.append(el); st.liveEl = el; scrollLog(true);
+        let text = '', raf = 0, lastPaint = 0, tick = null, agents = [], currentModel = '', thinkGone = false;
+        const paint = () => {
+            raf = 0; lastPaint = Date.now();
+            fillAssistant(body, text, { meta: { model: currentModel, agents, startedAt: t0 }, final: false });
+            scrollLog();
         };
-        let agents = [], thinkGone = false;
-        tick = setInterval(() => { const c = team.querySelector('.ag-clock'); if (c) c.textContent = `${agents.filter(a => a.status === 'done').length}/${agents.length} · ${Math.round((Date.now() - t0) / 1000)} s`; }, 1000);
+        tick = setInterval(() => {
+            const dur = body.querySelector('.bl-runhead-dur');
+            if (dur) dur.textContent = 'Läuft · ' + fmtDur(Date.now() - t0);
+        }, 1000);
         return {
             text: () => text,
-            set(t) { text = t; if (text.trim() && !thinkGone && agents.length < 2) panel.done(); if (!raf) raf = setTimeout(paint, Math.max(0, 120 - (Date.now() - lastPaint))); },
-            think: (k) => { if (!thinkGone) panel.think(k); }, model: (m) => { if (!thinkGone) panel.model(m); },
-            // Im Team zeigt die Agenten-Übersicht den Fortschritt -> die Denk-Anzeige des Planers wird nicht mehr gebraucht
-            agents(list) { agents = list || []; if (agents.length >= 2 && !thinkGone) { thinkGone = true; panel.remove(); } drawTeam(agents); },
+            set(t) { text = t; if (text.trim() && !thinkGone) panel.done(); if (!raf) raf = setTimeout(paint, Math.max(0, 120 - (Date.now() - lastPaint))); },
+            think: (k) => { if (!thinkGone) panel.think(k); },
+            model: (m) => { currentModel = m || ''; if (!thinkGone) panel.model(m); },
+            agents(list) { agents = list || []; if (agents.length >= 2 && !thinkGone) { thinkGone = true; panel.remove(); } if (!raf) raf = setTimeout(paint, 40); },
             remove() { clearTimeout(raf); clearInterval(tick); panel.remove(); el.remove(); if (st.liveEl === el) st.liveEl = null; }
         };
     }

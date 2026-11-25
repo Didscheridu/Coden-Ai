@@ -10,12 +10,17 @@
   --appbar-h: 56px; --tabbar-h: 64px; --ease: cubic-bezier(.2, .8, .2, 1);
 }
 *, *::before, *::after { box-sizing: border-box }
-html { -webkit-text-size-adjust: 100%; font-size: calc(16px * var(--font-scale)) }
-body { margin: 0; min-height: 100vh; min-height: 100dvh; background: var(--c-bg); background-image: var(--c-bg-image); background-attachment: fixed; color: var(--c-text); font: 400 1rem/1.55 var(--font); -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent }
-h1, h2, h3, h4 { font-family: var(--font-head); line-height: 1.15; margin: 0 0 .5em; letter-spacing: -.015em; font-weight: 700 }
-h1 { font-size: clamp(1.9rem, 4.5vw, 3.2rem) } h2 { font-size: clamp(1.45rem, 3vw, 2.1rem) } h3 { font-size: 1.15rem }
-p { margin: 0 0 1em } a { color: var(--c-primary); text-decoration: none } a:hover { text-decoration: underline }
-img, svg, video { max-width: 100%; display: block } button, input, select, textarea { font: inherit; color: inherit }
+html { -webkit-text-size-adjust: 100%; font-size: calc(16px * var(--font-scale)); overflow-x: clip; scroll-behavior: smooth }
+body { margin: 0; min-height: 100vh; min-height: 100dvh; background: var(--c-bg); background-image: var(--c-bg-image); background-attachment: fixed; color: var(--c-text); font: 400 1rem/1.55 var(--font); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; -webkit-tap-highlight-color: transparent; overflow-x: clip }
+h1, h2, h3, h4 { font-family: var(--font-head); line-height: 1.15; margin: 0 0 .5em; letter-spacing: -.015em; font-weight: 700; text-wrap: balance }
+h1 { font-size: clamp(1.75rem, 4.5vw, 3.2rem) } h2 { font-size: clamp(1.35rem, 3vw, 2.1rem) } h3 { font-size: clamp(1.05rem, 2vw, 1.25rem) }
+p { margin: 0 0 1em; overflow-wrap: break-word } a { color: var(--c-primary); text-decoration: none } a:hover { text-decoration: underline }
+:focus-visible { outline: 2px solid var(--c-primary); outline-offset: 2px }
+img, svg, video, picture { max-width: 100%; height: auto; display: block }
+canvas:not(#game):not(#scene) { max-width: 100% }
+pre, code { max-width: 100%; overflow-x: auto }
+.ck-table-scroll { width: 100%; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch }
+button, input, select, textarea { font: inherit; color: inherit }
 .muted { color: var(--c-muted) } .small { font-size: .85rem } .center { text-align: center } .hidden { display: none !important }
 .ms { font-family: "Material Symbols Rounded"; font-weight: normal; font-style: normal; font-size: 1.4em; line-height: 1; display: inline-block; vertical-align: middle; font-feature-settings: "liga"; -webkit-font-smoothing: antialiased; user-select: none }
 .ms.fill { font-variation-settings: "FILL" 1 }

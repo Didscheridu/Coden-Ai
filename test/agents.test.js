@@ -232,5 +232,19 @@ const { setup } = require('./helpers');
   chk('Besitzer kann nicht verlassen', (await P(`/apps/${other.id}/leave`, {}, anna)).s, 400);
   chk('Besitzer löscht', (await call('/apps/' + other.id, null, anna, 'DELETE')).s, 200);
   chk('Gelöscht: nicht mehr in der Liste', (await G('/apps', anna)).j.apps.some(a => a.id === other.id), false);
+
+  // --- Regression: ungeschlossenes <result>, geleakte Kommentare, Scratch-Prompt, durationMs, Kit-Autoinjektion ---
+  chk('Meta enthält durationMs', typeof m1.meta.durationMs === 'number' && m1.meta.durationMs >= 0, true);
+  const broken = 'Vorlauf <result name="x" ok="1">unvollständig <plan>\n- [x] Punkt A\n</plan> <!-- (frühere Antwort: Datei app.js geschrieben, Inhalt hier gekürzt) --> <tool name="check"/> </tool> <result name="check" ok="1">keine Probleme</result>\nFertig!';
+  const parsed = AC.parse(broken);
+  const txt = parsed.segs.filter(s => s.kind === 'text').map(s => s.text).join(' ');
+  chk('Parser: <plan> & <tool> werden nicht von ungeschlossenem <result> geschluckt', `${!!parsed.plan} ${parsed.tools.some(t => t.name === 'check')} ${parsed.segs.filter(s => s.kind === 'result').length}`, 'true true 2');
+  chk('Parser: geleakter Kommentar & </tool> entfernt, Schlusstext da', `${!/frühere Antwort|<\/tool>/.test(txt)} ${/Fertig!/.test(txt)}`, 'true true');
+  const spScratch = AC.systemPrompt({ app: { name: 'Neu', kind: 'web' }, files: { 'index.html': '<main id="app" data-scratch="1"></main>' }, main: { maxSteps: 40, spawn: true } });
+  chk('Prompt: Scratch & Autoscaling erklärt', /START VON GRUND AUF/.test(spScratch) && /Responsive Autoscaling ist automatisch aktiv/.test(spScratch), true);
+  const Bundle = require('../shared/app-bundle');
+  const bundled = Bundle.build({ 'index.html': '<!doctype html><html><head><title>X</title></head><body><h1>Hi</h1><script src="app.js"></script></body></html>', 'app.js': 'console.log(1);' }, { kit: { css: '/*KITCSS*/', js: '/*KITJS*/' }, platform: 'web' });
+  chk('Bundle: coden-kit.css und coden-kit.js automatisch injiziert', /\/\*KITCSS\*\//.test(bundled.pages['index.html']) && /\/\*KITJS\*\//.test(bundled.pages['index.html']), true);
+
   await finish();
 })();

@@ -195,7 +195,8 @@ TECHNIK
 - Jede Datei unter ~350 Zeilen; teile Logik auf (z. B. data.js, ui.js, app.js).
 - Daten auf dem Gerät: Coden.store.get('key', standard) / Coden.store.set('key', wert).
 
-CODEN-KIT (ist schon eingebunden: <link rel="stylesheet" href="coden-kit.css"> und <script src="coden-kit.js">, nicht entfernen)
+CODEN-KIT & AUTOSCALING (coden-kit.css und coden-kit.js werden automatisch eingebunden – auch wenn du sie nicht extra verlinkst)
+- Responsive Autoscaling ist automatisch aktiv: Bilder/Videos/SVGs skalieren sauber, Tabellen werden auf kleinen Screens scrollbar, Überläufe (horizontal scroll) werden verhindert und schmale Viewports werden automatisch passend skaliert (manuell abschaltbar mit data-no-autoscale, fein steuerbar mit Coden.fit(el)).
 - Mobile-App: <div class="app"> → <header class="appbar"> (.appbar-btn, <h1 class="appbar-title">, Zurück-Knopf mit data-back) → <main class="screens"> mit <section class="screen" id="x" data-title="Titel"> (genau einer mit class="screen active") → <nav class="tabbar"> mit <button class="tab" data-go="x"><span class="ms">home</span>Start</button>. JS: Coden.go('x'), Coden.back(), Coden.onScreen('x', (el) => …). Jedes Element mit data-go="x" öffnet Bildschirm x.
 - Webseite: <nav class="site-nav"><div class="container"> (.brand, .nav-toggle, .nav-links) · .hero · .section / .section.alt > .container · .section-head · .eyebrow · .lead · .gradient-text · .feature · .cta · .site-footer.
 - Bausteine: .card .card.tap .btn .btn-primary .btn-ghost .btn-outline .btn-danger .btn-block .btn-lg .btn-sm .btn-icon .input .select .textarea .field>label .list>.item(.tap) .chips>.chip(.active) .badge .avatar .switch(input checkbox) .progress>i(style="--p:60%") .empty .grid(style="--min:200px") .grid-2 .stack .row .row.between .grow .muted .small .large-title .section-title .fab .skeleton .fade-in .hidden
@@ -219,7 +220,7 @@ QUALITÄT
 - Sicherheit: niemals geheime Schlüssel (service_role, Passwörter, private API-Keys) in den Code.
 ${db ? `\nVERBUNDENE DATENBANK: ${db.provider}\n${Object.entries(db).filter(([k]) => k !== 'provider' && k !== 'label').map(([k, v]) => `- ${k}: ${v}`).join('\n')}` : ''}${Object.keys(secrets).length ? `\nEINGEGEBENE SCHLÜSSEL:\n${Object.entries(secrets).map(([k, v]) => `- ${k}: ${v}`).join('\n')}` : ''}
 
-${main ? mainBlock(main) : ''}${team ? teamBlock(team) : ''}${files['CODEN.md'] && !team ? `\nPROJEKT-GEDÄCHTNIS (CODEN.md – Konventionen und Entscheidungen, halte dich daran):\n${String(files['CODEN.md']).slice(0, 4000)}\n` : ''}
+${files['index.html'] && /data-scratch="1"/.test(files['index.html']) ? '\nSTART VON GRUND AUF (OHNE VORLAGE): Die Startdateien sind absichtlich leer. Entwirf Struktur, Layout, eigenes CSS-Design, echte Inhalte und Logik komplett neu von Scratch passend zur Idee des Nutzers.\n' : ''}${main ? mainBlock(main) : ''}${team ? teamBlock(team) : ''}${files['CODEN.md'] && !team ? `\nPROJEKT-GEDÄCHTNIS (CODEN.md – Konventionen und Entscheidungen, halte dich daran):\n${String(files['CODEN.md']).slice(0, 4000)}\n` : ''}
 AKTUELLE DATEIEN (${listFiles.length}):
 ${parts.join('\n\n')}`;
 }
@@ -232,7 +233,7 @@ function stripFence(s) {
     const m = t.match(/^\s*```[\w-]*\n([\s\S]*?)\n?```\s*$/); if (m) t = m[1];
     return t;
 }
-const BLOCK = /<file\s+([^>]*?)>([\s\S]*?)(<\/file>|$)|<edit\s+([^>]*?)>([\s\S]*?)(<\/edit>|$)|<delete\s+([^>]*?)\/?>(?:\s*<\/delete>)?|<tool\s+([^>]*?)\/>|<tool\s+([^>]*?)>([\s\S]*?)(<\/tool>|$)|<plan>([\s\S]*?)(<\/plan>|$)|<sql>([\s\S]*?)(<\/sql>|$)|<result\s+([^>]*?)>([\s\S]*?)(<\/result>|$)/gi;
+const BLOCK = /<file\s+([^>]*?)>([\s\S]*?)(<\/file>|$)|<edit\s+([^>]*?)>([\s\S]*?)(<\/edit>|$)|<delete\s+([^>]*?)\/?>(?:\s*<\/delete>)?|<tool\s+([^>]*?)\/>|<tool\s+([^>]*?)>([\s\S]*?)(<\/tool>|$)|<plan>([\s\S]*?)(<\/plan>|$)|<sql>([\s\S]*?)(<\/sql>|$)|<result\s+([^>]*?)>((?:(?!<(?:result|file|edit|delete|tool|plan|sql)\b)[\s\S])*?)(?:<\/result>|(?=<(?:result|file|edit|delete|tool|plan|sql)\b)|$)/gi;
 
 // Liefert die Reihenfolge aus Text und Blöcken (für die Anzeige) plus die Operationen
 function parse(text) {
@@ -270,8 +271,12 @@ function parse(text) {
     let rest = text.slice(last);
     let half = rest.search(/<(file|edit|delete|tool|plan|sql|result)\b[^>]*$/i); if (half === -1) half = rest.search(/<[a-z]{0,6}$/i); if (half !== -1) rest = rest.slice(0, half);
     if (rest) segs.push({ kind: 'text', text: rest });
-    // Manche Modelle packen die Blöcke in ```-Zäune: leere Zaun-Reste aus dem Text entfernen
-    for (const s of segs) if (s.kind === 'text') s.text = s.text.replace(/```[\w-]*\s*$/g, '').replace(/^\s*```/g, '');
+    // Manche Modelle packen die Blöcke in ```-Zäune oder geben frühere Hinweis-Kommentare / doppelte End-Tags aus
+    for (const s of segs) if (s.kind === 'text') s.text = s.text
+        .replace(/<!--\s*\(frühere Antwort:[\s\S]*?-->/gi, '')
+        .replace(/<\/(?:tool|result|plan|file|edit|delete|sql)\s*>/gi, '')
+        .replace(/```[\w-]*\s*$/g, '')
+        .replace(/^\s*```/g, '');
     return { segs, ops, tools, sql, plan };
 }
 
