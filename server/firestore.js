@@ -7,10 +7,12 @@ const path = require('path');
 const crypto = require('crypto');
 const { AsyncLocalStorage } = require('async_hooks');
 const { SignJWT, importPKCS8 } = require('jose');
+const neon = require('./neon');
 
 const als = new AsyncLocalStorage();
 let cachedConfig = null;
 let memoryMode = process.env.CODEN_TEST_DB === 'memory';
+const useNeon = () => !memoryMode && neon.isConfigured();
 const mem = new Map(); // path -> { data: Object, updateTime: string }
 let seqCounter = 0;
 
@@ -217,6 +219,12 @@ const docIdOf = (p) => {
   const segs = cleanPath(p).split('/');
   return segs[segs.length - 1];
 };
+const colPathOf = (p) => {
+  const segs = cleanPath(p).split('/');
+  segs.pop();
+  return segs.join('/');
+};
+const newUpdateTime = () => new Date().toISOString() + ':' + (++seqCounter);
 
 // ---------- CRUD ----------
 async function getDoc(docPath, opts = {}) {
@@ -225,6 +233,11 @@ async function getDoc(docPath, opts = {}) {
     const hit = mem.get(p);
     if (!hit) return null;
     return { ...clone(hit.data), _id: docIdOf(p), _updateTime: hit.updateTime };
+  }
+  if (useNeon()) {
+    const rows = await neon.query('select data, update_time from fs_docs where path = $1', [p]);
+    if (!rows[0]) return null;
+    return { ...clone(rows[0].data), _id: docIdOf(p), _updateTime: rows[0].update_time };
   }
   try {
     const raw = await restFetch(`${restBase()}/${encodePath(p)}`, opts);
@@ -242,8 +255,24 @@ async function setDoc(docPath, data, opts = {}) {
     const prev = mem.get(p);
     const merged = opts.merge && prev ? { ...clone(prev.data), ...clone(clean) } : clone(clean);
     for (const k of Object.keys(merged)) if (merged[k] === undefined) delete merged[k];
-    const updateTime = new Date().toISOString() + ':' + (++seqCounter);
+    const updateTime = newUpdateTime();
     mem.set(p, { data: merged, updateTime });
+    return { ...clone(merged), _id: docIdOf(p), _updateTime: updateTime };
+  }
+  if (useNeon()) {
+    let prev = null;
+    if (opts.merge) {
+      const rows = await neon.query('select data from fs_docs where path = $1', [p]);
+      prev = rows[0]?.data || null;
+    }
+    const merged = opts.merge && prev ? { ...clone(prev), ...clone(clean) } : clone(clean);
+    for (const k of Object.keys(merged)) if (merged[k] === undefined) delete merged[k];
+    const updateTime = newUpdateTime();
+    await neon.query(
+      `insert into fs_docs (path, col_path, doc_id, data, update_time) values ($1, $2, $3, $4::jsonb, $5)
+       on conflict (path) do update set data = excluded.data, update_time = excluded.update_time`,
+      [p, colPathOf(p), docIdOf(p), JSON.stringify(merged), updateTime]
+    );
     return { ...clone(merged), _id: docIdOf(p), _updateTime: updateTime };
   }
   let url = `${restBase()}/${encodePath(p)}`;
@@ -263,8 +292,20 @@ async function createDoc(docPath, data, opts = {}) {
     if (mem.has(p)) throw fsError(409, 'Document already exists', 'ALREADY_EXISTS');
     const saved = clone(clean);
     for (const k of Object.keys(saved)) if (saved[k] === undefined) delete saved[k];
-    const updateTime = new Date().toISOString() + ':' + (++seqCounter);
+    const updateTime = newUpdateTime();
     mem.set(p, { data: saved, updateTime });
+    return { ...clone(saved), _id: docIdOf(p), _updateTime: updateTime };
+  }
+  if (useNeon()) {
+    const saved = clone(clean);
+    for (const k of Object.keys(saved)) if (saved[k] === undefined) delete saved[k];
+    const updateTime = newUpdateTime();
+    const rows = await neon.query(
+      `insert into fs_docs (path, col_path, doc_id, data, update_time) values ($1, $2, $3, $4::jsonb, $5)
+       on conflict (path) do nothing returning path`,
+      [p, colPathOf(p), docIdOf(p), JSON.stringify(saved), updateTime]
+    );
+    if (!rows[0]) throw fsError(409, 'Document already exists', 'ALREADY_EXISTS');
     return { ...clone(saved), _id: docIdOf(p), _updateTime: updateTime };
   }
   const url = `${restBase()}/${encodePath(p)}?currentDocument.exists=false`;
@@ -288,8 +329,29 @@ async function updateDoc(docPath, patch, opts = {}) {
     }
     const next = { ...clone(hit.data), ...clone(clean) };
     for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k];
-    const updateTime = new Date().toISOString() + ':' + (++seqCounter);
+    const updateTime = newUpdateTime();
     mem.set(p, { data: next, updateTime });
+    return { ...clone(next), _id: docIdOf(p), _updateTime: updateTime };
+  }
+  if (useNeon()) {
+    const rows = await neon.query('select data, update_time from fs_docs where path = $1', [p]);
+    const hit = rows[0];
+    if (!hit) return null;
+    if (opts.updateTime && hit.update_time !== opts.updateTime) {
+      throw fsError(409, 'Concurrent modification', 'PRECONDITION_FAILED');
+    }
+    if (opts.expect) {
+      for (const [k, v] of Object.entries(opts.expect)) {
+        if (hit.data[k] !== v) throw fsError(409, `Precondition mismatch on ${k}`, 'PRECONDITION_FAILED');
+      }
+    }
+    const next = { ...clone(hit.data), ...clone(clean) };
+    for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k];
+    const updateTime = newUpdateTime();
+    const updated = opts.updateTime
+      ? await neon.query('update fs_docs set data = $1::jsonb, update_time = $2 where path = $3 and update_time = $4 returning path', [JSON.stringify(next), updateTime, p, opts.updateTime])
+      : await neon.query('update fs_docs set data = $1::jsonb, update_time = $2 where path = $3 returning path', [JSON.stringify(next), updateTime, p]);
+    if (!updated[0]) throw fsError(409, 'Concurrent modification', 'PRECONDITION_FAILED');
     return { ...clone(next), _id: docIdOf(p), _updateTime: updateTime };
   }
   const keys = Object.keys(clean).filter(k => clean[k] !== undefined);
@@ -310,6 +372,10 @@ async function deleteDoc(docPath, opts = {}) {
   const p = cleanPath(docPath);
   if (memoryMode) {
     return { deleted: mem.delete(p) };
+  }
+  if (useNeon()) {
+    const rows = await neon.query('delete from fs_docs where path = $1 returning path', [p]);
+    return { deleted: rows.length > 0 };
   }
   try {
     await restFetch(`${restBase()}/${encodePath(p)}`, { ...opts, method: 'DELETE' });
@@ -370,6 +436,12 @@ async function listDocs(collectionPath, { limit = 200, orderBy, desc = false, ..
     if (orderBy) out.sort((a, b) => cmpVal(a[orderBy], b[orderBy]) * (desc ? -1 : 1));
     return limit ? out.slice(0, limit) : out;
   }
+  if (useNeon()) {
+    const rows = await neon.query('select doc_id, data, update_time from fs_docs where col_path = $1', [col]);
+    const out = rows.map(r => ({ ...clone(r.data), _id: r.doc_id, _updateTime: r.update_time }));
+    if (orderBy) out.sort((a, b) => cmpVal(a[orderBy], b[orderBy]) * (desc ? -1 : 1));
+    return limit ? out.slice(0, limit) : out;
+  }
   const fetchLimit = orderBy ? (limit ? Math.max(limit, 1000) : 0) : limit;
   const out = [];
   let pageToken = '';
@@ -389,7 +461,7 @@ async function listDocs(collectionPath, { limit = 200, orderBy, desc = false, ..
 // Filtert optional einen Primär-Filter über Firestore runQuery und filtert/sortiert den Rest in JavaScript.
 async function runQuery(collectionPath, { where = [], orderBy, desc = false, limit = 200, ...restOpts } = {}) {
   const col = cleanPath(collectionPath);
-  if (memoryMode) {
+  if (memoryMode || useNeon()) {
     let out = await listDocs(col, { limit: 0 });
     for (const cond of where) out = out.filter(d => matchCondition(d, cond));
     if (orderBy) out.sort((a, b) => cmpVal(a[orderBy], b[orderBy]) * (desc ? -1 : 1));
@@ -456,6 +528,10 @@ async function deleteTree(docPath, subcollections = [], opts = {}) {
 
 async function ping() {
   if (memoryMode) return true;
+  if (useNeon()) {
+    await neon.ping();
+    return true;
+  }
   const raw = await getDoc('test/connection');
   return raw !== undefined;
 }

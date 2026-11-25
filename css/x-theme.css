@@ -1,24 +1,23 @@
-/* css/x-theme.css – X-Style Design System:
-   Reines Schwarz (#000), scharfe #2f3336-Linien, hoher Kontrast (#e7e9ea),
-   weiße Pill-Buttons (#eff3f4 / #0f1419), X-Blau (#1d9bf0) nur gezielt,
-   keine KI-Verläufe, keine Neon-Glows, ruhige & leicht verständliche Oberfläche. */
+/* css/x-theme.css – Coden AI Clean High-Contrast Design:
+   Deep Obsidian (#090b0f), scharfe #242a38-Linien, Emerald Teal (#10b981) + Warm Amber (#f59e0b),
+   garantierter Kontrast auf allen Buttons (kein Weiß-auf-Weiß), ruhige & leicht verständliche Oberfläche. */
 
 :root {
-  --x-bg: #000000;
-  --x-surface: #16181c;
-  --x-surface-hover: #1d1f23;
-  --x-border: #2f3336;
-  --x-border-strong: #536471;
-  --x-text: #e7e9ea;
-  --x-muted: #71767b;
-  --x-blue: #1d9bf0;
-  --x-blue-hover: #1a8cd8;
-  --x-white: #eff3f4;
-  --x-white-hover: #d7dbdc;
-  --x-black-ink: #0f1419;
-  --grad-brand: #eff3f4;
-  --glass: rgba(0, 0, 0, 0.85);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.72);
+  --x-bg: #090b0f;
+  --x-surface: #12161f;
+  --x-surface-hover: #191f2c;
+  --x-border: #242a38;
+  --x-border-strong: #394256;
+  --x-text: #edf0f5;
+  --x-muted: #707a8a;
+  --x-accent: #10b981;
+  --x-accent-hover: #34d399;
+  --x-amber: #f59e0b;
+  --x-amber-soft: rgba(245, 158, 11, 0.14);
+  --x-ink-dark: #04140e;
+  --grad-brand: #10b981;
+  --glass: rgba(9, 11, 15, 0.88);
+  --shadow-lg: 0 12px 36px rgba(0, 0, 0, 0.65);
 }
 
 /* ---------- Grundfläche ---------- */
@@ -32,12 +31,12 @@ body,
   font-family: var(--font-main);
 }
 
-/* ---------- Boot-Overlay (schlicht, ohne Glow/Doppelring) ---------- */
+/* ---------- Boot-Overlay ---------- */
 .db-boot-overlay {
   background: var(--x-bg) !important;
 }
 .db-boot-card {
-  background: var(--x-bg) !important;
+  background: var(--x-surface) !important;
   border: 1px solid var(--x-border) !important;
   border-radius: 16px !important;
   box-shadow: none !important;
@@ -49,21 +48,21 @@ body,
 .db-boot-orbit img {
   width: 34px !important;
   height: 34px !important;
-  border-radius: 50% !important;
+  border-radius: 10px !important;
   border: 1px solid var(--x-border) !important;
 }
 .db-boot-ring {
   border: 2px solid var(--x-border) !important;
-  border-top-color: var(--x-white) !important;
+  border-top-color: var(--x-accent) !important;
 }
 .db-boot-ring-inner {
   display: none !important;
 }
 .db-boot-dots span {
-  background: var(--x-muted) !important;
+  background: var(--x-accent) !important;
 }
 
-/* ---------- X-Style Login-Screen (wie X Startseite) ---------- */
+/* ---------- Login-Screen (eigenständiges Coden-AI-Design) ---------- */
 .login-screen {
   background: var(--x-bg) !important;
   padding: 24px !important;
@@ -71,7 +70,7 @@ body,
 
 .x-login-shell {
   width: 100%;
-  max-width: 980px;
+  max-width: 960px;
   display: grid;
   grid-template-columns: 1fr 1fr;
   align-items: center;
@@ -80,14 +79,28 @@ body,
 
 .x-login-brand {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 16px;
 }
 
 .x-login-mark {
-  width: min(320px, 34vw);
+  width: min(260px, 28vw);
   height: auto;
-  color: var(--x-text);
+  color: var(--x-accent);
+}
+
+.x-login-brand-tag {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--x-amber);
+  background: var(--x-amber-soft);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  padding: 5px 12px;
+  border-radius: 9999px;
 }
 
 .login-box.x-login-card {
@@ -96,7 +109,7 @@ body,
   border-radius: 0 !important;
   box-shadow: none !important;
   padding: 0 !important;
-  max-width: 340px !important;
+  max-width: 350px !important;
   width: 100% !important;
   align-items: flex-start !important;
   text-align: left !important;
@@ -104,32 +117,25 @@ body,
 
 .x-login-mobile-mark {
   display: none;
-  width: 36px;
-  height: 36px;
-  margin-bottom: 24px;
-  color: var(--x-text);
+  width: 40px;
+  height: 40px;
+  margin-bottom: 20px;
+  color: var(--x-accent);
 }
 
 .x-login-title {
-  font-size: clamp(34px, 4.5vw, 52px) !important;
+  font-size: clamp(32px, 4.2vw, 48px) !important;
   font-weight: 800 !important;
   line-height: 1.08 !important;
   letter-spacing: -0.03em !important;
   color: var(--x-text) !important;
-  margin-bottom: 28px !important;
+  margin-bottom: 26px !important;
   text-align: left !important;
-}
-
-.x-login-sub {
-  font-size: 15px;
-  color: var(--x-muted);
-  margin: -14px 0 24px;
-  line-height: 1.45;
 }
 
 .login-box .btn-google {
   background: #ffffff !important;
-  color: var(--x-black-ink) !important;
+  color: #0f1419 !important;
   border: 1px solid #ffffff !important;
   border-radius: 9999px !important;
   height: 42px;
@@ -138,12 +144,12 @@ body,
   font-weight: 700 !important;
 }
 .login-box .btn-google:hover {
-  background: #e6e6e6 !important;
+  background: #e8ecf2 !important;
 }
 
 .login-box .auth-divider {
   margin: 14px 0 !important;
-  color: var(--x-text) !important;
+  color: var(--x-muted) !important;
   font-size: 13px !important;
 }
 .login-box .auth-divider::before,
@@ -156,17 +162,17 @@ body,
 }
 
 .login-box .settings-input {
-  background: var(--x-bg) !important;
-  border: 1px solid #333639 !important;
-  border-radius: 6px !important;
+  background: var(--x-surface) !important;
+  border: 1px solid var(--x-border) !important;
+  border-radius: 10px !important;
   color: var(--x-text) !important;
   padding: 13px 14px !important;
   font-size: 15px !important;
 }
 .login-box .settings-input:focus {
-  border-color: var(--x-blue) !important;
+  border-color: var(--x-accent) !important;
   outline: none !important;
-  box-shadow: 0 0 0 1px var(--x-blue) !important;
+  box-shadow: 0 0 0 1px var(--x-accent) !important;
 }
 .login-box .settings-input::placeholder {
   color: var(--x-muted) !important;
@@ -180,8 +186,8 @@ body,
 }
 
 .login-box #btn-email-login {
-  background: var(--x-white) !important;
-  color: var(--x-black-ink) !important;
+  background: var(--x-accent) !important;
+  color: var(--x-ink-dark) !important;
   border: 0 !important;
   border-radius: 9999px !important;
   height: 42px;
@@ -189,12 +195,12 @@ body,
   font-size: 15px !important;
 }
 .login-box #btn-email-login:hover {
-  background: var(--x-white-hover) !important;
+  background: var(--x-accent-hover) !important;
 }
 
 .login-box #btn-email-register {
   background: transparent !important;
-  color: var(--x-blue) !important;
+  color: var(--x-amber) !important;
   border: 1px solid var(--x-border-strong) !important;
   border-radius: 9999px !important;
   height: 42px;
@@ -202,7 +208,8 @@ body,
   font-size: 15px !important;
 }
 .login-box #btn-email-register:hover {
-  background: var(--accent-blue-soft) !important;
+  background: var(--x-amber-soft) !important;
+  border-color: var(--x-amber) !important;
 }
 
 .x-login-legal {
@@ -222,7 +229,7 @@ body,
   .x-login-mobile-mark { display: block; }
 }
 
-/* ---------- Seitenleiste (X-Navigation: klar, luftig, nicht überladen) ---------- */
+/* ---------- Seitenleiste ---------- */
 .sidebar {
   background: var(--x-bg) !important;
   border-right: 1px solid var(--x-border) !important;
@@ -241,7 +248,7 @@ body,
   color: var(--x-text) !important;
 }
 .sb-brand img {
-  border-radius: 50% !important;
+  border-radius: 8px !important;
   border: 1px solid var(--x-border) !important;
 }
 
@@ -252,37 +259,46 @@ body,
 }
 
 .sb-item {
-  border-radius: 9999px !important;
-  padding: 10px 14px !important;
-  font-size: 15px !important;
+  border-radius: 10px !important;
+  padding: 9px 12px !important;
+  font-size: 14.5px !important;
   font-weight: 500 !important;
   color: var(--x-text) !important;
-  gap: 14px !important;
+  gap: 12px !important;
 }
 .sb-item .material-symbols-outlined {
-  font-size: 22px !important;
-  color: var(--x-text) !important;
+  font-size: 20px !important;
+  color: var(--x-muted) !important;
 }
 .sb-item:hover {
-  background: rgba(231, 233, 234, 0.1) !important;
+  background: var(--x-surface) !important;
+}
+.sb-item:hover .material-symbols-outlined {
+  color: var(--x-text) !important;
 }
 .sb-item.active {
   font-weight: 700 !important;
-  background: rgba(231, 233, 234, 0.08) !important;
+  background: var(--x-surface) !important;
+  color: var(--x-accent) !important;
+}
+.sb-item.active .material-symbols-outlined {
+  color: var(--x-accent) !important;
 }
 
 .sb-item.new-chat-btn {
-  background: var(--x-white) !important;
-  color: var(--x-black-ink) !important;
+  background: var(--x-accent) !important;
+  color: var(--x-ink-dark) !important;
   font-weight: 700 !important;
+  border-radius: 9999px !important;
   justify-content: center;
   margin-bottom: 8px !important;
 }
+.sb-item.new-chat-btn *,
 .sb-item.new-chat-btn .material-symbols-outlined {
-  color: var(--x-black-ink) !important;
+  color: var(--x-ink-dark) !important;
 }
 .sb-item.new-chat-btn:hover {
-  background: var(--x-white-hover) !important;
+  background: var(--x-accent-hover) !important;
 }
 
 .sb-more-group.collapsed {
@@ -292,9 +308,10 @@ body,
 .sb-more-toggle {
   color: var(--x-muted) !important;
   font-size: 14px !important;
-}
-.sb-more-toggle .material-symbols-outlined {
-  color: var(--x-muted) !important;
+  background: transparent;
+  border: 0;
+  width: 100%;
+  text-align: left;
 }
 
 .sb-search input {
@@ -305,21 +322,21 @@ body,
   color: var(--x-text) !important;
 }
 .sb-search input:focus {
-  border-color: var(--x-blue) !important;
+  border-color: var(--x-accent) !important;
   background: var(--x-bg) !important;
 }
 
 .sb-chat {
-  border-radius: 9999px !important;
+  border-radius: 10px !important;
   padding: 8px 12px !important;
   color: var(--x-muted) !important;
 }
 .sb-chat:hover {
-  background: rgba(231, 233, 234, 0.08) !important;
+  background: var(--x-surface) !important;
   color: var(--x-text) !important;
 }
 .sb-chat.active {
-  background: var(--x-surface) !important;
+  background: var(--x-surface-hover) !important;
   color: var(--x-text) !important;
   font-weight: 600;
 }
@@ -329,22 +346,22 @@ body,
   padding-top: 10px !important;
 }
 .user-chip {
-  border-radius: 9999px !important;
+  border-radius: 12px !important;
   padding: 8px 10px !important;
 }
 .user-chip:hover,
 .user-chip.open {
-  background: rgba(231, 233, 234, 0.1) !important;
+  background: var(--x-surface) !important;
 }
 .uc-avatar {
-  background: var(--x-surface) !important;
-  border: 1px solid var(--x-border) !important;
-  color: var(--x-text) !important;
+  background: var(--x-accent) !important;
+  color: var(--x-ink-dark) !important;
+  font-weight: 800 !important;
 }
 
 /* ---------- Top-Bar ---------- */
 .top-bar {
-  background: rgba(0, 0, 0, 0.85) !important;
+  background: rgba(9, 11, 15, 0.88) !important;
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--x-border) !important;
   height: 54px !important;
@@ -354,15 +371,24 @@ body,
   font-size: 16px !important;
   letter-spacing: -0.01em !important;
 }
+#owner-badge {
+  background: var(--x-amber-soft) !important;
+  color: var(--x-amber) !important;
+  border: 1px solid rgba(245, 158, 11, 0.3) !important;
+  border-radius: 9999px !important;
+  padding: 2px 8px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+}
 .icon-btn {
   border-radius: 9999px !important;
   color: var(--x-text) !important;
 }
 .icon-btn:hover {
-  background: rgba(231, 233, 234, 0.1) !important;
+  background: var(--x-surface) !important;
 }
 
-/* ---------- Willkommensseite (ruhig, fokussiert, nie zu viel auf einmal) ---------- */
+/* ---------- Willkommensseite ---------- */
 .greeting {
   font-family: var(--font-main) !important;
   font-weight: 800 !important;
@@ -382,7 +408,7 @@ body,
   margin: 14px auto 0 !important;
 }
 .chip {
-  background: transparent !important;
+  background: var(--x-surface) !important;
   border: 1px solid var(--x-border) !important;
   border-radius: 9999px !important;
   color: var(--x-text) !important;
@@ -391,30 +417,32 @@ body,
   font-weight: 500 !important;
 }
 .chip:hover {
-  background: rgba(231, 233, 234, 0.08) !important;
+  background: var(--x-surface-hover) !important;
   border-color: var(--x-border-strong) !important;
 }
 .chip.chip-accent {
-  background: var(--x-surface) !important;
-  border-color: var(--x-border-strong) !important;
+  border-color: rgba(16, 185, 129, 0.45) !important;
 }
 .chip .material-symbols-outlined {
-  color: var(--x-blue) !important;
+  color: var(--x-accent) !important;
   font-size: 17px !important;
 }
+.chip[data-prompt*="Fehler"] .material-symbols-outlined {
+  color: var(--x-amber) !important;
+}
 
-/* ---------- Eingabefeld / Composer (X-Post-Box Stil) ---------- */
+/* ---------- Eingabefeld / Composer ---------- */
 .input-section {
   background: var(--x-bg) !important;
 }
 .input-box {
-  background: var(--x-bg) !important;
+  background: var(--x-surface) !important;
   border: 1px solid var(--x-border) !important;
   border-radius: 16px !important;
   box-shadow: none !important;
 }
 .input-box:focus-within {
-  border-color: var(--x-border-strong) !important;
+  border-color: var(--x-accent) !important;
 }
 .input-box textarea {
   color: var(--x-text) !important;
@@ -425,18 +453,19 @@ body,
 }
 
 #send-btn {
-  background: var(--x-white) !important;
-  color: var(--x-black-ink) !important;
+  background: var(--x-accent) !important;
+  color: var(--x-ink-dark) !important;
   border-radius: 9999px !important;
 }
 #send-btn:hover {
-  background: var(--x-white-hover) !important;
+  background: var(--x-accent-hover) !important;
 }
+#send-btn *,
 #send-btn .material-symbols-outlined {
-  color: var(--x-black-ink) !important;
+  color: var(--x-ink-dark) !important;
 }
 #stop-btn {
-  background: var(--x-surface) !important;
+  background: var(--x-surface-hover) !important;
   border: 1px solid var(--x-border-strong) !important;
   color: var(--x-text) !important;
 }
@@ -448,7 +477,11 @@ body,
   color: var(--x-text) !important;
 }
 .live-pill-btn:hover {
-  background: rgba(231, 233, 234, 0.08) !important;
+  background: var(--x-surface-hover) !important;
+  border-color: var(--x-amber) !important;
+}
+.live-pill-btn .material-symbols-outlined {
+  color: var(--x-amber) !important;
 }
 
 .text-btn#model-selector-btn {
@@ -457,11 +490,11 @@ body,
   font-size: 13px !important;
 }
 .text-btn#model-selector-btn:hover {
-  background: rgba(231, 233, 234, 0.08) !important;
+  background: var(--x-surface-hover) !important;
   color: var(--x-text) !important;
 }
 
-/* ---------- Chat-Nachrichten (X-Feed Lesbarkeit) ---------- */
+/* ---------- Chat-Nachrichten ---------- */
 .message.user .message-bubble,
 .user-message-bubble {
   background: var(--x-surface) !important;
@@ -480,7 +513,7 @@ code {
 .code-block,
 pre.hljs,
 .message pre {
-  background: var(--x-code) !important;
+  background: var(--bg-code) !important;
   border: 1px solid var(--x-border) !important;
   border-radius: 12px !important;
 }
@@ -493,13 +526,13 @@ pre.hljs,
 .modal-content,
 .claude-confirm-box,
 .ag-card {
-  background: var(--x-bg) !important;
+  background: var(--x-surface) !important;
   border: 1px solid var(--x-border) !important;
   border-radius: 16px !important;
   box-shadow: var(--shadow-lg) !important;
 }
 .modal-overlay {
-  background: rgba(91, 112, 131, 0.4) !important;
+  background: rgba(5, 7, 10, 0.72) !important;
   backdrop-filter: none !important;
 }
 .modal-header,
@@ -513,29 +546,45 @@ pre.hljs,
   color: var(--x-text) !important;
 }
 .cm-item:hover {
-  background: var(--x-surface) !important;
+  background: var(--x-surface-hover) !important;
 }
 .cm-sep {
   background: var(--x-border) !important;
 }
 
-/* Primäre & sekundäre Buttons überall im X-Stil */
+/* ---------- Garantierter Kontrast auf allen Buttons (kein Weiß-auf-Weiß) ---------- */
 .btn-save,
-.cc-btn-primary {
-  background: var(--x-white) !important;
-  color: var(--x-black-ink) !important;
+.cc-btn-primary,
+.btn-primary,
+.ap-btn.primary,
+.bd-btn.primary,
+.cn-cat.on {
+  background: var(--x-accent) !important;
+  color: var(--x-ink-dark) !important;
   border: 0 !important;
   border-radius: 9999px !important;
   font-weight: 700 !important;
 }
+.btn-save *,
+.cc-btn-primary *,
+.btn-primary *,
+.ap-btn.primary *,
+.bd-btn.primary * {
+  color: var(--x-ink-dark) !important;
+}
 .btn-save:hover,
-.cc-btn-primary:hover {
-  background: var(--x-white-hover) !important;
+.cc-btn-primary:hover,
+.btn-primary:hover,
+.ap-btn.primary:hover,
+.bd-btn.primary:hover {
+  background: var(--x-accent-hover) !important;
 }
 
 .btn-cancel,
 .cc-btn-ghost,
-.cc-btn-outline {
+.cc-btn-outline,
+.ap-btn:not(.primary),
+.bd-btn:not(.primary) {
   background: transparent !important;
   color: var(--x-text) !important;
   border: 1px solid var(--x-border-strong) !important;
@@ -545,7 +594,7 @@ pre.hljs,
 .btn-cancel:hover,
 .cc-btn-ghost:hover,
 .cc-btn-outline:hover {
-  background: rgba(231, 233, 234, 0.08) !important;
+  background: var(--x-surface-hover) !important;
 }
 
 .settings-input,
@@ -553,11 +602,11 @@ select.settings-input,
 textarea.settings-input {
   background: var(--x-bg) !important;
   border: 1px solid var(--x-border) !important;
-  border-radius: 8px !important;
+  border-radius: 10px !important;
   color: var(--x-text) !important;
 }
 .settings-input:focus {
-  border-color: var(--x-blue) !important;
+  border-color: var(--x-accent) !important;
 }
 
 /* ---------- Sub-Views (Apps, Artefakte, Buddy, Projekte, Konnektoren) ---------- */
@@ -567,7 +616,7 @@ textarea.settings-input {
 .pr-card,
 .sk-card,
 .we-card {
-  background: var(--x-bg) !important;
+  background: var(--x-surface) !important;
   border: 1px solid var(--x-border) !important;
   border-radius: 16px !important;
   box-shadow: none !important;
@@ -578,16 +627,16 @@ textarea.settings-input {
 .pr-card:hover,
 .sk-card:hover,
 .we-card:hover {
-  background: var(--x-surface) !important;
+  background: var(--x-surface-hover) !important;
   border-color: var(--x-border-strong) !important;
   transform: none !important;
   box-shadow: none !important;
 }
 
-/* ---------- Ruhiger DB-Hinweis (falls jemals Offline) ---------- */
+/* ---------- Ruhiger DB-Hinweis ---------- */
 .db-banner {
   background: var(--x-surface) !important;
-  border: 1px solid var(--x-border-strong) !important;
+  border: 1px solid var(--x-amber) !important;
   border-radius: 12px !important;
   color: var(--x-text) !important;
 }
