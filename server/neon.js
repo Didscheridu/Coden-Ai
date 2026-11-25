@@ -27,11 +27,19 @@ create table if not exists user_data (
   sessions   jsonb       not null default '[]'::jsonb,
   settings   jsonb       not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
-)`];
+)`, `
+create table if not exists fs_docs (
+  path        text        primary key,
+  col_path    text        not null,
+  doc_id      text        not null,
+  data        jsonb       not null default '{}'::jsonb,
+  update_time text        not null
+)`, 'create index if not exists fs_docs_col on fs_docs (col_path)'];
 const TABLES = { // erlaubte Tabellen/Spalten
   byok_keys: ['uid', 'provider', 'key_enc', 'hint', 'created_at'],
   byok_models: ['id', 'uid', 'provider', 'model_id', 'label', 'levels', 'default_level', 'created_at'],
-  user_data: ['uid', 'sessions', 'settings', 'updated_at']
+  user_data: ['uid', 'sessions', 'settings', 'updated_at'],
+  fs_docs: ['path', 'col_path', 'doc_id', 'data', 'update_time']
 };
 
 let memory = false;
@@ -107,4 +115,4 @@ async function ping() {
   return { configured: true, ok: true };
 }
 
-module.exports = { isConfigured, select, insert, upsert, remove, ping, enableMemory, disableMemory, clearMemory, useClient, SCHEMA };
+module.exports = { isConfigured, query: q, select, insert, upsert, remove, ping, enableMemory, disableMemory, clearMemory, useClient, SCHEMA };
