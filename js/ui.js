@@ -39,6 +39,13 @@ function richMd(text, block = false) {
     if (block) { const d = document.createElement('div'); d.innerHTML = html; enhance(d); return d.innerHTML; }
     return html.trim().replace(/^<p>([\s\S]*?)<\/p>$/, (m, x) => (x.includes('<p>') ? m : x));
 }
+// Ein Markdown-Block mit allen Extras (Markierungen, Formeln, Hinweis-Kästen, <plot>, <quiz> …) – z. B. für den Merkzettel
+export function renderRichBlock(text, key = '') {
+    const { text: md, widgets } = extractWidgets(String(text || ''));
+    const d = document.createElement('div'); d.className = 'md'; d.innerHTML = safeMarkdown(md); enhance(d);
+    if (widgets.length) hydrateWidgets(d, widgets, richMd, key);
+    return d;
+}
 // > [!TIP] … wird zu einem farbigen Hinweis-Kasten
 const CALLOUT = { NOTE: ['info', 'Hinweis'], TIP: ['lightbulb', 'Tipp'], WARNING: ['warning', 'Achtung'], IMPORTANT: ['priority_high', 'Wichtig'], CAUTION: ['error', 'Vorsicht'],
     SUCCESS: ['check_circle', 'Richtig'], QUESTION: ['help', 'Frage'], EXAMPLE: ['science', 'Beispiel'], SUMMARY: ['summarize', 'Kurz gesagt'], DEFINITION: ['menu_book', 'Definition'], FORMULA: ['function', 'Formel'], KEY: ['key', 'Merke'] };
@@ -159,7 +166,7 @@ export const UI = {
             }
         }
         content.replaceChildren(frag);
-        content.querySelectorAll('.md img').forEach(UI._imageTools);
+        content.querySelectorAll('.md img:not(.cl-logo)').forEach(UI._imageTools);
         content.querySelectorAll('pre code:not(.hljs)').forEach(b => { try { hljs.highlightElement(b); } catch (_) {} });
         return items;
     },

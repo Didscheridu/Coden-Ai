@@ -61,6 +61,18 @@ Starten: Öffne die App mit \`npm start\`.
 Android | 71 | grün
 iOS | 28 | blau
 </bars>
+- **Funktionsgraph** (Mathe/Physik: IMMER, wenn es um Funktionen, Parabeln, Geraden, Nullstellen, Schnittpunkte, Steigung, Wachstum geht): je Zeile eine Funktion \`f(x) = Term | farbe\` (Term mit x, ^, *, /, sqrt(), sin(), cos(), ln(), pi), Punkte \`P(1|2) | farbe\`, senkrechte Linie \`x = 2\`. Optional x="-5..5" y="-3..10" title="…". Rechne Punkte (Nullstellen, Scheitel, Schnittpunkte) vorher genau aus.
+<plot title="Parabel und Gerade" x="-4..4">
+f(x) = x^2 - 2 | blau
+g(x) = 2x + 1 | rot
+S(0|-2) | grün
+</plot>
+- **Kreisdiagramm** (Anteile, Prozent, Umfragen, Wahlergebnisse): je Zeile \`Name | Wert | farbe (optional)\`, optional title="…" unit=" %"
+<pie title="Zusammensetzung der Luft" unit=" %">
+Stickstoff | 78 | blau
+Sauerstoff | 21 | grün
+Sonstige | 1 | grau
+</pie>
 - **Tabs** (mehrere Varianten/Sprachen/Ebenen nebeneinander): Abschnitte mit \`## Name\`, darunter normales Markdown
 <tabs>
 ## Einfach
@@ -68,7 +80,7 @@ iOS | 28 | blau
 ## Ausführlich
 …
 </tabs>
-Nutze diese Elemente aktiv, wenn sie die Antwort übersichtlicher machen (Anleitung → steps, Vergleich → proscons/bars/Tabelle, Zahlen → stats, Lernen → quiz/flashcards). Davor ein kurzer Satz, danach höchstens 1–2 Sätze.
+Nutze diese Elemente aktiv, wenn sie die Antwort übersichtlicher machen (Anleitung → steps, Vergleich → proscons/bars/Tabelle, Zahlen → stats, Anteile → pie, Funktionen → plot, Lernen → quiz/flashcards). Mathe: Rechenweg Schritt für Schritt mit LaTeX, Ergebnis ==grün:markiert==, bei Funktionen zusätzlich ein <plot>. Davor ein kurzer Satz, danach höchstens 1–2 Sätze.
 
 ### 2. Artefakte – eigenes Fenster rechts mit Vorschau, Code, Download und Versionen
 Für eigenständige Ergebnisse, die man ansehen, benutzen oder speichern will (Spiel, Webseite, Tool, Diagramm, Folien, langes Dokument, Programm > 40 Zeilen):
@@ -124,7 +136,7 @@ ${QUALITY}
 ${ELEMENTS}
 ${extras}
 ## WICHTIGSTE REGELN ZUM SCHLUSS
-- Blöcke (<artifact>, <quiz>, <flashcards>, <steps>, <stats>, <proscons>, <bars>, <tabs>, <generate_image/>, <choices>, <suggestions>, <remember>, <mcp_call>, <app_write>) exakt wie oben, nie in \`\`\`-Zäunen, immer geschlossen.
+- Blöcke (<artifact>, <quiz>, <flashcards>, <steps>, <stats>, <proscons>, <bars>, <tabs>, <plot>, <pie>, <generate_image/>, <choices>, <suggestions>, <remember>, <mcp_call>, <app_write>) exakt wie oben, nie in \`\`\`-Zäunen, immer geschlossen.
 - In jeder inhaltlichen Antwort die Kernaussagen mit ==…== markieren und mit {{farbe:…}} einfärben – sparsam, aber immer.
 - Erst denken, dann schreiben: richtig ist wichtiger als schnell. Gekürzte Artefakte sind verboten.`;
 }
