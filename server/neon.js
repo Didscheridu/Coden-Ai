@@ -21,10 +21,17 @@ create table if not exists byok_models (
   levels        text[]      not null default '{}',
   default_level text,
   created_at    timestamptz not null default now()
-)`, 'create index if not exists byok_models_uid on byok_models (uid)'];
+)`, 'create index if not exists byok_models_uid on byok_models (uid)', `
+create table if not exists user_data (
+  uid        text        primary key,
+  sessions   jsonb       not null default '[]'::jsonb,
+  settings   jsonb       not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+)`];
 const TABLES = { // erlaubte Tabellen/Spalten
   byok_keys: ['uid', 'provider', 'key_enc', 'hint', 'created_at'],
-  byok_models: ['id', 'uid', 'provider', 'model_id', 'label', 'levels', 'default_level', 'created_at']
+  byok_models: ['id', 'uid', 'provider', 'model_id', 'label', 'levels', 'default_level', 'created_at'],
+  user_data: ['uid', 'sessions', 'settings', 'updated_at']
 };
 
 let memory = false;

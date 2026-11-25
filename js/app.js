@@ -242,6 +242,7 @@ function showDbBanner() {
 function hideDbBanner() { dbBannerEl?.classList.add('hidden'); }
 function scheduleDbBackgroundRetry() {
     if (dbBgTimer) return;
+    const intervalMs = dbState.reason === 'quota' ? 15 * 60_000 : 60_000;
     dbBgTimer = setInterval(async () => {
         if (document.hidden || navigator.onLine === false) return;
         const ok = await ensureDbConnection({ maxFreshMs: 0, maxAttempts: 1 });
@@ -249,11 +250,13 @@ function scheduleDbBackgroundRetry() {
         clearInterval(dbBgTimer); dbBgTimer = null; hideDbBanner();
         // Änderungen, die in der Zwischenzeit nur auf dem Gerät lagen, jetzt übertragen (nur Geändertes)
         Storage.syncNow?.().catch?.(() => {});
-    }, 60_000);
+    }, intervalMs);
 }
 function noteDbResult(ok) {
     if (ok) { hideDbBanner(); return true; }
-    hideDbLoader(); showDbBanner(); scheduleDbBackgroundRetry();
+    hideDbLoader();
+    if (dbState.reason !== 'quota') showDbBanner();
+    scheduleDbBackgroundRetry();
     return false;
 }
 

@@ -77,7 +77,7 @@ export function handleFirestoreError(error, operationType, path) {
   throw err;
 }
 
-let lastConnectedAt = 0;
+let lastConnectedAt = Number(sessionStorage.getItem('coden_db_ok_ts') || 0);
 let retryWakeup = null;
 let inflightConnect = null;
 // Zustand der Datenbank für die Oberfläche: reason = 'quota' (Tageskontingent aufgebraucht), 'denied', 'offline' oder null
@@ -90,12 +90,17 @@ export async function testConnection({ timeoutMs = 8000 } = {}) {
       new Promise((_, reject) => setTimeout(() => reject(new Error('timeout: the client is offline')), timeoutMs))
     ]);
     lastConnectedAt = Date.now();
+    try { sessionStorage.setItem('coden_db_ok_ts', String(lastConnectedAt)); } catch (_) {}
     Object.assign(dbState, { ok: true, reason: null, message: '' });
     return true;
   } catch (error) {
     const code = String(error?.code || ''); const msg = String(error?.message || error || '');
     const reason = code === 'resource-exhausted' || /quota|resource.exhausted/i.test(msg) ? 'quota'
       : code === 'permission-denied' ? 'denied' : 'offline';
+    if (reason === 'quota') {
+      try { sessionStorage.removeItem('coden_db_ok_ts'); } catch (_) {}
+      lastConnectedAt = 0;
+    }
     Object.assign(dbState, { ok: false, reason, message: msg.slice(0, 200) });
     if (reason === 'offline') console.warn('Firestore nicht erreichbar:', msg);
     else console.warn('Firestore meldet:', code || msg);
@@ -114,8 +119,9 @@ export function retryDbNow() {
 // Wartet kurz auf die Datenbank. Gibt true (verbunden) oder false zurück – blockiert aber nie endlos:
 // Bei aufgebrauchtem Kontingent oder fehlender Berechtigung sofort false (weiter probieren kostet nur weitere Lesezugriffe),
 // bei Netzproblemen nach maxAttempts/maxWaitMs. Die App läuft dann mit dem Speicher auf dem Gerät weiter.
-export async function ensureDbConnection({ onAttempt, maxFreshMs = 4000, maxAttempts = 4, maxWaitMs = 12000 } = {}) {
+export async function ensureDbConnection({ onAttempt, maxFreshMs = 5 * 60_000, maxAttempts = 3, maxWaitMs = 10000 } = {}) {
   if (lastConnectedAt && Date.now() - lastConnectedAt < maxFreshMs) {
+    Object.assign(dbState, { ok: true, reason: null, message: '' });
     return true;
   }
   if (inflightConnect) return inflightConnect;

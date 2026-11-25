@@ -7,7 +7,7 @@
     <link rel="icon" href="./images/coden_logo.jpg" type="image/jpeg">
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="apple-touch-icon" href="/images/coden_logo.jpg">
-    <meta name="theme-color" content="#131314">
+    <meta name="theme-color" content="#000000">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Coden">
     
@@ -53,6 +53,7 @@
     <link rel="stylesheet" href="css/connectors.css">
     <link rel="stylesheet" href="css/research.css">
     <link rel="stylesheet" href="css/menus.css">
+    <link rel="stylesheet" href="css/x-theme.css">
 
     <style>
         .sidebar.collapsed { display: none; }
@@ -143,31 +144,37 @@
                 <span class="db-boot-ring db-boot-ring-inner"></span>
                 <img src="./images/coden_logo.jpg" alt="" onerror="this.style.display='none'">
             </div>
-            <h2 id="db-boot-title">Verbinde mit Datenbank …</h2>
-            <p id="db-boot-sub">Firebase Firestore wird verbunden</p>
+            <h2 id="db-boot-title">Coden AI</h2>
+            <p id="db-boot-sub">Sitzung wird vorbereitet …</p>
             <div class="db-boot-dots" aria-hidden="true"><span></span><span></span><span></span></div>
             <button type="button" id="db-boot-retry" class="btn-cancel db-boot-retry hidden">Erneut verbinden</button>
         </div>
     </div>
 
     <div id="login-screen" class="login-screen hidden">
-        <div class="login-box">
-            <img src="./images/coden_logo.jpg" onerror="this.style.display='none'">
-            <h2>Coden AI Login</h2>
-            <button id="btn-google-login" class="btn-google" style="display:none;">
-                <img src="https://fonts.gstatic.com/s/i/productlogos/googleg/v6/24px.svg" style="width: 18px; height: 18px; margin: 0;">
-                Mit Google anmelden
-            </button>
-            <div class="auth-divider">oder per E-Mail</div>
-            <div class="auth-form">
-                <input type="email" id="auth-email" class="settings-input" placeholder="E-Mail Adresse">
-                <input type="password" id="auth-password" class="settings-input" placeholder="Passwort">
-                <div class="auth-buttons">
-                    <button id="btn-email-login" class="btn-save" style="flex: 1;">Einloggen</button>
-                    <button id="btn-email-register" class="btn-cancel" style="flex: 1;">Registrieren</button>
+        <div class="x-login-shell">
+            <div class="login-box x-login-card">
+                <svg class="x-login-mobile-mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                <h2 class="x-login-title">Jetzt mit Coden starten.</h2>
+                <button id="btn-google-login" class="btn-google" style="display:none;">
+                    <img src="https://fonts.gstatic.com/s/i/productlogos/googleg/v6/24px.svg" style="width: 18px; height: 18px; margin: 0;">
+                    Mit Google fortfahren
+                </button>
+                <div class="auth-divider">oder</div>
+                <div class="auth-form">
+                    <input type="email" id="auth-email" class="settings-input" placeholder="E-Mail-Adresse">
+                    <input type="password" id="auth-password" class="settings-input" placeholder="Passwort">
+                    <div class="auth-buttons">
+                        <button id="btn-email-login" class="btn-save">Einloggen</button>
+                        <button id="btn-email-register" class="btn-cancel">Konto erstellen</button>
+                    </div>
                 </div>
+                <div id="auth-error-msg" class="auth-error">Fehler aufgetreten.</div>
+                <p class="x-login-legal">Mit der Anmeldung stimmst du den Nutzungsbedingungen und Datenschutzhinweisen von Coden AI zu.</p>
             </div>
-            <div id="auth-error-msg" class="auth-error">Fehler aufgetreten.</div>
+            <div class="x-login-brand" aria-hidden="true">
+                <svg class="x-login-mark" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="0.65" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+            </div>
         </div>
     </div>
 
@@ -180,15 +187,18 @@
                 <div class="sb-brand"><img src="./images/coden_logo.jpg" alt="" onerror="this.style.display='none'"><span>Coden</span></div>
             </div>
             <nav class="sb-nav">
-                <a href="#/chat" class="sb-item new-chat-btn" id="sb-new" title="Neuer Chat"><span class="material-symbols-outlined">add</span><span class="sb-label">Neu</span></a>
+                <a href="#/chat" class="sb-item new-chat-btn" id="sb-new" title="Neuer Chat"><span class="material-symbols-outlined">add</span><span class="sb-label">Neuer Chat</span></a>
                 <a href="#" class="sb-item" id="toggle-search-btn"><span class="material-symbols-outlined">search</span><span class="sb-label">Suchen</span></a>
                 <div id="search-container" class="sb-search"><input type="text" id="chat-search-input" placeholder="Chats durchsuchen…" autocomplete="off"></div>
                 <a href="#/apps" class="sb-item" id="open-apps-btn" data-route="apps"><span class="material-symbols-outlined">apps</span><span class="sb-label">Apps</span></a>
                 <a href="#/artefakte" class="sb-item" id="open-artifacts-btn" data-route="artefakte"><span class="material-symbols-outlined">deployed_code</span><span class="sb-label">Artefakte</span></a>
-                <a href="#/verbindungen" class="sb-item" id="open-mcp-btn" data-route="verbindungen"><span class="material-symbols-outlined">hub</span><span class="sb-label">Konnektoren</span></a>
-                <a href="#/buddy" class="sb-item" id="open-buddy-btn" data-route="buddy"><span class="material-symbols-outlined">diversity_3</span><span class="sb-label">Code Buddy</span><span class="bd-nav-badge" style="display:none"></span></a>
                 <a href="#/projekte" class="sb-item" id="open-projects-btn" data-route="projekte"><span class="material-symbols-outlined">folder_open</span><span class="sb-label">Projekte</span></a>
-                <a href="#" class="sb-item" id="open-tasks-btn"><span class="material-symbols-outlined">schedule</span><span class="sb-label">Geplante Aufgaben</span><span class="bd-nav-badge" id="tasks-nav-badge" style="display:none"></span></a>
+                <a href="#/buddy" class="sb-item" id="open-buddy-btn" data-route="buddy"><span class="material-symbols-outlined">diversity_3</span><span class="sb-label">Code Buddy</span><span class="bd-nav-badge" style="display:none"></span></a>
+                <button type="button" class="sb-item sb-more-toggle" id="sb-more-toggle" aria-expanded="false" onclick="const g=document.getElementById('sb-more-group');const open=g.classList.toggle('collapsed');this.setAttribute('aria-expanded',String(!open));"><span class="material-symbols-outlined">more_horiz</span><span class="sb-label">Mehr</span></button>
+                <div id="sb-more-group" class="sb-more-group collapsed">
+                    <a href="#/verbindungen" class="sb-item" id="open-mcp-btn" data-route="verbindungen"><span class="material-symbols-outlined">hub</span><span class="sb-label">Konnektoren</span></a>
+                    <a href="#" class="sb-item" id="open-tasks-btn"><span class="material-symbols-outlined">schedule</span><span class="sb-label">Geplante Aufgaben</span><span class="bd-nav-badge" id="tasks-nav-badge" style="display:none"></span></a>
+                </div>
             </nav>
             <div class="sidebar-scroll-area"></div>
             <div class="sidebar-footer">
@@ -311,10 +321,9 @@
             <section class="welcome-extra hidden" id="welcome-extra">
                 <div class="chips" id="welcome-chips">
                         <button class="chip chip-accent" data-go="apps/neu"><span class="material-symbols-outlined">apps</span><span>App bauen</span></button>
-                        <button class="chip" data-prompt="Baue mir ein Snake-Spiel als Webseite, das ich direkt spielen kann."><span class="material-symbols-outlined">sports_esports</span><span>Snake-Spiel</span></button>
-                        <button class="chip" data-prompt="Erkläre mir den Unterschied zwischen let, const und var in JavaScript mit Beispielen."><span class="material-symbols-outlined">school</span><span>JavaScript erklären</span></button>
-                        <button class="chip" data-prompt="Erstelle mir einen schicken Taschenrechner als Webseite mit dunklem Design."><span class="material-symbols-outlined">calculate</span><span>Taschenrechner</span></button>
-                        <button class="chip" data-prompt="Finde den Fehler in meinem Code und erkläre ihn mir Schritt für Schritt:"><span class="material-symbols-outlined">bug_report</span><span>Fehler finden</span></button>
+                        <button class="chip" data-prompt="Erkläre mir diesen Code Schritt für Schritt:"><span class="material-symbols-outlined">school</span><span>Code erklären</span></button>
+                        <button class="chip" data-prompt="Finde den Fehler in meinem Code und erkläre ihn mir:"><span class="material-symbols-outlined">bug_report</span><span>Fehler finden</span></button>
+                        <button class="chip" data-prompt="Baue mir ein kleines Spiel als Webseite, das ich direkt spielen kann."><span class="material-symbols-outlined">sports_esports</span><span>Spiel erstellen</span></button>
                     </div>
                 <div class="we-gallery" id="we-gallery">
                     <div class="we-head"><span>Neueste Artefakte</span><button id="we-all" class="we-link">Alle anzeigen</button></div>

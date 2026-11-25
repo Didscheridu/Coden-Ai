@@ -1,0 +1,593 @@
+/* css/x-theme.css – X-Style Design System:
+   Reines Schwarz (#000), scharfe #2f3336-Linien, hoher Kontrast (#e7e9ea),
+   weiße Pill-Buttons (#eff3f4 / #0f1419), X-Blau (#1d9bf0) nur gezielt,
+   keine KI-Verläufe, keine Neon-Glows, ruhige & leicht verständliche Oberfläche. */
+
+:root {
+  --x-bg: #000000;
+  --x-surface: #16181c;
+  --x-surface-hover: #1d1f23;
+  --x-border: #2f3336;
+  --x-border-strong: #536471;
+  --x-text: #e7e9ea;
+  --x-muted: #71767b;
+  --x-blue: #1d9bf0;
+  --x-blue-hover: #1a8cd8;
+  --x-white: #eff3f4;
+  --x-white-hover: #d7dbdc;
+  --x-black-ink: #0f1419;
+  --grad-brand: #eff3f4;
+  --glass: rgba(0, 0, 0, 0.85);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.72);
+}
+
+/* ---------- Grundfläche ---------- */
+html,
+body,
+.app-container,
+.main-content,
+.view-host {
+  background: var(--x-bg) !important;
+  color: var(--x-text);
+  font-family: var(--font-main);
+}
+
+/* ---------- Boot-Overlay (schlicht, ohne Glow/Doppelring) ---------- */
+.db-boot-overlay {
+  background: var(--x-bg) !important;
+}
+.db-boot-card {
+  background: var(--x-bg) !important;
+  border: 1px solid var(--x-border) !important;
+  border-radius: 16px !important;
+  box-shadow: none !important;
+}
+.db-boot-orbit {
+  width: 56px !important;
+  height: 56px !important;
+}
+.db-boot-orbit img {
+  width: 34px !important;
+  height: 34px !important;
+  border-radius: 50% !important;
+  border: 1px solid var(--x-border) !important;
+}
+.db-boot-ring {
+  border: 2px solid var(--x-border) !important;
+  border-top-color: var(--x-white) !important;
+}
+.db-boot-ring-inner {
+  display: none !important;
+}
+.db-boot-dots span {
+  background: var(--x-muted) !important;
+}
+
+/* ---------- X-Style Login-Screen (wie X Startseite) ---------- */
+.login-screen {
+  background: var(--x-bg) !important;
+  padding: 24px !important;
+}
+
+.x-login-shell {
+  width: 100%;
+  max-width: 980px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  gap: 64px;
+}
+
+.x-login-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.x-login-mark {
+  width: min(320px, 34vw);
+  height: auto;
+  color: var(--x-text);
+}
+
+.login-box.x-login-card {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  max-width: 340px !important;
+  width: 100% !important;
+  align-items: flex-start !important;
+  text-align: left !important;
+}
+
+.x-login-mobile-mark {
+  display: none;
+  width: 36px;
+  height: 36px;
+  margin-bottom: 24px;
+  color: var(--x-text);
+}
+
+.x-login-title {
+  font-size: clamp(34px, 4.5vw, 52px) !important;
+  font-weight: 800 !important;
+  line-height: 1.08 !important;
+  letter-spacing: -0.03em !important;
+  color: var(--x-text) !important;
+  margin-bottom: 28px !important;
+  text-align: left !important;
+}
+
+.x-login-sub {
+  font-size: 15px;
+  color: var(--x-muted);
+  margin: -14px 0 24px;
+  line-height: 1.45;
+}
+
+.login-box .btn-google {
+  background: #ffffff !important;
+  color: var(--x-black-ink) !important;
+  border: 1px solid #ffffff !important;
+  border-radius: 9999px !important;
+  height: 42px;
+  padding: 0 18px !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+}
+.login-box .btn-google:hover {
+  background: #e6e6e6 !important;
+}
+
+.login-box .auth-divider {
+  margin: 14px 0 !important;
+  color: var(--x-text) !important;
+  font-size: 13px !important;
+}
+.login-box .auth-divider::before,
+.login-box .auth-divider::after {
+  background: var(--x-border) !important;
+}
+
+.login-box .auth-form {
+  gap: 10px !important;
+}
+
+.login-box .settings-input {
+  background: var(--x-bg) !important;
+  border: 1px solid #333639 !important;
+  border-radius: 6px !important;
+  color: var(--x-text) !important;
+  padding: 13px 14px !important;
+  font-size: 15px !important;
+}
+.login-box .settings-input:focus {
+  border-color: var(--x-blue) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 1px var(--x-blue) !important;
+}
+.login-box .settings-input::placeholder {
+  color: var(--x-muted) !important;
+}
+
+.login-box .auth-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px !important;
+  margin-top: 6px !important;
+}
+
+.login-box #btn-email-login {
+  background: var(--x-white) !important;
+  color: var(--x-black-ink) !important;
+  border: 0 !important;
+  border-radius: 9999px !important;
+  height: 42px;
+  font-weight: 700 !important;
+  font-size: 15px !important;
+}
+.login-box #btn-email-login:hover {
+  background: var(--x-white-hover) !important;
+}
+
+.login-box #btn-email-register {
+  background: transparent !important;
+  color: var(--x-blue) !important;
+  border: 1px solid var(--x-border-strong) !important;
+  border-radius: 9999px !important;
+  height: 42px;
+  font-weight: 700 !important;
+  font-size: 15px !important;
+}
+.login-box #btn-email-register:hover {
+  background: var(--accent-blue-soft) !important;
+}
+
+.x-login-legal {
+  margin-top: 14px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--x-muted);
+}
+
+@media (max-width: 860px) {
+  .x-login-shell {
+    grid-template-columns: 1fr;
+    max-width: 360px;
+    gap: 0;
+  }
+  .x-login-brand { display: none; }
+  .x-login-mobile-mark { display: block; }
+}
+
+/* ---------- Seitenleiste (X-Navigation: klar, luftig, nicht überladen) ---------- */
+.sidebar {
+  background: var(--x-bg) !important;
+  border-right: 1px solid var(--x-border) !important;
+  padding: 12px 12px 10px !important;
+}
+
+.sidebar-header {
+  padding: 4px 4px 10px !important;
+  margin: 0 0 8px !important;
+}
+
+.sb-brand {
+  font-size: 17px !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.02em !important;
+  color: var(--x-text) !important;
+}
+.sb-brand img {
+  border-radius: 50% !important;
+  border: 1px solid var(--x-border) !important;
+}
+
+.sb-nav {
+  border-bottom: 1px solid var(--x-border) !important;
+  padding-bottom: 10px !important;
+  gap: 2px !important;
+}
+
+.sb-item {
+  border-radius: 9999px !important;
+  padding: 10px 14px !important;
+  font-size: 15px !important;
+  font-weight: 500 !important;
+  color: var(--x-text) !important;
+  gap: 14px !important;
+}
+.sb-item .material-symbols-outlined {
+  font-size: 22px !important;
+  color: var(--x-text) !important;
+}
+.sb-item:hover {
+  background: rgba(231, 233, 234, 0.1) !important;
+}
+.sb-item.active {
+  font-weight: 700 !important;
+  background: rgba(231, 233, 234, 0.08) !important;
+}
+
+.sb-item.new-chat-btn {
+  background: var(--x-white) !important;
+  color: var(--x-black-ink) !important;
+  font-weight: 700 !important;
+  justify-content: center;
+  margin-bottom: 8px !important;
+}
+.sb-item.new-chat-btn .material-symbols-outlined {
+  color: var(--x-black-ink) !important;
+}
+.sb-item.new-chat-btn:hover {
+  background: var(--x-white-hover) !important;
+}
+
+.sb-more-group.collapsed {
+  display: none;
+}
+
+.sb-more-toggle {
+  color: var(--x-muted) !important;
+  font-size: 14px !important;
+}
+.sb-more-toggle .material-symbols-outlined {
+  color: var(--x-muted) !important;
+}
+
+.sb-search input {
+  background: var(--x-surface) !important;
+  border: 1px solid var(--x-border) !important;
+  border-radius: 9999px !important;
+  padding: 9px 14px !important;
+  color: var(--x-text) !important;
+}
+.sb-search input:focus {
+  border-color: var(--x-blue) !important;
+  background: var(--x-bg) !important;
+}
+
+.sb-chat {
+  border-radius: 9999px !important;
+  padding: 8px 12px !important;
+  color: var(--x-muted) !important;
+}
+.sb-chat:hover {
+  background: rgba(231, 233, 234, 0.08) !important;
+  color: var(--x-text) !important;
+}
+.sb-chat.active {
+  background: var(--x-surface) !important;
+  color: var(--x-text) !important;
+  font-weight: 600;
+}
+
+.sidebar-footer {
+  border-top: 1px solid var(--x-border) !important;
+  padding-top: 10px !important;
+}
+.user-chip {
+  border-radius: 9999px !important;
+  padding: 8px 10px !important;
+}
+.user-chip:hover,
+.user-chip.open {
+  background: rgba(231, 233, 234, 0.1) !important;
+}
+.uc-avatar {
+  background: var(--x-surface) !important;
+  border: 1px solid var(--x-border) !important;
+  color: var(--x-text) !important;
+}
+
+/* ---------- Top-Bar ---------- */
+.top-bar {
+  background: rgba(0, 0, 0, 0.85) !important;
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--x-border) !important;
+  height: 54px !important;
+}
+.brand-name {
+  font-weight: 700 !important;
+  font-size: 16px !important;
+  letter-spacing: -0.01em !important;
+}
+.icon-btn {
+  border-radius: 9999px !important;
+  color: var(--x-text) !important;
+}
+.icon-btn:hover {
+  background: rgba(231, 233, 234, 0.1) !important;
+}
+
+/* ---------- Willkommensseite (ruhig, fokussiert, nie zu viel auf einmal) ---------- */
+.greeting {
+  font-family: var(--font-main) !important;
+  font-weight: 800 !important;
+  font-size: clamp(26px, 3.6vw, 36px) !important;
+  letter-spacing: -0.03em !important;
+  color: var(--x-text) !important;
+  margin-bottom: 12px !important;
+}
+.welcome-logo {
+  display: none !important;
+}
+.welcome-extra .we-gallery {
+  display: none !important;
+}
+.welcome-extra .chips {
+  gap: 8px !important;
+  margin: 14px auto 0 !important;
+}
+.chip {
+  background: transparent !important;
+  border: 1px solid var(--x-border) !important;
+  border-radius: 9999px !important;
+  color: var(--x-text) !important;
+  padding: 8px 14px !important;
+  font-size: 13.5px !important;
+  font-weight: 500 !important;
+}
+.chip:hover {
+  background: rgba(231, 233, 234, 0.08) !important;
+  border-color: var(--x-border-strong) !important;
+}
+.chip.chip-accent {
+  background: var(--x-surface) !important;
+  border-color: var(--x-border-strong) !important;
+}
+.chip .material-symbols-outlined {
+  color: var(--x-blue) !important;
+  font-size: 17px !important;
+}
+
+/* ---------- Eingabefeld / Composer (X-Post-Box Stil) ---------- */
+.input-section {
+  background: var(--x-bg) !important;
+}
+.input-box {
+  background: var(--x-bg) !important;
+  border: 1px solid var(--x-border) !important;
+  border-radius: 16px !important;
+  box-shadow: none !important;
+}
+.input-box:focus-within {
+  border-color: var(--x-border-strong) !important;
+}
+.input-box textarea {
+  color: var(--x-text) !important;
+  font-size: 15px !important;
+}
+.input-box textarea::placeholder {
+  color: var(--x-muted) !important;
+}
+
+#send-btn {
+  background: var(--x-white) !important;
+  color: var(--x-black-ink) !important;
+  border-radius: 9999px !important;
+}
+#send-btn:hover {
+  background: var(--x-white-hover) !important;
+}
+#send-btn .material-symbols-outlined {
+  color: var(--x-black-ink) !important;
+}
+#stop-btn {
+  background: var(--x-surface) !important;
+  border: 1px solid var(--x-border-strong) !important;
+  color: var(--x-text) !important;
+}
+
+.live-pill-btn {
+  background: transparent !important;
+  border: 1px solid var(--x-border) !important;
+  border-radius: 9999px !important;
+  color: var(--x-text) !important;
+}
+.live-pill-btn:hover {
+  background: rgba(231, 233, 234, 0.08) !important;
+}
+
+.text-btn#model-selector-btn {
+  border-radius: 9999px !important;
+  color: var(--x-muted) !important;
+  font-size: 13px !important;
+}
+.text-btn#model-selector-btn:hover {
+  background: rgba(231, 233, 234, 0.08) !important;
+  color: var(--x-text) !important;
+}
+
+/* ---------- Chat-Nachrichten (X-Feed Lesbarkeit) ---------- */
+.message.user .message-bubble,
+.user-message-bubble {
+  background: var(--x-surface) !important;
+  border: 1px solid var(--x-border) !important;
+  border-radius: 16px !important;
+  color: var(--x-text) !important;
+}
+.message.ai .message-content,
+.ai-message-content {
+  color: var(--x-text) !important;
+}
+pre,
+code {
+  font-family: var(--font-mono) !important;
+}
+.code-block,
+pre.hljs,
+.message pre {
+  background: var(--x-code) !important;
+  border: 1px solid var(--x-border) !important;
+  border-radius: 12px !important;
+}
+
+/* ---------- Popovers, Menüs, Modals & Karten ---------- */
+.cm-panel,
+.user-menu,
+.model-dropdown-menu,
+.command-popup,
+.modal-content,
+.claude-confirm-box,
+.ag-card {
+  background: var(--x-bg) !important;
+  border: 1px solid var(--x-border) !important;
+  border-radius: 16px !important;
+  box-shadow: var(--shadow-lg) !important;
+}
+.modal-overlay {
+  background: rgba(91, 112, 131, 0.4) !important;
+  backdrop-filter: none !important;
+}
+.modal-header,
+.modal-footer,
+.st-nav {
+  border-color: var(--x-border) !important;
+}
+
+.cm-item {
+  border-radius: 8px !important;
+  color: var(--x-text) !important;
+}
+.cm-item:hover {
+  background: var(--x-surface) !important;
+}
+.cm-sep {
+  background: var(--x-border) !important;
+}
+
+/* Primäre & sekundäre Buttons überall im X-Stil */
+.btn-save,
+.cc-btn-primary {
+  background: var(--x-white) !important;
+  color: var(--x-black-ink) !important;
+  border: 0 !important;
+  border-radius: 9999px !important;
+  font-weight: 700 !important;
+}
+.btn-save:hover,
+.cc-btn-primary:hover {
+  background: var(--x-white-hover) !important;
+}
+
+.btn-cancel,
+.cc-btn-ghost,
+.cc-btn-outline {
+  background: transparent !important;
+  color: var(--x-text) !important;
+  border: 1px solid var(--x-border-strong) !important;
+  border-radius: 9999px !important;
+  font-weight: 600 !important;
+}
+.btn-cancel:hover,
+.cc-btn-ghost:hover,
+.cc-btn-outline:hover {
+  background: rgba(231, 233, 234, 0.08) !important;
+}
+
+.settings-input,
+select.settings-input,
+textarea.settings-input {
+  background: var(--x-bg) !important;
+  border: 1px solid var(--x-border) !important;
+  border-radius: 8px !important;
+  color: var(--x-text) !important;
+}
+.settings-input:focus {
+  border-color: var(--x-blue) !important;
+}
+
+/* ---------- Sub-Views (Apps, Artefakte, Buddy, Projekte, Konnektoren) ---------- */
+.view-host .card,
+.app-card,
+.bd-card,
+.pr-card,
+.sk-card,
+.we-card {
+  background: var(--x-bg) !important;
+  border: 1px solid var(--x-border) !important;
+  border-radius: 16px !important;
+  box-shadow: none !important;
+}
+.view-host .card:hover,
+.app-card:hover,
+.bd-card:hover,
+.pr-card:hover,
+.sk-card:hover,
+.we-card:hover {
+  background: var(--x-surface) !important;
+  border-color: var(--x-border-strong) !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* ---------- Ruhiger DB-Hinweis (falls jemals Offline) ---------- */
+.db-banner {
+  background: var(--x-surface) !important;
+  border: 1px solid var(--x-border-strong) !important;
+  border-radius: 12px !important;
+  color: var(--x-text) !important;
+}

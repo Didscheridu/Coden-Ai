@@ -203,6 +203,7 @@ async function restFetch(url, opts = {}) {
     if (r.status === 404 || statusText === 'NOT_FOUND') throw fsError(404, msg, 'NOT_FOUND');
     if (r.status === 409 || statusText === 'ALREADY_EXISTS') throw fsError(409, msg, 'ALREADY_EXISTS');
     if (r.status === 412 || statusText === 'FAILED_PRECONDITION' || statusText === 'ABORTED') throw fsError(409, msg, 'PRECONDITION_FAILED');
+    if (r.status === 429 || statusText === 'RESOURCE_EXHAUSTED') throw fsError(429, msg, 'RESOURCE_EXHAUSTED');
     if (r.status === 403 || statusText === 'PERMISSION_DENIED') throw fsError(403, msg, 'PERMISSION_DENIED');
     if (r.status === 401 || statusText === 'UNAUTHENTICATED') throw fsError(401, msg, 'UNAUTHENTICATED');
     throw fsError(r.status, msg, statusText || 'FIRESTORE_ERROR');
