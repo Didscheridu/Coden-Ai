@@ -85,6 +85,18 @@ export const dbState = { ok: false, reason: null, message: '' };
 
 export async function testConnection({ timeoutMs = 8000 } = {}) {
   try {
+    const r = await fetch('/api/health', { cache: 'no-store', signal: AbortSignal.timeout(Math.min(timeoutMs, 5000)) });
+    if (r.ok) {
+      const h = await r.json().catch(() => null);
+      if (h && h.ok && h.db) {
+        lastConnectedAt = Date.now();
+        try { sessionStorage.setItem('coden_db_ok_ts', String(lastConnectedAt)); } catch (_) {}
+        Object.assign(dbState, { ok: true, reason: null, message: '' });
+        return true;
+      }
+    }
+  } catch (_) {}
+  try {
     await Promise.race([
       getDocFromServer(doc(db, 'test', 'connection')),
       new Promise((_, reject) => setTimeout(() => reject(new Error('timeout: the client is offline')), timeoutMs))
