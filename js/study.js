@@ -6,6 +6,8 @@
 import { generateAiResponse } from './api.js';
 import { Storage } from './storage.js';
 import { toast } from './toast.js';
+import { merkzettelPrompt, cleanMerkzettel, titleOf, renderSheet, printSheet, defaultPaper } from './merkzettel.js';
+import { loader } from './rich-elements.js';
 
 const h = (tag, attrs = {}, ...kids) => {
     const el = document.createElement(tag);
@@ -103,7 +105,9 @@ async function generateTool(type) {
     const focus = state.focusPrompt.trim() ? `\nZusätzlicher Fokus des Schülers: ${state.focusPrompt.trim()}` : '';
     let sys = '', user = '';
 
-    if (type === 'flashcards') {
+    if (type === 'sheet') {
+        ({ sys, user } = merkzettelPrompt({ src, subject: nb.subject, difficulty: state.difficulty, amount: state.amount, focus: state.focusPrompt.trim() }));
+    } else if (type === 'flashcards') {
         sys = 'Du erstellst hochwertige Lern-Karteikarten auf Deutsch. Antworte AUSSCHLIESSLICH mit gültigem JSON ohne Erklärung drumherum.';
         user = `Erstelle genau ${count} Karteikarten (Schwierigkeit: ${state.difficulty}) basierend auf diesen Lerninhalten.${focus}\nFormat: {"title":"Kurzer Titel","cards":[{"front":"Frage oder Begriff","back":"Klare, präzise Antwort"}]}\n\nLERNINHALTE:\n${src}`;
     } else if (type === 'quiz') {
@@ -126,7 +130,11 @@ async function generateTool(type) {
         ], 'flash');
 
         let item = null;
-        if (type === 'flashcards') {
+        if (type === 'sheet') {
+            const markdown = cleanMerkzettel(reply);
+            if (markdown.replace(/^#.*$/m, '').trim().length < 40) throw new Error('Der Merkzettel ist leer geblieben.');
+            item = { id: uid(), type: 'sheet', title: titleOf(markdown), markdown, paper: defaultPaper(nb.subject), createdAt: new Date().toISOString() };
+        } else if (type === 'flashcards') {
             const parsed = extractJson(reply);
             const cards = (parsed.cards || parsed || []).filter(c => c && c.front && c.back).map((c, i) => ({
                 id: 'c_' + i + '_' + Date.now().toString(36), front: String(c.front), back: String(c.back), status: null
@@ -157,7 +165,7 @@ async function generateTool(type) {
     } catch (e) {
         toast('Konnte nicht erstellt werden: ' + (e.message || e), { type: 'error' });
     } finally {
-        state.generating = '';
+        state.generating = ''; state.genStart = 0;
         render();
     }
 }
@@ -581,7 +589,8 @@ function renderWorkspace(nb) {
             h('button', { type: 'button', class: 'btn-cancel', onclick: () => { state.activeToolId = null; render(); } }, ic('arrow_back'), ' Zurück zu Geführtem Lernen'),
             activeTool.type === 'guide' && h('button', { type: 'button', class: 'btn-cancel', onclick: () => toggleSpeak(activeTool.markdown) }, ic(state.speaking ? 'stop' : 'volume_up'), state.speaking ? ' Stoppen' : ' Audio-Überblick')
         ));
-        if (activeTool.type === 'flashcards') colCenter.append(renderFlashcards(activeTool));
+        if (activeTool.type === 'sheet') colCenter.append(renderSheetView(activeTool, nb));
+        else if (activeTool.type === 'flashcards') colCenter.append(renderFlashcards(activeTool));
         else if (activeTool.type === 'quiz') colCenter.append(renderQuiz(activeTool));
         else if (activeTool.type === 'guide') {
             const g = h('div', { class: 'st-guide' });
@@ -624,6 +633,9 @@ function renderWorkspace(nb) {
         colCenter.append(form);
     }
 
+    // Während eine Lernhilfe entsteht: gleiche Lade-Animation wie im Chat + was gerade passiert
+    if (state.generating) colCenter.prepend(renderGenerating(state.generating));
+
     // --- 3. RECHTE SPALTE: STUDIO-PANEL (wie Gemini Notebook Studio) ---
     const colStudio = h('section', { class: 'st-col' + (state.mobPane === 'studio' ? ' mob-active' : ''), 'data-pane': 'studio' },
         h('div', { class: 'st-col-head' }, h('h3', {}, ic('auto_awesome'), ' Lern-Studio')),
@@ -641,6 +653,7 @@ function renderWorkspace(nb) {
         ),
         h('div', { class: 'st-studio-grid' },
             ...[
+                ['sheet', 'sticky_note_2', 'Merkzettel', 'Wie handgeschrieben · PDF'],
                 ['flashcards', 'style', 'Karteikarten', '3D-Flip & Fortschritt'],
                 ['quiz', 'quiz', 'Quiz', 'Mit Hinweisen'],
                 ['guide', 'description', 'Lernleitfaden', 'Strukturiert + Audio'],
@@ -654,7 +667,7 @@ function renderWorkspace(nb) {
 
     if ((nb.tools || []).length) {
         const saved = h('div', { class: 'st-saved-list' }, h('small', { text: 'Gespeicherte Lernhilfen' }));
-        const iconMap = { flashcards: 'style', quiz: 'quiz', guide: 'description', mindmap: 'account_tree' };
+        const iconMap = { sheet: 'sticky_note_2', flashcards: 'style', quiz: 'quiz', guide: 'description', mindmap: 'account_tree' };
         for (const t of nb.tools) {
             saved.append(h('button', {
                 type: 'button', class: 'st-saved-item' + (state.activeToolId === t.id ? ' active' : ''),
@@ -670,6 +683,32 @@ function renderWorkspace(nb) {
 
     ws.append(colSources, colCenter, colStudio);
     wrap.append(ws);
+    return wrap;
+}
+
+const GEN_LABEL = { sheet: 'Schreibt deinen Merkzettel', flashcards: 'Erstellt Karteikarten', quiz: 'Erstellt Quiz', guide: 'Schreibt den Lernleitfaden', mindmap: 'Zeichnet die Mindmap' };
+const GEN_STEPS = { sheet: ['Liest deine Lerninhalte', 'Sucht die prüfungsrelevanten Punkte', 'Schreibt Stichpunkte', 'Markiert das Wichtigste'], default: ['Liest deine Lerninhalte', 'Wählt die wichtigsten Punkte', 'Formuliert die Fragen', 'Prüft die Antworten'] };
+let genTimer = 0;
+function renderGenerating(type) {
+    const box = h('div', { class: 'st-generating' });
+    const sub = h('small', {});
+    const t0 = state.genStart || (state.genStart = Date.now());
+    const steps = GEN_STEPS[type] || GEN_STEPS.default;
+    const tick = () => { const s = Math.round((Date.now() - t0) / 1000); sub.textContent = steps[Math.min(steps.length - 1, Math.floor(s / 4))] + ' … · ' + s + ' s'; };
+    tick(); clearInterval(genTimer); genTimer = setInterval(() => { if (!box.isConnected) { clearInterval(genTimer); genTimer = 0; return; } tick(); }, 1000);
+    box.append(loader({ size: 32 }), h('div', {}, h('strong', { text: (GEN_LABEL[type] || 'Erstellt') + ' …' }), sub));
+    return box;
+}
+
+function renderSheetView(tool, nb) {
+    const wrap = h('div', { class: 'mz-view' });
+    let sheet = renderSheet(tool, { subject: nb.subject });
+    const setPaper = (p) => { updateNb(n => { const t = (n.tools || []).find(x => x.id === tool.id); if (t) t.paper = p; }); tool.paper = p; const next = renderSheet(tool, { subject: nb.subject }); sheet.replaceWith(next); sheet = next; bar.querySelectorAll('[data-paper]').forEach(b => b.classList.toggle('active', b.dataset.paper === p)); };
+    const bar = h('div', { class: 'mz-bar' },
+        h('div', { class: 'st-seg' }, ...[['karo', 'Karo'], ['liniert', 'Liniert'], ['blanko', 'Blanko']].map(([k, l]) => h('button', { type: 'button', 'data-paper': k, class: (tool.paper || defaultPaper(nb.subject)) === k ? 'active' : '', onclick: () => setPaper(k) }, l))),
+        h('button', { type: 'button', class: 'btn-save', onclick: () => printSheet(sheet, tool.title) }, ic('picture_as_pdf'), ' Als PDF speichern')
+    );
+    wrap.append(bar, h('div', { class: 'mz-scroll' }, sheet));
     return wrap;
 }
 

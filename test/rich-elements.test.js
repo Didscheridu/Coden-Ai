@@ -22,7 +22,7 @@ const chk = (name, got, want) => { const ok = JSON.stringify(got) === JSON.strin
   const open = R.extractWidgets('Los geht\'s\n<flashcards>\nHund :: dog');
   chk('offener Block beim Streamen', [open.widgets[0].type, open.widgets[0].closed, open.text.includes('Hund')], ['flashcards', false, false]);
   chk('halber Anfangs-Tag wird versteckt', R.extractWidgets('Text <qui').text, 'Text ');
-  chk('Blöcke in ```Code``` bleiben Code', R.extractWidgets('```html\n<steps>\na\n</steps>\n```').widgets.length, 0);
+  chk('Tags mitten in echtem ```Code``` bleiben Code', R.extractWidgets('```js\nconst t = "<steps>a</steps>";\n```').widgets.length, 0);
   chk('mehrere Blöcke', R.extractWidgets('<steps>\na: b\n</steps>\nx\n<stats>\n1 | eins\n</stats>').widgets.map(w => w.type), ['steps', 'stats']);
 
   // ---------- Quiz ----------
@@ -40,6 +40,32 @@ const chk = (name, got, want) => { const ok = JSON.stringify(got) === JSON.strin
   chk('Pro & Contra', R.parseProsCons('+ schnell\n- teuer\n✓ leise'), { pro: ['schnell', 'leise'], con: ['teuer'] });
   chk('Zeilen mit |', R.parseRows('8 Mrd | Menschen | blau'), [['8 Mrd', 'Menschen', 'blau']]);
   chk('Tabs', R.parseTabs('## Einfach\nkurz\n## Profi\nlang\nmehr').map(t => [t.title, t.body.trim()]), [['Einfach', 'kurz'], ['Profi', 'lang\nmehr']]);
+
+  // ---------- Streaming: nie rohe Tags, Code-Zäune auspacken ----------
+  const half = R.extractWidgets('Los\n<quiz title="Photo');
+  chk('halb geschriebener Tag mit Attributen → Platzhalter "Erstellt Quiz"', [half.text.includes('<quiz'), half.widgets.map(w => [w.type, w.closed])], [false, [['quiz', false]]]);
+  const fenced = R.extractWidgets('Hier:\n```xml\n<quiz>\n? A\n+ b\n- c\n</quiz>\n```\nEnde');
+  chk('Quiz in ```-Zaun wird trotzdem ein Quiz', [fenced.widgets.length, fenced.widgets[0]?.closed, fenced.text.includes('Ende')], [1, true, true]);
+  chk('halber Schluss-Tag wird nicht angezeigt', R.extractWidgets('<quiz>\n? A\n+ b\n</qu').widgets[0].body, '? A\n+ b');
+  chk('Fortschritt beim Streamen', [R.progressOf({ type: 'quiz', body: '? a\n+ b\n? c' }), R.progressOf({ type: 'flashcards', body: 'a :: b' }), R.progressOf({ type: 'quiz', body: '' })], ['2 Fragen', '1 Karte', '']);
+
+  // ---------- Mathe ----------
+  const f = (e, x) => R.compileExpr(e)(x);
+  chk('Formeln: Potenz, implizites Mal, Klammern, Komma', [f('2x^2-3', 2), f('-x^2', 3), f('3(x+1)', 1), f('x²+2x+1', 1), f('0,5x', 4), f('2^x', 3)], [5, -9, 6, 4, 2, 8]);
+  chk('Formeln: Funktionen und Konstanten', [f('sin(pi/2)', 0), f('√(x)', 9), f('|x-5|', 1), f('e^x', 0), +f('2 sin(x) cos(x)', 1).toFixed(6)], [1, 3, 4, 1, +Math.sin(2).toFixed(6)]);
+  let bad = 0; for (const e of ['x +', 'alert(1)', 'x)(', 'constructor']) { try { R.compileExpr(e)(1); } catch (_) { bad++; } }
+  chk('ungültige/gefährliche Formeln werden abgelehnt (kein eval)', bad, 4);
+  const pl = R.parsePlot('f(x) = x^2 - 2 | blau\ny = 2x+1\nP(1|2) | grün\nS(0,5|-1,75)\nx = 2 | rot', { x: '-5..5', y: '-3;10' });
+  chk('Plot: Funktionen, Punkte, Linien, Bereiche', [pl.fns.map(x => [x.name, x.expr, x.color]), pl.pts.map(p => [p.name, p.x, p.y, p.color]), pl.vlines, pl.x, pl.y], [[['f', 'x^2 - 2', 'blue'], ['y', '2x+1', null]], [['P', 1, 2, 'green'], ['S', 0.5, -1.75, null]], [{ x: 2, color: 'red' }], [-5, 5], [-3, 10]]);
+  chk('Kreisdiagramm', R.parsePie('Ja | 60 % | grün\nNein | 30\nkaputt | x'), [{ l: 'Ja', v: 60, c: 'green' }, { l: 'Nein', v: 30, c: null }]);
+
+  // ---------- Merkzettel ----------
+  const M = await import(pathToFileURL(path.join(__dirname, '../js/merkzettel-core.js')).href);
+  const clean = M.cleanMerkzettel('Hier ist dein Merkzettel:\n# Zellatmung 🧬\n## Ablauf\n- **Wichtig:** Glykolyse\n## Fazit\n- alles toll\n## Formel\n- $C_6H_{12}O_6$');
+  chk('Merkzettel: KI-Spuren raus (Einleitung, Emojis, Fazit, Fett-Etiketten)', [clean.includes('Hier ist'), /🧬/.test(clean), clean.includes('Fazit'), clean.includes('**Wichtig:**'), clean.includes('- Wichtig: Glykolyse'), clean.includes('## Formel')], [false, false, false, false, true, true]);
+  chk('Merkzettel: Titel und Papier', [M.titleOf('# ==Zell==atmung\n- a'), M.defaultPaper('Mathe'), M.defaultPaper('Geschichte')], ['Zellatmung', 'karo', 'liniert']);
+  const mp = M.merkzettelPrompt({ src: 'Stoff', subject: 'Bio' });
+  chk('Merkzettel-Prompt verbietet KI-Floskeln und verlangt Stichpunkte', [/VERBOTEN/.test(mp.sys), /Stichpunkte/.test(mp.sys), mp.user.includes('Stoff')], [true, true, true]);
 
   // ---------- Systemprompt kennt alles ----------
   const P = await import(pathToFileURL(path.join(__dirname, '../js/system-prompt.js')).href);
