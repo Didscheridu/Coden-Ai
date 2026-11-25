@@ -318,7 +318,7 @@ async function listProviderModels(provider, key) {
     const list = (Array.isArray(d) ? d : (d.data || d.models || [])).filter(m => m && (typeof m === 'string' || m.id));
     const isFree = (m) => (typeof m === 'string'
       ? /:free$|\/free$/i.test(m)
-      : (Boolean(m.isFree) || /:free$|\/free$/i.test(m.id || '') || (m.pricing && Number(m.pricing.prompt) === 0 && Number(m.pricing.completion) === 0)));
+      : !!(m.isFree || /:free$|\/free$/i.test(m.id || '') || (m.pricing && Number(m.pricing.prompt) === 0 && Number(m.pricing.completion) === 0)));
     list.sort((a, b) => Number(isFree(b)) - Number(isFree(a)));
     return list.map(m => (typeof m === 'string' ? { id: m, label: m } : { id: m.id, label: m.name || m.id }));
   }
