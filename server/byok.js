@@ -6,6 +6,7 @@
 const crypto = require('crypto');
 const express = require('express');
 const db = require('./db');
+const neon = require('./neon');
 const { rateLimit } = require('./rateLimit');
 const { wrapRouter } = require('./util');
 
@@ -148,6 +149,50 @@ const fail = (status, message) => Object.assign(new Error(message), { status });
 
 const keyDocPath = (uid, provider) => `user_provider_keys/${uid}__${provider}`;
 
+// ---------- Key-Speicher: Firestore oder Neon (Postgres) ----------
+// Welche Anbieter-Keys in Neon (Tabelle byok_keys) liegen: NEON_BYOK_PROVIDERS (Komma-Liste oder "all"),
+// Standard nur OrcaRouter. Ohne Neon-URL bleibt alles in Firestore. Die Keys sind in beiden Fällen
+// mit AES-256-GCM verschlüsselt, die Datenbank sieht nie den Klartext.
+const NEON_TABLE = 'byok_keys';
+function neonProviders() {
+  const raw = (process.env.NEON_BYOK_PROVIDERS || 'orcarouter').toLowerCase();
+  return raw.split(',').map(s => s.trim()).filter(Boolean);
+}
+const inNeon = (provider) => neon.isConfigured() && (neonProviders().includes('all') || neonProviders().includes(provider));
+const keyStoreOf = (provider) => (inNeon(provider) ? 'neon' : 'firestore');
+const neonFail = (e) => fail(502, `Die Neon-Datenbank ist nicht erreichbar (${String(e.message).slice(0, 140)}).`);
+
+async function keyRecord(uid, provider) {
+  if (inNeon(provider)) {
+    const rows = await neon.select(NEON_TABLE, { uid, provider }).catch((e) => { console.error('[byok] Neon lesen:', e.message); return []; });
+    if (rows[0]) return rows[0];
+  }
+  return db.getDoc(keyDocPath(uid, provider)); // Firestore (auch alte Keys von vor dem Umzug)
+}
+async function saveKey(uid, provider, record) {
+  if (inNeon(provider)) {
+    try { await neon.upsert(NEON_TABLE, record, ['uid', 'provider']); } catch (e) { throw neonFail(e); }
+    await db.deleteDoc(keyDocPath(uid, provider)).catch(() => {}); // alte Kopie in Firestore aufräumen
+    return;
+  }
+  await db.setDoc(keyDocPath(uid, provider), record);
+}
+async function deleteKey(uid, provider) {
+  if (neon.isConfigured()) {
+    try { await neon.remove(NEON_TABLE, { uid, provider }); } catch (e) { if (inNeon(provider)) throw neonFail(e); }
+  }
+  await db.deleteDoc(keyDocPath(uid, provider)).catch((e) => { if (!inNeon(provider)) throw e; });
+}
+async function listKeys(uid) {
+  const [fsKeys, sbKeys] = await Promise.all([
+    db.runQuery('user_provider_keys', { where: [['uid', '==', uid]] }),
+    neon.isConfigured() ? neon.select(NEON_TABLE, { uid }).catch((e) => { console.error('[byok] Neon lesen:', e.message); return []; }) : []
+  ]);
+  const byProvider = new Map(fsKeys.map(k => [k.provider, k]));
+  for (const k of sbKeys) byProvider.set(k.provider, k); // Neon hat Vorrang
+  return [...byProvider.values()];
+}
+
 async function allocUniqueShortDoc(collection, buildDoc) {
   for (let i = 0; i < 8; i++) {
     const id = 10_000_000 + crypto.randomInt(0, 900_000_000);
@@ -164,7 +209,7 @@ async function allocUniqueShortDoc(collection, buildDoc) {
 
 // ---------- Zugriff ----------
 async function keyOf(uid, provider) {
-  const r = await db.getDoc(keyDocPath(uid, provider));
+  const r = await keyRecord(uid, provider);
   if (!r) return null;
   try { return await decrypt(r.key_enc); } catch (e) { console.error('[byok] Key nicht lesbar:', e.message); return null; }
 }
@@ -262,7 +307,7 @@ async function setAgentConfig(uid, b = {}) {
 // Dem Nutzer zeigen: nie den Key, nur ob und woran er endet
 async function overview(uid) {
   const [keys, models, chains] = await Promise.all([
-    db.runQuery('user_provider_keys', { where: [['uid', '==', uid]] }),
+    listKeys(uid),
     db.runQuery('user_models', { where: [['uid', '==', uid]], orderBy: 'id' }),
     db.runQuery('user_chains', { where: [['uid', '==', uid]], orderBy: 'id' })
   ]);
@@ -272,7 +317,7 @@ async function overview(uid) {
   return {
     levels: LEVELS, builtin: Object.entries(BUILTIN).map(([tier, label]) => ({ tier, label })), agentConfig: await getAgentConfig(uid),
     chains: chains.map(c => ({ id: c.id, tier: 'chain:' + c.id, name: c.name, members: (c.members || []).map(t => ({ tier: t, label: nameOf.get(t) || 'gelöscht', ok: !!BUILTIN[t] || readyModel.has(t) })), ready: (c.members || []).some(t => BUILTIN[t] || readyModel.has(t)) })),
-    providers: Object.entries(PROVIDERS).map(([id, p]) => ({ id, name: p.name, link: p.link, keyHint: p.keyHint, levels: p.levels, suggest: p.suggest, hasKey: have.has(id), hint: have.get(id) || null })),
+    providers: Object.entries(PROVIDERS).map(([id, p]) => ({ id, name: p.name, link: p.link, keyHint: p.keyHint, levels: p.levels, suggest: p.suggest, hasKey: have.has(id), hint: have.get(id) || null, store: keyStoreOf(id) })),
     models: models.map(m => ({ id: m.id, tier: 'byok:' + m.id, provider: m.provider, providerName: PROVIDERS[m.provider]?.name || m.provider, modelId: m.model_id, label: m.label, levels: m.levels || [], defaultLevel: m.default_level, ready: have.has(m.provider) }))
   };
 }
@@ -337,7 +382,7 @@ function byokRouter(requireAuth) {
   r.put('/keys/:provider', async (req, res) => {
     const p = provider(req); const key = typeof req.body?.key === 'string' ? req.body.key.trim() : '';
     if (key.length < 8 || key.length > 400 || /\s/.test(key)) throw fail(400, 'Das sieht nicht wie ein API-Key aus.');
-    await db.setDoc(keyDocPath(req.user.uid, p), {
+    await saveKey(req.user.uid, p, {
       uid: req.user.uid,
       provider: p,
       key_enc: await encrypt(key),
@@ -348,7 +393,7 @@ function byokRouter(requireAuth) {
   });
   r.delete('/keys/:provider', async (req, res) => {
     const p = provider(req);
-    await db.deleteDoc(keyDocPath(req.user.uid, p));
+    await deleteKey(req.user.uid, p);
     res.json(await overview(req.user.uid));
   });
 
@@ -446,4 +491,4 @@ function byokRouter(requireAuth) {
   return r;
 }
 
-module.exports = { byokRouter, resolve, resolveChain, levelFor, freeOfQuota, owns, labels, getAgentConfig, setAgentConfig, encrypt, decrypt, isByok, isChain, isOwnTier, PROVIDERS, BUILTIN, LEVELS, DEFAULT_LEVELS };
+module.exports = { keyStoreOf, neonProviders, byokRouter, resolve, resolveChain, levelFor, freeOfQuota, owns, labels, getAgentConfig, setAgentConfig, encrypt, decrypt, isByok, isChain, isOwnTier, PROVIDERS, BUILTIN, LEVELS, DEFAULT_LEVELS };
