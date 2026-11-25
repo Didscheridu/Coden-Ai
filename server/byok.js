@@ -6,7 +6,7 @@
 const crypto = require('crypto');
 const express = require('express');
 const db = require('./db');
-const supa = require('./supabase');
+const neon = require('./neon');
 const { rateLimit } = require('./rateLimit');
 const { wrapRouter } = require('./util');
 
@@ -149,47 +149,47 @@ const fail = (status, message) => Object.assign(new Error(message), { status });
 
 const keyDocPath = (uid, provider) => `user_provider_keys/${uid}__${provider}`;
 
-// ---------- Key-Speicher: Firestore oder Supabase ----------
-// Welche Anbieter-Keys in Supabase (Tabelle byok_keys) liegen: SUPABASE_BYOK_PROVIDERS (Komma-Liste oder "all"),
-// Standard nur OrcaRouter. Ohne Supabase-Konfiguration bleibt alles in Firestore. Die Keys sind in beiden Fällen
+// ---------- Key-Speicher: Firestore oder Neon (Postgres) ----------
+// Welche Anbieter-Keys in Neon (Tabelle byok_keys) liegen: NEON_BYOK_PROVIDERS (Komma-Liste oder "all"),
+// Standard nur OrcaRouter. Ohne Neon-URL bleibt alles in Firestore. Die Keys sind in beiden Fällen
 // mit AES-256-GCM verschlüsselt, die Datenbank sieht nie den Klartext.
-const SB_TABLE = 'byok_keys';
-function supabaseProviders() {
-  const raw = (process.env.SUPABASE_BYOK_PROVIDERS || 'orcarouter').toLowerCase();
+const NEON_TABLE = 'byok_keys';
+function neonProviders() {
+  const raw = (process.env.NEON_BYOK_PROVIDERS || 'orcarouter').toLowerCase();
   return raw.split(',').map(s => s.trim()).filter(Boolean);
 }
-const inSupabase = (provider) => supa.isConfigured() && (supabaseProviders().includes('all') || supabaseProviders().includes(provider));
-const keyStoreOf = (provider) => (inSupabase(provider) ? 'supabase' : 'firestore');
-const sbFail = (e) => fail(502, `Supabase ist nicht erreichbar oder die Tabelle ${SB_TABLE} fehlt (${String(e.message).slice(0, 140)}).`);
+const inNeon = (provider) => neon.isConfigured() && (neonProviders().includes('all') || neonProviders().includes(provider));
+const keyStoreOf = (provider) => (inNeon(provider) ? 'neon' : 'firestore');
+const neonFail = (e) => fail(502, `Die Neon-Datenbank ist nicht erreichbar (${String(e.message).slice(0, 140)}).`);
 
 async function keyRecord(uid, provider) {
-  if (inSupabase(provider)) {
-    const rows = await supa.select(SB_TABLE, { uid, provider }).catch((e) => { console.error('[byok] Supabase lesen:', e.message); return []; });
+  if (inNeon(provider)) {
+    const rows = await neon.select(NEON_TABLE, { uid, provider }).catch((e) => { console.error('[byok] Neon lesen:', e.message); return []; });
     if (rows[0]) return rows[0];
   }
   return db.getDoc(keyDocPath(uid, provider)); // Firestore (auch alte Keys von vor dem Umzug)
 }
 async function saveKey(uid, provider, record) {
-  if (inSupabase(provider)) {
-    try { await supa.upsert(SB_TABLE, record, ['uid', 'provider']); } catch (e) { throw sbFail(e); }
+  if (inNeon(provider)) {
+    try { await neon.upsert(NEON_TABLE, record, ['uid', 'provider']); } catch (e) { throw neonFail(e); }
     await db.deleteDoc(keyDocPath(uid, provider)).catch(() => {}); // alte Kopie in Firestore aufräumen
     return;
   }
   await db.setDoc(keyDocPath(uid, provider), record);
 }
 async function deleteKey(uid, provider) {
-  if (supa.isConfigured()) {
-    try { await supa.remove(SB_TABLE, { uid, provider }); } catch (e) { if (inSupabase(provider)) throw sbFail(e); }
+  if (neon.isConfigured()) {
+    try { await neon.remove(NEON_TABLE, { uid, provider }); } catch (e) { if (inNeon(provider)) throw neonFail(e); }
   }
-  await db.deleteDoc(keyDocPath(uid, provider)).catch((e) => { if (!inSupabase(provider)) throw e; });
+  await db.deleteDoc(keyDocPath(uid, provider)).catch((e) => { if (!inNeon(provider)) throw e; });
 }
 async function listKeys(uid) {
   const [fsKeys, sbKeys] = await Promise.all([
     db.runQuery('user_provider_keys', { where: [['uid', '==', uid]] }),
-    supa.isConfigured() ? supa.select(SB_TABLE, { uid }).catch((e) => { console.error('[byok] Supabase lesen:', e.message); return []; }) : []
+    neon.isConfigured() ? neon.select(NEON_TABLE, { uid }).catch((e) => { console.error('[byok] Neon lesen:', e.message); return []; }) : []
   ]);
   const byProvider = new Map(fsKeys.map(k => [k.provider, k]));
-  for (const k of sbKeys) byProvider.set(k.provider, k); // Supabase hat Vorrang
+  for (const k of sbKeys) byProvider.set(k.provider, k); // Neon hat Vorrang
   return [...byProvider.values()];
 }
 
@@ -491,4 +491,4 @@ function byokRouter(requireAuth) {
   return r;
 }
 
-module.exports = { keyStoreOf, supabaseProviders, byokRouter, resolve, resolveChain, levelFor, freeOfQuota, owns, labels, getAgentConfig, setAgentConfig, encrypt, decrypt, isByok, isChain, isOwnTier, PROVIDERS, BUILTIN, LEVELS, DEFAULT_LEVELS };
+module.exports = { keyStoreOf, neonProviders, byokRouter, resolve, resolveChain, levelFor, freeOfQuota, owns, labels, getAgentConfig, setAgentConfig, encrypt, decrypt, isByok, isChain, isOwnTier, PROVIDERS, BUILTIN, LEVELS, DEFAULT_LEVELS };
