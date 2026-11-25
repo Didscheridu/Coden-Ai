@@ -1511,7 +1511,11 @@ async function followRun(r) {
 }
 function ensureSession(r) {
     let sess = sessions.find(s => s.id === r.ref);
-    if (!sess) { sess = { id: r.ref, title: r.meta?.title || 'Chat', messages: [] }; sessions.unshift(sess); }
+    if (!sess) {
+        const nowIso = new Date().toISOString();
+        sess = { id: r.ref, title: r.meta?.title || 'Chat', messages: [], createdAt: r.startedAt || nowIso, updatedAt: r.updatedAt || nowIso };
+        sessions.unshift(sess);
+    }
     const ut = String(r.meta?.userText || '').trim();
     const lastUser = [...sess.messages].reverse().find(m => m.isUser);
     if (ut && !(lastUser && String(lastUser.text).trim().startsWith(ut.slice(0, 200)))) {

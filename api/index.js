@@ -59,10 +59,18 @@ api.get('/me', requireAuth, (req, res) => {
 // ---------- Nutzerdaten (Chats + Einstellungen) ----------
 // Geheimnisse (eigene API-Keys, E-Mail-Passwort) werden NIE in Firestore gespeichert.
 function stripSecrets(settings) {
-  const s = { ...(settings || {}) };
+  const s = { ...(settings && typeof settings === 'object' ? settings : {}) };
   delete s.apiKey;
-  if (s.emailConfig) s.emailConfig = { ...s.emailConfig, password: '' };
-  return s;
+  if (s.emailConfig && typeof s.emailConfig === 'object') {
+    s.emailConfig = {
+      provider: String(s.emailConfig.provider || 'gmail').slice(0, 32),
+      address: String(s.emailConfig.address || '').slice(0, 200),
+      password: ''
+    };
+  }
+  const trimmed = {};
+  for (const k of Object.keys(s).slice(0, 40)) trimmed[k] = s[k];
+  return trimmed;
 }
 
 const sanitizeSessionId = (id, idx) => {

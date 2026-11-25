@@ -444,7 +444,7 @@
       "type": "object",
       "properties": {
         "uid": { "type": "string", "maxLength": 128 },
-        "provider": { "type": "string", "enum": ["google", "openai", "anthropic", "openrouter"], "maxLength": 32 },
+        "provider": { "type": "string", "enum": ["google", "openai", "anthropic", "openrouter", "numes"], "maxLength": 32 },
         "key_enc": { "type": "string", "maxLength": 2000 },
         "hint": { "type": "string", "maxLength": 32 },
         "created_at": { "type": "string", "format": "date-time", "maxLength": 64 }
@@ -458,7 +458,7 @@
       "properties": {
         "id": { "type": "number" },
         "uid": { "type": "string", "maxLength": 128 },
-        "provider": { "type": "string", "enum": ["google", "openai", "anthropic", "openrouter"], "maxLength": 32 },
+        "provider": { "type": "string", "enum": ["google", "openai", "anthropic", "openrouter", "numes"], "maxLength": 32 },
         "model_id": { "type": "string", "maxLength": 120 },
         "label": { "type": "string", "maxLength": 60 },
         "levels": { "type": "array" },
@@ -538,6 +538,107 @@
         "updated_at": { "type": "string", "format": "date-time", "maxLength": 64 }
       },
       "required": ["id", "uid", "name", "url", "auth_type", "enabled"]
+    },
+    "UserSearchKey": {
+      "title": "UserSearchKey",
+      "description": "Encrypted web search API key (Brave or Tavily) per user",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "provider": { "type": "string", "enum": ["brave", "tavily"], "maxLength": 32 },
+        "key_enc": { "type": "string", "maxLength": 2000 },
+        "hint": { "type": "string", "maxLength": 32 },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["uid", "provider", "key_enc"]
+    },
+    "ScheduledTask": {
+      "title": "ScheduledTask",
+      "description": "Scheduled recurring or one-shot background prompt/research task",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 200 },
+        "is_owner": { "type": "boolean" },
+        "title": { "type": "string", "maxLength": 80 },
+        "prompt": { "type": "string", "maxLength": 2000 },
+        "schedule": { "type": "object" },
+        "tz": { "type": "string", "maxLength": 80 },
+        "tier": { "type": "string", "maxLength": 64 },
+        "research": { "type": "boolean" },
+        "depth": { "type": "string", "maxLength": 16 },
+        "enabled": { "type": "boolean" },
+        "next_run": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "last_run": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "last_status": { "type": "string", "enum": ["ok", "error"], "maxLength": 16 },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["id", "uid", "title", "prompt", "schedule", "tz", "tier", "research", "depth", "enabled"]
+    },
+    "TaskResult": {
+      "title": "TaskResult",
+      "description": "Execution output of a scheduled task",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "uid": { "type": "string", "maxLength": 128 },
+        "task_id": { "type": "number" },
+        "title": { "type": "string", "maxLength": 80 },
+        "text": { "type": "string", "maxLength": 60000 },
+        "ok": { "type": "boolean" },
+        "seen": { "type": "boolean" },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["id", "uid", "title", "text", "ok", "seen"]
+    },
+    "SharedArtifact": {
+      "title": "SharedArtifact",
+      "description": "Published interactive HTML/code artifact hosted at /s/{id}",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "uid": { "type": "string", "maxLength": 128 },
+        "author": { "type": "string", "maxLength": 60 },
+        "title": { "type": "string", "maxLength": 80 },
+        "type": { "type": "string", "enum": ["html", "react", "svg", "mermaid", "chart", "table", "slides", "markdown", "code", "python"], "maxLength": 24 },
+        "html": { "type": "string", "maxLength": 700000 },
+        "body": { "type": "string", "maxLength": 300000 },
+        "src_key": { "type": "string", "maxLength": 200 },
+        "published": { "type": "boolean" },
+        "version": { "type": "number" },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "updated_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["id", "uid", "title", "type", "html", "published", "version"]
+    },
+    "ArtifactData": {
+      "title": "ArtifactData",
+      "description": "Per-user private key-value store item for an artifact",
+      "type": "object",
+      "properties": {
+        "aid": { "type": "string", "maxLength": 64 },
+        "uid": { "type": "string", "maxLength": 128 },
+        "key": { "type": "string", "maxLength": 200 },
+        "value": { "type": "string", "maxLength": 20000 },
+        "scope": { "type": "string", "enum": ["private"], "maxLength": 16 },
+        "updated_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["aid", "uid", "key", "value", "scope"]
+    },
+    "ArtifactShared": {
+      "title": "ArtifactShared",
+      "description": "Shared key-value store item for a published artifact",
+      "type": "object",
+      "properties": {
+        "aid": { "type": "string", "maxLength": 64 },
+        "uid": { "type": "string", "maxLength": 128 },
+        "key": { "type": "string", "maxLength": 200 },
+        "value": { "type": "string", "maxLength": 20000 },
+        "scope": { "type": "string", "enum": ["shared"], "maxLength": 16 },
+        "updated_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["aid", "uid", "key", "value", "scope"]
     }
   },
   "firestore": {
@@ -684,6 +785,30 @@
     "/mcp_connections/{connId}": {
       "schema": { "$ref": "#/entities/McpConnection" },
       "description": "Per-user MCP connections and encrypted OAuth/API credentials"
+    },
+    "/user_search_keys/{keyId}": {
+      "schema": { "$ref": "#/entities/UserSearchKey" },
+      "description": "Encrypted web search API keys per user"
+    },
+    "/scheduled_tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/ScheduledTask" },
+      "description": "User scheduled tasks and recurring jobs"
+    },
+    "/task_results/{resId}": {
+      "schema": { "$ref": "#/entities/TaskResult" },
+      "description": "Execution results for scheduled tasks"
+    },
+    "/shared_artifacts/{artId}": {
+      "schema": { "$ref": "#/entities/SharedArtifact" },
+      "description": "Published shared artifacts"
+    },
+    "/artifact_data/{docId}": {
+      "schema": { "$ref": "#/entities/ArtifactData" },
+      "description": "Per-user private artifact key-value storage"
+    },
+    "/artifact_shared/{docId}": {
+      "schema": { "$ref": "#/entities/ArtifactShared" },
+      "description": "Shared key-value storage for published artifacts"
     }
   }
 }

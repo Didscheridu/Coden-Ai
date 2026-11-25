@@ -243,6 +243,79 @@ service cloud.firestore {
         && (!('updated_at' in data) || isIsoOrTs(data.updated_at));
     }
 
+    function isValidUserSearchKey(data, keyId) {
+      return data.keys().hasAll(['uid', 'provider', 'key_enc'])
+        && data.keys().hasOnly(['uid', 'provider', 'key_enc', 'hint', 'created_at'])
+        && isStr(data.uid, 1, 128) && data.uid == request.auth.uid
+        && data.provider in ['brave', 'tavily']
+        && keyId == data.uid + '__' + data.provider
+        && isStr(data.key_enc, 10, 2000)
+        && isOptStr(data, 'hint', 32)
+        && (!('created_at' in data) || isIsoOrTs(data.created_at));
+    }
+
+    function isValidScheduledTask(data) {
+      return data.keys().hasAll(['id', 'uid', 'title', 'prompt', 'schedule', 'tz', 'tier', 'research', 'depth', 'enabled'])
+        && data.keys().hasOnly(['id', 'uid', 'email', 'is_owner', 'title', 'prompt', 'schedule', 'tz', 'tier', 'research', 'depth', 'enabled', 'next_run', 'last_run', 'last_status', 'created_at'])
+        && data.id is int && data.id > 0
+        && isStr(data.uid, 1, 128)
+        && isOptStr(data, 'email', 200)
+        && (!('is_owner' in data) || data.is_owner is bool)
+        && isStr(data.title, 0, 80)
+        && isStr(data.prompt, 1, 2000)
+        && data.schedule is map && data.schedule.keys().size() <= 12
+        && isStr(data.tz, 1, 80)
+        && isStr(data.tier, 1, 64)
+        && data.research is bool
+        && isStr(data.depth, 1, 16)
+        && data.enabled is bool
+        && (!('next_run' in data) || data.next_run == null || isIsoOrTs(data.next_run))
+        && (!('last_run' in data) || data.last_run == null || isIsoOrTs(data.last_run))
+        && (!('last_status' in data) || data.last_status == null || data.last_status in ['ok', 'error'])
+        && (!('created_at' in data) || isIsoOrTs(data.created_at));
+    }
+
+    function isValidTaskResult(data) {
+      return data.keys().hasAll(['id', 'uid', 'title', 'text', 'ok', 'seen'])
+        && data.keys().hasOnly(['id', 'uid', 'task_id', 'title', 'text', 'ok', 'seen', 'created_at'])
+        && data.id is int && data.id > 0
+        && isStr(data.uid, 1, 128)
+        && (!('task_id' in data) || data.task_id == null || data.task_id is int)
+        && isStr(data.title, 0, 80)
+        && isStr(data.text, 0, 60000)
+        && data.ok is bool
+        && data.seen is bool
+        && (!('created_at' in data) || isIsoOrTs(data.created_at));
+    }
+
+    function isValidSharedArtifact(data, artId) {
+      return data.keys().hasAll(['id', 'uid', 'title', 'type', 'html', 'published', 'version'])
+        && data.keys().hasOnly(['id', 'uid', 'author', 'title', 'type', 'html', 'body', 'src_key', 'published', 'created_at', 'updated_at', 'version'])
+        && isStr(data.id, 1, 64) && data.id == artId
+        && isStr(data.uid, 1, 128)
+        && isOptStr(data, 'author', 60)
+        && isStr(data.title, 1, 80)
+        && data.type in ['html', 'react', 'svg', 'mermaid', 'chart', 'table', 'slides', 'markdown', 'code', 'python']
+        && isStr(data.html, 1, 700000)
+        && isOptStr(data, 'body', 300000)
+        && isOptStr(data, 'src_key', 200)
+        && data.published is bool
+        && data.version is int && data.version >= 1
+        && (!('created_at' in data) || isIsoOrTs(data.created_at))
+        && (!('updated_at' in data) || isIsoOrTs(data.updated_at));
+    }
+
+    function isValidArtifactStoreDoc(data, scopeVal) {
+      return data.keys().hasAll(['aid', 'uid', 'key', 'value', 'scope'])
+        && data.keys().hasOnly(['aid', 'uid', 'key', 'value', 'scope', 'updated_at'])
+        && isValidId(data.aid)
+        && isStr(data.uid, 1, 128)
+        && isStr(data.key, 1, 200)
+        && isStr(data.value, 0, 20000)
+        && data.scope == scopeVal
+        && (!('updated_at' in data) || isIsoOrTs(data.updated_at));
+    }
+
     // ---------- Connectivity Probe ----------
     match /test/connection {
       allow get: if true;
@@ -280,8 +353,12 @@ service cloud.firestore {
           && incoming().id == sessionId && (isOwner(uid) || isAdmin());
         allow update: if isVerified() && isValidId(uid) && isValidId(sessionId) && isValidChatSession(incoming(), uid)
           && incoming().uid == existing().uid && incoming().id == existing().id
+          && (!('createdAt' in existing()) || incoming().createdAt == existing().createdAt)
           && (isOwner(uid) || isAdmin())
-          && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'messages', 'pinned', 'unread', 'projectId', 'assistantId', 'orderIndex', 'updatedAt']);
+          && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['title', 'messages', 'pinned', 'unread', 'projectId', 'assistantId', 'orderIndex', 'updatedAt']) ||
+            (!('createdAt' in existing()) && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'messages', 'pinned', 'unread', 'projectId', 'assistantId', 'orderIndex', 'createdAt', 'updatedAt']))
+          );
         allow delete: if isValidId(uid) && isValidId(sessionId) && (isOwner(uid) || isAdmin());
       }
     }
@@ -854,42 +931,42 @@ service cloud.firestore {
       allow list: if isAdminToken();
     }
 
-    // ---------- MCP Connections (Encrypted Tokens & OAuth Credentials) ----------
     // ---------- Websuche-Keys, Aufgaben & Zeitpläne (Recherche) ----------
     match /user_search_keys/{keyId} {
-      allow get: if isValidId(keyId) && ((resource == null && keyId.matches('^' + request.auth.uid + '__.*')) || (resource != null && isOwner(resource.data.uid)) || isAdmin());
+      allow get: if isValidId(keyId) && ((resource == null && isSignedIn() && keyId.matches('^' + request.auth.uid + '__.*')) || (resource != null && isOwner(resource.data.uid)) || isAdmin());
       allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());
-      allow create, update: if isVerified() && isValidId(keyId)
-        && incoming().keys().hasAll(['uid', 'provider', 'key_enc'])
-        && incoming().keys().hasOnly(['uid', 'provider', 'key_enc', 'hint', 'created_at'])
-        && incoming().uid == request.auth.uid
-        && keyId == request.auth.uid + '__' + incoming().provider
-        && incoming().provider in ['brave', 'tavily']
-        && isStr(incoming().key_enc, 10, 2000) && isOptStr(incoming(), 'hint', 32);
+      allow create: if isVerified() && isValidId(keyId) && isValidUserSearchKey(incoming(), keyId);
+      allow update: if isVerified() && isValidId(keyId) && isValidUserSearchKey(incoming(), keyId)
+        && (isOwner(existing().uid) || isAdmin())
+        && incoming().uid == existing().uid && incoming().provider == existing().provider
+        && incoming().diff(existing()).affectedKeys().hasOnly(['key_enc', 'hint', 'created_at']);
       allow delete: if isValidId(keyId) && (isOwner(existing().uid) || isAdmin());
     }
+
     match /scheduled_tasks/{taskId} {
       allow get: if isNumId(taskId) && (resource == null || isOwner(resource.data.uid) || isAdmin());
       allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());
-      allow create: if isVerified() && isNumId(taskId)
+      allow create: if isVerified() && isNumId(taskId) && isValidScheduledTask(incoming())
         && incoming().uid == request.auth.uid
-        && (incoming().is_owner == false || isAdminToken())
-        && isStr(incoming().prompt, 1, 2000) && isStr(incoming().title, 0, 80)
-        && incoming().schedule is map;
-      allow update: if isVerified() && isNumId(taskId)
+        && string(incoming().id) == taskId
+        && (incoming().is_owner == false || isAdminToken());
+      allow update: if isVerified() && isNumId(taskId) && isValidScheduledTask(incoming())
         && (isOwner(existing().uid) || isAdmin())
         && incoming().uid == existing().uid && incoming().id == existing().id
         && incoming().is_owner == existing().is_owner
-        && isStr(incoming().prompt, 1, 2000);
+        && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'prompt', 'schedule', 'tz', 'tier', 'research', 'depth', 'enabled', 'next_run', 'last_run', 'last_status']);
       allow delete: if isNumId(taskId) && (isOwner(existing().uid) || isAdmin());
     }
+
     match /task_results/{resId} {
       allow get: if isNumId(resId) && (resource == null || isOwner(resource.data.uid) || isAdmin());
       allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());
-      allow create: if isVerified() && isNumId(resId)
+      allow create: if isVerified() && isNumId(resId) && isValidTaskResult(incoming())
         && incoming().uid == request.auth.uid
-        && isStr(incoming().text, 0, 60000) && isStr(incoming().title, 0, 80);
-      allow update: if (isOwner(existing().uid) || isAdmin())
+        && string(incoming().id) == resId;
+      allow update: if isVerified() && isNumId(resId) && isValidTaskResult(incoming())
+        && (isOwner(existing().uid) || isAdmin())
+        && incoming().uid == existing().uid && incoming().id == existing().id
         && incoming().diff(existing()).affectedKeys().hasOnly(['seen']);
       allow delete: if isNumId(resId) && (isOwner(existing().uid) || isAdmin());
     }
@@ -898,34 +975,54 @@ service cloud.firestore {
     match /shared_artifacts/{artId} {
       allow get: if isValidId(artId) && (resource == null || existing().published == true || isOwner(existing().uid) || isAdmin());
       allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());
-      allow create, update: if isVerified() && isValidId(artId)
-        && incoming().uid == request.auth.uid
-        && (resource == null || existing().uid == request.auth.uid)
-        && isStr(incoming().title, 1, 80) && isStr(incoming().html, 1, 700000)
-        && incoming().published is bool;
+      allow create: if isVerified() && isValidId(artId) && isValidSharedArtifact(incoming(), artId)
+        && incoming().uid == request.auth.uid;
+      allow update: if isVerified() && isValidId(artId) && isValidSharedArtifact(incoming(), artId)
+        && (isOwner(existing().uid) || isAdmin())
+        && incoming().uid == existing().uid && incoming().id == existing().id
+        && (!('created_at' in existing()) || incoming().created_at == existing().created_at)
+        && incoming().diff(existing()).affectedKeys().hasOnly(['author', 'title', 'type', 'html', 'body', 'src_key', 'published', 'updated_at', 'version']);
       allow delete: if isValidId(artId) && (isOwner(existing().uid) || isAdmin());
     }
+
     match /artifact_data/{docId} {
-      allow get: if isSignedIn() && ((resource == null && docId.matches('^' + request.auth.uid + '__.*')) || (resource != null && isOwner(resource.data.uid)));
-      allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
-      allow create, update: if isVerified() && docId.matches('^' + request.auth.uid + '__.*')
-        && incoming().uid == request.auth.uid
-        && isStr(incoming().key, 1, 200) && isStr(incoming().value, 0, 20000);
-      allow delete: if isSignedIn() && docId.matches('^' + request.auth.uid + '__.*');
-    }
-    match /artifact_shared/{docId} {
-      allow get: if true;
-      allow list: if isSignedIn();
-      allow create, update: if isVerified()
-        && incoming().uid == request.auth.uid
-        && isValidId(incoming().aid) && docId.matches('^' + incoming().aid + '__.*')
-        && exists(/databases/$(database)/documents/shared_artifacts/$(incoming().aid))
-        && get(/databases/$(database)/documents/shared_artifacts/$(incoming().aid)).data.published == true
-        && isStr(incoming().key, 1, 200) && isStr(incoming().value, 0, 20000);
-      allow delete: if isVerified()
-        && exists(/databases/$(database)/documents/shared_artifacts/$(existing().aid));
+      allow get: if isStr(docId, 5, 240) && docId.matches('^[a-zA-Z0-9_\\-]+$') && isSignedIn()
+        && ((resource == null && docId.matches('^' + request.auth.uid + '__.*')) || (resource != null && (isOwner(resource.data.uid) || isAdmin())));
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());
+      allow create: if isVerified() && isStr(docId, 5, 240) && docId.matches('^[a-zA-Z0-9_\\-]+$')
+        && isValidArtifactStoreDoc(incoming(), 'private')
+        && docId.matches('^' + request.auth.uid + '__.*')
+        && incoming().uid == request.auth.uid;
+      allow update: if isVerified() && isStr(docId, 5, 240) && docId.matches('^[a-zA-Z0-9_\\-]+$')
+        && isValidArtifactStoreDoc(incoming(), 'private')
+        && (isOwner(existing().uid) || isAdmin())
+        && incoming().uid == existing().uid && incoming().aid == existing().aid && incoming().key == existing().key
+        && incoming().diff(existing()).affectedKeys().hasOnly(['value', 'updated_at']);
+      allow delete: if isStr(docId, 5, 240) && docId.matches('^[a-zA-Z0-9_\\-]+$') && (isOwner(existing().uid) || isAdmin());
     }
 
+    match /artifact_shared/{docId} {
+      allow get: if isValidId(docId);
+      allow list: if isSignedIn() && isValidId(resource.data.aid) && resource.data.scope == 'shared';
+      allow create: if isVerified() && isValidId(docId)
+        && isValidArtifactStoreDoc(incoming(), 'shared')
+        && incoming().uid == request.auth.uid
+        && docId.matches('^' + incoming().aid + '__.*')
+        && exists(/databases/$(database)/documents/shared_artifacts/$(incoming().aid))
+        && get(/databases/$(database)/documents/shared_artifacts/$(incoming().aid)).data.published == true;
+      allow update: if isVerified() && isValidId(docId)
+        && isValidArtifactStoreDoc(incoming(), 'shared')
+        && incoming().uid == request.auth.uid
+        && incoming().aid == existing().aid && incoming().key == existing().key && incoming().scope == existing().scope
+        && incoming().diff(existing()).affectedKeys().hasOnly(['uid', 'value', 'updated_at'])
+        && exists(/databases/$(database)/documents/shared_artifacts/$(existing().aid))
+        && get(/databases/$(database)/documents/shared_artifacts/$(existing().aid)).data.published == true;
+      allow delete: if isVerified() && isValidId(docId)
+        && exists(/databases/$(database)/documents/shared_artifacts/$(existing().aid))
+        && get(/databases/$(database)/documents/shared_artifacts/$(existing().aid)).data.published == true;
+    }
+
+    // ---------- MCP Connections (Encrypted Tokens & OAuth Credentials) ----------
     match /mcp_connections/{connId} {
       allow get: if isNumId(connId) && (isOwner(existing().uid) || isAdmin());
       allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());

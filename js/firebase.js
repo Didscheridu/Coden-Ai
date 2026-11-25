@@ -1,7 +1,7 @@
 // js/firebase.js – Zentrale Firebase-Initialisierung, Verbindungstest & Fehlerbehandlung
 import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
-import { getFirestore, doc, getDocFromServer } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+import { initializeFirestore, getFirestore, doc, getDocFromServer } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 
 const FALLBACK_CONFIG = {
   projectId: "coden-4561f",
@@ -27,9 +27,20 @@ async function loadFirebaseConfig() {
 export const firebaseConfig = await loadFirebaseConfig();
 export const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 export const fbAuth = getAuth(app);
-export const db = firebaseConfig.firestoreDatabaseId
-  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
-  : getFirestore(app);
+function initDb() {
+  try {
+    return initializeFirestore(
+      app,
+      { experimentalAutoDetectLongPolling: true },
+      firebaseConfig.firestoreDatabaseId || undefined
+    );
+  } catch (_) {
+    return firebaseConfig.firestoreDatabaseId
+      ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
+      : getFirestore(app);
+  }
+}
+export const db = initDb();
 
 export const OperationType = Object.freeze({
   CREATE: 'create',
@@ -72,7 +83,7 @@ let inflightConnect = null;
 // Zustand der Datenbank für die Oberfläche: reason = 'quota' (Tageskontingent aufgebraucht), 'denied', 'offline' oder null
 export const dbState = { ok: false, reason: null, message: '' };
 
-export async function testConnection({ timeoutMs = 4500 } = {}) {
+export async function testConnection({ timeoutMs = 8000 } = {}) {
   try {
     await Promise.race([
       getDocFromServer(doc(db, 'test', 'connection')),
