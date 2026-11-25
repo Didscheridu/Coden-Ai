@@ -484,8 +484,10 @@ function smokeTest(files) {
     // Scripts in Ausführungsreihenfolge einsammeln
     const headScripts = [], bodyScripts = [], deferredScripts = [], cdnUrls = [];
     noComments.replace(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi, (m, a, body, off) => {
-      if (/type\s*=\s*["'](?!text\/javascript|module)[^"']+["']/i.test(a)) return m;
+      // Module (type="module", .ts/.tsx/.jsx) laufen im Browser über den Coden-Bundler – hier nicht im vm testen
+      if (/type\s*=\s*["'](?!text\/javascript)[^"']+["']/i.test(a) || /type\s*=\s*module\b/i.test(a)) return m;
       const srcAttr = (a.match(/\bsrc\s*=\s*["']([^"']+)["']/i) || [])[1] || '';
+      if (/\.(jsx|tsx|ts|mts)(\?|#|$)/i.test(srcAttr)) return m;
       const srcNorm = norm(srcAttr);
       if (srcAttr && SKIP_EXT.test(srcAttr)) { cdnUrls.push(srcAttr); return m; }
       if (srcNorm && /(^|\/)coden-kit\.js$/.test(srcNorm)) return m;

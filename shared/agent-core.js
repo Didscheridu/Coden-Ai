@@ -18,7 +18,7 @@ const GAME_KIT = `
 
 const THREE_KIT = `
 - 3D (Coden.three, schon im Kit – baut fertige, schöne 3D-Modelle; du musst KEINE Modelle aus einzelnen Würfeln zusammenbasteln):
-  three.js im <head> oder VOR deinen Skripten einbinden: <script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script> (genau diese Version, klassisches Skript, KEIN import/type="module"; danach gibt es die globale Variable THREE). Sicherheitsnetz: Coden.three.ready(() => { …ganzes Spiel… }) lädt three.js notfalls nach.
+  three.js im <head> oder VOR deinen Skripten einbinden: <script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script> (genau diese Version als klassisches Skript; danach gibt es die globale Variable THREE. In Modulen liefert import * as THREE from 'three' genau dieses THREE). Sicherheitsnetz: Coden.three.ready(() => { …ganzes Spiel… }) lädt three.js notfalls nach.
   Welt: const w = Coden.three.world({ canvas: '#scene' (optional, sonst Vollbild), skyTop, skyBottom, fogFar: 500, ground: true, groundColor, shadows: true }) → w.scene, w.camera, w.renderer, w.sun, w.add(obj), w.remove(obj), w.loop((dt, t) => …), w.pause()/resume(), w.follow(obj, { distance: 9, height: 3.6, lookAhead: 6 }) (Verfolger-Kamera), w.orbit({ distance: 30 }) (Drehen/Zoomen per Maus/Touch), w.sunFollow(obj) (Schatten folgen dem Spieler).
   Modelle (Meter, vorne = -Z, alles mit Schatten): Coden.three.car({ type: 'sport'|'muscle'|'suv'|'hatch'|'truck'|'police'|'taxi'|'kart'|'f1', color: 0xd62828, number: 7 }), tree({ type: 'pine'|'round'|'palm'|'autumn', height }), rock({ size }), cloud({ x, y, z }), building({ width, depth, height, night }), house({ color, roof }), lamp(), cone(), barrier({ length }), coin() (dreht sich mit Coden.three.animate(liste, t)), checkpoint({ radius, color }), character({ color, skin }) + Coden.three.walk(figur, t, speed).
   Strecken & Welten: const trk = Coden.three.track({ preset: 'circuit'|'oval'|'figure8'|'city', width: 16 } oder { points: [[x,z], …] }); w.add(trk); trk.decorate(w, 0.6) (Bäume/Lampen am Rand); trk.grid(6) → Startplätze [{ position, rotationY }]; trk.nearest(pos, hint) → { u (Fortschritt 0..1), dist }; trk.onTrack(pos); trk.pointAt(u); trk.checkpoints(8); trk.length.
@@ -57,7 +57,7 @@ const KITS = {
 - "Juice": Partikel (Coden.game.particles), g.shake(), Coden.game.sfx('jump'|'coin'|'hit'|'boom'|'win'|'lose'), steigende Schwierigkeit.` },
     three: { name: '3D-Entwickler', emoji: '🧊', for: '3D-Spiele und 3D-Szenen mit three.js: Welt, Modelle, Kamera, Licht, Fahrphysik (game3d.js, scene.js)', kit: `
 - Baue mit Coden.three (siehe 3D-KIT unten): world() für Renderer/Licht/Himmel/Schatten, fertige Modelle (car, tree, building, character …), track()/city()/terrain() für ganze Welten, vehicle() + input() für die Steuerung, driver() für KI-Gegner.
-- three.js 0.149.0 als klassisches Skript (window.THREE), nie import/type="module". Alles mit dt animieren, nichts pro Frame neu erzeugen (Vektoren/Materialien wiederverwenden).
+- three.js 0.149.0 als klassisches Skript (window.THREE) laden; eigener Code darf klassisch oder als Modul sein (import * as THREE from 'three' ist dann dasselbe THREE). Alles mit dt animieren, nichts pro Frame neu erzeugen (Vektoren/Materialien wiederverwenden).
 - Erst eine vollständig spielbare Version (Welt + Spieler + Steuerung + Kamera + Ziel), dann Details (Partikel, Sound mit Coden.game.sfx, Effekte).
 - Mehr Details = schöner: Deko (Bäume, Lampen, Wolken), Farben passend, Licht/Schatten an, Nebel für Tiefe.` + THREE_KIT },
     data: { name: 'Daten-Agent', emoji: '🗄️', for: 'Datenmodell, Datenbank/API-Anbindung, Beispieldaten, Import/Export (data.js, *.json)', kit: `
@@ -190,7 +190,10 @@ SO ÄNDERST DU DATEIEN
 </plan>
 
 TECHNIK & BUG-FREIE UMSETZUNG (PFLICHT)
-- Nur HTML, CSS und klassisches JavaScript. Kein npm, kein Build, KEIN import/export zwischen Dateien, KEIN type="module". Alle <script src> teilen sich globale Variablen; Reihenfolge: coden-kit.js zuerst, dann deine Dateien (z. B. data.js → ui.js → app.js).
+- Zwei Wege, beide laufen sicher (Coden hat einen eingebauten Bundler wie ein echter Code-Editor):
+  a) Klassisch: HTML, CSS, JavaScript ohne import/export. Alle <script src> teilen sich globale Variablen; Reihenfolge: coden-kit.js zuerst, dann deine Dateien (z. B. data.js → ui.js → app.js).
+  b) ES-Module: <script type="module" src="main.js"></script> (auch main.ts, main.tsx, main.jsx). Dann gehen import/export zwischen Dateien (import { x } from './lib/x.js'), npm-Pakete direkt per Name (import confetti from 'canvas-confetti'; import { createRoot } from 'react-dom/client'; import * as THREE from 'three' – Coden lädt sie automatisch), TypeScript, JSX/React, import './style.css' und import daten from './daten.json'. Das Kit (Coden.store, Coden.game, …) ist auch in Modulen über window.Coden da.
+  Nie mischen: Eine Datei mit import/export NUR per type="module" oder per import laden, nie als normales <script src>.
 - Skript-Start ohne Null-Fehler: Binde eigene <script src="…"> IMMER mit defer im <head> oder direkt vor </body> ein (niemals blockierend im <head> ohne defer) und prüfe DOM-Zugriffe mit ?. oder if (el). Initialisiere sauber über DOMContentLoaded oder IIFE (() => { … })(), damit es bei mehreren .js-Dateien nie „Identifier already declared“ gibt.
 - Formulare & Buttons: Nicht-absendende <button> immer mit type="button" und Formular-Submit mit e.preventDefault(), damit die Vorschau sich nie versehentlich neu lädt.
 - Bibliotheken nur per CDN (cdn.jsdelivr.net, unpkg.com, cdnjs.cloudflare.com). Bilder: eigene .svg-Dateien, Emojis oder https-Bilder (z. B. https://images.unsplash.com/photo-…?w=800).
@@ -343,7 +346,8 @@ function condense(text) {
 // ---------- Statische Prüfung (läuft ohne KI): Syntax, Module, Script-Timing, doppelte IDs, Verweise, CSS ----------
 const SKIP_REF = /^(https?:|data:|blob:|\/\/|#|mailto:|tel:|javascript:)/i;
 const KIT_FILES = new Set(['coden-kit.css', 'coden-kit.js']);
-function scriptsOf(html) { const out = []; String(html).replace(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi, (m, a, code) => { if (!/\bsrc\s*=/.test(a) && !/type\s*=\s*["'](?!text\/javascript|module)[^"']+["']/i.test(a) && code.trim()) out.push(code); return m; }); return out; }
+// Klassische Inline-Skripte (Module laufen über den Coden-Bundler und werden hier nicht geprüft)
+function scriptsOf(html) { const out = []; String(html).replace(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi, (m, a, code) => { if (!/\bsrc\s*=/.test(a) && !/type\s*=\s*["']?(?!text\/javascript)[^"'\s>]+/i.test(a) && code.trim()) out.push(code); return m; }); return out; }
 function cssBraceDiff(css) {
     const clean = String(css).replace(/\/\*[\s\S]*?\*\//g, '').replace(/(["'])(?:\\[\s\S]|(?!\1).)*\1/g, '');
     let depth = 0;
@@ -377,6 +381,7 @@ function hasEsmSyntax(code) {
 function check(files, { syntax } = {}) {
     const issues = []; const names = Object.keys(files || {});
     const html = names.filter(n => /\.html?$/i.test(n));
+    const moduleFiles = new Set(); const classicFiles = new Set(); // per <script type="module"> bzw. klassisch geladen
     if (!files['index.html']) issues.push('Es gibt keine index.html – sie ist die Startseite und muss existieren.');
     const ids = new Set(); const classes = new Set();
     const idsPerPage = {}; const scriptsPerPage = {};
@@ -399,15 +404,15 @@ function check(files, { syntax } = {}) {
             return m;
         });
         cNoComments.replace(/<a\b[^>]*?\bhref\s*=\s*["']([^"']+\.html)(?:[?#][^"']*)?["']/gi, (m, ref) => { const r = ref.replace(/^\.?\//, ''); if (!SKIP_REF.test(ref) && !(r in files)) issues.push(`${n} verlinkt auf "${ref}", aber diese Seite gibt es nicht.`); return m; });
-        // <script type="module"> mit lokalen Dateien oder ohne CDN bricht in Inline-Bundling ohne Server-Importmap
+        // <script type="module"> (und .ts/.tsx/.jsx) laufen über den Coden-Bundler: import/export und npm-Pakete sind erlaubt
         const loadedOnPage = [];
         const headEnd = cNoComments.search(/<\/head>/i);
         cNoComments.replace(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi, (m, a, body, off) => {
             const srcMatch = a.match(/\bsrc\s*=\s*["']([^"']+)["']/i);
             const src = srcMatch ? srcMatch[1].split(/[?#]/)[0].replace(/^\.?\//, '') : null;
-            if (/type\s*=\s*["']module["']/i.test(a) && ((src && !SKIP_REF.test(srcMatch[1])) || /\bimport\s/.test(body))) {
-                issues.push(`${n} nutzt <script type="module"> mit import – verwende klassisches JS ohne import/export.`);
-            }
+            const isModule = /type\s*=\s*["']?module/i.test(a) || (src && /\.(jsx|tsx|ts|mts)$/i.test(src));
+            if (src && !SKIP_REF.test(srcMatch[1])) (isModule ? moduleFiles : classicFiles).add(src);
+            if (isModule) return m;
             if (src && !SKIP_REF.test(srcMatch[1]) && !KIT_FILES.has(src)) {
                 loadedOnPage.push(src);
                 const inHead = headEnd >= 0 && off < headEnd;
@@ -457,11 +462,19 @@ function check(files, { syntax } = {}) {
         const diff = cssBraceDiff(files[cssFile]);
         if (diff !== 0) issues.push(`CSS-Fehler in ${cssFile}: geschweifte Klammern { } nicht ausgeglichen.`);
     }
+    // Dateien, die per import aus anderen Dateien geladen werden, sind ebenfalls Module
+    for (const n of names.filter(x => /\.(m?js|jsx|tsx?)$/i.test(x))) String(files[n]).replace(/(?:\bfrom\s*|\bimport\s*\(?\s*)["'](\.{1,2}\/[^"']+)["']/g, (m, ref) => {
+        const dir = n.includes('/') ? n.slice(0, n.lastIndexOf('/') + 1) : ''; const parts = [];
+        for (const seg of (dir + ref).split('/')) { if (!seg || seg === '.') continue; if (seg === '..') parts.pop(); else parts.push(seg); }
+        const p = parts.join('/'); const hit = [p, p + '.js', p + '.ts', p + '.jsx', p + '.tsx', p + '.mjs'].find(x => x in files);
+        if (hit) moduleFiles.add(hit); else issues.push(`${n} importiert "${ref}", aber diese Datei gibt es nicht.`);
+        return m;
+    });
     const jsFiles = names.filter(n => /\.js$/i.test(n));
-    const sources = jsFiles.map(n => [n, String(files[n])]).concat(html.flatMap(n => scriptsOf(files[n]).map((c, i) => [`${n} (Skript ${i + 1})`, c])));
-    for (const [n, code] of sources) {
-        if (hasEsmSyntax(code)) issues.push(`${n} nutzt ES-Module (import/export) – im App-Builder wird klassisches JavaScript ohne import/export benötigt.`);
-        if (syntax) { const e = syntax(code); if (e) issues.push(`Syntaxfehler in ${n}: ${e}`); }
+    const sources = jsFiles.map(n => [n, String(files[n]), moduleFiles.has(n) && !classicFiles.has(n)]).concat(html.flatMap(n => scriptsOf(files[n]).map((c, i) => [`${n} (Skript ${i + 1})`, c, false])));
+    for (const [n, code, isModule] of sources) {
+        if (!isModule && hasEsmSyntax(code)) issues.push(`${n} nutzt import/export, wird aber als normales <script> geladen – lade sie mit <script type="module" src="${n}"> (oder per import aus einem Modul).`);
+        if (syntax && !isModule) { const e = syntax(code); if (e) issues.push(`Syntaxfehler in ${n}: ${e}`); }
         // Lokale fetch('...') Ziele prüfen
         code.replace(/\bfetch\(\s*["'`]([^"'`${}]+)["'`]/g, (m, url) => {
             if (SKIP_REF.test(url) || url.startsWith('/')) return m;

@@ -33,12 +33,12 @@ export const ARTIFACT_ICON = { html: 'web', svg: 'draw', markdown: 'article', co
 export const ARTIFACT_LABEL = { html: 'Webseite', svg: 'Grafik', markdown: 'Dokument', code: 'Code', react: 'React-App', mermaid: 'Diagramm', chart: 'Diagramm', table: 'Tabelle', slides: 'Präsentation', python: 'Python (ausführbar)' };
 const ICON = ARTIFACT_ICON;
 const LIVE = new Set(['html', 'svg', 'react', 'mermaid', 'chart', 'table', 'slides', 'python']); // brauchen ein iframe
-const CDN = "https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com";
+const CDN = "https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com https://esm.sh https://cdn.tailwindcss.com";
+// Artefakte laufen im Sandbox-iframe ohne eigenen Ursprung. Erlaubt: CDNs + esm.sh (npm-Pakete), data:-Module
+// (Coden-Bundler), fetch zu https-APIs (Wetter, Kurse, …). Kein Zugriff auf Coden, Login oder Cookies.
 const cspFor = (type) => {
-    const extra = type === 'react' ? ' https://cdn.tailwindcss.com' : '';
     const wasm = type === 'python' ? " 'wasm-unsafe-eval'" : '';
-    const connect = type === 'python' ? 'https://cdn.jsdelivr.net' : "'none'";
-    return `default-src 'none'; img-src data: blob: https:; media-src data: blob:; style-src 'unsafe-inline' https:; font-src https: data:; script-src 'unsafe-inline'${wasm} ${CDN}${extra}; connect-src ${connect}; worker-src blob:; form-action 'none'; base-uri 'none'`;
+    return `default-src 'none'; img-src data: blob: https:; media-src data: blob: https:; style-src 'unsafe-inline' https:; font-src https: data:; script-src 'unsafe-inline'${wasm} data: blob: ${CDN}; connect-src https: data: blob:; worker-src blob: data:; form-action 'none'; base-uri 'none'`;
 };
 
 // Läuft ohne allow-same-origin: localStorage wirft sonst einen Fehler und bricht ganze Skripte ab -> Ersatz im Speicher
@@ -56,15 +56,10 @@ const BASE_CSS = `*{box-sizing:border-box}html,body{margin:0}body{font:15px/1.5 
 const page = (type, head, body) => `<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${cspFor(type)}">${SHIM}<style>${BASE_CSS}</style>${head}</head><body>${body}</body></html>`;
 const showErr = `function __err(m){var d=document.createElement('div');d.className='err';d.textContent='⚠ '+m;document.body.prepend(d);try{parent.postMessage({codenArtifactError:String(m)},'*')}catch(_){}}`;
 
-// React: JSX mit Babel übersetzen, Komponente automatisch rendern (Hooks sind ohne import nutzbar)
+// React: echtes Modul-System (Coden-Bundler) – import von npm-Paketen (lucide-react, recharts, framer-motion, …),
+// TypeScript/TSX, shadcn/ui-Bausteine, fehlende React-Importe werden ergänzt, die Komponente automatisch angezeigt
 function reactDoc(src) {
-    let code = String(src).replace(/^\s*import\s[^;\n]*;?\s*$/gm, '');
-    let name = (code.match(/export\s+default\s+function\s+([A-Z]\w*)/) || [])[1] || (code.match(/export\s+default\s+([A-Z]\w*)\s*;?/) || [])[1];
-    code = code.replace(/export\s+default\s+function\s+([A-Z]\w*)/, 'function $1').replace(/export\s+default\s+([A-Z]\w*)\s*;?/, '').replace(/export\s+default\s+/, 'const __Default = ').replace(/^\s*export\s+/gm, '');
-    if (!name && /const __Default =/.test(code)) name = '__Default';
-    if (!name) name = /\bfunction\s+App\b|\b(const|let|var)\s+App\b/.test(code) ? 'App' : ((code.match(/\bfunction\s+([A-Z]\w*)/) || code.match(/\b(?:const|let)\s+([A-Z]\w*)\s*=/) || [])[1] || 'App');
-    return page('react', `<script src="https://unpkg.com/react@18/umd/react.production.min.js"><\/script><script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"><\/script><script src="https://unpkg.com/@babel/standalone@7/babel.min.js"><\/script><script src="https://cdn.tailwindcss.com"><\/script>`,
-        `<div id="root"></div><script>${showErr}(function(){try{var src=${js(code)};var out=Babel.transform('(function(){const {useState,useEffect,useRef,useMemo,useCallback,useReducer,useContext,createContext,Fragment,useLayoutEffect,useId}=React;\\n'+src+'\\n;ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(${name}));})()',{presets:['react']}).code;var s=document.createElement('script');s.textContent=out;document.body.appendChild(s)}catch(e){__err(e.message)}})()<\/script>`);
+    return page('react', `<script src="https://cdn.tailwindcss.com"><\/script>`, `<div id="root"></div>${window.CodenModules.reactArtifact(src)}`);
 }
 function mermaidDoc(src) {
     return page('mermaid', `<style>body{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}.mermaid{width:100%;text-align:center}.mermaid svg{max-width:100%;height:auto}</style><script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"><\/script>`,
@@ -110,11 +105,26 @@ export function previewDoc(item) {
     if (item.type === 'slides') return slidesDoc(item.body);
     if (item.type === 'python') return pythonDoc(item.body);
     if (item.type === 'svg') return `<!doctype html><html><head><meta charset="utf-8">${meta}${SHIM}<style>html,body{margin:0;height:100%;display:flex;align-items:center;justify-content:center;background:#fff}svg{max-width:100%;max-height:100%}</style></head><body>${item.body}</body></html>`;
-    return item.body.includes('<head') ? item.body.replace(/<head([^>]*)>/i, `<head$1>${meta}${SHIM}`) : `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${meta}${SHIM}</head><body>${item.body}</body></html>`;
+    const html = item.body.includes('<head') ? item.body.replace(/<head([^>]*)>/i, `<head$1>${meta}${SHIM}`) : `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${meta}${SHIM}</head><body>${item.body}</body></html>`;
+    // <script type="module"> mit import (three, npm-Pakete, …) läuft über den Coden-Bundler
+    try { return window.CodenModules ? window.CodenModules.bundlePage(html, {}, { report: 'artifact' }).html : html; } catch (e) { return html; }
 }
 export const fileNameFor = (item) => (item.title.replace(/[^\w\-äöüÄÖÜß ]+/g, '').trim().replace(/\s+/g, '_') || 'artefakt') + '.' + (item.type === 'code' ? (LANG_EXT[item.language.toLowerCase()] || 'txt') : EXT[item.type]);
 
-window.addEventListener('message', (e) => { if (e.data && e.data.codenArtifactError && panel?.classList.contains('open')) { const w = panel.querySelector('.ap-writing'); w.hidden = false; w.textContent = '⚠ Fehler im Artefakt: ' + String(e.data.codenArtifactError).slice(0, 120); } });
+// Fehler im Artefakt: Hinweis mit „Reparieren“ – schickt den Fehler an Coden, der das Artefakt korrigiert
+let lastArtifactError = '';
+window.addEventListener('message', (e) => {
+    if (!e.data || !e.data.codenArtifactError || !panel?.classList.contains('open') || !current?.closed) return;
+    const f = panel.querySelector('.ap-preview iframe'); if (f && e.source !== f.contentWindow) return;
+    const msg = String(e.data.codenArtifactError).slice(0, 600); if (msg === lastArtifactError) return; lastArtifactError = msg;
+    const w = panel.querySelector('.ap-writing'); w.hidden = false; w.classList.add('err'); w.replaceChildren();
+    const t = document.createElement('span'); t.textContent = '⚠ ' + msg.split('\n')[0].slice(0, 140);
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'ap-fix'; b.textContent = 'Reparieren';
+    const item = current;
+    b.onclick = () => { w.hidden = true; document.dispatchEvent(new CustomEvent('coden:compose', { detail: { send: true, text: `Das Artefakt „${item.title}“ zeigt diesen Fehler:\n\n${msg}\n\nBitte behebe ihn und gib das komplette, korrigierte Artefakt aus.` } })); };
+    const x = document.createElement('button'); x.type = 'button'; x.className = 'ap-fix-x'; x.textContent = '✕'; x.title = 'Ausblenden'; x.onclick = () => { w.hidden = true; };
+    w.append(t, b, x);
+});
 let panel, current = null, autoCode = false; const versions = new Map(); // Titel -> Liste der Fassungen (nur in dieser Sitzung)
 
 function build() {
@@ -233,7 +243,7 @@ function show(item, keepTab) {
     const codeEl = panel.querySelector('.ap-code'); const stick = codeEl.scrollHeight - codeEl.scrollTop - codeEl.clientHeight < 80 || !panel.classList.contains('open');
     codeEl.querySelector('code').textContent = item.body;
     if (stick) codeEl.scrollTop = codeEl.scrollHeight;
-    const w = panel.querySelector('.ap-writing'); w.hidden = item.closed; w.innerHTML = '<span class="dots"><i></i><i></i><i></i></span> Coden schreibt …';
+    const w = panel.querySelector('.ap-writing'); w.hidden = item.closed; w.classList.remove('err'); lastArtifactError = ''; w.innerHTML = '<span class="dots"><i></i><i></i><i></i></span> Coden schreibt …';
     const pv = panel.querySelector('.ap-preview');
     clearTimeout(renderTimer);
     const draw = () => {

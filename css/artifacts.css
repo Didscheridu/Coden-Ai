@@ -36,3 +36,10 @@ body.artifact-open .main-content { margin-right: min(46vw, 760px); transition: m
 .ap-code[hidden], .ap-preview[hidden], .ap-writing[hidden], .ap-versions[hidden] { display: none !important }
 .ap-writing { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); background: rgba(19, 22, 28, .88); backdrop-filter: blur(10px); border: 1px solid var(--border-color); border-radius: 10px; padding: 7px 14px; font-size: 12px; color: var(--text-secondary); display: flex; gap: 8px; align-items: center; white-space: nowrap }
 @media (max-width: 900px) { .artifact-panel { width: 100vw } body.artifact-open .main-content { margin-right: 0 } }
+
+/* Fehler im Artefakt mit „Reparieren“ */
+.ap-writing.err { display: flex; align-items: center; gap: 10px; max-width: calc(100% - 24px); border-color: rgba(255, 99, 99, .45); color: #ffd7d7; white-space: normal }
+.ap-writing.err > span { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: 13px }
+.ap-fix { flex: none; background: #e5484d; color: #fff; border: 0; border-radius: 8px; padding: 6px 12px; font: 600 13px Inter, system-ui, sans-serif; cursor: pointer }
+.ap-fix:hover { background: #f2555a }
+.ap-fix-x { flex: none; background: none; border: 0; color: inherit; opacity: .7; cursor: pointer; font-size: 14px; padding: 4px }

@@ -261,7 +261,20 @@ const { setup } = require('./helpers');
   const bugJoined = bugCheck.issues.join('\n');
   chk('Anti-Bug: doppelte HTML-ID erkannt', /Doppelte id="dup"/.test(bugJoined), true);
   chk('Anti-Bug: <head>-Skript ohne defer erkannt', /im <head> ohne defer/.test(bugJoined), true);
-  chk('Anti-Bug: ES-Module import/export erkannt', /ES-Module \(import\/export\)/.test(bugJoined), true);
+  chk('Anti-Bug: import/export in klassischem <script> erkannt', /a\.js nutzt import\/export, wird aber als normales <script> geladen/.test(bugJoined), true);
+  // Echte Module (Coden-Bundler) sind erlaubt: keine Fehler für import/export, TS, npm-Pakete
+  const modCheck = T.check({
+    'index.html': '<!doctype html><html><head><title>M</title></head><body><div id="app"></div><script type="module" src="main.ts"></script><script type="module">import { a } from "./lib/a.js"; console.log(a);</script></body></html>',
+    'main.ts': 'import { a } from "./lib/a.js";\nimport confetti from "canvas-confetti";\nconst n: number = a; console.log(n, confetti);',
+    'lib/a.js': 'export const a = 1;\nexport default function f() {}'
+  });
+  chk('Module: type="module", TS und npm-Importe sind kein Fehler', modCheck.issues.filter(i => /import|export|Syntax/.test(i)), []);
+  const missCheck = T.check({ 'index.html': '<body><script type="module" src="main.js"></script></body>', 'main.js': 'import { x } from "./gibtsnicht.js";' });
+  chk('Module: fehlende importierte Datei erkannt', missCheck.issues.some(i => /importiert "\.\/gibtsnicht\.js", aber diese Datei gibt es nicht/.test(i)), true);
+  const smokeMod = T.smokeTest({ 'index.html': '<body><div id="x"></div><script type="module" src="main.jsx"></script><script type="module">import React from "react";</script></body>', 'main.jsx': 'import { createRoot } from "react-dom/client";\ncreateRoot(document.getElementById("x")).render(<p>hi</p>);' });
+  chk('SmokeTest: Module werden nicht im vm ausgeführt (keine falschen Fehler)', smokeMod, []);
+  const pageMod = Bundle.build({ 'index.html': '<body><script type="module" src="main.js"></script></body>', 'main.js': 'import { a } from "./a.js"; console.log(a);', 'a.js': 'export const a = 1;' }, {}).pages['index.html'];
+  chk('Bundle: Modul-App bekommt den Coden-Bundler (data-coden="modules")', [pageMod.includes('data-coden="modules"'), pageMod.includes('src="main.js"')], [true, false]);
   chk('Anti-Bug: doppelte globale Deklaration erkannt', /Doppelte globale Deklaration "shared"/.test(bugJoined), true);
   chk('Anti-Bug: Button in <form> ohne type erkannt', /<button> innerhalb <form>/.test(bugJoined), true);
   chk('Anti-Bug: data-go auf fehlende ID erkannt', /data-go="gibtsnicht"/.test(bugJoined), true);
