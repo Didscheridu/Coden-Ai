@@ -640,3 +640,141 @@ textarea.settings-input {
   border-radius: 12px !important;
   color: var(--x-text) !important;
 }
+
+/* ---------- Smoothe Motion & Taktile Mikro-Interaktionen (Compositor-only) ---------- */
+:root {
+  --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-tactile: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes x-fade-up {
+  from { opacity: 0; transform: translate3d(0, 8px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes x-pop-in {
+  from { opacity: 0; transform: translate3d(0, 6px, 0) scale(0.97); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@keyframes x-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes x-cursor-blink {
+  0%, 45% { opacity: 1; }
+  50%, 95% { opacity: 0.25; }
+  100% { opacity: 1; }
+}
+
+/* Taktiles Klick- & Hover-Feedback auf allen interaktiven Elementen */
+button,
+.sb-item,
+.sb-chat,
+.chip,
+.cm-item,
+.followup,
+.icon-btn,
+.user-chip,
+.app-card,
+.bd-card,
+.pr-card,
+.sk-card,
+.we-card {
+  transition:
+    transform 160ms var(--ease-spring),
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    opacity 180ms ease !important;
+  will-change: transform;
+}
+
+button:not(:disabled):active,
+.sb-item:active,
+.sb-chat:active,
+.chip:active,
+.cm-item:active,
+.followup:active,
+.user-chip:active {
+  transform: scale(0.97) !important;
+}
+
+.icon-btn:not(:disabled):active,
+#send-btn:not(:disabled):active,
+#stop-btn:not(:disabled):active {
+  transform: scale(0.92) !important;
+}
+
+.chip:hover,
+.followup:hover {
+  transform: translate3d(0, -1px, 0);
+}
+
+.app-card:hover,
+.bd-card:hover,
+.pr-card:hover,
+.sk-card:hover {
+  transform: translate3d(0, -2px, 0) !important;
+}
+
+/* Smoothe Einblendungen für Nachrichten, Modals, Menüs & Views */
+.message,
+.message-row,
+.followup {
+  animation: x-fade-up 240ms var(--ease-spring) both;
+}
+
+.modal-overlay:not(.hidden) {
+  animation: x-overlay-in 180ms ease both;
+}
+
+.modal-overlay:not(.hidden) .modal-content,
+.modal-overlay:not(.hidden) .claude-confirm-box {
+  animation: x-pop-in 240ms var(--ease-spring) both;
+}
+
+.cm-panel:not(.hidden),
+.user-menu:not(.hidden),
+.model-dropdown-menu:not(.hidden),
+.command-popup:not(.hidden) {
+  animation: x-pop-in 180ms var(--ease-spring) both;
+  transform-origin: bottom center;
+}
+
+.view-host:not(.hidden) {
+  animation: x-fade-up 220ms var(--ease-spring) both;
+}
+
+.welcome-screen:not(.hidden),
+.welcome-extra:not(.hidden) {
+  animation: x-fade-up 280ms var(--ease-spring) both;
+}
+
+/* Sanfter Streaming-Cursor am Ende laufender Antworten */
+.streaming .answer > *:last-child::after {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 15px;
+  margin-left: 4px;
+  vertical-align: -2px;
+  border-radius: 2px;
+  background: var(--x-accent);
+  animation: x-cursor-blink 900ms ease-in-out infinite;
+}
+
+/* Eingabefeld-Fokus sanft */
+.input-box {
+  transition: border-color 180ms ease, transform 200ms var(--ease-spring) !important;
+}
+
+/* Barrierefreiheit: reduzierte Bewegung respektieren */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
