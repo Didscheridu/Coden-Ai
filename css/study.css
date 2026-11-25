@@ -1,0 +1,576 @@
+/* css/study.css – Coden AI Schüler-Tab (Lernen / Study Notebooks wie in Google Gemini) */
+
+.st-wrap {
+  max-width: var(--container-max, 1200px);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  color: var(--text-primary);
+}
+
+.st-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.st-head h1 {
+  font-size: var(--text-h1, 2rem);
+  font-weight: 700;
+  margin: 0 0 6px;
+  color: var(--text-primary);
+}
+.st-head p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-body, 1rem);
+  max-width: 620px;
+}
+
+.st-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.st-nb-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius, 10px);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 180ms ease, border-color 180ms ease, transform 160ms var(--ease-ui, ease);
+}
+.st-nb-card:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
+  transform: translate3d(0, -2px, 0);
+}
+.st-nb-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.st-nb-tag {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: var(--radius, 10px);
+  background: var(--accent-amber-soft);
+  color: var(--accent-amber);
+}
+.st-nb-title {
+  font-size: var(--text-h3, 1.0625rem);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+.st-nb-meta {
+  font-size: var(--text-small, 0.875rem);
+  color: var(--text-muted);
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.st-nb-del {
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius, 10px);
+  display: inline-flex;
+  align-items: center;
+}
+.st-nb-del:hover {
+  background: var(--bg-main);
+  color: var(--accent-red);
+}
+
+/* ---------- Notizbuch-Workspace (3 Spalten wie Gemini Study Notebook) ---------- */
+.st-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.st-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.st-topbar-left h2 {
+  font-size: var(--text-h2, 1.35rem);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.st-mob-tabs {
+  display: none;
+  gap: 6px;
+  background: var(--bg-sidebar);
+  padding: 4px;
+  border-radius: var(--radius, 10px);
+}
+.st-mob-tabs button {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 9px 10px;
+  border-radius: var(--radius, 10px);
+  font-weight: 600;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.st-mob-tabs button.active {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.st-workspace {
+  display: grid;
+  grid-template-columns: 270px minmax(0, 1fr) 300px;
+  gap: 18px;
+  align-items: start;
+}
+
+.st-col {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius, 10px);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.st-col-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.st-col-head h3 {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.st-col-head .material-symbols-outlined {
+  font-size: 19px;
+  color: var(--accent-amber);
+}
+
+/* Quellen-Liste */
+.st-src-actions {
+  display: flex;
+  gap: 8px;
+}
+.st-src-actions button {
+  flex: 1;
+  padding: 9px 10px;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.st-src-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 52vh;
+  overflow-y: auto;
+}
+.st-src-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius, 10px);
+  background: var(--bg-sidebar);
+}
+.st-src-item input[type="checkbox"] {
+  margin-top: 3px;
+  accent-color: var(--accent-amber);
+  cursor: pointer;
+}
+.st-src-info {
+  flex: 1;
+  min-width: 0;
+}
+.st-src-info strong {
+  display: block;
+  font-size: 13.5px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.st-src-info small {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.st-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--bg-sidebar);
+  border-radius: var(--radius, 10px);
+}
+.st-add-form input,
+.st-add-form textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--radius, 10px);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-main);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+}
+.st-add-form textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+/* Mitte: Geführtes Lernen & Aktives Lernwerkzeug */
+.st-center {
+  min-height: 540px;
+}
+.st-mode-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.st-chat-log {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 300px;
+  max-height: 52vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.st-msg {
+  padding: 12px 14px;
+  border-radius: var(--radius, 10px);
+  font-size: 15px;
+  line-height: 1.6;
+  text-align: left;
+}
+.st-msg.user {
+  background: var(--bg-sidebar);
+  align-self: flex-end;
+  max-width: 86%;
+  color: var(--text-primary);
+}
+.st-msg.ai {
+  background: transparent;
+  color: var(--text-primary);
+  padding-left: 0;
+}
+.st-msg.ai p { margin: 0 0 8px; color: var(--text-primary); }
+.st-msg.ai p:last-child { margin-bottom: 0; }
+
+.st-quick-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.st-quick-prompts button {
+  padding: 8px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.st-chat-form {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+}
+.st-chat-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 11px 14px;
+  border-radius: var(--radius, 10px);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-main);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 15px;
+}
+
+/* Studio-Panel rechts */
+.st-opt-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.st-opt-row label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.st-seg {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-sidebar);
+  padding: 3px;
+  border-radius: var(--radius, 10px);
+}
+.st-seg button {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.st-seg button.active {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.st-studio-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.st-tool-btn {
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius, 10px);
+  padding: 12px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--text-primary);
+  text-align: left;
+}
+.st-tool-btn:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
+}
+.st-tool-btn .material-symbols-outlined {
+  font-size: 20px;
+  color: var(--accent-amber);
+}
+.st-tool-btn strong {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.st-tool-btn small {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.st-saved-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.st-saved-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: var(--radius, 10px);
+  background: var(--bg-sidebar);
+  cursor: pointer;
+  border: 1px solid transparent;
+  text-align: left;
+  width: 100%;
+  color: var(--text-primary);
+}
+.st-saved-item:hover,
+.st-saved-item.active {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
+}
+.st-saved-item .material-symbols-outlined {
+  font-size: 18px;
+  color: var(--accent-amber);
+}
+.st-saved-item span.t {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+/* ---------- Interaktive Karteikarten (3D-Flip wie Gemini) ---------- */
+.st-fc-stage {
+  perspective: 1000px;
+  width: 100%;
+  min-height: 240px;
+  cursor: pointer;
+}
+.st-fc-card {
+  position: relative;
+  width: 100%;
+  min-height: 240px;
+  transform-style: preserve-3d;
+  transition: transform 360ms var(--ease-ui, ease);
+}
+.st-fc-card.flipped {
+  transform: rotateY(180deg);
+}
+.st-fc-face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius, 10px);
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 10px;
+  text-align: left;
+}
+.st-fc-back {
+  transform: rotateY(180deg);
+}
+.st-fc-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent-amber);
+}
+.st-fc-text {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--text-primary);
+}
+.st-fc-controls,
+.st-fc-grade {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.st-fc-explain {
+  padding: 14px 16px;
+  border-radius: var(--radius, 10px);
+  background: var(--bg-sidebar);
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+/* ---------- Interaktives Quiz ---------- */
+.st-quiz-q {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+.st-quiz-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.st-quiz-opt {
+  padding: 13px 16px;
+  border-radius: var(--radius, 10px);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-main);
+  color: var(--text-primary);
+  text-align: left;
+  font-size: 15px;
+  cursor: pointer;
+}
+.st-quiz-opt:hover:not(:disabled) {
+  background: var(--bg-surface-hover);
+}
+.st-quiz-opt.ok {
+  border-color: var(--accent-green);
+  background: rgba(34, 197, 94, 0.14);
+}
+.st-quiz-opt.bad {
+  border-color: var(--accent-red);
+  background: rgba(239, 68, 68, 0.14);
+}
+.st-quiz-feedback {
+  padding: 12px 14px;
+  border-radius: var(--radius, 10px);
+  background: var(--bg-sidebar);
+  font-size: 14.5px;
+  line-height: 1.55;
+}
+
+/* ---------- Lernleitfaden & Mindmap ---------- */
+.st-guide {
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--text-primary);
+}
+.st-guide h1, .st-guide h2, .st-guide h3 { margin: 18px 0 8px; }
+.st-guide ul, .st-guide ol { padding-left: 20px; margin: 8px 0; }
+.st-mm-node {
+  margin-left: 16px;
+  padding: 6px 0;
+  border-left: 2px solid var(--border-strong);
+  padding-left: 14px;
+}
+.st-mm-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.st-progress-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--bg-sidebar);
+  overflow: hidden;
+}
+.st-progress-bar > div {
+  height: 100%;
+  background: var(--btn-primary-bg);
+  transition: width 240ms ease;
+}
+
+@media (max-width: 1080px) {
+  .st-workspace {
+    grid-template-columns: 1fr;
+  }
+  .st-mob-tabs {
+    display: flex;
+  }
+  .st-col[data-pane]:not(.mob-active) {
+    display: none;
+  }
+}

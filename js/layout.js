@@ -8,6 +8,7 @@ import { apiJson } from './backend.js';
 import { Buddy } from './buddy.js';
 import { Router } from './router.js';
 import { AppsView } from './apps/apps.js';
+import { StudyView } from './study.js';
 
 const $ = (id) => document.getElementById(id);
 let getSessions = () => [];
@@ -109,13 +110,14 @@ export const Layout = {
             layoutWired = true;
             document.addEventListener('sessionsRendered', refreshGallery);
             Router.register('apps', AppsView);
+            Router.register('lernen', StudyView);
             Router.register('artefakte', ArtifactsView);
             Router.register('verbindungen', McpView);
             Router.register('s', SharedView);
             Router.register('projekte', ProjectsView);
             Router.register('buddy', { mount: (host, params) => Buddy.mount(host, params), unmount: () => Buddy.unmount() });
             const nav = (id, path) => $(id)?.addEventListener('click', (e) => { e.preventDefault(); Router.go(path); });
-            nav('open-apps-btn', 'apps'); nav('open-artifacts-btn', 'artefakte'); nav('open-mcp-btn', 'verbindungen'); nav('open-buddy-btn', 'buddy'); nav('open-projects-btn', 'projekte');
+            nav('open-apps-btn', 'apps'); nav('open-study-btn', 'lernen'); nav('open-artifacts-btn', 'artefakte'); nav('open-mcp-btn', 'verbindungen'); nav('open-buddy-btn', 'buddy'); nav('open-projects-btn', 'projekte');
             $('we-all')?.addEventListener('click', () => Router.go('artefakte'));
             // "Neu" und Chats in der Seitenleiste führen immer zurück in den Chat
             $('sb-new')?.addEventListener('click', () => Router.go('chat'));
