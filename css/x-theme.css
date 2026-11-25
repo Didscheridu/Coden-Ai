@@ -1,43 +1,55 @@
-/* css/x-theme.css – Coden AI Editorial Studio Design System:
-   Ruhiger heller Hintergrund (#F9F8F6), dunkles Anthrazit (#18181B),
-   dezenter Bronze-Akzent (#7C5C3E), klare Type Scale, einheitlicher Radius (10px),
-   keine schweren Schatten, keine unnötigen Rahmen, linksbündiger Fließtext,
-   feste Inhaltsbreite (1200px) & großzügiges Section-Spacing. */
+/* css/x-theme.css – Coden AI Editorial Studio Design System (Dark-Mode Standard + Light-Mode):
+   Semantische Theme-Variablen für nahtlosen Wechsel, garantierter Button-Kontrast auf ALLEN Buttons,
+   ungeclippte Menüs (nie abgeschnitten), klare Type Scale & einheitlicher Radius (10px). */
 
 :root {
-  --bg: #F9F8F6;
-  --sidebar-bg: #F2F0EC;
-  --surface: #FFFFFF;
-  --surface-hover: #ECEAE4;
-  --ink: #18181B;
-  --ink-secondary: #3F3F46;
-  --ink-muted: #52525B;
-  --accent: #7C5C3E;
-  --accent-soft: #EFECE6;
-  --line-subtle: rgba(24, 24, 27, 0.08);
-  --line-control: rgba(24, 24, 27, 0.16);
-  --shadow-float: 0 6px 24px rgba(24, 24, 27, 0.08);
-  --grad-brand: #18181B;
-  --glass: rgba(249, 248, 246, 0.92);
+  --bg: var(--bg-main);
+  --sidebar-bg: var(--bg-sidebar);
+  --surface: var(--bg-surface);
+  --surface-hover: var(--bg-surface-hover);
+  --ink: var(--text-primary);
+  --ink-secondary: var(--text-secondary);
+  --ink-muted: var(--text-muted);
+  --accent: var(--accent-amber);
+  --accent-soft: var(--accent-amber-soft);
+  --line-subtle: var(--border-color);
+  --line-control: var(--border-strong);
+  --grad-brand: var(--btn-primary-bg);
   --shadow-lg: var(--shadow-float);
   --sb-w: clamp(244px, 18vw, 276px);
   --col: min(780px, 100%);
   --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* ---------- Grundfläche, Typografie & strikter Viewport-Schutz ---------- */
+/* ---------- Grundfläche, Typografie & Viewport-Schutz (ohne Menüs abzuschneiden!) ---------- */
 html,
 body,
 .app-container,
 .main-content,
 .view-host,
-.chat-scroll-area,
-.input-section {
+.chat-scroll-area {
   background: var(--bg) !important;
   color: var(--ink) !important;
   font-family: var(--font-main) !important;
   max-width: 100%;
+}
+
+html,
+body,
+.app-container {
   overflow-x: hidden !important;
+}
+
+/* WICHTIG: Container, in denen Menüs nach oben/außen aufklappen, dürfen NICHT clippen! */
+.input-section,
+.input-box,
+.input-footer,
+.right-tools,
+.left-tools,
+.model-dropdown-container,
+.tb-more-wrap,
+.sidebar-footer {
+  overflow: visible !important;
 }
 
 .app-container {
@@ -56,6 +68,11 @@ body,
   min-width: 0 !important;
 }
 
+.main-content {
+  position: relative;
+  z-index: 1;
+}
+
 h1 { font-size: var(--text-h1); font-weight: 700; line-height: 1.2; letter-spacing: -0.025em; color: var(--ink); }
 h2 { font-size: var(--text-h2); font-weight: 600; line-height: 1.3; letter-spacing: -0.02em; color: var(--ink); }
 h3 { font-size: var(--text-h3); font-weight: 600; line-height: 1.35; letter-spacing: -0.01em; color: var(--ink); }
@@ -63,9 +80,7 @@ p, li { font-size: var(--text-body); line-height: 1.65; color: var(--ink-seconda
 small { font-size: var(--text-small); color: var(--ink-muted); }
 
 /* Einheitliche Bildmaße */
-img {
-  max-width: 100%;
-}
+img { max-width: 100%; }
 .media-frame,
 .app-card img,
 .we-card img {
@@ -116,13 +131,13 @@ img {
   margin-right: auto;
 }
 
-/* ---------- Boot-Overlay (ruhig, ohne Schatten/Muster) ---------- */
+/* ---------- Boot-Overlay ---------- */
 .db-boot-overlay {
   background: var(--bg) !important;
 }
 .db-boot-card {
   background: var(--surface) !important;
-  border: 0 !important;
+  border: 1px solid var(--line-subtle) !important;
   border-radius: var(--radius) !important;
   box-shadow: none !important;
   padding: 40px 32px !important;
@@ -248,7 +263,6 @@ img {
 .login-box .settings-input:focus {
   border-color: var(--ink) !important;
   outline: none !important;
-  box-shadow: 0 0 0 2px rgba(24, 24, 27, 0.12) !important;
 }
 .login-box .settings-input::placeholder {
   color: var(--ink-muted) !important;
@@ -262,16 +276,16 @@ img {
 }
 
 .login-box #btn-email-login {
-  background: var(--ink) !important;
-  color: #FFFFFF !important;
-  border: 1px solid var(--ink) !important;
+  background: var(--btn-primary-bg) !important;
+  color: var(--btn-primary-fg) !important;
+  border: 1px solid var(--btn-primary-bg) !important;
   border-radius: var(--radius) !important;
   height: 46px;
   font-weight: 600 !important;
   font-size: 15px !important;
 }
 .login-box #btn-email-login:hover {
-  background: #27272A !important;
+  background: var(--btn-primary-hover) !important;
 }
 
 .login-box #btn-email-register {
@@ -297,14 +311,13 @@ img {
 }
 
 /* Sauberer 4:3 Bildplatzhalter für Business-Fotografie */
-.x-login-brand {
-  width: 100%;
-}
+.x-login-brand { width: 100%; }
 .studio-photo-slot {
   width: 100%;
   aspect-ratio: 4 / 3;
   border-radius: var(--radius);
   background: var(--sidebar-bg);
+  border: 1px solid var(--line-subtle);
   overflow: hidden;
   display: flex;
   align-items: center;
@@ -345,20 +358,22 @@ img {
     max-width: 440px;
     gap: 32px;
   }
-  .x-login-brand {
-    display: none;
-  }
-  .login-box .auth-buttons {
-    flex-direction: column;
-  }
+  .x-login-brand { display: none; }
+  .login-box .auth-buttons { flex-direction: column; }
 }
 
-/* ---------- Seitenleiste (Flächenkontrast statt Rahmen) ---------- */
+/* ---------- Seitenleiste (ohne Clipping für das Konto-Menü) ---------- */
 .sidebar {
+  position: relative;
+  z-index: 20;
   width: var(--sb-w) !important;
   background: var(--sidebar-bg) !important;
   border-right: 0 !important;
   padding: 20px 14px 16px !important;
+  overflow: visible !important;
+}
+.sidebar:has(.user-menu:not(.hidden)) {
+  z-index: 1200 !important;
 }
 
 @media (min-width: 769px) {
@@ -416,8 +431,8 @@ img {
 }
 
 .sb-item.new-chat-btn {
-  background: var(--ink) !important;
-  color: #FFFFFF !important;
+  background: var(--btn-primary-bg) !important;
+  color: var(--btn-primary-fg) !important;
   font-weight: 600 !important;
   border-radius: var(--radius) !important;
   justify-content: center;
@@ -426,16 +441,13 @@ img {
 }
 .sb-item.new-chat-btn *,
 .sb-item.new-chat-btn .material-symbols-outlined {
-  color: #FFFFFF !important;
+  color: var(--btn-primary-fg) !important;
 }
 .sb-item.new-chat-btn:hover {
-  background: #27272A !important;
+  background: var(--btn-primary-hover) !important;
 }
 
-.sb-more-group.collapsed {
-  display: none;
-}
-
+.sb-more-group.collapsed { display: none; }
 .sb-more-toggle {
   color: var(--ink-muted) !important;
   font-size: var(--text-small) !important;
@@ -479,6 +491,7 @@ img {
 }
 
 .sidebar-footer {
+  position: relative;
   border-top: 0 !important;
   padding-top: 12px !important;
 }
@@ -492,8 +505,8 @@ img {
   background: var(--surface-hover) !important;
 }
 .uc-avatar {
-  background: var(--ink) !important;
-  color: #FFFFFF !important;
+  background: var(--btn-primary-bg) !important;
+  color: var(--btn-primary-fg) !important;
   border-radius: var(--radius) !important;
   font-weight: 700 !important;
 }
@@ -502,13 +515,19 @@ img {
   color: var(--ink-muted) !important;
 }
 
-/* ---------- Top-Bar (ruhig, ohne Trennlinie) ---------- */
+/* ---------- Top-Bar ---------- */
 .top-bar {
   background: var(--glass) !important;
   backdrop-filter: blur(10px);
   border-bottom: 0 !important;
   height: 60px !important;
   padding: 0 var(--gutter) !important;
+  z-index: 40;
+}
+.tb-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .brand-name {
   font-weight: 700 !important;
@@ -551,7 +570,7 @@ img {
   }
 }
 
-/* ---------- Statische Welcome Hero-Section (linksbündig, großzügiges Spacing) ---------- */
+/* ---------- Statische Welcome Hero-Section (linksbündig) ---------- */
 .main-content:has(#welcome-screen:not(.hidden):not([style*="none"])) {
   justify-content: center !important;
   padding-top: 64px !important;
@@ -599,11 +618,9 @@ img {
   width: 100% !important;
   margin: 0 !important;
 }
-.welcome-extra .we-gallery {
-  display: none !important;
-}
+.welcome-extra .we-gallery { display: none !important; }
 
-/* 2x2 Starter-Grid ohne Rahmen, über Flächenkontrast abgegrenzt */
+/* 2x2 Starter-Grid */
 .x-starter-grid {
   display: grid !important;
   grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
@@ -653,13 +670,13 @@ img {
 }
 
 @media (max-width: 560px) {
-  .x-starter-grid {
-    grid-template-columns: 1fr !important;
-  }
+  .x-starter-grid { grid-template-columns: 1fr !important; }
 }
 
 /* ---------- Eingabefeld / Composer ---------- */
 .input-section {
+  position: relative;
+  z-index: 30;
   background: var(--bg) !important;
   padding: 12px var(--gutter) 24px !important;
 }
@@ -683,18 +700,6 @@ img {
   color: var(--ink-muted) !important;
 }
 
-#send-btn {
-  background: var(--ink) !important;
-  color: #FFFFFF !important;
-  border-radius: var(--radius) !important;
-}
-#send-btn:hover {
-  background: #27272A !important;
-}
-#send-btn *,
-#send-btn .material-symbols-outlined {
-  color: #FFFFFF !important;
-}
 #stop-btn {
   background: var(--surface-hover) !important;
   border: 1px solid var(--line-control) !important;
@@ -727,7 +732,7 @@ img {
   color: var(--ink) !important;
 }
 
-/* ---------- Chat-Nachrichten (linksbündig, optimale Lesebreite) ---------- */
+/* ---------- Chat-Nachrichten ---------- */
 .chat-scroll-area {
   padding: var(--space-block) var(--gutter) 32px !important;
 }
@@ -772,16 +777,39 @@ pre.hljs,
   overflow-x: auto;
 }
 
-/* ---------- Popovers, Menüs & Modals (subtiler Float-Schatten, einheitlicher Radius) ---------- */
+/* ---------- Popovers, Menüs & Modals (nie abgeschnitten!) ---------- */
 .cm-panel,
 .user-menu,
 .model-dropdown-menu,
 .command-popup,
 .composer-tools-menu,
 .tb-more-menu {
-  max-width: calc(100vw - 16px) !important;
-  max-height: min(72dvh, calc(100dvh - 16px)) !important;
+  z-index: 1400 !important;
+  max-width: calc(100vw - 24px) !important;
+  max-height: min(74dvh, calc(100dvh - 24px)) !important;
   overflow-y: auto !important;
+}
+
+.user-menu {
+  left: 0 !important;
+  right: auto !important;
+  min-width: 100% !important;
+  width: max-content !important;
+}
+
+.model-dropdown-menu {
+  right: 0 !important;
+  left: auto !important;
+  bottom: calc(100% + 10px) !important;
+  top: auto !important;
+  min-width: 248px !important;
+}
+
+.composer-tools-menu {
+  left: 0 !important;
+  right: auto !important;
+  bottom: calc(100% + 10px) !important;
+  top: auto !important;
 }
 
 .cm-panel,
@@ -798,7 +826,7 @@ pre.hljs,
   color: var(--ink) !important;
 }
 .modal-overlay {
-  background: rgba(24, 24, 27, 0.32) !important;
+  background: var(--overlay-scrim) !important;
   backdrop-filter: blur(4px) !important;
 }
 .modal-header,
@@ -807,35 +835,75 @@ pre.hljs,
   border-color: var(--line-subtle) !important;
 }
 
-.cm-item {
+.cm-item,
+.model-option {
   border-radius: var(--radius) !important;
   color: var(--ink) !important;
   font-size: var(--text-small) !important;
 }
-.cm-item .material-symbols-outlined {
+.cm-item .material-symbols-outlined,
+.model-option .material-symbols-outlined {
   color: var(--ink-muted) !important;
 }
-.cm-item:hover {
+.cm-item:hover,
+.model-option:hover,
+.model-option.active {
   background: var(--surface-hover) !important;
+  color: var(--ink) !important;
+}
+.model-option.active .name,
+.model-option.active .material-symbols-outlined {
+  color: var(--ink) !important;
+  font-weight: 600 !important;
 }
 .cm-sep {
   background: var(--line-subtle) !important;
 }
-.cm-head {
+.cm-head,
+.cm-kbd {
   color: var(--ink-muted) !important;
   font-size: var(--text-small) !important;
 }
 
-/* ---------- Kontraststarke Primary- & Secondary-Buttons ---------- */
+.effort-row {
+  color: var(--ink-secondary) !important;
+  border-top-color: var(--line-subtle) !important;
+}
+.effort-seg {
+  background: var(--sidebar-bg) !important;
+  border: 1px solid var(--line-subtle) !important;
+}
+.effort-seg button {
+  color: var(--ink-secondary) !important;
+}
+.effort-seg button.active {
+  background: var(--surface) !important;
+  color: var(--ink) !important;
+  font-weight: 600 !important;
+}
+
+/* ---------- Garantierter Kontrast auf ALLEN Primary-Buttons (Dark & Light) ---------- */
 .btn-save,
 .cc-btn-primary,
 .btn-primary,
 .ap-btn.primary,
 .bd-btn.primary,
-.cn-cat.on {
-  background: var(--ink) !important;
-  color: #FFFFFF !important;
-  border: 1px solid var(--ink) !important;
+.bd-primary,
+.cd-primary,
+.tc-primary,
+.ap-new,
+.bl-btn.primary,
+.bl-send,
+.mc-cat.on,
+.cn-cat.on,
+.choice.picked,
+.tk-tab-badge,
+.wz-step.active i,
+.byok-tabs .active .byok-step,
+#send-btn {
+  background: var(--btn-primary-bg) !important;
+  color: var(--btn-primary-fg) !important;
+  border: 1px solid var(--btn-primary-bg) !important;
   border-radius: var(--radius) !important;
   font-weight: 600 !important;
   box-shadow: none !important;
@@ -844,22 +912,42 @@ pre.hljs,
 .cc-btn-primary *,
 .btn-primary *,
 .ap-btn.primary *,
-.bd-btn.primary * {
-  color: #FFFFFF !important;
+.bd-btn.primary *,
+.bd-primary *,
+.cd-primary *,
+.tc-primary *,
+.ap-new *,
+.bl-btn.primary *,
+.bl-send *,
+.mc-cat.on *,
+.cn-cat.on *,
+.choice.picked *,
+#send-btn * {
+  color: var(--btn-primary-fg) !important;
 }
 .btn-save:hover,
 .cc-btn-primary:hover,
 .btn-primary:hover,
 .ap-btn.primary:hover,
-.bd-btn.primary:hover {
-  background: #27272A !important;
+.bd-btn.primary:hover,
+.bd-primary:hover,
+.cd-primary:hover,
+.tc-primary:hover,
+.ap-new:hover,
+.bl-btn.primary:hover,
+.bl-send:hover,
+#send-btn:hover {
+  background: var(--btn-primary-hover) !important;
 }
 
+/* Secondary-Buttons */
 .btn-cancel,
 .cc-btn-ghost,
 .cc-btn-outline,
 .ap-btn:not(.primary),
-.bd-btn:not(.primary) {
+.bd-btn:not(.primary),
+.cd-btn,
+.tc-btn {
   background: var(--surface) !important;
   color: var(--ink) !important;
   border: 1px solid var(--line-control) !important;
@@ -869,7 +957,9 @@ pre.hljs,
 }
 .btn-cancel:hover,
 .cc-btn-ghost:hover,
-.cc-btn-outline:hover {
+.cc-btn-outline:hover,
+.cd-btn:hover,
+.tc-btn:hover {
   background: var(--surface-hover) !important;
   border-color: var(--ink) !important;
 }
@@ -877,7 +967,7 @@ pre.hljs,
 .settings-input,
 select.settings-input,
 textarea.settings-input {
-  background: var(--surface) !important;
+  background: var(--bg) !important;
   border: 1px solid var(--line-control) !important;
   border-radius: var(--radius) !important;
   color: var(--ink) !important;
@@ -888,7 +978,7 @@ textarea.settings-input {
   outline: none !important;
 }
 
-/* ---------- Sub-Views (Flächenkontrast, kein Rahmen-Spam) ---------- */
+/* ---------- Sub-Views ---------- */
 .view-host .card,
 .app-card,
 .bd-card,
@@ -911,7 +1001,7 @@ textarea.settings-input {
   box-shadow: none !important;
 }
 
-/* ---------- Focus-States (klar erkennbar & barrierefrei) ---------- */
+/* ---------- Focus-States ---------- */
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
@@ -924,7 +1014,7 @@ select:focus-visible {
   outline: none !important;
 }
 
-/* ---------- Mobile Responsive (320px – 768px) ---------- */
+/* ---------- Mobile Responsive ---------- */
 @media (max-width: 768px) {
   .sidebar {
     width: min(300px, 84vw) !important;
