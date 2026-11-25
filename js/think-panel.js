@@ -3,6 +3,7 @@
 // - Aufgeklappt: Liste der bisherigen Schritte (✓) und ein kurzer Ausschnitt des aktuellen Schritts
 // - Dauert es länger: Hinweis, dass Coden im Hintergrund weiterarbeitet, plus "Benachrichtigen, wenn fertig"
 import { canAskNotify, askNotify } from './runs.js';
+import { loader } from './rich-elements.js';
 
 const fmt = (s) => (s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')} s`);
 const QUIET = /^(Anfrage läuft|Modell antwortet langsam|Anderes Modell|Neuer Versuch|Anbieter überlastet)/;
@@ -10,7 +11,7 @@ const QUIET = /^(Anfrage läuft|Modell antwortet langsam|Anderes Modell|Neuer Ve
 export function createThinkPanel({ label = 'Coden denkt nach …', startedAt = Date.now(), hint = true } = {}) {
     const el = document.createElement('details'); el.className = 'think-panel live';
     const sum = document.createElement('summary');
-    const dots = document.createElement('span'); dots.className = 'typing-dots'; dots.innerHTML = '<i></i><i></i><i></i>';
+    const dots = loader({ size: 20 }); dots.classList.add('think-loader'); // gleiche Lade-Animation wie überall in Coden
     const head = document.createElement('span'); head.className = 'think-head'; head.textContent = label;
     const time = document.createElement('span'); time.className = 'think-time';
     const model = document.createElement('span'); model.className = 'think-model'; model.hidden = true;
@@ -19,7 +20,9 @@ export function createThinkPanel({ label = 'Coden denkt nach …', startedAt = D
     const steps = document.createElement('ol'); steps.className = 'think-steps';
     const body = document.createElement('div'); body.className = 'think-body';
     const note = document.createElement('div'); note.className = 'think-note'; note.hidden = true;
-    el.append(sum, steps, body, note);
+    // Live-Zeile: zeigt schon während des Denkens, woran Coden gerade arbeitet (ohne Aufklappen)
+    const live = document.createElement('div'); live.className = 'think-live'; live.hidden = true;
+    el.append(sum, live, steps, body, note);
 
     const parsedStart = typeof startedAt === 'number' ? startedAt : Date.parse(startedAt);
     const t0 = Number.isFinite(parsedStart) ? parsedStart : Date.now();
@@ -67,6 +70,10 @@ export function createThinkPanel({ label = 'Coden denkt nach …', startedAt = D
             }
             body.textContent = val;
             el.classList.toggle('has-body', !!val);
+            const snip = val.replace(/\s+/g, ' ').trim();
+            const doneN = seen.filter(x => !QUIET.test(x)).length;
+            live.hidden = !(snip || doneN);
+            live.textContent = (doneN ? `✓ ${doneN} Schritt${doneN === 1 ? '' : 'e'} erledigt${snip ? ' · ' : ''}` : '') + (snip.length > 160 ? '… ' + snip.slice(-160) : snip);
             drawSteps();
         },
         model(name) { if (!name) return; model.textContent = name; model.hidden = false; },
@@ -79,7 +86,7 @@ export function createThinkPanel({ label = 'Coden denkt nach …', startedAt = D
             const s = finalSecs;
             const txt = buildSummaryText();
             el.classList.remove('live');
-            note.hidden = true;
+            note.hidden = true; live.hidden = true;
             body.textContent = txt;
             el.classList.toggle('has-body', !!txt);
             head.textContent = s >= 2 ? `Hat ${fmt(s)} nachgedacht` : (s >= 1 ? 'Hat 1 s nachgedacht' : 'Kurz nachgedacht');

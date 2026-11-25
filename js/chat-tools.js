@@ -2,6 +2,7 @@
 // Nachrichten kopieren / vorlesen / neu generieren / bearbeiten, Diktieren, Chat-Export,
 // persönliche Anweisungen und ein Gedächtnis, das Coden selbst füllen darf.
 import { Storage } from './storage.js';
+import { stripMarks } from './rich-elements.js';
 
 // ---------- Persönliche Anweisungen + Gedächtnis ----------
 // Die Logik (Einträge, Projekt-Trennung, Doppelte, Grenzen) steckt in shared/assist-core.js und ist dort getestet.
@@ -84,7 +85,7 @@ export function mountMessageActions(ctx, toast) {
     const synced = () => rowsOf().length === (ctx.session()?.messages?.length ?? -1); // nur dann ist die Zuordnung sicher
     const btn = (icon, label, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'ma-btn'; b.title = label; b.setAttribute('aria-label', label); const s = document.createElement('span'); s.className = 'material-symbols-outlined'; s.textContent = icon; b.append(s); b.addEventListener('click', (e) => { e.stopPropagation(); fn(b); }); return b; };
     const textOf = (row) => { const i = rowsOf().indexOf(row); const m = synced() ? ctx.session().messages[i] : null; return m ? m.text : (row.querySelector('.content')?.innerText || ''); };
-    const plain = (t) => String(t || '').replace(/<(suggestions|choices)>[\s\S]*?<\/(suggestions|choices)>/gi, '').replace(/```[\s\S]*?```/g, ' Codeblock. ').replace(/<[^>]+>/g, '').replace(/[*_`#>|]/g, '').replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
+    const plain = (t) => stripMarks(String(t || '')).replace(/<(suggestions|choices)>[\s\S]*?<\/(suggestions|choices)>/gi, '').replace(/```[\s\S]*?```/g, ' Codeblock. ').replace(/<[^>]+>/g, '').replace(/[*_`#>|]/g, '').replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
     let speakingRow = null;
     const speak = (row, b) => {
         if (!('speechSynthesis' in window)) { toast?.('Vorlesen geht in diesem Browser nicht.', { type: 'warn' }); return; }

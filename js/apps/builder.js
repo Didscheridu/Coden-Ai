@@ -8,6 +8,7 @@ import { h, icon, md, sleep, copy } from './dom.js';
 import { getEffort, setEffort, bindEffortButtons } from '../effort.js';
 import { loadByok, byokReady, ownTiers, isOwnTier, isByokTier, byokEffort } from '../byok.js';
 import { createThinkPanel } from '../think-panel.js';
+import { loader } from '../rich-elements.js';
 import { parse } from './agent.js';
 import { ghExport, ghManageAccess } from './github.js';
 import { KINDS } from './templates.js';
@@ -639,7 +640,7 @@ export function mountBuilder(host, appId) {
         } else if (final && meta.auto) {
             frag.push(h('small', { class: 'bl-meta', text: 'automatische Korrektur' }));
         }
-        if (!frag.length && !final) frag.push(h('span', { class: 'typing-dots' }, h('i'), h('i'), h('i')));
+        if (!frag.length && !final) frag.push(loader({ size: 20 }));
         reconcile(body, frag);
     }
 
@@ -734,7 +735,7 @@ export function mountBuilder(host, appId) {
         let row = log.querySelector('.bl-loading-row');
         if (!row) {
             row = h('div', { class: 'bl-loading-row' },
-                h('div', { class: 'spinner-container' }, h('div', { class: 'spinner' }), h('img', { class: 'spinner-logo', src: './images/coden_logo.jpg', alt: '' })),
+                loader({ size: 28 }),
                 h('span', { class: 'loading-text', text: label }));
             log.append(row);
         } else {
