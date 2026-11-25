@@ -1231,6 +1231,7 @@ document.getElementById('temp-chat-btn')?.addEventListener('click', () => {
         document.getElementById('settings-modal')?.classList.add('hidden');
         Router.go('chat');
         if (chatInput) { chatInput.value = e.detail?.text || ''; chatInput.dispatchEvent(new Event('input')); setTimeout(() => { chatInput.focus(); chatInput.setSelectionRange(chatInput.value.length, chatInput.value.length); }, 60); }
+        if (e.detail?.send && chatInput?.value.trim()) setTimeout(() => handleSend(), 80); // z. B. „Reparieren“ im Artefakt
     });
 }
 

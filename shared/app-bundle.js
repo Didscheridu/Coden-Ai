@@ -2,9 +2,10 @@
 // Läuft im Browser (window.CodenBundle, für die Live-Vorschau) und im Backend (require, für die veröffentlichte App).
 // Die Seiten laufen später in einem iframe mit sandbox OHNE allow-same-origin: kein Zugriff auf Coden, Login oder Daten.
 (function (root, factory) {
-    const api = factory();
+    const mods = (typeof module === 'object' && module.exports) ? require('./coden-modules.js') : root.CodenModules;
+    const api = factory(mods);
     if (typeof module === 'object' && module.exports) module.exports = api; else root.CodenBundle = api;
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (Modules) {
     const STORE_MARK = '{/*__CODEN_STORE__*/}';
     const MAX_DATA = 400000; // eingebettete Datendateien (json, csv, …) für fetch('daten.json')
     const ICONS_HREF = 'https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400,0..1,0&display=block';
@@ -79,6 +80,9 @@
             let html = pages.length ? String(files[page]) : '<!doctype html><html><head><title>Neue App</title></head><body><p style="font:16px system-ui;padding:24px">Noch keine index.html.</p></body></html>';
             const moved = [];
             let hasKitCss = false, hasKitJs = false;
+            // Echte ES-Module (import/export, npm-Pakete, TypeScript/JSX) übernimmt der Coden-Bundler
+            const mods = Modules ? Modules.extract(html, files, page) : { entries: [] };
+            if (mods.entries.length) html = mods.html;
             // Stylesheets einbetten
             html = html.replace(/<link\b[^>]*>/gi, (tag) => {
                 const rel = (attr(tag, 'rel') || '').toLowerCase(); const href = norm(attr(tag, 'href'));
@@ -103,6 +107,12 @@
             // Lokale SVG-Bilder als data-URL
             html = html.replace(/(\s(?:src|poster)\s*=\s*)(["'])([^"']+)\2/gi, (m, pre, q, u) => { const d = svgUrl(u); return d ? `${pre}${q}${d}${q}` : m; });
             html = html.replace(/<style\b([^>]*)>([\s\S]*?)<\/style>/gi, (m, a, css) => `<style${a}>${fixCssUrls(css)}</style>`);
+            if (mods.entries.length) {
+                const all = {};
+                for (const p of Object.keys(files)) if (/\.(m?js|jsx|tsx?|mts|cts|css|json|svg|txt|md|csv|xml)$/i.test(p)) all[p] = String(files[p]);
+                Object.assign(all, mods.virtual);
+                moved.push(Modules.loaderTag(all, mods.entries, { report: 'app', importMap: mods.importMap || undefined }));
+            }
             if (moved.length) html = /<\/body>/i.test(html) ? html.replace(/<\/body>(?![\s\S]*<\/body>)/i, () => moved.join('\n') + '\n</body>') : html + moved.join('\n');
             // Kopf ergänzen
             const shim = `<script data-coden="runtime">(${SHIM.toString()})(${STORE_MARK},${JSON.stringify(data).replace(/</g, '\\u003c')},${JSON.stringify(page)});</script>`;
