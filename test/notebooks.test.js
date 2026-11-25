@@ -52,6 +52,19 @@ const chk = (name, got, want) => { const ok = JSON.stringify(got) === JSON.strin
   chk('Skalieren: Text größer, Bild doppelt so groß', [scaled.text[0].z, scaled.items[0].w, scaled.items[0].x], [40, 200, 1400]);
   chk('Punkt im Vieleck', [I.pointInPoly(5, 5, [[0, 0], [10, 0], [10, 10], [0, 10]]), I.pointInPoly(15, 5, [[0, 0], [10, 0], [10, 10], [0, 10]])], [true, false]);
 
+  // ---------- Tinte, Drehen, Handballen ----------
+  const wave = []; for (let i = 0; i <= 60; i++) wave.push(100 + i * 4, 200 + Math.sin(i / 5) * 20, i / 60);
+  const o1 = I.strokeOutline({ t: 'pen', w: 2.8, k: 'fueller', p: wave });
+  const ob = (o) => { const xs = o.map(q => q[0]), ys = o.map(q => q[1]); return [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]; };
+  chk('Tinte: geschlossener Umriss, nur endliche Punkte, umschließt den Strich', [o1.length > 100, o1.every(([x, y]) => Number.isFinite(x) && Number.isFinite(y)), ob(o1)[0] < 101, ob(o1)[1] > 339], [true, true, true, true]);
+  const thick = (k, pr) => { const pts = []; for (let i = 0; i <= 30; i++) pts.push(i * 5, 0, pr); const b = ob(I.strokeOutline({ w: 3, k, p: pts })); return b[3] - b[2]; };
+  chk('Druck macht den Füller dicker, Kugelschreiber bleibt gleich', [thick('fueller', 1) > thick('fueller', 0.1) * 1.5, Math.abs(thick('kugel', 1) - thick('kugel', 0.1)) < 0.4], [true, true]);
+  chk('Ein einzelner Punkt wird ein Kreis', I.strokeOutline({ w: 3, k: 'fueller', p: [10, 10, .5] }).length, 12);
+  const rot = I.rotateSelection({ strokes: [{ p: [10, 0, .5] }, { p: [5, 5, .5] }], text: [], items: [] }, { si: [0] }, Math.PI / 2, 0, 0);
+  chk('Drehen: nur Ausgewähltes, 90° um den Mittelpunkt', [rot.strokes[0].p.map(v => Math.round(v * 100) / 100), rot.strokes[1].p], [[0, 10, 0.5], [5, 5, 0.5]]);
+  const T = 1e9;
+  chk('Handballen: große Fläche oder kurz nach dem Stift = Hand, Stift nie', [I.isPalm({ pointerType: 'touch', width: 70, height: 60 }, 0, T), I.isPalm({ pointerType: 'touch', width: 12 }, T - 400, T), I.isPalm({ pointerType: 'touch', width: 12 }, T - 5000, T), I.isPalm({ pointerType: 'pen', width: 1 }, T, T)], [true, true, false, false]);
+
   // ---------- Bibliothek ----------
   const st = S.normalize({});
   const schule = S.addFolder(st, 'Schule'); const k10 = S.addFolder(st, '10. Klasse', schule.id); const mathe = S.addFolder(st, 'Mathe', k10.id); const privat = S.addFolder(st, 'Privat');

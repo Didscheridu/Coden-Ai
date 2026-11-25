@@ -62,7 +62,6 @@ body.ink-open { overflow: hidden; }
 .ink-item { position: absolute; object-fit: fill; border-radius: 2px; }
 .ink-c:nth-of-type(2) { z-index: 2; }
 .ink-text-layer { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
-.ink-mark-layer { position: absolute; inset: 0; pointer-events: none; z-index: 6; }
 .ink-addpage { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; width: min(260px, 60%); aspect-ratio: 1000/700; border-radius: 12px; border: 2px dashed var(--border-strong); background: transparent; color: var(--text-muted); cursor: pointer; font: inherit; font-weight: 600; }
 .ink-addpage:hover { border-color: var(--accent-brand); color: var(--accent-brand); }
 .ink-addpage .material-symbols-outlined { font-size: 30px; }
@@ -145,3 +144,41 @@ body.ink-open { overflow: hidden; }
   #ink-print-root img { display: block; width: 210mm; height: 297mm; object-fit: contain; break-after: page; }
   #ink-print-root img:last-child { break-after: auto; }
 }
+
+/* Korrektur von Coden: rote Lehrer-Handschrift am rechten Rand, jede Notiz mit ✕ entfernbar */
+.ink-mark-layer { position: absolute; inset: 0; pointer-events: none; z-index: 6; }
+.ink-grade { position: absolute; right: calc(var(--k) * 34px); top: calc(var(--k) * 24px); font-family: Caveat, Kalam, cursive; font-weight: 700; font-size: calc(var(--k) * 48px); color: #c62828; border: calc(var(--k) * 3px) solid #c62828; border-radius: 50%; padding: 0 calc(var(--k) * 18px); transform: rotate(-8deg); line-height: 1.25; background: transparent; }
+.ink-grade-x, .ink-mark-x {
+  position: absolute; pointer-events: auto; cursor: pointer; display: grid; place-items: center;
+  width: 22px; height: 22px; border-radius: 50%; font: 700 12px/1 system-ui, sans-serif; color: #fff; background: rgba(198,40,40,.85);
+  opacity: 0; transition: opacity .15s; box-shadow: 0 1px 3px rgba(0,0,0,.3);
+}
+.ink-grade-x { right: -12px; top: -10px; transform: rotate(8deg); }
+.ink-grade:hover .ink-grade-x, .ink-mark:hover .ink-mark-x, .ink-mark.open .ink-mark-x { opacity: 1; }
+@media (hover: none) { .ink-grade-x, .ink-mark-x { opacity: .75; } }
+.ink-grade { pointer-events: auto; }
+.ink-mark {
+  position: absolute; right: calc(var(--k) * 8px); transform: translateY(-50%); pointer-events: none;
+  width: calc(var(--k) * 230px); min-width: 120px; display: flex; align-items: flex-start; gap: 4px;
+  background: transparent !important; border: 0 !important; box-shadow: none !important; padding: 0 !important;
+}
+.ink-mark-t {
+  pointer-events: auto; cursor: pointer; flex: 1; min-width: 0; display: grid; grid-template-columns: auto 1fr; column-gap: 4px; align-items: start;
+  font-family: Caveat, Kalam, cursive; font-weight: 700; font-size: max(13px, calc(var(--k) * 25px)); line-height: 1.02; color: #c62828; text-align: left;
+  text-shadow: 0 0 3px #fffefb, 0 0 6px #fffefb;
+}
+.ink-mark.ok .ink-mark-t { color: #2e7d32; }
+.ink-mark-t b { font-size: 1.25em; line-height: .85; }
+.ink-mark-t span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ink-mark-t em { grid-column: 2; display: none; font-style: normal; color: #1d4ed8; }
+.ink-mark.open .ink-mark-t span { -webkit-line-clamp: unset; }
+.ink-mark.open .ink-mark-t em { display: block; }
+.ink-mark .ink-mark-x { position: relative; flex: none; margin-top: 2px; }
+.ink-btn.danger { color: var(--c-red, #f87171); }
+
+/* Lasso: Drehen-Griff */
+.ink-sel-r { position: absolute; left: 50%; top: -34px; width: 20px; height: 20px; margin-left: -10px; border-radius: 50%; background: #fff; border: 2px solid #6d5ce7; cursor: grab; box-shadow: 0 1px 4px rgba(0,0,0,.3); }
+.ink-sel-r::after { content: ''; position: absolute; left: 50%; top: 18px; width: 2px; height: 14px; margin-left: -1px; background: #6d5ce7; }
+
+/* kurze Meldung bei Gesten (2 Finger tippen = Rückgängig) */
+.ink-toast { position: absolute; left: 50%; top: 120px; transform: translateX(-50%); z-index: 40; padding: 8px 16px; border-radius: 999px; background: rgba(20,20,24,.86); color: #fff; font-size: 14px; font-weight: 600; pointer-events: none; animation: x-fade-up .18s ease both; }
