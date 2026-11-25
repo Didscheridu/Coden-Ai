@@ -115,6 +115,36 @@ const { setup } = require('./helpers');
   seen.length = 0; t = await stream(nm.tier, anna, { effort: 'low' });
   chk('Numes: eigener Key, richtige Adresse, Modell', [last().url, last().headers.Authorization, last().body.model, nm.providerName], ['https://api.numes.ai/api/v1/chat/completions', 'Bearer nms-test-key-7777', 'deepseek/deepseek-v4.1-flash:free', 'Numes']);
 
+  // Numes: HTTP 502 -> automatischer Neuversuch ohne reasoning-Einschränkung liefert Antwort
+  n = 0;
+  reply = () => (n++ === 0
+    ? new Response('<html>502 Bad Gateway</html>', { status: 502, headers: { 'Content-Type': 'text/html' } })
+    : sse([`data: ${JSON.stringify({ choices: [{ delta: { content: 'Cookie' } }] })}\n\n`, 'data: [DONE]\n\n']));
+  seen.length = 0; t = await stream(nm.tier, anna, { effort: 'high' });
+  chk('Numes: 502 wird wiederholt und lässt reasoning weg', [textOf(t), seen.length, seen[0].body.reasoning?.effort, seen[1].body.reasoning], ['Cookie', 2, 'high', undefined]);
+
+  // Numes: In-Band-SSE-Fehler "provider capacity is exhausted" vor erster Ausgabe -> Neuversuch klappt
+  n = 0;
+  reply = () => (n++ === 0
+    ? sse([': keepalive\n\n', `data: ${JSON.stringify({ error: { code: 503, message: 'provider capacity is exhausted', metadata: { error_type: 'provider_unavailable' } }, choices: [{ index: 0, delta: { content: '' }, finish_reason: 'error' }] })}\n\n`, 'data: [DONE]\n\n'])
+    : sse([`data: ${JSON.stringify({ choices: [{ delta: { content: 'Läuft!' } }] })}\n\n`, 'data: [DONE]\n\n']));
+  seen.length = 0; t = await stream(nm.tier, anna, { effort: 'high' });
+  chk('Numes: In-Band-Kapazitätsfehler wird wiederholt', [textOf(t), seen.length], ['Läuft!', 2]);
+
+  // Numes: 422 lehnt reasoning + temperature ab -> automatisch ohne beides
+  n = 0;
+  reply = () => (n++ < 2
+    ? new Response(JSON.stringify({ error: { message: 'invalid parameter' } }), { status: 422 })
+    : sse([`data: ${JSON.stringify({ choices: [{ delta: { content: 'Minimal' } }] })}\n\n`, 'data: [DONE]\n\n']));
+  seen.length = 0; t = await stream(nm.tier, anna, { effort: 'low' });
+  chk('Numes: 422 entfernt reasoning und temperature', [textOf(t), seen.length, seen[2].body.reasoning, seen[2].body.temperature], ['Minimal', 3, undefined, undefined]);
+
+  // Numes: dauerhaft voll ausgelastet -> 3 Versuche bei Numes, kein stilles Ausweichen, klarer Hinweis
+  reply = () => new Response(JSON.stringify({ error: { code: 429, message: 'provider capacity is exhausted', metadata: { error_type: 'provider_overloaded' } } }), { status: 429 });
+  seen.length = 0; t = await stream(nm.tier, anna, { effort: 'low' });
+  const numesErr = events(t).find(e => e.t === 'e')?.error || '';
+  chk('Numes: nach 3 Versuchen klarer Hinweis ohne Coden-Fallback', [/provider capacity is exhausted.*kostenlosen Server bei Numes/.test(numesErr), seen.length, seen.every(s => s.url.includes('api.numes.ai'))], [true, 3, true]);
+
   // 9) Fehler eines eigenen Modells: genaue Ursache, kein Ausweichen auf Coden-Modelle
   reply = () => new Response(JSON.stringify({ error: { message: 'Incorrect API key provided' } }), { status: 401 });
   seen.length = 0; t = await stream(om.tier, anna);

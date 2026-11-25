@@ -109,8 +109,16 @@ export function mountMessageActions(ctx, toast) {
             const t = m.text; ctx.truncate(idx()); ctx.setInput(t);
         }));
         else bar.append(btn('refresh', 'Neu generieren', () => {
+            const rows = rowsOf(), i = idx();
+            if (row.dataset.failed === '1' && i === rows.length - 1) {
+                const msgs = ctx.session()?.messages || [];
+                let u = msgs.length - 1; while (u >= 0 && !msgs[u].isUser) u--;
+                if (u < 0) return; const m = msgs[u];
+                if (m.images?.length) return toast?.('Die Frage hatte Anhänge. Sende sie bitte neu.', { type: 'warn' });
+                row.remove(); const t = m.text; ctx.truncate(u); ctx.setInput(t); ctx.send(); return;
+            }
             if (!synced()) return toast?.('Bitte erst den Chat neu laden, dann geht es.', { type: 'warn' });
-            const rows = rowsOf(), i = idx(); if (i !== rows.length - 1) return toast?.('Neu generieren geht nur bei der letzten Antwort.', { type: 'warn' });
+            if (i !== rows.length - 1) return toast?.('Neu generieren geht nur bei der letzten Antwort.', { type: 'warn' });
             let u = i - 1; while (u >= 0 && !ctx.session().messages[u].isUser) u--;
             if (u < 0) return; const m = ctx.session().messages[u]; if (m.images?.length) return toast?.('Die Frage hatte Anhänge. Sende sie bitte neu.', { type: 'warn' });
             const t = m.text; ctx.truncate(u); ctx.setInput(t); ctx.send();

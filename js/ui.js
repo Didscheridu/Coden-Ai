@@ -212,7 +212,22 @@ export const UI = {
             think: (k) => panel.think(k), model: (n) => panel.model(n),
             update(text) { latest = text; if (!started && text.trim()) { started = true; end(); } if (started && !raf) raf = requestAnimationFrame(paint); },
             finish(text) { cancelAnimationFrame(raf); raf = 0; latest = text; row.classList.remove('streaming'); const i = end(); if (!text.trim()) { row.remove(); return i; } UI.renderRich(answer, text, key); UI.addSuggestions(row, text); if (stick()) chatContainer.scrollTop = chatContainer.scrollHeight; return i; },
-            fail(msg) { cancelAnimationFrame(raf); raf = 0; row.classList.remove('streaming'); end(); const note = document.createElement('div'); note.className = 'stream-error'; note.textContent = msg; answer.appendChild(note); },
+            fail(msg, actions = []) {
+                cancelAnimationFrame(raf); raf = 0; row.classList.remove('streaming'); row.dataset.failed = '1'; end();
+                const note = document.createElement('div'); note.className = 'stream-error';
+                const tx = document.createElement('div'); tx.textContent = msg; note.appendChild(tx);
+                if (Array.isArray(actions) && actions.length) {
+                    const bar = document.createElement('div'); bar.className = 'stream-error-actions';
+                    actions.forEach(a => {
+                        const b = document.createElement('button'); b.type = 'button'; b.className = 'stream-error-btn';
+                        b.textContent = a.label;
+                        b.addEventListener('click', (e) => { e.stopPropagation(); a.run?.(); });
+                        bar.appendChild(b);
+                    });
+                    note.appendChild(bar);
+                }
+                answer.appendChild(note);
+            },
             info: () => info,
             remove() { cancelAnimationFrame(raf); panel.remove(); row.remove(); }
         };

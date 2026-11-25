@@ -4,7 +4,7 @@ import { CONFIG } from './config.js';
 import { generateAiResponse } from './api.js';
 import { bindEffortButtons } from './effort.js';
 import { initSettingsTabs } from './settings-ui.js';
-import { initByok, loadByok, clearByok, openByokSettings, syncEffortRow, byokEffort, isByokTier } from './byok.js';
+import { initByok, loadByok, clearByok, openByokSettings, syncEffortRow, byokEffort, isByokTier, isOwnTier } from './byok.js';
 import { runModelTest } from './model-test.js';
 import { Artifacts } from './artifacts.js';
 import { buildChatPrompt } from './system-prompt.js';
@@ -1429,7 +1429,7 @@ const hideImageTags = (t) => WebSearch.strip(Skills.hide(Personal.hide(ChatApps.
 // Eine laufende Antwort gehört zu einem Chat, nicht zum Bildschirm: wechselt der Nutzer den Chat und kommt zurück,
 // wird die Anzeige mit dem aktuellen Stand neu aufgebaut. Die Antwort selbst läuft auf dem Server weiter.
 const liveViews = new Map(); // Chat-ID -> Live-Anzeige
-const QUIET_STEP = /^(Anfrage läuft|Modell antwortet langsam|Anderes Modell)/;
+const QUIET_STEP = /^(Anfrage läuft|Modell antwortet langsam|Anderes Modell|Neuer Versuch|Anbieter überlastet)/;
 function liveFor(sid, { startedAt } = {}) {
     const st = { text: '', think: null, steps: [], model: null, view: null, started: false, t0: startedAt ? Date.parse(startedAt) || Date.now() : Date.now() };
     const view = () => {
@@ -1448,7 +1448,7 @@ function liveFor(sid, { startedAt } = {}) {
         model(m) { st.started = true; st.model = m; view()?.model(m); },
         update(t) { st.started = true; st.text = t; view()?.update(t); },
         finish(t) { liveViews.delete(sid); if (activeSessionId === sid) UI.showLoading(false); const v = view(); const info = v ? v.finish(t) : null; return info || fallback(); },
-        fail(msg) { liveViews.delete(sid); if (activeSessionId === sid) UI.showLoading(false); view()?.fail(msg); },
+        fail(msg, actions) { liveViews.delete(sid); if (activeSessionId === sid) UI.showLoading(false); view()?.fail(msg, actions); },
         remove() { liveViews.delete(sid); if (activeSessionId === sid) UI.showLoading(false); st.view?.remove(); },
         attach() { if (activeSessionId !== sid) return; if (st.started) view(); else UI.showLoading(true, 'Coden startet …'); }
     };
@@ -1792,7 +1792,22 @@ async function handleSend() {
             aiResponse = err.text || aiResponse;
             const partial = withPrefix(hideImageTags(aiResponse).trim());
             if (partial.trim()) { aiResponse = partial; lastThink = live.finish(partial); live.fail('⚠️ Die Antwort wurde unterbrochen: ' + err.message); }
-            else live.fail('❌ ' + err.message);
+            else {
+                const actions = isOwnTier(currentSelectedModel) && !attachedImages.length ? [
+                    { label: 'Mit Coden Flash antworten', run: () => {
+                        if (curStream()) return;
+                        document.querySelector('.model-option[data-model="flash"]')?.click();
+                        const idx = sessionAtSend.messages.lastIndexOf(sessionAtSend.messages.findLast ? sessionAtSend.messages.findLast(m => m.isUser) : [...sessionAtSend.messages].reverse().find(m => m.isUser));
+                        if (activeSessionId === sessionAtSend.id && idx >= 0) {
+                            truncateChat(idx);
+                            if (chatInput) { chatInput.value = internalPrompt; chatInput.dispatchEvent(new Event('input', { bubbles: true })); }
+                            handleSend();
+                        }
+                    } },
+                    { label: 'Ausweich-Kette einrichten', run: () => window.dispatchEvent(new CustomEvent('coden:settings', { detail: { tab: 'models', sub: 'chains' } })) }
+                ] : [];
+                live.fail('❌ ' + err.message, actions);
+            }
             break;
         }
       }

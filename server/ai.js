@@ -216,6 +216,7 @@ class ThinkTracker {
 
 // Liest Server-Sent-Events und liefert die "data:"-Inhalte
 async function* sseData(res) {
+  if (!res?.body) return;
   const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
   for (;;) {
     const { value, done } = await reader.read();
@@ -227,13 +228,36 @@ async function* sseData(res) {
       if (line.startsWith('data:')) yield line.slice(5).trim();
     }
   }
+  buf += dec.decode();
   if (buf.startsWith('data:')) yield buf.slice(5).trim();
 }
 
+function apiError(msg, { status, errorType, retryAfter } = {}) {
+  const e = new Error(msg);
+  if (status) e.status = status;
+  if (errorType) e.errorType = errorType;
+  if (retryAfter) e.retryAfter = retryAfter;
+  return e;
+}
+
 async function failFrom(r) {
-  let msg = `HTTP ${r.status}`;
-  try { const d = await r.json(); msg = d.error?.message || d.message || msg; } catch (e) { /* kein JSON */ }
-  throw new Error(msg);
+  let msg = `HTTP ${r.status}`, errorType = null;
+  const raw = typeof r.text === 'function' ? await r.text().catch(() => '') : '';
+  if (raw) {
+    try {
+      const d = JSON.parse(raw);
+      msg = d.error?.message || d.message || msg;
+      errorType = d.error?.metadata?.error_type || d.error?.type || d.error?.code || null;
+    } catch (e) { /* kein JSON, z. B. HTML-502 */ }
+  } else if (typeof r.json === 'function') {
+    try {
+      const d = await r.json();
+      msg = d.error?.message || d.message || msg;
+      errorType = d.error?.metadata?.error_type || d.error?.type || d.error?.code || null;
+    } catch (e) { /* kein JSON */ }
+  }
+  const ra = parseFloat(r.headers?.get?.('retry-after') || '');
+  throw apiError(msg, { status: r.status, errorType, retryAfter: Number.isFinite(ra) && ra > 0 ? ra : null });
 }
 
 // Denkaufwand (niedrig/mittel/hoch): nur dort mitschicken, wo der Anbieter es versteht
@@ -295,26 +319,37 @@ async function callModel(m, messages, { stream, onDelta, onThink, signal, maxTok
   const key = m.apiKey || (cfg.env && process.env[cfg.env]);
   if (!key) throw new Error(`${cfg.env} fehlt`);
   const level = m.own ? m.level : null;
-  const send = (lvl) => fetch(cfg.url, {
+  const send = (lvl, withTemp = true) => fetch(cfg.url, {
     method: 'POST', signal,
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', ...(m.provider === 'openai' ? {} : { 'HTTP-Referer': 'https://coden-ai.vercel.app', 'X-Title': 'Coden AI' }) },
     body: JSON.stringify({
       model: m.id, messages: toOpenAI(messages),
       // OpenAI: Denkmodelle verlangen max_completion_tokens und kennen keine temperature
-      ...(m.provider === 'openai' ? { max_completion_tokens: maxTokens || DEFAULT_MAX } : { max_tokens: maxTokens || DEFAULT_MAX, temperature: 0.7 }),
+      ...(m.provider === 'openai' ? { max_completion_tokens: maxTokens || DEFAULT_MAX } : { max_tokens: maxTokens || DEFAULT_MAX, ...(withTemp ? { temperature: 0.7 } : {}) }),
       ...(m.own ? (lvl ? (m.provider === 'openai' ? { reasoning_effort: lvl } : { reasoning: { effort: lvl } }) : {}) : effortParams(m, effort)),
       ...(stream ? { stream: true } : {})
     })
   });
-  let r = await send(level);
-  if (!r.ok && level && r.status === 400) r = await send(null); // Modell kennt keine Denkstufe: ohne noch einmal
+  let r = await send(level, true);
+  if (!r.ok && (r.status === 400 || r.status === 422)) {
+    if (level) r = await send(null, true); // Modell kennt keine Denkstufe oder lehnt reasoning-Parameter ab
+    if (!r.ok && (r.status === 400 || r.status === 422) && m.provider !== 'openai') r = await send(null, false); // manche Modelle lehnen temperature ab
+  }
   if (!r.ok) await failFrom(r);
-  if (!stream) { const d = await r.json(); if (d.error) throw new Error(d.error.message); if (d.choices?.[0]?.finish_reason === 'length') info.truncated = true; return d.choices?.[0]?.message?.content || ''; }
+  const ct = String(r.headers?.get?.('content-type') || '').toLowerCase();
+  if (!stream || ct.includes('application/json')) {
+    const d = await r.json();
+    if (d.error) throw apiError(d.error.message || 'Anbieter-Fehler', { status: Number(d.error.code) || undefined, errorType: d.error.metadata?.error_type || d.error.type || null });
+    if (d.choices?.[0]?.finish_reason === 'length') info.truncated = true;
+    const content = d.choices?.[0]?.message?.content || '';
+    if (stream && content) { onDelta(content); }
+    return content;
+  }
   let full = '';
   for await (const raw of sseData(r)) {
     if (raw === '[DONE]') break;
     let d; try { d = JSON.parse(raw); } catch (e) { continue; }
-    if (d.error) throw new Error(d.error.message || 'Stream-Fehler');
+    if (d.error) throw apiError(d.error.message || 'Stream-Fehler', { status: Number(d.error.code) || undefined, errorType: d.error.metadata?.error_type || d.error.type || null });
     if (d.choices?.[0]?.finish_reason === 'length') info.truncated = true;
     const dl = d.choices?.[0]?.delta || {};
     const th = dl.reasoning_content || dl.reasoning; // Denk-Teile: nur als Überschrift an den Nutzer, nie als Antworttext
@@ -335,6 +370,29 @@ function listModels() {
   return [...seen.values()];
 }
 const findModel = (key) => listModels().find(m => m.key === key) || null;
+
+const sleepAbort = (ms, signal) => new Promise((resolve, reject) => {
+  if (signal?.aborted) return reject(new Error('abgebrochen'));
+  const t = setTimeout(() => { signal?.removeEventListener('abort', onAbort); resolve(); }, ms);
+  const onAbort = () => { clearTimeout(t); reject(new Error('abgebrochen')); };
+  signal?.addEventListener('abort', onAbort, { once: true });
+});
+
+function isTransientError(e, m) {
+  if (!e || e.limit || e.partial) return false;
+  if ([408, 429, 502, 503, 504].includes(e.status)) return true;
+  if (e.status === 500 && (m.provider === 'numes' || e.errorType === 'server')) return true;
+  if (['rate_limited', 'provider_overloaded', 'provider_unavailable', 'service_unavailable', 'routing_unavailable', 'timeout', 'rate_limit_exceeded'].includes(e.errorType)) return true;
+  if (/provider capacity is exhausted|capacity.*exhausted|overloaded|provider.?unavailable|service.?unavailable|rate.?limit|bad gateway|gateway timeout|timed? ?out|econnreset|socket hang up|fetch failed/i.test(e.message || '')) return true;
+  if (e.message === 'Leere Antwort' && (m.own || m.provider === 'numes')) return true;
+  return false;
+}
+
+function retryWaitMs(e, attempt) {
+  if (e?.retryAfter && e.retryAfter > 0) return Math.min(4000, Math.max(400, Math.round(e.retryAfter * 1000)));
+  const base = attempt === 0 ? 650 : 1500;
+  return base + Math.floor(Math.random() * 250);
+}
 
 // ---------- Kaskade ----------
 // Probiert die Modelle der Stufe der Reihe nach. Fällt eines aus (oder liefert nichts), kommt das nächste.
@@ -369,58 +427,87 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
   let last, tried = 0;
   for (const m of cascade) {
     if (signal?.aborted) throw new Error('abgebrochen');
-    let slow = null;
-    try {
-      if (QUOTAS[m.id] && !(await reserveQuota(m.id, isOwner))) { last = new Error(`${m.id}: Tageslimit erreicht`); continue; }
-      const mt = m.own ? null : meter; // eigene Modelle zählen nicht gegen die Coden-Limits (auch nicht in gemischten Ketten)
-      let sent = false;
-      const tracker = onThink && stream ? new ThinkTracker(onThink) : null;
-      // Fortschritt auch dann zeigen, wenn das Modell sein Denken nicht preisgibt: echter Stand statt stummer Wartepunkte
-      if (tracker) {
-        onThink({ h: tried === 0 ? 'Anfrage läuft …' : 'Anderes Modell wird versucht …', v: tried ? 'Das vorherige Modell war überlastet oder nicht erreichbar.' : '' });
-        slow = setTimeout(() => { if (!sent && !tracker.text) onThink({ h: 'Modell antwortet langsam …', v: 'Große Modelle brauchen manchmal etwas länger, bevor die ersten Worte kommen.' }); }, 6000);
-      }
-      tried++;
-      const filter = new ThinkFilter(tracker ? (t) => tracker.push(t) : undefined);
-      const emit = (t) => {
-        mt?.add(t.length);
-        const v = filter.push(t); if (v) { if (!sent) { sent = true; clearTimeout(slow); onModel(m); } onDelta(v); }
-        if (mt?.stop) { const e = limitHit(); if (sent) e.partial = true; throw e; }
-      };
-      const thinkIn = (t) => { mt?.add(String(t).length); if (tracker) tracker.push(t); };
-      const info = {};
-      const call = async (msgs) => {
-        let got = false;
-        try { const r = await callModel(m, msgs, { stream, onDelta: (t) => { got = true; emit(t); }, onThink: (t) => { got = true; thinkIn(t); }, signal, maxTokens, effort, info }); got = true; if (!stream) mt?.add(r.length); return r; }
-        catch (e) { if (e.limit) throw e; if (signal.aborted && mt?.stop) { const le = limitHit(); if (sent) le.partial = true; throw le; } if (sent) e.partial = true; throw e; }
-        finally { if (got) mt?.add(charsOf(msgs), { input: true }); } // Eingabe nur zählen, wenn das Modell wirklich gearbeitet hat
-      };
-      let full = await call(messages);
-      // Antwort wurde vom Token-Limit abgeschnitten (z. B. langer Code): nahtlos weiterschreiben lassen
-      for (let n = 0; info.truncated && n < 3 && full.trim(); n++) {
-        info.truncated = false;
-        full += await call([...messages, { role: 'assistant', content: full.replace(/<think>[\s\S]*?<\/think>\s*/gi, '') }, { role: 'user', content: CONTINUE }]);
-      }
-      if (stream) {
-        const rest = filter.flush(); if (rest) { if (!sent) { sent = true; onModel(m); } onDelta(rest); }
-        if (!sent) throw new Error('Leere Antwort');
+    if (QUOTAS[m.id] && !(await reserveQuota(m.id, isOwner))) { last = new Error(`${m.id}: Tageslimit erreicht`); continue; }
+    const maxAttempts = (cascade.length === 1 && (m.own || m.provider === 'numes')) || m.provider === 'numes' ? 3 : (m.own ? 2 : 1);
+    let modelDone = false;
+    for (let attempt = 0; attempt < maxAttempts && !modelDone; attempt++) {
+      if (signal?.aborted) throw new Error('abgebrochen');
+      let slow = null;
+      const tryModel = attempt > 0 && m.provider === 'numes' ? { ...m, level: null } : m;
+      try {
+        const mt = m.own ? null : meter; // eigene Modelle zählen nicht gegen die Coden-Limits (auch nicht in gemischten Ketten)
+        let sent = false;
+        const tracker = onThink && stream ? new ThinkTracker(onThink) : null;
+        // Fortschritt auch dann zeigen, wenn das Modell sein Denken nicht preisgibt: echter Stand statt stummer Wartepunkte
+        if (tracker) {
+          onThink({ h: attempt > 0 ? `Neuer Versuch (${attempt + 1}/${maxAttempts}) …` : (tried === 0 ? 'Anfrage läuft …' : 'Anderes Modell wird versucht …'), v: attempt > 0 ? 'Der Anbieter war kurz überlastet – Anfrage wird wiederholt.' : (tried ? 'Das vorherige Modell war überlastet oder nicht erreichbar.' : '') });
+          slow = setTimeout(() => { if (!sent && !tracker.text) onThink({ h: 'Modell antwortet langsam …', v: 'Große Modelle brauchen manchmal etwas länger, bevor die ersten Worte kommen.' }); }, 6000);
+        }
+        if (attempt === 0) tried++;
+        const filter = new ThinkFilter(tracker ? (t) => tracker.push(t) : undefined);
+        const emit = (t) => {
+          mt?.add(t.length);
+          const v = filter.push(t); if (v) { if (!sent) { sent = true; clearTimeout(slow); onModel(m); } onDelta(v); }
+          if (mt?.stop) { const e = limitHit(); if (sent) e.partial = true; throw e; }
+        };
+        const thinkIn = (t) => { mt?.add(String(t).length); if (tracker) tracker.push(t); };
+        const info = {};
+        const call = async (msgs) => {
+          let got = false;
+          try { const r = await callModel(tryModel, msgs, { stream, onDelta: (t) => { got = true; emit(t); }, onThink: (t) => { got = true; thinkIn(t); }, signal, maxTokens, effort, info }); got = true; if (!stream) mt?.add(r.length); return r; }
+          catch (e) { if (e.limit) throw e; if (signal.aborted && mt?.stop) { const le = limitHit(); if (sent) le.partial = true; throw le; } if (sent) e.partial = true; throw e; }
+          finally { if (got) mt?.add(charsOf(msgs), { input: true }); } // Eingabe nur zählen, wenn das Modell wirklich gearbeitet hat
+        };
+        let full = await call(messages);
+        // Antwort wurde vom Token-Limit abgeschnitten (z. B. langer Code): nahtlos weiterschreiben lassen
+        for (let n = 0; info.truncated && n < 3 && full.trim(); n++) {
+          info.truncated = false;
+          full += await call([...messages, { role: 'assistant', content: full.replace(/<think>[\s\S]*?<\/think>\s*/gi, '') }, { role: 'user', content: CONTINUE }]);
+        }
+        if (stream) {
+          const rest = filter.flush(); if (rest) { if (!sent) { sent = true; onModel(m); } onDelta(rest); }
+          if (!sent) throw new Error('Leere Antwort');
+          clearTimeout(slow);
+          modelDone = true;
+          return { model: m };
+        }
+        const clean = full.replace(/<think>[\s\S]*?<\/think>\n*/gi, '').trim();
+        if (!clean) throw new Error('Leere Antwort (Modell hat nur nachgedacht).');
+        modelDone = true;
+        return { text: clean, model: m };
+      } catch (e) {
         clearTimeout(slow);
-        return { model: m };
+        if (e.partial || e.limit) throw e; // schon Text beim Nutzer (oder Limit erreicht): nicht mehr wechseln
+        if (outer?.aborted) throw e;
+        console.warn(`[ai] ${m.provider}/${m.id} fehlgeschlagen (Versuch ${attempt + 1}/${maxAttempts}):`, e.message);
+        last = e;
+        if (attempt + 1 < maxAttempts && isTransientError(e, m)) {
+          if (onThink && stream) onThink({ h: 'Anbieter überlastet – neuer Versuch …', v: `${m.label || m.id} (${PROVIDER_NAMES[m.provider] || m.provider}): ${e.message}` });
+          await sleepAbort(retryWaitMs(e, attempt), signal);
+          continue;
+        }
+        break;
       }
-      const clean = full.replace(/<think>[\s\S]*?<\/think>\n*/gi, '').trim();
-      if (!clean) throw new Error('Leere Antwort (Modell hat nur nachgedacht).');
-      return { text: clean, model: m };
-    } catch (e) {
-      clearTimeout(slow);
-      if (e.partial || e.limit) throw e; // schon Text beim Nutzer (oder Limit erreicht): nicht mehr wechseln
-      if (outer?.aborted) throw e;
-      console.warn(`[ai] ${m.provider}/${m.id} fehlgeschlagen:`, e.message);
-      last = e;
     }
   }
   if (pin || own) { // gezielt gewähltes Modell: genaue Ursache nennen statt „überlastet“
-    const m = cascade[0]; const hint = /401|403|unauthor|invalid.*key|api key|permission/i.test(last?.message || '') ? ` – der API-Key von ${PROVIDER_NAMES[m.provider] || m.provider} wird abgelehnt (${own ? 'Einstellungen → Eigene Modelle' : 'in Vercel prüfen, danach neu deployen'})` : '';
-    throw new Error(`${own ? own.label : m.id} (${PROVIDER_NAMES[m.provider] || m.provider}): ${last?.message}${hint}`);
+    const m = cascade[0];
+    const prov = PROVIDER_NAMES[m.provider] || m.provider;
+    const msg = String(last?.message || '');
+    let hint = '';
+    if (/401|403|unauthor|invalid.*key|api key|permission/i.test(msg) || last?.status === 401 || last?.status === 403) {
+      hint = ` – der API-Key von ${prov} wird abgelehnt (${own ? 'Einstellungen → Eigene Modelle' : 'in Vercel prüfen, danach neu deployen'})`;
+    } else if (last?.status === 402 || /insufficient_credits|credit|balance|funding/i.test(msg)) {
+      hint = ` – Guthaben oder Ausgabenlimit bei ${prov} reicht nicht aus`;
+    } else if (own && ([429, 502, 503, 504].includes(last?.status) || /capacity|exhausted|overload|unavailable|bad gateway|http 50[234]|http 429/i.test(msg))) {
+      hint = m.provider === 'numes' && /:free$/i.test(m.id)
+        ? ' – die kostenlosen Server bei Numes sind gerade ausgelastet. Wechsle kurz auf ein Coden-Modell oder richte eine Ausweich-Kette ein.'
+        : ` – ${prov} ist gerade überlastet oder nicht erreichbar.`;
+    }
+    throw Object.assign(
+      new Error(`${own ? own.label : m.id} (${prov}): ${msg}${hint}`),
+      { ...(last?.status ? { status: last.status } : {}), ...(last?.errorType ? { errorType: last.errorType } : {}) }
+    );
   }
   if (chain) throw new Error(`Alle Modelle der Kette „${chain.name}“ sind ausgefallen. Letzter Fehler: ${last?.message}`);
   throw new Error(`Alle Server sind überlastet. Letzter Fehler: ${last?.message}`);

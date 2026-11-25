@@ -38,6 +38,9 @@ html { scroll-behavior: smooth; }
 .md :not(pre) > code { background: var(--bg-surface); padding: 2px 6px; border-radius: 6px; font-size: .9em }
 .md img { max-width: 100%; border-radius: 10px; margin-top: 12px; border: 1px solid rgba(255, 255, 255, .06) }
 .stream-error { color: #f28b82; font-size: 13px; margin-top: 8px }
+.stream-error-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px }
+.stream-error-btn { background: rgba(255, 255, 255, .06); border: 1px solid rgba(255, 255, 255, .14); color: var(--text-primary); border-radius: 8px; padding: 6px 12px; font: 500 12px var(--font-main); cursor: pointer; transition: background .15s, border-color .15s }
+.stream-error-btn:hover { background: rgba(138, 180, 248, .14); border-color: rgba(138, 180, 248, .45) }
 
 /* Code-Blöcke */
 .code-block-wrapper { margin: 14px 0; border-radius: 12px; overflow: hidden; background: #1b1c1d; border: 1px solid rgba(255, 255, 255, .06); }
