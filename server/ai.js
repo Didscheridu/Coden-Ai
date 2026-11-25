@@ -501,7 +501,8 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
     } else if (last?.status === 402 || /insufficient_credits|credit|balance|funding/i.test(msg)) {
       hint = ` – Guthaben oder Ausgabenlimit bei ${prov} reicht nicht aus`;
     } else if (own && ([429, 502, 503, 504].includes(last?.status) || /capacity|exhausted|overload|unavailable|bad gateway|http 50[234]|http 429/i.test(msg))) {
-      hint = (m.provider === 'numes' || m.provider === 'kilo') && /:free$/i.test(m.id)
+      const isFreeTier = /:free$|(?:\/|-)free$/i.test(m.id) || m.id === 'stealth/glyph-cluster';
+      hint = (m.provider === 'numes' || m.provider === 'kilo') && isFreeTier
         ? ` – die kostenlosen Server bei ${prov} sind gerade ausgelastet. Wechsle kurz auf ein Coden-Modell oder richte eine Ausweich-Kette ein.`
         : ` – ${prov} ist gerade überlastet oder nicht erreichbar.`;
     }

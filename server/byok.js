@@ -37,13 +37,24 @@ const PROVIDERS = {
     levels: ['minimal', 'low', 'medium', 'high', 'xhigh'],
     suggest: [{ id: 'deepseek/deepseek-v4.1-flash:free', label: 'DeepSeek V4.1 Flash (gratis)' }, { id: 'moonshotai/kimi-k3.1-pro:free', label: 'Kimi K3.1 Pro (gratis)' }]
   },
-  // Kilo: AI Gateway mit OpenAI-kompatibler Schnittstelle (https://ai-gateway.kilo.ai/api/v1), viele Modelle & Gratismodelle
+  // Kilo: AI Gateway mit OpenAI-kompatibler Schnittstelle (https://ai-gateway.kilo.ai/api/v1), Modellliste von app.kilo.ai/api/gateway/models
   kilo: {
     name: 'Kilo', link: 'https://app.kilo.ai', keyHint: 'Kilo-API-Key',
     levels: ['minimal', 'low', 'medium', 'high', 'xhigh'],
     suggest: [
-      { id: 'inclusionai/ling-3.0-flash-vl:free', label: 'Ling 3.0 Flash VL (gratis)' },
-      { id: 'kilo-auto/free', label: 'Kilo Auto Free (gratis)' }
+      { id: 'kilo-auto/free', label: 'Auto Free' },
+      { id: 'inclusionai/ling-3.2-flash:free', label: 'inclusionAI: Ling 3.2 Flash (free)' },
+      { id: 'nvidia/nemotron-3.5-super-vl:free', label: 'NVIDIA: Nemotron 3.5 Super VL (free)' },
+      { id: 'nvidia/nemotron-3-ultra-550b-a55b:free', label: 'NVIDIA: Nemotron 3 Ultra (free)' },
+      { id: 'baidu/ernie-5.5-flash-preview:free', label: 'Baidu: ERNIE-5.5-Flash-Preview (free)' },
+      { id: 'particle-ai/particle-1:free', label: 'Particle AI: Particle-1 (free)' },
+      { id: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free', label: 'NVIDIA: Nemotron 3 Nano Omni (free)' },
+      { id: 'nvidia/nemotron-3.5-lightning:free', label: 'NVIDIA: Nemotron 3.5 Lightning (free)' },
+      { id: 'recursive/flint-v1.0:free', label: 'Recursive: Flint (free)' },
+      { id: 'liquid/lfm-3-1.7b:free', label: 'LiquidAI: LFM3-1.7B (free)' },
+      { id: 'openrouter/free', label: 'OpenRouter Free Models Router' },
+      { id: 'reflection/beam-free', label: 'Reflection: Beam 1.0 (Free)' },
+      { id: 'stealth/glyph-cluster', label: 'Glyph Cluster' }
     ]
   }
 };
@@ -267,9 +278,10 @@ async function listProviderModels(provider, key) {
     return list.map(m => (typeof m === 'string' ? { id: m, label: m } : { id: m.id, label: m.name || m.id })).filter(m => m.id);
   }
   if (provider === 'kilo') {
-    const d = await fetchJson('https://ai-gateway.kilo.ai/api/v1/models', { Authorization: `Bearer ${key}` });
-    const list = Array.isArray(d) ? d : (d.data || d.models || []);
-    return list.map(m => (typeof m === 'string' ? { id: m, label: m } : { id: m.id, label: m.name || m.id })).filter(m => m.id);
+    const d = await fetchJson('https://app.kilo.ai/api/gateway/models', { Authorization: `Bearer ${key}` });
+    const list = (Array.isArray(d) ? d : (d.data || d.models || [])).filter(m => m && (typeof m === 'string' || m.id));
+    list.sort((a, b) => Number(!!b?.isFree) - Number(!!a?.isFree));
+    return list.map(m => (typeof m === 'string' ? { id: m, label: m } : { id: m.id, label: m.name || m.id }));
   }
   const d = await fetchJson('https://openrouter.ai/api/v1/models', { Authorization: `Bearer ${key}` });
   return (d.data || []).map(m => ({ id: m.id, label: m.name || m.id }));
