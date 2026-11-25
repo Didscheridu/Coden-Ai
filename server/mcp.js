@@ -108,18 +108,45 @@ async function requestJson(urlStr, opts = {}) {
 
 // Antwort lesen: normales JSON oder Server-Sent-Events. Liefert die JSON-RPC-Nachricht mit der gesuchten id.
 function rpcFrom(res, id) {
-  const ct = String(res.headers['content-type'] || '');
+  const ct = String(res.headers['content-type'] || '').toLowerCase();
   const msgs = [];
   if (ct.includes('text/event-stream')) {
-    for (const block of res.text.split(/\r?\n\r?\n/)) {
-      const data = block.split(/\r?\n/).filter(l => l.startsWith('data:')).map(l => l.slice(5).replace(/^ /, '')).join('\n');
-      if (data) { try { msgs.push(JSON.parse(data)); } catch (e) { /* ignorieren */ } }
+    for (const block of String(res.text || '').split(/\r?\n\r?\n/)) {
+      const dataLines = block.split(/\r?\n/).filter(l => l.startsWith('data:')).map(l => l.replace(/^data:\s?/, ''));
+      const joined = dataLines.join('\n').trim();
+      if (joined && joined !== '[DONE]') {
+        try {
+          const parsed = JSON.parse(joined);
+          Array.isArray(parsed) ? msgs.push(...parsed) : msgs.push(parsed);
+          continue;
+        } catch (_) { /* Fallback: zeilenweise JSON-Objekte innerhalb eines SSE-Blocks */ }
+        for (const dl of dataLines) {
+          const s = dl.trim();
+          if (!s || s === '[DONE]') continue;
+          try { const p = JSON.parse(s); Array.isArray(p) ? msgs.push(...p) : msgs.push(p); } catch (_) {}
+        }
+      }
     }
-  } else { try { const j = JSON.parse(res.text); Array.isArray(j) ? msgs.push(...j) : msgs.push(j); } catch (e) { throw httpErr(502, 'Der Server hat keine gültige MCP-Antwort geschickt.'); } }
-  const m = msgs.find(x => x && x.id === id);
+  } else {
+    try { const j = JSON.parse(res.text); Array.isArray(j) ? msgs.push(...j) : msgs.push(j); }
+    catch (e) { throw httpErr(502, 'Der Server hat keine gültige MCP-Antwort geschickt.'); }
+  }
+  const m = msgs.find(x => x && x.id !== undefined && String(x.id) === String(id))
+    || msgs.find(x => x && (x.result !== undefined || x.error !== undefined));
   if (!m) throw httpErr(502, 'Keine Antwort auf die Anfrage erhalten.');
   if (m.error) throw httpErr(502, 'MCP-Fehler: ' + String(m.error.message || m.error.code || 'unbekannt').slice(0, 300));
   return m.result;
+}
+
+function errorSnippetFrom(res) {
+  const txt = String(res?.text || '').trim();
+  if (!txt) return '';
+  try {
+    const j = JSON.parse(txt);
+    const msg = j?.error?.message || j?.error_description || j?.message || (typeof j?.error === 'string' ? j.error : '');
+    if (msg) return String(msg).replace(/\s+/g, ' ').trim().slice(0, 180);
+  } catch (_) {}
+  return txt.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
 }
 
 // Führt eine Anfrage nach dem MCP-Ablauf aus: initialize -> initialized -> Anfrage
@@ -132,7 +159,10 @@ async function mcpRequest({ url, headers, method, params }) {
       throw httpErr(401, 'Der MCP-Server verlangt eine Anmeldung. Prüfe den Token bzw. die Header.', { wwwAuth: r.headers['www-authenticate'] || '' });
     }
     if (r.status === 404) throw httpErr(502, 'Unter dieser Adresse gibt es keinen MCP-Server (404).');
-    if (r.status >= 400) throw httpErr(502, `Der MCP-Server meldet Fehler ${r.status}.`);
+    if (r.status >= 400) {
+      const detail = errorSnippetFrom(r);
+      throw httpErr(502, `Der MCP-Server meldet Fehler ${r.status}${detail ? `: ${detail}` : '.'}`);
+    }
   };
   const init = await post({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'Coden', version: '1.0.0' } } });
   fail(init);
@@ -146,7 +176,53 @@ async function mcpRequest({ url, headers, method, params }) {
   return { result, server: info?.serverInfo || null };
 }
 
-const trimTool = (t) => ({ name: String(t.name).slice(0, 80), description: String(t.description || '').slice(0, 400), inputSchema: t.inputSchema && JSON.stringify(t.inputSchema).length < 3200 ? t.inputSchema : { type: 'object' } });
+function compactInputSchema(schema) {
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return { type: 'object' };
+  const raw = JSON.stringify(schema);
+  if (raw.length <= 6000) return schema;
+  const reqSet = new Set(Array.isArray(schema.required) ? schema.required.map(String) : []);
+  const srcProps = schema.properties && typeof schema.properties === 'object' ? schema.properties : {};
+  const entries = Object.entries(srcProps).sort(([a], [b]) => (reqSet.has(a) === reqSet.has(b) ? 0 : reqSet.has(a) ? -1 : 1));
+  const compactProp = (v) => {
+    if (!v || typeof v !== 'object') return { type: 'string' };
+    const out = {};
+    if (v.type) out.type = v.type;
+    else if (Array.isArray(v.anyOf) && v.anyOf[0]?.type) out.type = v.anyOf[0].type;
+    if (Array.isArray(v.enum)) out.enum = v.enum.slice(0, 12);
+    if (v.items && typeof v.items === 'object') out.items = { type: v.items.type || 'string' };
+    if (typeof v.description === 'string' && v.description.trim()) out.description = v.description.trim().slice(0, 120);
+    return out;
+  };
+  const props = {};
+  for (const [k, v] of entries.slice(0, 24)) props[String(k).slice(0, 64)] = compactProp(v);
+  const out = { type: schema.type || 'object', ...(reqSet.size ? { required: [...reqSet].slice(0, 24) } : {}), properties: props };
+  if (JSON.stringify(out).length <= 6000) return out;
+  const bareProps = {};
+  for (const [k, v] of entries.slice(0, 20)) bareProps[String(k).slice(0, 64)] = { type: v?.type || 'string' };
+  return { type: schema.type || 'object', ...(reqSet.size ? { required: [...reqSet].slice(0, 20) } : {}), properties: bareProps };
+}
+
+const trimTool = (t) => ({ name: String(t.name).slice(0, 80), description: String(t.description || '').slice(0, 400), inputSchema: compactInputSchema(t.inputSchema) });
+
+async function fetchAllTools({ url, headers }) {
+  const seen = new Set();
+  const tools = [];
+  let server = null;
+  let cursor = undefined;
+  for (let page = 0; page < 4; page++) {
+    const r = await mcpRequest({ url, headers, method: 'tools/list', params: cursor ? { cursor } : {} });
+    if (!server && r.server) server = r.server;
+    for (const t of r.result?.tools || []) {
+      if (!t || typeof t.name !== 'string' || seen.has(t.name)) continue;
+      seen.add(t.name);
+      tools.push(trimTool(t));
+      if (tools.length >= 100) break;
+    }
+    cursor = typeof r.result?.nextCursor === 'string' && r.result.nextCursor ? r.result.nextCursor : null;
+    if (!cursor || tools.length >= 100) break;
+  }
+  return { server, tools };
+}
 
 // ---------- OAuth 2.1 + PKCE Discovery & DCR ----------
 function parseWwwAuth(header) {
@@ -373,6 +449,8 @@ function applyGithubScope(doc, params) {
   const targets = [];
   if (typeof args.owner === 'string' && args.owner.trim() && typeof args.repo === 'string' && args.repo.trim()) {
     targets.push(`${args.owner.trim()}/${args.repo.trim()}`);
+  } else if (typeof args.repo === 'string' && args.repo.includes('/')) {
+    targets.push(args.repo.trim().replace(/\.git$/i, ''));
   }
   for (const k of ['repository', 'full_name', 'repo_name', 'repository_full_name']) {
     if (typeof args[k] === 'string' && args[k].includes('/')) {
@@ -416,9 +494,9 @@ function applyGithubScope(doc, params) {
 
 function filterGithubResult(doc, toolName, result) {
   if (!isGithubConn(doc) || !Array.isArray(doc.allowed_repos) || !result) return result;
-  if (!/^(search_repositories|list_repositories|get_repositories|list_user_repos)$/i.test(String(toolName || ''))) return result;
+  if (!/^(search_repositories|list_repositories|get_repositories|list_user_repos|list_user_repositories|get_user_repositories)$/i.test(String(toolName || ''))) return result;
   const allowed = new Set(doc.allowed_repos.map(x => String(x).toLowerCase()));
-  const pickName = (x) => String(x?.full_name || x?.nameWithOwner || x?.fullName || '').toLowerCase();
+  const pickName = (x) => String(x?.full_name || x?.nameWithOwner || x?.fullName || (x?.owner?.login && x?.name ? `${x.owner.login}/${x.name}` : '')).toLowerCase();
   const filterArr = (arr) => arr.filter(x => x && allowed.has(pickName(x)));
   const out = { ...result };
   if (Array.isArray(result.content)) {
@@ -726,8 +804,7 @@ function mcpRouter(requireAuth) {
     if (existing.length >= MAX_CONNS) throw httpErr(400, `Höchstens ${MAX_CONNS} Verbindungen möglich.`);
     if (existing.some(x => x.name.toLowerCase() === name.toLowerCase())) throw httpErr(409, 'Diesen Verbindungsnamen gibt es schon.');
 
-    const { result, server } = await mcpRequest({ url: u.toString(), headers: hdrs, method: 'tools/list' });
-    const tools = (result?.tools || []).filter(t => t && typeof t.name === 'string').slice(0, 80).map(trimTool);
+    const { tools, server } = await fetchAllTools({ url: u.toString(), headers: hdrs });
     const token_enc = tokenVal ? await byok.encrypt(tokenVal) : null;
     const now = db.nowIso();
 
@@ -985,12 +1062,11 @@ function mcpRouter(requireAuth) {
     let status = 'connected';
     let lastError = null;
     try {
-      const rTools = await mcpRequest({
+      const rTools = await fetchAllTools({
         url: st.serverUrl,
-        headers: { Authorization: `${tokenType} ${accessToken}` },
-        method: 'tools/list'
+        headers: { Authorization: `${tokenType} ${accessToken}` }
       });
-      tools = (rTools.result?.tools || []).filter(t => t && typeof t.name === 'string').slice(0, 80).map(trimTool);
+      tools = rTools.tools;
       serverName = String(rTools.server?.name || '').slice(0, 120);
     } catch (e) {
       if (e.status === 401 || e.status === 403) throw e;
@@ -1065,8 +1141,24 @@ function mcpRouter(requireAuth) {
   // ---------- Tools & Call (unterstützt gespeicherte connectionId ODER direkte { url, headers }) ----------
   r.post('/tools', rateLimit('mcp-tools', 30, 60), guard(async (req, res) => {
     if (req.body?.connectionId) {
-      const { doc, result, server } = await runConnectionRequest(req.user.uid, req.body.connectionId, { method: 'tools/list' });
-      const tools = (result?.tools || []).filter(t => t && typeof t.name === 'string').slice(0, 80).map(trimTool);
+      const id = parseInt(req.body.connectionId, 10);
+      if (!Number.isInteger(id) || id <= 0) throw httpErr(400, 'Ungültige Verbindungs-ID.');
+      const doc = await db.getDoc(`mcp_connections/${id}`);
+      if (!doc || doc.uid !== req.user.uid) throw httpErr(404, 'Verbindung nicht gefunden.');
+      let { headers, oauth } = await resolveConnectionHeaders(doc);
+      let fetched;
+      try {
+        fetched = await fetchAllTools({ url: doc.url, headers });
+      } catch (e) {
+        if (e.status === 401 && doc.auth_type === 'oauth' && oauth?.refreshToken) {
+          const renewed = await refreshAndSave(doc, oauth);
+          headers = { Authorization: `${renewed.tokenType || 'Bearer'} ${renewed.accessToken}` };
+          fetched = await fetchAllTools({ url: doc.url, headers });
+        } else {
+          throw e;
+        }
+      }
+      const { tools, server } = fetched;
       const updated = await db.updateDoc(`mcp_connections/${doc.id}`, {
         tools,
         server_name: String(server?.name || doc.server_name || '').slice(0, 120),
@@ -1076,8 +1168,8 @@ function mcpRouter(requireAuth) {
       }).catch(() => doc);
       return res.json({ server, tools, connection: sanitizeConn(updated) });
     }
-    const { result, server } = await mcpRequest({ url: req.body?.url, headers: req.body?.headers, method: 'tools/list' });
-    res.json({ server, tools: (result?.tools || []).filter(t => t && typeof t.name === 'string').slice(0, 80).map(trimTool) });
+    const { tools, server } = await fetchAllTools({ url: req.body?.url, headers: req.body?.headers });
+    res.json({ server, tools });
   }));
 
   r.post('/call', rateLimit('mcp-call', 60, 60), guard(async (req, res) => {
@@ -1089,7 +1181,15 @@ function mcpRouter(requireAuth) {
       ? await runConnectionRequest(req.user.uid, req.body.connectionId, { method: 'tools/call', params: { name: tool, arguments: args } })
       : await mcpRequest({ url: req.body?.url, headers: req.body?.headers, method: 'tools/call', params: { name: tool, arguments: args } });
 
-    const content = (result?.content || []).slice(0, 20).map(c => c.type === 'text' ? { type: 'text', text: String(c.text || '').slice(0, 20_000) } : c.type === 'image' && /^image\/(png|jpeg|gif|webp)$/.test(c.mimeType) && String(c.data || '').length < 3_000_000 ? { type: 'image', mimeType: c.mimeType, data: c.data } : { type: 'text', text: `[${c.type || 'Inhalt'} – nicht darstellbar]` });
+    const content = (result?.content || []).slice(0, 20).map(c =>
+      c.type === 'text'
+        ? { type: 'text', text: String(c.text || '').slice(0, 20_000) }
+        : c.type === 'resource' && typeof c.resource?.text === 'string'
+          ? { type: 'text', text: (c.resource.uri ? `[${c.resource.uri}]\n` : '') + String(c.resource.text).slice(0, 20_000) }
+          : c.type === 'image' && /^image\/(png|jpeg|gif|webp)$/.test(c.mimeType) && String(c.data || '').length < 3_000_000
+            ? { type: 'image', mimeType: c.mimeType, data: c.data }
+            : { type: 'text', text: `[${c.type || 'Inhalt'} – nicht darstellbar]` }
+    );
     res.json({ isError: !!result?.isError, content, structured: result?.structuredContent && JSON.stringify(result.structuredContent).length < 20_000 ? result.structuredContent : undefined });
   }));
 

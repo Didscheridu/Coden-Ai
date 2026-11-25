@@ -144,15 +144,43 @@ const { setup } = require('./helpers');
       const sse = q.url.startsWith('/sse');
       const send = (result) => {
         const msg = { jsonrpc: '2.0', id: m.id, result };
-        if (sse) { r.setHeader('Content-Type', 'text/event-stream'); r.end(`event: message\ndata: ${JSON.stringify(msg)}\n\n`); }
+        if (sse) { r.setHeader('Content-Type', 'text/event-stream'); r.end(`event: message\ndata:${JSON.stringify(msg)}\n\n`); }
         else { r.setHeader('Content-Type', 'application/json'); r.end(JSON.stringify(msg)); }
       };
       if (m.method === 'initialize') { r.setHeader('Mcp-Session-Id', 'sess-1'); return send({ protocolVersion: '2025-03-26', serverInfo: { name: 'Test', version: '1' }, capabilities: { tools: {} } }); }
       if (m.method === 'notifications/initialized') { r.statusCode = 202; return r.end(); }
-      if (m.method === 'tools/list') return send({ tools: [{ name: 'echo', description: 'Gibt Text zurück', inputSchema: { type: 'object', properties: { text: { type: 'string' } } } }] });
+      if (m.method === 'tools/list') {
+        if (q.url.startsWith('/paged')) {
+          if (!m.params?.cursor) {
+            return send({
+              tools: [{
+                name: 'get_file_contents',
+                description: 'Liest Datei aus GitHub',
+                inputSchema: {
+                  type: 'object',
+                  required: ['owner', 'repo'],
+                  properties: {
+                    owner: { type: 'string', description: 'Repository owner '.repeat(40) },
+                    repo: { type: 'string', description: 'Repository name '.repeat(40) },
+                    path: { type: 'string', description: 'File path '.repeat(40) },
+                    ref: { type: 'string', description: 'Branch or tag '.repeat(40) },
+                    extra_long: { type: 'string', description: 'Z'.repeat(3000) }
+                  }
+                }
+              }],
+              nextCursor: 'page-2'
+            });
+          }
+          return send({ tools: [{ name: 'search_code', description: 'Code suchen', inputSchema: { type: 'object', properties: { query: { type: 'string' } } } }] });
+        }
+        return send({ tools: [{ name: 'echo', description: 'Gibt Text zurück', inputSchema: { type: 'object', properties: { text: { type: 'string' } } } }] });
+      }
       if (m.method === 'tools/call') {
         if (m.params?.name === 'search_repositories') {
           return send({ content: [{ type: 'text', text: JSON.stringify({ total_count: 2, items: [{ full_name: 'anna/open-app' }, { full_name: 'anna/secret-app' }] }) }] });
+        }
+        if (m.params?.name === 'read_resource_file') {
+          return send({ content: [{ type: 'resource', resource: { uri: 'repo://anna/open-app/README.md', text: '# Open App' } }] });
         }
         if (m.params?.name === 'search_code' || m.params?.name === 'get_file_contents') {
           return send({ content: [{ type: 'text', text: JSON.stringify(m.params.arguments || {}) }] });
@@ -296,13 +324,26 @@ const { setup } = require('./helpers');
 
   chk('Blockiert owner/repo für nicht freigegebenes Repo', [
     (await P('/mcp/call', { connectionId: ghId, tool: 'get_file_contents', args: { owner: 'anna', repo: 'secret-app', path: 'README.md' } }, T)).s,
+    (await P('/mcp/call', { connectionId: ghId, tool: 'get_file_contents', args: { repo: 'anna/secret-app', path: 'README.md' } }, T)).s,
     (await P('/mcp/call', { connectionId: ghId, tool: 'get_file_contents', args: { repository: 'anna/secret-app' } }, T)).s,
     (await P('/mcp/call', { connectionId: ghId, tool: 'search_code', args: { query: 'secret repo:anna/secret-app' } }, T)).s,
     (await P('/mcp/call', { connectionId: ghId, tool: 'create_repository', args: { name: 'neu' } }, T)).s
-  ], [403, 403, 403, 403]);
+  ], [403, 403, 403, 403, 403]);
 
   const ghAllowedCall = await P('/mcp/call', { connectionId: ghId, tool: 'get_file_contents', args: { owner: 'Anna', repo: 'Open-App', path: 'index.html' } }, T);
   chk('Freigegebenes Repo bleibt erreichbar', ghAllowedCall.s, 200);
+
+  const ghResCall = await P('/mcp/call', { connectionId: ghId, tool: 'read_resource_file', args: { owner: 'anna', repo: 'open-app' } }, T);
+  chk('Resource-Textinhalt wird extrahiert', [ghResCall.s, ghResCall.j.content?.[0]?.text], [200, '[repo://anna/open-app/README.md]\n# Open App']);
+
+  const paged = await P('/mcp/tools', { url: base + '/paged' }, T);
+  const firstSchema = paged.j.tools?.[0]?.inputSchema || {};
+  chk('Paginierte tools/list + kompaktiertes Schema behält Properties', [
+    paged.s,
+    paged.j.tools?.map(t => t.name),
+    Boolean(firstSchema.properties?.owner && firstSchema.properties?.repo && firstSchema.properties?.path),
+    firstSchema.required
+  ], [200, ['get_file_contents', 'search_code'], true, ['owner', 'repo']]);
 
   const ghSearchCode = await P('/mcp/call', { connectionId: ghId, tool: 'search_code', args: { query: 'init' } }, T);
   chk('search_code bekommt repo:-Filter automatisch injiziert', [ghSearchCode.s, JSON.parse(ghSearchCode.j.content[0].text).query], [200, 'init repo:anna/open-app']);

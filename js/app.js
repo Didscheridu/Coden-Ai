@@ -416,7 +416,14 @@ async function pollSystemState() {
                 if (data.broadcast && data.broadcast.time > lastBroadcastTime) { 
                     lastBroadcastTime = data.broadcast.time; 
                     localStorage.setItem('coden_last_broadcast', lastBroadcastTime.toString()); // <-- NEU: Gemerkt!
-                    if (!isOwner) showCustomConfirm("📢 SYSTEM BROADCAST:\n\n" + data.broadcast.message); 
+                    if (!isOwner) showCustomConfirm({
+                        title: 'System-Mitteilung',
+                        subtitle: 'Nachricht vom Administrator',
+                        message: data.broadcast.message,
+                        icon: 'campaign',
+                        confirmLabel: 'Verstanden',
+                        hideCancel: true
+                    }); 
                 }
                 
                 // Force Update
@@ -973,28 +980,172 @@ if (document.getElementById('save-settings')) {
     });
 }
 
-function showCustomConfirm(message) {
+let activeConfirmCleanup = null;
+function showCustomConfirm(input) {
+    if (activeConfirmCleanup) {
+        try { activeConfirmCleanup(false); } catch (_) {}
+    }
     return new Promise((resolve) => {
         if (!confirmModal) return resolve(true);
-        
-        document.getElementById('confirm-message').textContent = message; 
+        const opts = typeof input === 'string'
+            ? { title: 'Bestätigung', message: input, confirmLabel: 'Bestätigen', cancelLabel: 'Abbrechen' }
+            : (input || {});
+
+        const iconEl = document.getElementById('confirm-icon');
+        const titleEl = document.getElementById('confirm-title');
+        const subEl = document.getElementById('confirm-subtitle');
+        const msgEl = document.getElementById('confirm-message');
+        const metaEl = document.getElementById('confirm-meta');
+        const yesBtn = document.getElementById('btn-confirm-yes');
+        const alwaysBtn = document.getElementById('btn-confirm-always');
+        const cancelBtn = document.getElementById('btn-confirm-cancel');
+        const closeBtn = document.getElementById('btn-confirm-close');
+
+        const mk = (tag, cls, text) => {
+            const el = document.createElement(tag);
+            if (cls) el.className = cls;
+            if (text !== undefined) el.textContent = text;
+            return el;
+        };
+        const mkMat = (name) => {
+            const s = document.createElement('span');
+            s.className = 'material-symbols-outlined';
+            s.textContent = name;
+            return s;
+        };
+
+        if (iconEl) {
+            iconEl.className = 'cc-icon' + (opts.danger ? ' cc-icon-danger' : '');
+            const cat = opts.kind === 'mcp'
+                ? (window.CodenMcpCatalog?.byId?.(opts.catalogId) || { name: opts.serverName, url: opts.serverUrl, icon: opts.icon || 'hub' })
+                : null;
+            const domain = cat ? window.CodenMcpCatalog?.domainOf?.(cat) : null;
+            if (domain) {
+                iconEl.classList.add('cc-icon-brand');
+                const img = document.createElement('img');
+                img.src = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`;
+                img.alt = '';
+                img.referrerPolicy = 'no-referrer';
+                img.addEventListener('error', () => {
+                    iconEl.classList.remove('cc-icon-brand');
+                    iconEl.replaceChildren(mkMat(cat?.icon || opts.icon || 'hub'));
+                });
+                iconEl.replaceChildren(img);
+            } else {
+                iconEl.replaceChildren(mkMat(cat?.icon || opts.icon || (opts.danger ? 'delete' : 'shield')));
+            }
+        }
+
+        if (titleEl) titleEl.textContent = opts.title || 'Aktion bestätigen';
+        if (subEl) {
+            const sub = String(opts.subtitle || '').trim();
+            subEl.textContent = sub;
+            subEl.classList.toggle('hidden', !sub);
+        }
+        if (msgEl) {
+            const msg = String(opts.message || '').trim();
+            msgEl.textContent = msg;
+            msgEl.classList.toggle('hidden', !msg);
+        }
+
+        if (metaEl) {
+            metaEl.replaceChildren();
+            if (opts.kind === 'mcp') {
+                const box = mk('div', 'cc-tool-box');
+                const head = mk('div', 'cc-tool-row');
+                head.append(mk('code', 'cc-tool-name', opts.toolName || 'werkzeug'), mk('span', 'cc-tool-server', opts.serverName || 'Konnektor'));
+                box.append(head);
+                if (opts.toolDesc) {
+                    box.append(mk('div', 'cc-tool-desc', String(opts.toolDesc).replace(/\s+/g, ' ').trim().slice(0, 180)));
+                }
+                const entries = opts.args && typeof opts.args === 'object' && !Array.isArray(opts.args)
+                    ? Object.entries(opts.args)
+                    : [];
+                if (entries.length) {
+                    const details = mk('details', 'cc-params');
+                    details.open = true;
+                    details.append(mk('summary', '', `Parameter (${entries.length})`));
+                    const kvList = mk('div', 'cc-kv-list');
+                    for (const [k, v] of entries.slice(0, 14)) {
+                        const row = mk('div', 'cc-kv');
+                        const formatted = typeof v === 'string' ? v : JSON.stringify(v, null, 2);
+                        const valText = formatted.length > 400 ? formatted.slice(0, 400) + ' …' : formatted;
+                        row.append(mk('span', 'cc-kv-k', String(k)), mk('span', 'cc-kv-v', valText));
+                        kvList.append(row);
+                    }
+                    details.append(kvList);
+                    box.append(details);
+                } else {
+                    box.append(mk('div', 'cc-empty-args', 'Keine Eingabeparameter'));
+                }
+                metaEl.append(box);
+                metaEl.classList.remove('hidden');
+            } else if (opts.kind === 'app' && Array.isArray(opts.files) && opts.files.length) {
+                const list = mk('div', 'cc-files');
+                for (const f of opts.files.slice(0, 16)) {
+                    const row = mk('div', 'cc-file-row');
+                    row.append(
+                        mkMat(f.action === 'neu' ? 'note_add' : 'edit_document'),
+                        mk('code', '', String(f.path || '')),
+                        mk('span', 'cc-file-meta', `${f.action || 'ändern'}${f.size ? ` · ${f.size} Z.` : ''}`)
+                    );
+                    list.append(row);
+                }
+                metaEl.append(list);
+                metaEl.classList.remove('hidden');
+            } else {
+                metaEl.classList.add('hidden');
+            }
+        }
+
+        if (yesBtn) {
+            yesBtn.textContent = opts.confirmLabel || 'Erlauben';
+            yesBtn.classList.toggle('danger', !!opts.danger);
+        }
+        if (alwaysBtn) {
+            if (opts.alwaysLabel) {
+                alwaysBtn.textContent = opts.alwaysLabel;
+                alwaysBtn.classList.remove('hidden');
+            } else {
+                alwaysBtn.classList.add('hidden');
+            }
+        }
+        if (cancelBtn) {
+            cancelBtn.textContent = opts.cancelLabel || 'Ablehnen';
+            cancelBtn.classList.toggle('hidden', !!opts.hideCancel);
+        }
+
         confirmModal.classList.remove('hidden');
-        
-        const handleYes = () => { 
-            confirmModal.classList.add('hidden'); 
-            document.getElementById('btn-confirm-yes').removeEventListener('click', handleYes); 
-            document.getElementById('btn-confirm-cancel').removeEventListener('click', handleCancel); 
-            resolve(true); 
+
+        let settled = false;
+        const cleanup = (result) => {
+            if (settled) return;
+            settled = true;
+            activeConfirmCleanup = null;
+            confirmModal.classList.add('hidden');
+            yesBtn?.removeEventListener('click', onYes);
+            alwaysBtn?.removeEventListener('click', onAlways);
+            cancelBtn?.removeEventListener('click', onNo);
+            closeBtn?.removeEventListener('click', onNo);
+            confirmModal.removeEventListener('click', onBackdrop);
+            document.removeEventListener('keydown', onKey);
+            resolve(result);
         };
-        const handleCancel = () => { 
-            confirmModal.classList.add('hidden'); 
-            document.getElementById('btn-confirm-yes').removeEventListener('click', handleYes); 
-            document.getElementById('btn-confirm-cancel').removeEventListener('click', handleCancel); 
-            resolve(false); 
-        };
-        
-        document.getElementById('btn-confirm-yes').addEventListener('click', handleYes); 
-        document.getElementById('btn-confirm-cancel').addEventListener('click', handleCancel);
+        activeConfirmCleanup = cleanup;
+
+        const onYes = () => cleanup(true);
+        const onAlways = () => cleanup('always');
+        const onNo = () => cleanup(false);
+        const onBackdrop = (e) => { if (e.target === confirmModal) cleanup(false); };
+        const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); cleanup(false); } };
+
+        yesBtn?.addEventListener('click', onYes);
+        alwaysBtn?.addEventListener('click', onAlways);
+        cancelBtn?.addEventListener('click', onNo);
+        closeBtn?.addEventListener('click', onNo);
+        confirmModal.addEventListener('click', onBackdrop);
+        document.addEventListener('keydown', onKey);
+        setTimeout(() => yesBtn?.focus(), 10);
     });
 }
 
@@ -1036,7 +1187,7 @@ document.getElementById('temp-chat-btn')?.addEventListener('click', () => {
         }
     });
     document.getElementById('tb-pin-btn')?.addEventListener('click', () => { if (currentSession) document.dispatchEvent(new CustomEvent('togglePinSession', { detail: currentSession.id })); });
-    document.getElementById('tb-delete-btn')?.addEventListener('click', async () => { if (currentSession && await showCustomConfirm('Diesen Chat wirklich löschen?')) deleteSession(currentSession.id); });
+    document.getElementById('tb-delete-btn')?.addEventListener('click', async () => { if (currentSession && await showCustomConfirm({ title: 'Chat löschen?', subtitle: currentSession.title || 'Unbenannter Chat', message: 'Dieser Chat wird dauerhaft aus deinem Verlauf entfernt.', icon: 'delete', danger: true, confirmLabel: 'Löschen', cancelLabel: 'Abbrechen' })) deleteSession(currentSession.id); });
     Menu.bindMenu(document.getElementById('composer-plus-btn'), document.getElementById('composer-tools-menu'));
     document.getElementById('ct-temp')?.addEventListener('click', () => document.getElementById('temp-chat-btn')?.click());
     document.getElementById('ct-skill-new')?.addEventListener('click', () => Skills.openCreate());
@@ -1465,7 +1616,7 @@ function markBusy() { UI.busySessions = new Set(streams.keys()); UI.renderSideba
 async function processAnswer(raw, status = () => {}, extra = {}) {
     const ready = Array.isArray(extra?.images) ? extra.images : []; // Bilder, die der Server schon erstellt hat
     const wanted = [...String(raw).matchAll(IMAGE_TAG)].map(m => (m[1].match(/prompt\s*=\s*"([^"]*)"/i) || [])[1]).filter(Boolean).slice(0, 2);
-    const call = parseCall(raw);
+    const call = parseCall(raw, { allowUnclosed: true });
     const writes = ChatApps.parseWrites(raw);
     const remembered = extra?.temp ? [] : Personal.take(raw, extra?.project || null);
     let out = hideImageTags(raw).trim();
@@ -1671,7 +1822,7 @@ async function handleSend() {
     const researchOn = Research.consume(); // Recherche gilt nur für diese eine Nachricht
     let isEmailCommand = false;
     if (maybeEmail) {
-        if (await showCustomConfirm("Möchtest du eine E-Mail senden?")) isEmailCommand = true;
+        if (await showCustomConfirm({ title: 'E-Mail-Entwurf erstellen?', subtitle: 'Coden bereitet eine E-Mail im Entwurfsfenster vor', message: 'Möchtest du einen E-Mail-Entwurf aus dem aktuellen Gespräch generieren lassen?', icon: 'mail', confirmLabel: 'Entwurf erstellen', cancelLabel: 'Nein, normal antworten' })) isEmailCommand = true;
         else UI.showLoading(true, 'Coden startet …');
     }
 
@@ -1695,6 +1846,7 @@ async function handleSend() {
 
     let aiResponse = '', lastThink = null, lastRaw = '', failedFlag = false;
     try {
+      if (!MCP.isLoaded()) await MCP.syncFromCloud().catch(() => {});
       const proj = await Projects.promptFor(sessionAtSend.projectId);
       let appNames = [];
       try { appNames = await ChatApps.prepare(text); } catch (_) {}
@@ -1759,9 +1911,28 @@ async function handleSend() {
             const done = await processAnswer(aiResponse, (t) => live.update(withPrefix(cite(t))), { ...extra, temp: !!sessionAtSend.temp });
             const call = done.call;
             if (!call) {
+                if (round < 4 && !done.text.trim()) {
+                    if (/<mcp_call\b/i.test(aiResponse)) {
+                        context.push({ role: 'assistant', content: aiResponse.trim() });
+                        context.push({ role: 'user', content: 'Dein letzter <mcp_call>-Aufruf war unvollständig oder ungültig. Schreibe am Ende deiner Antwort exakt: <mcp_call server="Servername" tool="werkzeugname">{"feld":"wert"}</mcp_call>' });
+                        aiResponse = '';
+                        continue;
+                    }
+                    if (round === 0 && !shownPrefix && !aiResponse.trim()) {
+                        context.push({ role: 'user', content: 'Deine letzte Ausgabe war leer. Bitte beantworte die Anfrage direkt auf Deutsch oder rufe das passende MCP-Werkzeug auf.' });
+                        aiResponse = '';
+                        continue;
+                    }
+                }
                 aiResponse = withPrefix(cite(done.text)); ended = true;
-                lastThink = live.finish(aiResponse);
-                if (document.hidden) notifyDone(sessionAtSend.title, aiResponse);
+                if (!aiResponse.trim()) {
+                    aiResponse = '⚠️ Coden hat eine leere Antwort zurückgegeben. Bitte versuche es noch einmal.';
+                    lastThink = live.fail(aiResponse);
+                    failedFlag = true;
+                } else {
+                    lastThink = live.finish(aiResponse);
+                    if (document.hidden) notifyDone(sessionAtSend.title, aiResponse);
+                }
                 break;
             }
             // MCP-Werkzeug aufrufen (mit Nachfrage, wenn eingestellt) – als Schritt in derselben Nachricht
@@ -1774,11 +1945,32 @@ async function handleSend() {
                 forModel = server ? 'Der Aufruf war ungültig (JSON der Eingaben fehlerhaft).' : `Den Konnektor „${call.server}“ gibt es nicht oder er ist ausgeschaltet.`;
                 step = toolStep({ tool: call.tool || '?', src, err: true, note: server ? 'ungültiger Aufruf' : 'nicht verbunden' });
             } else {
-                live.update(withPrefix(toolStep({ tool: call.tool, src, running: true })));
-                if (MCP.askBefore() && !(await showCustomConfirm(`Coden möchte „${call.tool}“ von „${server.name}“ aufrufen.\n\nEingaben: ${JSON.stringify(call.args).slice(0, 400)}\n\nErlauben?`))) {
+                const toolObj = Array.isArray(server.tools) ? server.tools.find(t => t.name === call.tool) : null;
+                let allowed = true;
+                if (MCP.shouldAskFor(server)) {
+                    live.update(withPrefix(toolStep({ tool: call.tool, src, waiting: true })));
+                    const choice = await showCustomConfirm({
+                        kind: 'mcp',
+                        title: `„${server.name}“ verwenden?`,
+                        subtitle: `${call.tool} wird über deinen Konnektor ausgeführt`,
+                        catalogId: server.catalogId,
+                        serverUrl: server.url,
+                        serverName: server.name,
+                        toolName: call.tool,
+                        toolDesc: toolObj?.description || '',
+                        args: call.args,
+                        confirmLabel: 'Einmal erlauben',
+                        alwaysLabel: 'Immer erlauben',
+                        cancelLabel: 'Ablehnen'
+                    });
+                    if (choice === 'always') MCP.setAlwaysAllowed(server, true);
+                    allowed = !!choice;
+                }
+                if (!allowed) {
                     forModel = 'Der Nutzer hat den Aufruf nicht erlaubt.';
-                    step = toolStep({ tool: call.tool, src, err: true, note: 'abgelehnt' });
+                    step = toolStep({ tool: call.tool, src, args: call.args, err: true, note: 'abgelehnt' });
                 } else {
+                    live.update(withPrefix(toolStep({ tool: call.tool, src, running: true })));
                     try {
                         const r = await MCP.call(server, call.tool, call.args); const txt = resultText(r);
                         forModel = (r.isError ? 'FEHLER des Werkzeugs: ' : '') + txt;
@@ -1838,7 +2030,16 @@ async function handleSend() {
             break;
         }
       }
-      if (!ended) { aiResponse = withPrefix(''); lastThink = live.finish(aiResponse); } // zu viele Werkzeug-Runden: Stand behalten
+      if (!ended) {
+          aiResponse = withPrefix('');
+          if (!aiResponse.trim()) {
+              aiResponse = '⚠️ Coden hat nach mehreren Schritten keine Antwort ausgegeben.';
+              lastThink = live.fail(aiResponse);
+              failedFlag = true;
+          } else {
+              lastThink = live.finish(aiResponse);
+          }
+      } // zu viele Werkzeug-Runden: Stand behalten
     } finally {
         streams.delete(sessionAtSend.id);
         liveViews.delete(sessionAtSend.id);
@@ -1862,15 +2063,16 @@ async function handleSend() {
 }
 // Schritt in einer Antwort (Werkzeug-Aufruf oder nachgeladener Skill), aufklappbar wie bei Claude
 const escHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-function toolStep({ tool = '', src = '', args, result, err, note, running, skill, list, icon: ic }) {
+function toolStep({ tool = '', src = '', args, result, err, note, running, waiting, skill, list, icon: ic }) {
     if (skill) return `<div class="tool-step skill"><span class="material-symbols-outlined ts-ic">auto_awesome</span> Skill <b>${escHtml(skill)}</b> <span class="ts-src">geladen</span></div>`;
+    if (waiting) return `<div class="tool-step waiting"><span class="material-symbols-outlined ts-ic">${ic ? ic : 'shield'}</span> <b>${escHtml(tool)}</b> <span class="ts-src">${escHtml(src)} · wartet auf Freigabe …</span></div>`;
     if (running) return `<div class="tool-step running"><span class="material-symbols-outlined ts-ic">${ic ? ic : 'progress_activity'}</span> <b>${escHtml(tool)}</b> <span class="ts-src">${escHtml(src)} · läuft …</span></div>`;
     const head = `<summary><span class="material-symbols-outlined ts-ic">${err ? 'error' : ic || 'build'}</span> <b>${escHtml(tool)}</b> <span class="ts-src">${escHtml(src)}${note ? ' · ' + escHtml(String(note).slice(0, 120)) : ''}</span></summary>`;
-    const fence = (t) => String(t).replace(/```/g, "'''");
+    const fence = (t) => String(t).replace(/````/g, "''''").replace(/<\/details/gi, '<\\/details');
     const parts = [];
-    if (args && Object.keys(args).length) parts.push('Eingabe\n\n```json\n' + fence(JSON.stringify(args, null, 2)).slice(0, 3000) + '\n```');
+    if (args && Object.keys(args).length) parts.push('Eingabe\n\n````json\n' + fence(JSON.stringify(args, null, 2)).slice(0, 3000) + '\n````');
     if (list) parts.push(list);
-    if (result) parts.push('Ergebnis\n\n```\n' + fence(result).slice(0, 6000) + '\n```');
+    if (result) parts.push('Ergebnis\n\n````\n' + fence(result).slice(0, 6000) + '\n````');
     return `<details class="tool-step${err ? ' err' : ''}">${head}\n\n${parts.join('\n\n')}\n\n</details>`;
 }
 // Geladene Skills im Denk-Panel zeigen

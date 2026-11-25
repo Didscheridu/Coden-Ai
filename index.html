@@ -421,7 +421,29 @@
         </div>
     </div>
 
-    <div id="confirm-modal" class="modal-overlay hidden"><div class="modal-content confirm-box"><img src="./images/coden_logo.jpg" class="confirm-logo" onerror="this.style.display='none'"><h3>Aktion erforderlich</h3><p id="confirm-message">Willst du eine E-Mail senden?</p><div class="confirm-buttons"><button id="btn-confirm-cancel" class="btn-cancel">Abbrechen</button><button id="btn-confirm-yes" class="btn-save">JA, senden</button></div></div></div>
+    <div id="confirm-modal" class="modal-overlay hidden">
+        <div class="modal-content claude-confirm-box" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+            <div class="cc-head">
+                <div class="cc-icon" id="confirm-icon"><span class="material-symbols-outlined">shield</span></div>
+                <div class="cc-titles">
+                    <h3 id="confirm-title">Aktion bestätigen</h3>
+                    <div id="confirm-subtitle" class="cc-sub hidden"></div>
+                </div>
+                <button type="button" id="btn-confirm-close" class="cc-close" aria-label="Ablehnen">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div class="cc-body">
+                <p id="confirm-message" class="cc-msg hidden"></p>
+                <div id="confirm-meta" class="cc-meta hidden"></div>
+            </div>
+            <div class="cc-foot">
+                <button type="button" id="btn-confirm-cancel" class="cc-btn cc-btn-ghost">Ablehnen</button>
+                <button type="button" id="btn-confirm-always" class="cc-btn cc-btn-outline hidden">Immer erlauben</button>
+                <button type="button" id="btn-confirm-yes" class="cc-btn cc-btn-primary">Erlauben</button>
+            </div>
+        </div>
+    </div>
 
     <div id="legal-modal" class="modal-overlay hidden">
         <div class="modal-content" style="max-width: 700px;">

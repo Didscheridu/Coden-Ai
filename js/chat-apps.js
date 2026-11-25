@@ -87,8 +87,17 @@ ${st.ctx}
             byApp.get(a.id).set[w.path] = w.content;
         }
         for (const { a, set } of byApp.values()) {
-            const lines = Object.entries(set).map(([p, c]) => `• ${p} (${a.files.includes(p) ? 'ändern' : 'neu'}, ${c.length} Zeichen)`).join('\n');
-            if (!(await confirm(`Coden möchte die App „${a.name}“ ändern:\n\n${lines}\n\nSpeichern?`))) { skipped.push(`„${a.name}“: von dir abgelehnt`); continue; }
+            const files = Object.entries(set).map(([p, c]) => ({ path: p, action: a.files.includes(p) ? 'ändern' : 'neu', size: c.length }));
+            const allowed = await confirm({
+                kind: 'app',
+                title: `App „${a.name}“ aktualisieren?`,
+                subtitle: `${files.length} Datei${files.length === 1 ? '' : 'en'} werden gespeichert`,
+                icon: 'code',
+                files,
+                confirmLabel: 'Änderungen speichern',
+                cancelLabel: 'Ablehnen'
+            });
+            if (!allowed) { skipped.push(`„${a.name}“: von dir abgelehnt`); continue; }
             try { await apiJson(`/apps/${a.id}/files`, { method: 'PUT', body: JSON.stringify({ set }) }); ok.push(`„${a.name}“: ${Object.keys(set).join(', ')}`); }
             catch (e) { skipped.push(`„${a.name}“: ${e.message}`); }
         }

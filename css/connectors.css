@@ -40,7 +40,8 @@
 .cn-spin { animation: cn-rot 0.9s linear infinite; }
 @keyframes cn-rot { to { transform: rotate(360deg); } }
 .cn-empty { color: var(--text-muted); font-size: 14px; padding: 12px 0; }
-.cn-ask { margin-top: 22px; color: var(--text-secondary); font-size: 13.5px; }
+.cn-ask-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 22px; }
+.cn-ask { color: var(--text-secondary); font-size: 13.5px; }
 
 /* Dialog: Zugangsschlüssel */
 .cn-key { display: flex; flex-direction: column; gap: 10px; }
