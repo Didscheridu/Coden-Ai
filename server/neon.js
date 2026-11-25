@@ -3,7 +3,7 @@
 // Ohne URL ist Neon aus und Coden nutzt nur Firestore. Die Tabelle legt der Server beim ersten Zugriff selbst an.
 // Tests: enableMemory() (Speicher) oder useClient(client) mit einem echten Postgres wie PGlite.
 
-const SCHEMA = `
+const SCHEMA = [`
 create table if not exists byok_keys (
   uid        text        not null,
   provider   text        not null,
@@ -11,8 +11,21 @@ create table if not exists byok_keys (
   hint       text        check (hint is null or char_length(hint) <= 32),
   created_at timestamptz not null default now(),
   primary key (uid, provider)
-)`;
-const TABLES = { byok_keys: ['uid', 'provider', 'key_enc', 'hint', 'created_at'] }; // erlaubte Tabellen/Spalten
+)`, `
+create table if not exists byok_models (
+  id            integer     primary key,
+  uid           text        not null,
+  provider      text        not null,
+  model_id      text        not null check (char_length(model_id) between 1 and 120),
+  label         text        not null check (char_length(label) between 1 and 60),
+  levels        text[]      not null default '{}',
+  default_level text,
+  created_at    timestamptz not null default now()
+)`, 'create index if not exists byok_models_uid on byok_models (uid)'];
+const TABLES = { // erlaubte Tabellen/Spalten
+  byok_keys: ['uid', 'provider', 'key_enc', 'hint', 'created_at'],
+  byok_models: ['id', 'uid', 'provider', 'model_id', 'label', 'levels', 'default_level', 'created_at']
+};
 
 let memory = false;
 const mem = new Map();
@@ -37,7 +50,7 @@ function getPool() {
 }
 async function q(text, params = []) {
   const c = client || getPool();
-  if (!ready) ready = c.query(SCHEMA).catch((e) => { ready = null; throw e; });
+  if (!ready) ready = (async () => { for (const st of SCHEMA) await c.query(st); })().catch((e) => { ready = null; throw e; });
   await ready;
   try { return (await c.query(text, params)).rows; } catch (e) { throw Object.assign(new Error(`Neon: ${e.message}`), { code: e.code }); }
 }
@@ -65,6 +78,14 @@ async function upsert(t, row, pk) {
     on conflict (${pk.join(', ')}) do ${set ? 'update set ' + set : 'nothing'} returning *`, keys.map(k => row[k]));
   return rows[0] || row;
 }
+// Nur einfügen, wenn der Primärschlüssel frei ist; gibt null zurück, wenn es ihn schon gibt
+async function insert(t, row, pk) {
+  if (memory) { const k = pk.map(f => row[f]).join('\u0000'); if (mtable(t).has(k)) return null; mtable(t).set(k, { ...row }); return { ...row }; }
+  const keys = cols(t, row);
+  const rows = await q(`insert into ${t} (${keys.join(', ')}) values (${keys.map((_, i) => '$' + (i + 1)).join(', ')})
+    on conflict (${pk.join(', ')}) do nothing returning *`, keys.map(k => row[k]));
+  return rows[0] || null;
+}
 async function remove(t, filters) {
   if (memory) { const tb = mtable(t); for (const [k, r] of tb) if (match(r, filters)) tb.delete(k); return; }
   const keys = cols(t, filters);
@@ -79,4 +100,4 @@ async function ping() {
   return { configured: true, ok: true };
 }
 
-module.exports = { isConfigured, select, upsert, remove, ping, enableMemory, disableMemory, clearMemory, useClient, SCHEMA };
+module.exports = { isConfigured, select, insert, upsert, remove, ping, enableMemory, disableMemory, clearMemory, useClient, SCHEMA };
