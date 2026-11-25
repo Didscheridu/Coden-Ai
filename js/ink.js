@@ -7,12 +7,12 @@
 import { apiJson } from './backend.js';
 import { loader } from './rich-elements.js';
 import { correctionPrompt, parseCorrection, fmtDate } from './study-core.js';
-import { PAGE_W, PAGE_H, TEMPLATES, PEN_TYPES, encodeStrokes, decodeStrokes, widthAt, recognizeShape, eraseFrom, eraseWhole, lassoSelect, selectionBox, transformSelection } from './ink-core.js';
+import { PAGE_W, PAGE_H, TEMPLATES, PEN_TYPES, encodeStrokes, decodeStrokes, widthAt, recognizeShape, eraseFrom, eraseWhole, lassoSelect, selectionBox, transformSelection, strokeOutline, rotateSelection, isPalm } from './ink-core.js';
 export { PAGE_W, PAGE_H, encodeStrokes, decodeStrokes } from './ink-core.js';
 
 const PEN_COLORS = ['#1b1f2a', '#1d4ed8', '#c62828', '#2e7d32', '#7c3aed', '#ea580c'];
 const HL_COLORS = ['#ffe94d', '#a8f0b8', '#a9dcff', '#ffb3c9', '#ffc98a'];
-const WIDTHS = { pen: [1.3, 2.3, 3.8], hl: [14, 22, 32], eraser: [8, 18, 40], shape: [1.3, 2.3, 3.8] };
+const WIDTHS = { pen: [1.8, 2.9, 4.6], hl: [14, 22, 32], eraser: [8, 18, 40], shape: [1.8, 2.9, 4.6] };
 
 // ---------- kleine Helfer ----------
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -59,26 +59,28 @@ function drawBg(ctx, img, k) {
     const s = Math.min(PAGE_W / img.width, PAGE_H / img.height); const w = img.width * s, h = img.height * s;
     ctx.drawImage(img, (PAGE_W - w) / 2 * k, 0, w * k, h * k);
 }
-export function drawStroke(ctx, s, k) {
+// Umrisse merken: Striche ändern sich nie (neue Objekte beim Bearbeiten), also einmal rechnen, immer wieder füllen
+const outlines = new WeakMap();
+function fillOutline(ctx, o, k) {
+    ctx.beginPath(); const n = o.length;
+    ctx.moveTo((o[0][0] + o[1][0]) / 2 * k, (o[0][1] + o[1][1]) / 2 * k);
+    for (let i = 1; i <= n; i++) { const a = o[i % n], b = o[(i + 1) % n]; ctx.quadraticCurveTo(a[0] * k, a[1] * k, (a[0] + b[0]) / 2 * k, (a[1] + b[1]) / 2 * k); }
+    ctx.closePath(); ctx.fill();
+}
+export function drawStroke(ctx, s, k, { live = false } = {}) {
     const p = s.p; if (p.length < 3) return;
     ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = s.c; ctx.fillStyle = s.c;
-    if (s.t === 'hl' || s.k === 'kugel') {
-        if (s.t === 'hl') { ctx.globalAlpha = 0.42; ctx.globalCompositeOperation = 'multiply'; ctx.lineCap = 'butt'; }
+    if (s.t === 'hl') {
+        ctx.globalAlpha = 0.42; ctx.globalCompositeOperation = 'multiply'; ctx.lineCap = 'butt';
         ctx.lineWidth = widthAt(s, 0.5) * k;
         ctx.beginPath(); ctx.moveTo(p[0] * k, p[1] * k);
         if (p.length === 3) ctx.lineTo(p[0] * k + 0.1, p[1] * k);
         for (let i = 3; i < p.length; i += 3) { const mx = (p[i - 3] + p[i]) / 2, my = (p[i - 2] + p[i + 1]) / 2; ctx.quadraticCurveTo(p[i - 3] * k, p[i - 2] * k, mx * k, my * k); }
         ctx.lineTo(p[p.length - 3] * k, p[p.length - 2] * k); ctx.stroke(); ctx.restore(); return;
     }
-    if (p.length === 3) { ctx.beginPath(); ctx.arc(p[0] * k, p[1] * k, widthAt(s, p[2]) * k / 2, 0, 7); ctx.fill(); ctx.restore(); return; }
-    let lx = p[0], ly = p[1];
-    for (let i = 3; i < p.length; i += 3) {
-        const mx = (p[i - 3] + p[i]) / 2, my = (p[i - 2] + p[i + 1]) / 2;
-        ctx.beginPath(); ctx.lineWidth = widthAt(s, (p[i - 1] + p[i + 2]) / 2) * k;
-        ctx.moveTo(lx * k, ly * k); ctx.quadraticCurveTo(p[i - 3] * k, p[i - 2] * k, mx * k, my * k); ctx.stroke();
-        lx = mx; ly = my;
-    }
-    ctx.beginPath(); ctx.lineWidth = widthAt(s, p[p.length - 1]) * k; ctx.moveTo(lx * k, ly * k); ctx.lineTo(p[p.length - 3] * k, p[p.length - 2] * k); ctx.stroke();
+    let o = live ? null : outlines.get(s);
+    if (!o) { o = strokeOutline(s); if (!live) outlines.set(s, o); }
+    fillOutline(ctx, o, k);
     ctx.restore();
 }
 function drawText(ctx, t, k) { ctx.save(); ctx.fillStyle = t.c || '#1b1f2a'; ctx.font = `${t.z * k}px "Plus Jakarta Sans", system-ui, sans-serif`; ctx.textBaseline = 'top'; String(t.s).split('\n').forEach((l, i) => ctx.fillText(l, t.x * k, (t.y + i * t.z * 1.35) * k)); ctx.restore(); }
@@ -186,6 +188,9 @@ export function openInkEditor(ctx) {
     };
     try { const s = JSON.parse(localStorage.getItem('coden_ink_tools') || '{}'); ['tool', 'penType', 'color', 'width', 'eraserMode', 'penOnly'].forEach(k => { if (s[k] != null) st[k] = typeof s[k] === 'object' ? { ...st[k], ...s[k] } : s[k]; }); } catch (_) {}
     if (['text', 'laser', 'lasso', 'hand', 'image'].includes(st.tool)) st.tool = 'pen';
+    // Auf iPad/Tablet: von Anfang an nur der Stift malt (die aufliegende Hand nie) – wie in GoodNotes
+    const touchDevice = (navigator.maxTouchPoints || 0) > 1 || matchMedia('(pointer: coarse)').matches;
+    try { if (touchDevice && JSON.parse(localStorage.getItem('coden_ink_tools') || '{}').penOnly === undefined) st.penOnly = true; } catch (_) {}
     const remember = () => { try { localStorage.setItem('coden_ink_tools', JSON.stringify({ tool: st.tool, penType: st.penType, color: st.color, width: st.width, eraserMode: st.eraserMode, penOnly: st.penOnly })); } catch (_) {} };
     // Seiten: { id, data: {paper,strokes[],text[],items[],bg,correction}|null, view, dirty, bgDirty, corrDirty, thumb }
     const pages = doc.pages.map(id => ({ id }));
@@ -297,6 +302,7 @@ export function openInkEditor(ctx) {
     async function mount(pg) {
         if (pg.view) return;
         const v = pg.view = { bg: el('canvas', 'ink-c'), imgs: el('div', 'ink-img-layer'), ink: el('canvas', 'ink-c'), live: el('canvas', 'ink-c live'), text: el('div', 'ink-text-layer'), marks: el('div', 'ink-mark-layer') };
+        try { v.live.getContext('2d', { desynchronized: true }); } catch (_) {} // weniger Verzögerung beim Schreiben (wo unterstützt)
         pg.wrap.append(v.bg, v.imgs, v.ink, v.live, v.text, v.marks); pg.wrap.classList.add('loading');
         await ensureData(pg); if (pg.view !== v) return;
         pg.wrap.classList.remove('loading'); sizeView(pg);
@@ -331,15 +337,26 @@ export function openInkEditor(ctx) {
         d.addEventListener('focus', () => { d._orig = t.s; });
         return d;
     }
+    // Korrektur von Coden: rote Randnotizen wie von einer Lehrkraft. Jede lässt sich wegmachen (✕), die Note auch.
     function paintMarks(pg) {
         const v = pg.view; if (!v) return; v.marks.replaceChildren(); const c = pg.data.correction; if (!c || !st.showCorr) return;
-        if (c.grade) v.marks.append(el('div', 'ink-grade', c.grade));
-        (c.items || []).forEach((it) => {
-            const m = el('button', 'ink-mark ' + (it.ok ? 'ok' : 'bad')); m.type = 'button'; m.style.top = `calc(var(--k) * ${60 + it.y * (PAGE_H - 120)}px)`;
-            m.append(el('b', '', it.ok ? '✓' : '✗'), el('span', '', it.text)); if (it.fix) m.append(el('em', '', '→ ' + it.fix));
-            m.addEventListener('click', () => m.classList.toggle('open')); v.marks.append(m);
+        if (c.grade) { const g = el('div', 'ink-grade', c.grade); const x = el('span', 'ink-grade-x', '✕'); x.title = 'Note entfernen'; x.addEventListener('click', (e) => { e.stopPropagation(); editCorrection(pg, (cc) => { cc.grade = ''; }); }); g.append(x); v.marks.append(g); }
+        (c.items || []).forEach((it, i) => {
+            const m = el('div', 'ink-mark ' + (it.ok ? 'ok' : 'bad')); m.style.top = `calc(var(--k) * ${60 + it.y * (PAGE_H - 120)}px)`;
+            const t = el('div', 'ink-mark-t'); t.append(el('b', '', it.ok ? '✓' : '✗'), el('span', '', it.text)); if (it.fix) t.append(el('em', '', '→ ' + it.fix));
+            t.title = it.fix ? 'Tippen: Lösung zeigen' : ''; t.addEventListener('click', (e) => { e.stopPropagation(); m.classList.toggle('open'); });
+            const x = el('span', 'ink-mark-x', '✕'); x.title = 'Diese Anmerkung entfernen';
+            x.addEventListener('click', (e) => { e.stopPropagation(); editCorrection(pg, (cc) => { cc.items.splice(i, 1); }); });
+            m.append(t, x); v.marks.append(m);
         });
     }
+    function editCorrection(pg, fn) {
+        const c = pg.data.correction; if (!c) return;
+        const next = { ...c, items: (c.items || []).slice() }; fn(next);
+        pg.data.correction = (next.items.length || next.grade) ? next : null;
+        markDirty(pg, { corr: true }); paintMarks(pg); showPanel();
+    }
+    function removeCorrection(pg) { if (!pg?.data?.correction) return; pg.data.correction = null; markDirty(pg, { corr: true }); paintMarks(pg); showPanel(); toast2('Korrektur entfernt'); }
     const repaint = (pg) => { paintInk(pg); paintItems(pg); paintText(pg); };
 
     // ---------- Rückgängig: ein Schnappschuss je Aktion und Seite ----------
@@ -364,43 +381,64 @@ export function openInkEditor(ctx) {
     }
 
     // ---------- Eingabe (Stift, Maus, Finger) – alles über die Arbeitsfläche ----------
-    const touches = new Map(); let op = null, pinch = null, pan = null, holdTimer = 0, inertia = 0;
-    const pagePos = (pg, e) => { const r = pg.wrap.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * PAGE_W, (e.clientY - r.top) / r.height * PAGE_H]; };
+    // touches: Finger auf der Fläche { x, y, x0, y0, t0, palm }. Handballen werden markiert und komplett ignoriert.
+    const touches = new Map(); let op = null, pinch = null, pan = null, holdTimer = 0, inertia = 0, lastPenAt = 0, penDown = false, drawRaf = 0, tapGesture = null;
+    const pagePos = (pg, e, rect) => { const r = rect || pg.wrap.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * PAGE_W, (e.clientY - r.top) / r.height * PAGE_H]; };
     const pageAt = (e) => { const w = document.elementFromPoint(e.clientX, e.clientY)?.closest?.('.ink-page'); return w ? pages[+w.dataset.i] : null; };
     const pressure = (e) => (e.pointerType === 'pen' ? (e.pressure || 0.5) : e.pointerType === 'touch' ? 0.55 : 0.5);
+    const liveTouches = () => [...touches.values()].filter(t => !t.palm);
+    // Stift setzt auf: alles, was Finger/Hand gerade tun, sofort beenden (kein Verschieben, kein Zoomen beim Schreiben)
+    function penTakesOver() {
+        lastPenAt = Date.now(); penDown = true; pinch = null; tapGesture = null; cancelAnimationFrame(inertia);
+        if (pan && pan.touch) pan = null;
+        touches.forEach(t => { t.palm = true; });
+        if (op && op.touch) { clearLive(op.pg); if (op.kind === 'erase' && op.changed) applySnap(op.pg, op.before); op = null; }
+    }
     stage.addEventListener('pointerdown', (e) => {
-        if (e.target.closest('.ink-sel, .ink-selmenu, .ink-addpage, .ink-mark, .ink-textbox[contenteditable="true"]')) return;
+        if (e.target.closest('.ink-sel, .ink-selmenu, .ink-addpage, .ink-mark-x, .ink-mark-t, .ink-grade-x, .ink-textbox[contenteditable="true"]')) return;
         cancelAnimationFrame(inertia);
-        if (e.pointerType === 'pen' && !st.penOnly) { st.penOnly = true; remember(); syncTools(); }
+        if (e.pointerType === 'pen') { penTakesOver(); if (!st.penOnly) { st.penOnly = true; remember(); syncTools(); } }
         if (e.pointerType === 'touch') {
-            touches.set(e.pointerId, [e.clientX, e.clientY]);
-            if (touches.size === 2) { // zweiter Finger: Malen abbrechen, zoomen
+            const palm = (st.penOnly && (penDown || isPalm(e, lastPenAt))) || (!st.penOnly && isPalm(e, lastPenAt) && lastPenAt > 0);
+            touches.set(e.pointerId, { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, t0: performance.now(), palm });
+            if (palm) { e.preventDefault(); return; } // Hand liegt auf: ignorieren
+            const live = liveTouches();
+            // Mehrere Finger fast gleichzeitig: Tipp-Geste (2 = Rückgängig, 3 = Wiederholen) oder Zoomen
+            if (live.length >= 2) {
                 if (op && op.touch) { clearLive(op.pg); if (op.kind === 'erase' && op.changed) applySnap(op.pg, op.before); op = null; }
-                const [a, b] = [...touches.values()]; pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, z: st.zoom, cx: (a[0] + b[0]) / 2, cy: (a[1] + b[1]) / 2 }; pan = null; return;
+                pan = null; tapGesture = { n: live.length, t: performance.now(), moved: false };
+                const [a, b] = live; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, z: st.zoom }; return;
             }
+            tapGesture = null;
         }
         try { stage.setPointerCapture(e.pointerId); } catch (_) {}
         const pg = pageAt(e);
         if (st.tool === 'hand' || (e.pointerType === 'touch' && st.penOnly) || !pg || !pg.data) {
-            if (st.tool === 'lasso') clearSelection();
-            pan = { id: e.pointerId, x: e.clientX, y: e.clientY, sl: stage.scrollLeft, st: stage.scrollTop, t: performance.now(), vx: 0, vy: 0 }; return;
+            if (st.tool === 'lasso' && e.pointerType !== 'touch') clearSelection();
+            pan = { id: e.pointerId, touch: e.pointerType === 'touch', x: e.clientX, y: e.clientY, sl: stage.scrollLeft, st: stage.scrollTop, t: performance.now(), vx: 0, vy: 0 }; return;
         }
         if (e.button > 0) return;
         e.preventDefault(); st.cur = pages.indexOf(pg); updateLabel(); pg.active = true;
-        const [x, y] = pagePos(pg, e);
+        const rect = pg.wrap.getBoundingClientRect(); const [x, y] = pagePos(pg, e, rect);
         if (st.tool === 'text') { addText(pg, x, y); pg.active = false; return; }
-        if (st.tool === 'lasso') { clearSelection(); op = { kind: 'lasso', pg, poly: [[x, y]], id: e.pointerId }; return; }
-        if (st.tool === 'eraser') { op = { kind: 'erase', pg, before: clone(pg.data), id: e.pointerId, touch: e.pointerType === 'touch' }; eraseAt(pg, x, y); return; }
-        if (st.tool === 'laser') { op = { kind: 'laser', pg, id: e.pointerId }; laserAdd(pg, x, y); return; }
+        if (st.tool === 'lasso') { clearSelection(); op = { kind: 'lasso', pg, poly: [[x, y]], id: e.pointerId, rect }; return; }
+        if (st.tool === 'eraser') { op = { kind: 'erase', pg, before: clone(pg.data), id: e.pointerId, touch: e.pointerType === 'touch', rect }; eraseAt(pg, x, y); return; }
+        if (st.tool === 'laser') { op = { kind: 'laser', pg, id: e.pointerId, rect }; laserAdd(pg, x, y); return; }
         const t = st.tool === 'hl' ? 'hl' : 'pen'; const kind = st.tool === 'shape' ? 'shape' : t; const ck = kind === 'shape' ? 'shape' : t;
-        op = { kind, pg, id: e.pointerId, touch: e.pointerType === 'touch', s: { t, c: st.color[ck], w: WIDTHS[ck][st.width[ck]], k: t === 'hl' ? 'fueller' : (kind === 'shape' ? 'kugel' : st.penType), p: [x, y, pressure(e)] } };
+        op = { kind, pg, id: e.pointerId, rect, touch: e.pointerType === 'touch', s: { t, c: st.color[ck], w: WIDTHS[ck][st.width[ck]], k: t === 'hl' ? 'fueller' : (kind === 'shape' ? 'kugel' : st.penType), p: [x, y, pressure(e)] } };
     });
     stage.addEventListener('pointermove', (e) => {
-        if (e.pointerType === 'touch' && touches.has(e.pointerId)) touches.set(e.pointerId, [e.clientX, e.clientY]);
-        if (pinch && touches.size >= 2) {
-            const [a, b] = [...touches.values()]; const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+        if (e.pointerType === 'touch') {
+            const tt = touches.get(e.pointerId); if (!tt) return; tt.x = e.clientX; tt.y = e.clientY;
+            if (tt.palm || penDown) return;
+            if (Math.hypot(tt.x - tt.x0, tt.y - tt.y0) > 12 && tapGesture) tapGesture.moved = true;
+        }
+        if (pinch) {
+            const live = liveTouches(); if (live.length < 2) return; const [a, b] = live; const d = Math.hypot(a.x - b.x, a.y - b.y);
+            if (Math.abs(d - pinch.d) < 14 && tapGesture && !tapGesture.moved) return; // noch kein Zoomen – vielleicht nur ein Tipp
+            if (tapGesture) tapGesture.moved = true;
             const z = Math.max(0.5, Math.min(3, pinch.z * d / pinch.d)); const r = stage.getBoundingClientRect();
-            const cx = (a[0] + b[0]) / 2 - r.left, cy = (a[1] + b[1]) / 2 - r.top; const ratio = z / st.zoom;
+            const cx = (a.x + b.x) / 2 - r.left, cy = (a.y + b.y) / 2 - r.top; const ratio = z / st.zoom;
             const nx = (stage.scrollLeft + cx) * ratio - cx, ny = (stage.scrollTop + cy) * ratio - cy;
             st.zoom = z; layoutAll(); stage.scrollLeft = nx; stage.scrollTop = ny; return;
         }
@@ -411,27 +449,42 @@ export function openInkEditor(ctx) {
         }
         if (!op || e.pointerId !== op.id) return;
         e.preventDefault();
+        if (e.pointerType === 'pen') lastPenAt = Date.now();
         const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
         for (const ev of (evs.length ? evs : [e])) {
-            const [x, y] = pagePos(op.pg, ev);
+            const [x, y] = pagePos(op.pg, ev, op.rect);
             if (op.kind === 'erase') { eraseAt(op.pg, x, y); continue; }
             if (op.kind === 'lasso') { op.poly.push([x, y]); continue; }
             if (op.kind === 'laser') { laserAdd(op.pg, x, y); continue; }
             if (op.shaped) continue; // nach dem Einrasten nicht weiter malen
-            const p = op.s.p; if (Math.hypot(x - p[p.length - 3], y - p[p.length - 2]) < 0.6) continue;
+            const p = op.s.p; if (Math.hypot(x - p[p.length - 3], y - p[p.length - 2]) < 0.4) continue;
             p.push(x, y, pressure(ev));
         }
-        if (op.kind === 'lasso') drawLasso(op);
-        else if (op.kind === 'pen' || op.kind === 'shape' || op.kind === 'hl') {
-            drawLive(op);
+        // Vorhersage des Stifts (weniger gefühlte Verzögerung wie in GoodNotes)
+        if (op.s && e.getPredictedEvents) { const pr = e.getPredictedEvents(); op.pred = pr.length ? pr.slice(0, 2).map(ev => [...pagePos(op.pg, ev, op.rect), pressure(ev)]) : null; }
+        if (op.kind === 'lasso') { scheduleDraw(); return; }
+        if (op.kind === 'pen' || op.kind === 'shape' || op.kind === 'hl') {
+            scheduleDraw();
             if (op.kind === 'pen') { clearTimeout(holdTimer); const o = op; holdTimer = setTimeout(() => holdToShape(o), 650); }
         }
     });
+    // höchstens einmal pro Bild zeichnen – egal wie viele Stift-Ereignisse kommen (Apple Pencil: 240 pro Sekunde)
+    function scheduleDraw() { if (drawRaf) return; drawRaf = requestAnimationFrame(() => { drawRaf = 0; if (!op) return; if (op.kind === 'lasso') drawLasso(op); else if (op.s) drawLive(op); }); }
     const end = (e) => {
-        if (e.pointerType === 'touch') { touches.delete(e.pointerId); if (touches.size < 2) pinch = null; }
+        if (e.pointerType === 'touch') {
+            const tt = touches.get(e.pointerId); touches.delete(e.pointerId);
+            // Tipp mit 2/3 Fingern (kurz, ohne Bewegung) → Rückgängig/Wiederholen
+            if (tapGesture && !tt?.palm && !liveTouches().length) {
+                const g = tapGesture; tapGesture = null;
+                if (!g.moved && performance.now() - g.t < 320 && !penDown) { if (g.n === 2) { undo(); toast2('Rückgängig'); } else if (g.n >= 3) { redo(); toast2('Wiederholt'); } }
+            }
+            if (liveTouches().length < 2) pinch = null;
+            if (tt?.palm) return;
+        }
+        if (e.pointerType === 'pen') { penDown = false; lastPenAt = Date.now(); }
         if (pan && e.pointerId === pan.id) { const p = pan; pan = null; glide(p.vx, p.vy); return; }
         if (!op || e.pointerId !== op.id) return;
-        clearTimeout(holdTimer); const o = op; op = null; o.pg.active = false;
+        clearTimeout(holdTimer); cancelAnimationFrame(drawRaf); drawRaf = 0; const o = op; op = null; o.pg.active = false;
         if (o.kind === 'erase') { clearLive(o.pg); if (o.changed) commit(o.pg, o.before); return; }
         if (o.kind === 'laser') return;
         if (o.kind === 'lasso') { clearLive(o.pg); finishLasso(o); return; }
@@ -443,13 +496,21 @@ export function openInkEditor(ctx) {
         if (s.t === 'hl') paintInk(o.pg); else if (o.pg.view) drawStroke(o.pg.view.ink.getContext('2d'), s, kOf());
     };
     stage.addEventListener('pointerup', end); stage.addEventListener('pointercancel', end);
+    // iPad: Mehrfinger-Gesten des Systems und Doppeltipp-Zoom nicht durchlassen
+    stage.addEventListener('touchstart', (e) => { if (e.touches.length > 1 || penDown) e.preventDefault(); }, { passive: false });
+    stage.addEventListener('gesturestart', (e) => e.preventDefault());
+    function toast2(t) { const d = el('div', 'ink-toast', t); root.append(d); setTimeout(() => d.remove(), 900); }
     function glide(vx, vy) {
         if (Math.hypot(vx, vy) < 0.2) return; let last = performance.now();
         const step = (t) => { const dt = t - last; last = t; stage.scrollLeft += vx * dt; stage.scrollTop += vy * dt; vx *= Math.pow(0.94, dt / 16); vy *= Math.pow(0.94, dt / 16); if (Math.hypot(vx, vy) > 0.02) inertia = requestAnimationFrame(step); };
         inertia = requestAnimationFrame(step);
     }
     const clearLive = (pg) => { const v = pg?.view; if (v) v.live.getContext('2d').clearRect(0, 0, v.live.width, v.live.height); };
-    function drawLive(o) { const v = o.pg.view; if (!v) return; const g = v.live.getContext('2d'); g.clearRect(0, 0, v.live.width, v.live.height); drawStroke(g, o.s, kOf()); }
+    function drawLive(o) {
+        const v = o.pg.view; if (!v) return; const g = v.live.getContext('2d'); g.clearRect(0, 0, v.live.width, v.live.height);
+        const s = o.pred && !o.shaped ? { ...o.s, p: o.s.p.concat(...o.pred) } : o.s;
+        drawStroke(g, s, kOf(), { live: true });
+    }
     // Zeichnen und halten → saubere Form (wie in GoodNotes)
     function holdToShape(o) {
         if (op !== o || o.shaped || o.s.p.length < 18) return;
@@ -518,6 +579,7 @@ export function openInkEditor(ctx) {
         clearSelection(); const box = selectionBox(pg.data, s); if (!box) return;
         sel = { pg, ...s, box };
         const r = el('div', 'ink-sel'); const h = el('span', 'ink-sel-h'); h.title = 'Größe ändern'; r.append(h);
+        const rotH = el('span', 'ink-sel-r'); rotH.title = 'Drehen'; if (s.si.length && !s.ti.length && !s.ii.length) r.append(rotH);
         const menu = el('div', 'ink-selmenu');
         const mi = (ic, label, fn) => menu.append(btn(ic, label, (e) => { e.stopPropagation(); fn(e); }, 'labeled'));
         mi('palette', 'Farbe', (e) => colorMenu(e.currentTarget));
@@ -533,15 +595,23 @@ export function openInkEditor(ctx) {
             let moved = false;
             const mv = (ev) => {
                 const [x, y] = pagePos(pg, ev); moved = true;
-                const t = mode === 'move' ? { dx: x - start[0], dy: y - start[1] } : { f: Math.max(0.15, (b0.w + (x - start[0])) / Math.max(1, b0.w)), ax: b0.x, ay: b0.y };
-                const out = transformSelection(base, sel, t); pg.data.strokes = out.strokes; pg.data.text = out.text; pg.data.items = out.items;
-                sel.box = mode === 'move' ? { ...b0, x: b0.x + t.dx, y: b0.y + t.dy } : { x: b0.x, y: b0.y, w: b0.w * t.f, h: b0.h * t.f };
+                let out;
+                if (mode === 'rotate') {
+                    const cx = b0.x + b0.w / 2, cy = b0.y + b0.h / 2; let ang = Math.atan2(y - cy, x - cx) - Math.atan2(start[1] - cy, start[0] - cx);
+                    const snap = Math.round(ang / (Math.PI / 4)) * (Math.PI / 4); if (Math.abs(ang - snap) < 0.06) ang = snap; // auf 45° einrasten
+                    out = rotateSelection(base, sel, ang, cx, cy);
+                } else {
+                    const t = mode === 'move' ? { dx: x - start[0], dy: y - start[1] } : { f: Math.max(0.15, (b0.w + (x - start[0])) / Math.max(1, b0.w)), ax: b0.x, ay: b0.y };
+                    out = transformSelection(base, sel, t);
+                    sel.box = mode === 'move' ? { ...b0, x: b0.x + t.dx, y: b0.y + t.dy } : { x: b0.x, y: b0.y, w: b0.w * t.f, h: b0.h * t.f };
+                }
+                pg.data.strokes = out.strokes; pg.data.text = out.text; pg.data.items = out.items;
                 repaint(pg); placeSel();
             };
-            const up = () => { r.removeEventListener('pointermove', mv); r.removeEventListener('pointerup', up); r.removeEventListener('pointercancel', up); if (moved) commit(pg, before); };
+            const up = () => { r.removeEventListener('pointermove', mv); r.removeEventListener('pointerup', up); r.removeEventListener('pointercancel', up); if (moved) { commit(pg, before); if (mode === 'rotate') { sel.box = selectionBox(pg.data, sel) || sel.box; placeSel(); } } };
             r.addEventListener('pointermove', mv); r.addEventListener('pointerup', up); r.addEventListener('pointercancel', up);
         };
-        r.addEventListener('pointerdown', (e) => (e.target === h ? drag('scale')(e) : drag('move')(e)));
+        r.addEventListener('pointerdown', (e) => (e.target === h ? drag('scale')(e) : e.target === rotH ? drag('rotate')(e) : drag('move')(e)));
     }
     function placeSel() {
         if (!sel) return; const b = sel.box, pad = 8;
@@ -648,6 +718,7 @@ export function openInkEditor(ctx) {
         it('bookmark', doc.bookmarks.includes(pages[i].id) ? 'Lesezeichen entfernen' : 'Lesezeichen setzen', () => toggleBookmark(i));
         it('wallpaper', 'Vorlage ändern', () => templateMenu(anchor, (t) => setPaper(i, t)));
         it('arrow_upward', 'Nach oben', () => movePage(i, -1)); it('arrow_downward', 'Nach unten', () => movePage(i, 1));
+        if (pages[i].data?.correction) it('ink_eraser', 'Korrektur entfernen', () => removeCorrection(pages[i]));
         it('delete', 'Seite löschen', () => deletePage(i));
         popAt(pop, anchor, 30);
     }
@@ -659,6 +730,7 @@ export function openInkEditor(ctx) {
         it('wallpaper', 'Vorlage dieser Seite', () => templateMenu(anchor, (t) => setPaper(st.cur, t)));
         it('zoom_in', 'Größer', () => setZoom(st.zoom * 1.2)); it('zoom_out', 'Kleiner', () => setZoom(st.zoom / 1.2)); it('fit_width', 'Seitenbreite', () => setZoom(1));
         it(st.showCorr ? 'visibility_off' : 'visibility', st.showCorr ? 'Korrekturen ausblenden' : 'Korrekturen einblenden', () => { st.showCorr = !st.showCorr; pages.forEach(paintMarks); });
+        if (pages[st.cur]?.data?.correction) it('ink_eraser', 'Korrektur dieser Seite entfernen', () => removeCorrection(pages[st.cur]));
         popAt(pop, anchor, -200);
     }
     function setZoom(z) { const ratio = stage.scrollTop / Math.max(1, stage.scrollHeight); st.zoom = Math.max(0.5, Math.min(3, z)); layoutAll(); stage.scrollTop = ratio * stage.scrollHeight; }
@@ -686,7 +758,7 @@ export function openInkEditor(ctx) {
         head.append(el('div', 'ink-p-grade', c.grade || '–'), meta, btn('close', 'Schließen', () => { pg._panelClosed = true; panel.hidden = true; }));
         const list = el('ul', 'ink-p-items'); (c.items || []).forEach(it => { const li = el('li', it.ok ? 'ok' : 'bad'); li.append(el('b', '', it.ok ? '✓' : '✗'), el('span', '', it.text)); if (it.fix) li.append(el('em', '', 'Richtig: ' + it.fix)); list.append(li); });
         const tips = el('div', 'ink-p-tips'); if ((c.tips || []).length) { tips.append(el('b', '', 'So wirst du besser')); const ul = el('ul'); c.tips.forEach(t => ul.append(el('li', '', t))); tips.append(ul); }
-        const acts = el('div', 'ink-p-acts'); acts.append(btn('refresh', 'Nochmal prüfen', () => correct(), 'labeled'));
+        const acts = el('div', 'ink-p-acts'); acts.append(btn('refresh', 'Nochmal prüfen', () => correct(), 'labeled'), btn(st.showCorr ? 'visibility_off' : 'visibility', st.showCorr ? 'Rot ausblenden' : 'Rot einblenden', () => { st.showCorr = !st.showCorr; pages.forEach(paintMarks); showPanel(); }, 'labeled'), btn('delete', 'Korrektur entfernen', () => removeCorrection(pg), 'labeled danger'));
         panel.append(head, el('p', 'ink-p-sum', c.summary || ''), list, tips, acts);
     }
     async function correct() {

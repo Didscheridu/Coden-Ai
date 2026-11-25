@@ -158,3 +158,52 @@ export function transformSelection(page, sel, { dx = 0, dy = 0, f = 1, ax = 0, a
     sel.ii.forEach(i => { const it = items[i]; if (it) items[i] = { ...it, x: X(it.x), y: Y(it.y), w: it.w * f, h: it.h * f }; });
     return { strokes, text, items };
 }
+
+// ---------- Tinte wie GoodNotes: geglättete Linie, Umriss mit Druck, sanfter Anfang, rundes Ende ----------
+// Liefert den Umriss eines Strichs als Punktliste [[x,y], …] in Seiten-Einheiten (zum Füllen).
+const KIND = { fueller: { thin: 0.55, stream: 0.5 }, pinsel: { thin: 0.85, stream: 0.45 }, kugel: { thin: 0.08, stream: 0.55 } };
+export function strokeOutline(s) {
+    const cfg = KIND[s.k] || KIND.fueller; const size = s.w * 1.15; const p = s.p;
+    // 1) glätten (Zittern vom Stift raus) und doppelte Punkte überspringen
+    const pts = []; let px = p[0], py = p[1], pr = p[2] ?? 0.5;
+    pts.push([px, py, pr]);
+    for (let i = 3; i < p.length; i += 3) {
+        const t = 1 - cfg.stream; const nx = px + (p[i] - px) * t, ny = py + (p[i + 1] - py) * t;
+        if (Math.hypot(nx - px, ny - py) < 0.35 && i < p.length - 3) continue;
+        pr = pr + ((p[i + 2] ?? 0.5) - pr) * 0.35; px = nx; py = ny; pts.push([px, py, pr]);
+    }
+    const lx = p[p.length - 3], ly = p[p.length - 2]; if (Math.hypot(lx - px, ly - py) > 0.5) pts.push([lx, ly, pr]);
+    const n = pts.length;
+    if (n < 2) { const r = size * (1 - cfg.thin + cfg.thin * (pts[0][2])) / 2; const out = []; for (let a = 0; a < 12; a++) out.push([pts[0][0] + Math.cos(a / 12 * 6.283) * r, pts[0][1] + Math.sin(a / 12 * 6.283) * r]); return out; }
+    // 2) Radius je Punkt: Druck + sanft anschwellender Anfang und auslaufendes Ende
+    const dist = [0]; for (let i = 1; i < n; i++) dist.push(dist[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+    const total = dist[n - 1]; const taper = Math.min(total / 3, size * 2.2);
+    const rad = pts.map((q, i) => {
+        let r = size / 2 * (1 - cfg.thin + cfg.thin * Math.max(0.05, Math.min(1, q[2])));
+        if (taper > 0) { r *= 0.55 + 0.45 * Math.min(1, dist[i] / taper); r *= 0.75 + 0.25 * Math.min(1, (total - dist[i]) / taper); }
+        return Math.max(0.25, r);
+    });
+    // 3) linke und rechte Kante entlang der Normalen
+    const L = [], R = [];
+    for (let i = 0; i < n; i++) {
+        const a = pts[Math.max(0, i - 1)], b = pts[Math.min(n - 1, i + 1)];
+        let dx = b[0] - a[0], dy = b[1] - a[1]; const len = Math.hypot(dx, dy) || 1; dx /= len; dy /= len;
+        L.push([pts[i][0] - dy * rad[i], pts[i][1] + dx * rad[i]]); R.push([pts[i][0] + dy * rad[i], pts[i][1] - dx * rad[i]]);
+    }
+    // 4) runde Kappen
+    const cap = (c, r, from, to) => { const out = []; for (let k = 1; k < 8; k++) { const t = from + (to - from) * k / 8; out.push([c[0] + Math.cos(t) * r, c[1] + Math.sin(t) * r]); } return out; };
+    const e = pts[n - 1], s0 = pts[0]; const ae = Math.atan2(L[n - 1][1] - e[1], L[n - 1][0] - e[0]); const as = Math.atan2(R[0][1] - s0[1], R[0][0] - s0[0]);
+    return [...L, ...cap(e, rad[n - 1], ae, ae - Math.PI), ...R.reverse(), ...cap(s0, rad[0], as, as - Math.PI)];
+}
+// Auswahl drehen (nur Striche) um den Mittelpunkt
+export function rotateSelection(page, sel, angle, cx, cy) {
+    const c = Math.cos(angle), s = Math.sin(angle); const strokes = page.strokes.slice();
+    sel.si.forEach(i => { const st = strokes[i]; if (!st) return; const p = new Array(st.p.length); for (let j = 0; j < st.p.length; j += 3) { const x = st.p[j] - cx, y = st.p[j + 1] - cy; p[j] = cx + x * c - y * s; p[j + 1] = cy + x * s + y * c; p[j + 2] = st.p[j + 2]; } strokes[i] = { ...st, p }; });
+    return { strokes, text: page.text.slice(), items: page.items.slice() };
+}
+// Handballen-Erkennung: Berührungen mit großer Fläche oder kurz nach dem Stift sind die Hand, nicht ein Finger
+export function isPalm(e, lastPenAt, now = Date.now()) {
+    if (e.pointerType !== 'touch') return false;
+    if (now - lastPenAt < 900) return true;
+    const big = Math.max(e.width || 0, e.height || 0); return big > 44;
+}
