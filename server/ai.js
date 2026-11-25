@@ -175,6 +175,7 @@ const EFFORTS = ['low', 'medium', 'high'];
 // Filtert <think>…</think> auch dann, wenn die Tags über Stream-Stücke verteilt ankommen
 class ThinkFilter {
   constructor(onThink) { this.buf = ''; this.inThink = false; this.onThink = onThink; }
+  reset() { this.buf = ''; this.inThink = false; }
   push(chunk) {
     this.buf += chunk; let out = '';
     for (;;) {
@@ -261,6 +262,16 @@ async function failFrom(r) {
   throw apiError(msg, { status: r.status, errorType, retryAfter: Number.isFinite(ra) && ra > 0 ? ra : null });
 }
 
+function extractReasoning(obj) {
+  if (!obj || typeof obj !== 'object') return '';
+  const direct = obj.reasoning_content || obj.reasoning || obj.thinking;
+  if (typeof direct === 'string' && direct) return direct;
+  if (Array.isArray(obj.reasoning_details)) {
+    return obj.reasoning_details.map(x => (typeof x === 'string' ? x : (x?.text || x?.summary || ''))).filter(Boolean).join('');
+  }
+  return '';
+}
+
 // Denkaufwand (niedrig/mittel/hoch): nur dort mitschicken, wo der Anbieter es versteht
 function effortParams(m, effort) {
   if (!EFFORTS.includes(effort)) return {};
@@ -284,7 +295,13 @@ async function callAnthropic(m, messages, { stream, onDelta, onThink, signal, ma
   let r = await send(level);
   if (!r.ok && level && r.status === 400) r = await send(null); // ältere Modelle kennen die Stufe nicht
   if (!r.ok) await failFrom(r);
-  if (!stream) { const d = await r.json(); if (d.stop_reason === 'max_tokens') info.truncated = true; return (d.content || []).filter(b => b.type === 'text').map(b => b.text).join(''); }
+  if (!stream) {
+    const d = await r.json();
+    if (d.stop_reason === 'max_tokens') info.truncated = true;
+    const th = (d.content || []).filter(b => b.type === 'thinking' && b.thinking).map(b => b.thinking).join('');
+    if (th) onThink?.(th);
+    return (d.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+  }
   let full = '';
   for await (const raw of sseData(r)) {
     let d; try { d = JSON.parse(raw); } catch (e) { continue; }
@@ -310,9 +327,15 @@ async function callModel(m, messages, { stream, onDelta, onThink, signal, maxTok
     if (!r.ok && level && r.status === 400) r = await send(null);
     if (!r.ok) await failFrom(r);
     const textOf = (d) => (d.candidates?.[0]?.content?.parts || []).filter(p => p.text && !p.thought).map(p => p.text).join('');
-    if (!stream) { const d = await r.json(); if (d.candidates?.[0]?.finishReason === 'MAX_TOKENS') info.truncated = true; return textOf(d); }
+    const thinkOf = (d) => (d.candidates?.[0]?.content?.parts || []).filter(p => p.text && p.thought).map(p => p.text).join('');
+    if (!stream) {
+      const d = await r.json();
+      if (d.candidates?.[0]?.finishReason === 'MAX_TOKENS') info.truncated = true;
+      const th = thinkOf(d); if (th) onThink?.(th);
+      return textOf(d);
+    }
     let full = '';
-    for await (const raw of sseData(r)) { let d; try { d = JSON.parse(raw); } catch (e) { continue; } if (d.candidates?.[0]?.finishReason === 'MAX_TOKENS') info.truncated = true; const th = (d.candidates?.[0]?.content?.parts || []).filter(p => p.text && p.thought).map(p => p.text).join(''); if (th) onThink?.(th); const t = textOf(d); if (t) { full += t; onDelta(t); } }
+    for await (const raw of sseData(r)) { let d; try { d = JSON.parse(raw); } catch (e) { continue; } if (d.candidates?.[0]?.finishReason === 'MAX_TOKENS') info.truncated = true; const th = thinkOf(d); if (th) onThink?.(th); const t = textOf(d); if (t) { full += t; onDelta(t); } }
     return full;
   }
   if (m.provider === 'anthropic') return callAnthropic(m, messages, { stream, onDelta, onThink, signal, maxTokens, effort, info });
@@ -341,7 +364,10 @@ async function callModel(m, messages, { stream, onDelta, onThink, signal, maxTok
   if (!stream || ct.includes('application/json')) {
     const d = await r.json();
     if (d.error) throw apiError(d.error.message || 'Anbieter-Fehler', { status: Number(d.error.code) || undefined, errorType: d.error.metadata?.error_type || d.error.type || null });
-    if (d.choices?.[0]?.finish_reason === 'length') info.truncated = true;
+    const fr = d.choices?.[0]?.finish_reason;
+    if (fr === 'length' || fr === 'max_tokens') info.truncated = true;
+    const th = extractReasoning(d.choices?.[0]?.message);
+    if (th) onThink?.(th);
     const content = d.choices?.[0]?.message?.content || '';
     if (stream && content) { onDelta(content); }
     return content;
@@ -351,10 +377,12 @@ async function callModel(m, messages, { stream, onDelta, onThink, signal, maxTok
     if (raw === '[DONE]') break;
     let d; try { d = JSON.parse(raw); } catch (e) { continue; }
     if (d.error) throw apiError(d.error.message || 'Stream-Fehler', { status: Number(d.error.code) || undefined, errorType: d.error.metadata?.error_type || d.error.type || null });
-    if (d.choices?.[0]?.finish_reason === 'length') info.truncated = true;
+    const fr = d.choices?.[0]?.finish_reason;
+    if (fr === 'length' || fr === 'max_tokens') info.truncated = true;
+    if (fr === 'error') throw apiError('Stream-Fehler vom Anbieter', { status: 502 });
     const dl = d.choices?.[0]?.delta || {};
-    const th = dl.reasoning_content || dl.reasoning; // Denk-Teile: nur als Überschrift an den Nutzer, nie als Antworttext
-    if (th && typeof th === 'string') onThink?.(th);
+    const th = extractReasoning(dl); // Denk-Teile: nur als Überschrift an den Nutzer, nie als Antworttext
+    if (th) onThink?.(th);
     const t = dl.content;
     if (t) { full += t; onDelta(t); }
   }
@@ -437,7 +465,7 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
       const tryModel = attempt > 0 && (m.provider === 'numes' || m.provider === 'kilo') ? { ...m, level: null } : m;
       try {
         const mt = m.own ? null : meter; // eigene Modelle zählen nicht gegen die Coden-Limits (auch nicht in gemischten Ketten)
-        let sent = false;
+        let sent = false, thinkBuf = '';
         const tracker = onThink && stream ? new ThinkTracker(onThink) : null;
         // Fortschritt auch dann zeigen, wenn das Modell sein Denken nicht preisgibt: echter Stand statt stummer Wartepunkte
         if (tracker) {
@@ -445,25 +473,52 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
           slow = setTimeout(() => { if (!sent && !tracker.text) onThink({ h: 'Modell antwortet langsam …', v: 'Große Modelle brauchen manchmal etwas länger, bevor die ersten Worte kommen.' }); }, 6000);
         }
         if (attempt === 0) tried++;
-        const filter = new ThinkFilter(tracker ? (t) => tracker.push(t) : undefined);
+        const thinkIn = (t) => {
+          const s = String(t || '');
+          if (!s) return;
+          mt?.add(s.length);
+          thinkBuf = (thinkBuf + s).slice(-4000);
+          if (tracker) tracker.push(s);
+        };
+        const filter = new ThinkFilter(thinkIn);
         const emit = (t) => {
           mt?.add(t.length);
           const v = filter.push(t); if (v) { if (!sent) { sent = true; clearTimeout(slow); onModel(m); } onDelta(v); }
           if (mt?.stop) { const e = limitHit(); if (sent) e.partial = true; throw e; }
         };
-        const thinkIn = (t) => { mt?.add(String(t).length); if (tracker) tracker.push(t); };
         const info = {};
-        const call = async (msgs) => {
+        const call = async (msgs, { mdl = tryModel, eff = effort } = {}) => {
           let got = false;
-          try { const r = await callModel(tryModel, msgs, { stream, onDelta: (t) => { got = true; emit(t); }, onThink: (t) => { got = true; thinkIn(t); }, signal, maxTokens, effort, info }); got = true; if (!stream) mt?.add(r.length); return r; }
+          try { const r = await callModel(mdl, msgs, { stream, onDelta: (t) => { got = true; emit(t); }, onThink: (t) => { got = true; thinkIn(t); }, signal, maxTokens, effort: eff, info }); got = true; if (!stream) mt?.add(r.length); return r; }
           catch (e) { if (e.limit) throw e; if (signal.aborted && mt?.stop) { const le = limitHit(); if (sent) le.partial = true; throw le; } if (sent) e.partial = true; throw e; }
           finally { if (got) mt?.add(charsOf(msgs), { input: true }); } // Eingabe nur zählen, wenn das Modell wirklich gearbeitet hat
         };
+        const stripThink = (s) => String(s || '').replace(/<think>[\s\S]*?<\/think>\s*/gi, '').replace(/<think>[\s\S]*$/i, '');
         let full = await call(messages);
-        // Antwort wurde vom Token-Limit abgeschnitten (z. B. langer Code): nahtlos weiterschreiben lassen
-        for (let n = 0; info.truncated && n < 3 && full.trim(); n++) {
+        if (!stream) {
+          const inlineThink = full.match(/<think>([\s\S]*?)(?:<\/think>|$)/i);
+          if (inlineThink?.[1]) thinkBuf = (thinkBuf + inlineThink[1]).slice(-4000);
+        }
+        const restFirst = stream ? filter.flush() : '';
+        if (restFirst) { if (!sent) { sent = true; onModel(m); } onDelta(restFirst); }
+        // Hat das Modell sein Token-Limit (oder seinen Denk-Lauf) nur im Denken verbraucht:
+        // einmal mit niedrigem Denkaufwand direkt die fertige Antwort schreiben lassen statt „Leere Antwort“.
+        if (!stripThink(full).trim() && !sent && (info.truncated || thinkBuf.trim().length >= 80)) {
+          if (tracker) onThink({ h: 'Antwort wird formuliert …', v: 'Ausführliches Denken abgeschlossen – die Antwort wird jetzt ausgegeben.' });
+          filter.reset();
           info.truncated = false;
-          full += await call([...messages, { role: 'assistant', content: full.replace(/<think>[\s\S]*?<\/think>\s*/gi, '') }, { role: 'user', content: CONTINUE }]);
+          const tail = thinkBuf.trim().slice(-2500);
+          const wrapMsg = tail
+            ? `Deine bisherigen Überlegungen wurden beendet, bevor die Antwort ausgegeben wurde. Zusammenfassung deiner bisherigen Gedanken:\n\n${tail}\n\nGib jetzt sofort ohne weiteres langes Nachdenken die vollständige, fertige Antwort für den Nutzer aus.`
+            : 'Du hast dein Denkbudget ausgeschöpft, bevor die Antwort ausgegeben wurde. Gib jetzt sofort die vollständige, fertige Antwort für den Nutzer aus.';
+          full = await call([...messages, { role: 'user', content: wrapMsg }], { mdl: { ...tryModel, level: null }, eff: 'low' });
+          const restWrap = stream ? filter.flush() : '';
+          if (restWrap) { if (!sent) { sent = true; onModel(m); } onDelta(restWrap); }
+        }
+        // Antwort wurde vom Token-Limit abgeschnitten (z. B. langer Code): nahtlos weiterschreiben lassen
+        for (let n = 0; info.truncated && n < 3 && stripThink(full).trim(); n++) {
+          info.truncated = false;
+          full += await call([...messages, { role: 'assistant', content: stripThink(full) }, { role: 'user', content: CONTINUE }]);
         }
         if (stream) {
           const rest = filter.flush(); if (rest) { if (!sent) { sent = true; onModel(m); } onDelta(rest); }
@@ -472,7 +527,7 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
           modelDone = true;
           return { model: m };
         }
-        const clean = full.replace(/<think>[\s\S]*?<\/think>\n*/gi, '').trim();
+        const clean = stripThink(full).trim();
         if (!clean) throw new Error('Leere Antwort (Modell hat nur nachgedacht).');
         modelDone = true;
         return { text: clean, model: m };

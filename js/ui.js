@@ -173,12 +173,13 @@ export const UI = {
 
     appendMessage: (text, isUser, animate = false, extra = {}) => {
         const { content, row } = UI._newRow(isUser);
+        if (extra.failed) row.dataset.failed = '1';
         if (isUser) { content.innerHTML = safeMarkdown(text); }
         else {
             const think = thinkSummary(extra.think); const answer = document.createElement('div'); answer.className = 'answer';
             if (think) content.append(think); content.append(answer);
             UI.renderRich(answer, text, 'm' + (++UI._msgCounter));
-            if (extra.last) UI.addSuggestions(row, text);
+            if (extra.last && !extra.failed) UI.addSuggestions(row, text);
         }
         UI.scrollToBottom(true);
         return row;
@@ -206,14 +207,15 @@ export const UI = {
         // Neues Artefakt im Text? -> Fenster sofort öffnen und live mitschreiben lassen (wie bei Claude); auf dem Handy nur die Karte
         const autoOpen = (items) => { const it = items[items.length - 1]; if (!it || opened.has(it.key) || window.innerWidth < 900 || !row.isConnected) return; opened.add(it.key); Artifacts.open(it); };
         const paint = () => { raf = 0; const follow = stick(); autoOpen(UI.renderRich(answer, latest, key)); if (follow) chatContainer.scrollTop = chatContainer.scrollHeight; };
-        const end = () => { if (!info) { info = panel.done(); if (!(info.secs >= 2 || info.steps.length || info.text)) panel.remove(); } return info; };
+        const end = (minSecs = 2) => { if (!info) { info = panel.done(); if (!(info.secs >= minSecs || info.steps.length || info.text)) panel.remove(); } return info; };
         return {
             row, attached: () => row.isConnected,
             think: (k) => panel.think(k), model: (n) => panel.model(n),
             update(text) { latest = text; if (!started && text.trim()) { started = true; end(); } if (started && !raf) raf = requestAnimationFrame(paint); },
             finish(text) { cancelAnimationFrame(raf); raf = 0; latest = text; row.classList.remove('streaming'); const i = end(); if (!text.trim()) { row.remove(); return i; } UI.renderRich(answer, text, key); UI.addSuggestions(row, text); if (stick()) chatContainer.scrollTop = chatContainer.scrollHeight; return i; },
             fail(msg, actions = []) {
-                cancelAnimationFrame(raf); raf = 0; row.classList.remove('streaming'); row.dataset.failed = '1'; end();
+                cancelAnimationFrame(raf); raf = 0; row.classList.remove('streaming'); row.dataset.failed = '1';
+                const i = end(1);
                 const note = document.createElement('div'); note.className = 'stream-error';
                 const tx = document.createElement('div'); tx.textContent = msg; note.appendChild(tx);
                 if (Array.isArray(actions) && actions.length) {
@@ -227,6 +229,7 @@ export const UI = {
                     note.appendChild(bar);
                 }
                 answer.appendChild(note);
+                return i;
             },
             info: () => info,
             remove() { cancelAnimationFrame(raf); panel.remove(); row.remove(); }

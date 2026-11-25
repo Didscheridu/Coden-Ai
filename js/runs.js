@@ -26,7 +26,7 @@ async function readSse(res, onEvent) {
 
 // Verfolgt einen Lauf per Abfrage, bis er fertig ist. Liefert den Endstand.
 export async function watchRun(id, { onDelta, onThink, onModel, onAgents, onExtra, signal, from = 0, text = '' } = {}) {
-    let full = text, last = { h: null, v: null }, agentsSig = '', wait = 700;
+    let full = text, last = { h: null, v: null, len: 0 }, agentsSig = '', wait = 700;
     for (;;) {
         if (signal?.aborted) { await stopRun(id).catch(() => {}); return { status: 'stopped', text: full }; }
         let r;
@@ -34,7 +34,10 @@ export async function watchRun(id, { onDelta, onThink, onModel, onAgents, onExtr
         catch (e) { if (/nicht gefunden/i.test(e.message)) throw e; await sleep(Math.min(wait *= 1.6, 8000)); continue; }
         if (r.from === full.length && r.text) { full += r.text; onDelta?.(full); }
         else if (r.from !== full.length) { const all = await apiJson(`/runs/${id}`); full = all.text; onDelta?.(full); }
-        if (r.think?.h && (r.think.h !== last.h || r.think.v !== last.v)) { last = r.think; onThink?.({ h: r.think.h, v: r.think.v, steps: r.think.steps }); }
+        if (r.think && (r.think.h !== last.h || r.think.v !== last.v || (r.think.steps?.length || 0) !== last.len)) {
+            last = { h: r.think.h || null, v: r.think.v || null, len: r.think.steps?.length || 0 };
+            onThink?.({ h: r.think.h, v: r.think.v, steps: r.think.steps });
+        }
         if (r.model) onModel?.(r.model);
         const sig = JSON.stringify(r.agents || []); if (sig !== agentsSig) { agentsSig = sig; onAgents?.(r.agents || []); }
         if (r.meta?.extra) onExtra?.(r.meta.extra);
@@ -74,7 +77,11 @@ export async function runAiResponse(messages, tier, { ref, meta, onDelta, onMode
     if (!id) { const err = new Error('Die Verbindung wurde unterbrochen.'); err.text = full; err.partial = !!full; throw err; }
     // Verbindung abgerissen, der Lauf arbeitet aber auf dem Server weiter -> per Abfrage dranbleiben
     const r = await watchRun(id, { onDelta, onThink, onModel, onExtra, signal, text: full });
-    if (r.status === 'error') { const err = new Error(r.error || 'Fehler'); err.partial = !!r.text; err.text = r.text; err.runId = id; throw err; }
+    if (r.status === 'error' || (r.status === 'stopped' && !signal?.aborted)) {
+        const err = new Error(r.error || 'Die Antwort wurde unterbrochen.');
+        err.partial = !!r.text; err.text = r.text; err.runId = id;
+        throw err;
+    }
     await claimRun(id).catch(() => {}); // dieses Gerät hat die Antwort -> andere sollen sie nicht noch einmal einfügen
     return r.text;
 }

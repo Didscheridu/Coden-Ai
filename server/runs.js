@@ -7,13 +7,14 @@ try { waitUntil = require('@vercel/functions').waitUntil; } catch (_) { /* lokal
 
 const FLUSH_MS = 1500;       // so oft wird der Stand höchstens nach Firestore geschrieben (Firestore-Gratis-Kontingent schonen)
 const HEARTBEAT_MS = 4000;   // Lebenszeichen (und Prüfung auf "Stopp"), auch wenn das Modell gerade still ist
-const STALE_MS = 120_000;    // länger kein Lebenszeichen: Lauf gilt als abgebrochen
+const STALE_MS = 300_000;    // länger kein Lebenszeichen: Lauf gilt als abgebrochen
 const live = new Map();      // laufende Läufe dieser Server-Instanz
 
 class Run {
   constructor(row, { isOwner = false, dbCtx } = {}) {
     this.id = Number(row.id); this.uid = row.uid; this.kind = row.kind; this.ref = row.ref; this.isOwner = isOwner;
     this.dbCtx = dbCtx || db.getDbContext();
+    this.createdAt = row.created_at || db.nowIso(); this.updatedAt = row.updated_at || this.createdAt;
     this.meta = (row.meta && typeof row.meta === 'object') ? { ...row.meta } : {};
     this.text = ''; this.think = { h: '', v: '', steps: [] }; this.agents = []; this.model = null; this.extra = {};
     this.ac = new AbortController(); this.subs = new Set(); this.timer = null; this.lastFlush = 0; this.flushing = null;
@@ -60,6 +61,7 @@ class Run {
     if (this.status !== 'running' || this.ephemeral) return;
     if (this.flushing) return this.flushing;
     this.lastFlush = Date.now();
+    this.updatedAt = db.nowIso();
     this.flushing = db.runWithDbContext(this.dbCtx, async () => {
       const nextMeta = { ...this.meta, extra: this.extra };
       const updated = await db.updateDoc(`ai_runs/${this.id}`, {
@@ -68,7 +70,7 @@ class Run {
         agents: this.agents,
         model: this.model,
         meta: nextMeta,
-        updated_at: db.nowIso()
+        updated_at: this.updatedAt
       });
       if (updated?.stop && !this.ac.signal.aborted) this.ac.abort();
     }).finally(() => { this.flushing = null; });
@@ -78,6 +80,7 @@ class Run {
     clearInterval(this.beat); clearTimeout(this.timer); this.timer = null;
     if (this.flushing) await this.flushing.catch(() => {});
     this.status = status; this.error = error || null;
+    this.updatedAt = db.nowIso();
     if (this.ephemeral) { live.delete(this.id); return; }
     await db.runWithDbContext(this.dbCtx, () => db.updateDoc(`ai_runs/${this.id}`, {
       status,
@@ -88,7 +91,7 @@ class Run {
       model: this.model,
       meta: { ...this.meta, extra: this.extra },
       claimed,
-      updated_at: db.nowIso()
+      updated_at: this.updatedAt
     }));
     live.delete(this.id);
   }
@@ -160,7 +163,7 @@ async function serveRun(res, run, done) {
   res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
   const send = (o) => { if (!res.writableEnded && !res.destroyed) res.write(`data: ${JSON.stringify(o)}\n\n`); };
   const sub = (ev) => send(ev); run.subs.add(sub);
-  const ping = setInterval(() => { if (!res.writableEnded && !res.destroyed) res.write(': ping\n\n'); }, 15000);
+  const ping = setInterval(() => { if (!res.writableEnded && !res.destroyed) res.write(': ping\n\n'); }, 10000);
   res.on('close', () => { run.subs.delete(sub); clearInterval(ping); });
   send({ t: 'run', id: run.id });
   await done;
@@ -224,9 +227,18 @@ function runsRouter(requireAuth) {
   });
   r.get('/:id', requireAuth, async (req, res) => {
     const id = parseInt(req.params.id, 10); if (!Number.isFinite(id)) return res.status(400).json({ error: 'Ungültig.' });
+    const from = Math.max(0, parseInt(req.query.from, 10) || 0);
+    const active = live.get(id);
+    if (active && active.uid === req.user.uid) {
+      return res.json(shape({
+        id: active.id, kind: active.kind, ref: active.ref, status: active.status,
+        text: active.text, think: active.think, agents: active.agents, model: active.model,
+        error: active.error, meta: { ...active.meta, extra: active.extra },
+        claimed: false, created_at: active.createdAt, updated_at: active.updatedAt || db.nowIso()
+      }, req.user.isOwner, from));
+    }
     const row = await db.getDoc(`ai_runs/${id}`);
     if (!row || row.uid !== req.user.uid) return res.status(404).json({ error: 'Lauf nicht gefunden.' });
-    const from = Math.max(0, parseInt(req.query.from, 10) || 0);
     res.json(shape(await settleStale(row), req.user.isOwner, from));
   });
   r.post('/:id/claim', requireAuth, async (req, res) => {

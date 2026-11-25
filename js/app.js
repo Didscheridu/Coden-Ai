@@ -1106,7 +1106,7 @@ function loadSession(id) {
         if (s.unread) { s.unread = false; saveAll(); }
         const msgs = Array.isArray(currentSession.messages) ? currentSession.messages : [];
         const n = msgs.length;
-        msgs.forEach((m, i) => UI.appendMessage(m.displayHTML || m.text || '', m.isUser, false, { think: m.think, last: i === n - 1 && !m.isUser && !liveViews.has(s.id) }));
+        msgs.forEach((m, i) => UI.appendMessage(m.displayHTML || m.text || '', m.isUser, false, { think: m.think, failed: !!m.failed, last: i === n - 1 && !m.isUser && !liveViews.has(s.id) }));
         liveViews.get(s.id)?.attach(); // läuft hier gerade eine Antwort? -> live weiter anzeigen
         setStreaming(!!curStream());
         UI.renderSidebar(sessions, activeSessionId); markTemp();
@@ -1431,7 +1431,8 @@ const hideImageTags = (t) => WebSearch.strip(Skills.hide(Personal.hide(ChatApps.
 const liveViews = new Map(); // Chat-ID -> Live-Anzeige
 const QUIET_STEP = /^(Anfrage läuft|Modell antwortet langsam|Anderes Modell|Neuer Versuch|Anbieter überlastet)/;
 function liveFor(sid, { startedAt } = {}) {
-    const st = { text: '', think: null, steps: [], model: null, view: null, started: false, t0: startedAt ? Date.parse(startedAt) || Date.now() : Date.now() };
+    const parsedT0 = typeof startedAt === 'number' ? startedAt : Date.parse(startedAt);
+    const st = { text: '', think: null, steps: [], model: null, view: null, started: false, t0: Number.isFinite(parsedT0) ? parsedT0 : Date.now() };
     const view = () => {
         if (activeSessionId !== sid) return null;
         if (!st.view || !st.view.attached()) {
@@ -1442,13 +1443,13 @@ function liveFor(sid, { startedAt } = {}) {
         }
         return st.view;
     };
-    const fallback = () => ({ secs: Math.round((Date.now() - st.t0) / 1000), steps: st.steps.filter(x => !QUIET_STEP.test(x)), ...(st.think?.v ? { text: String(st.think.v).slice(0, 3000) } : {}) });
+    const fallback = () => ({ secs: Math.max(0, Math.round((Date.now() - st.t0) / 1000)), steps: st.steps.filter(x => !QUIET_STEP.test(x)), ...(st.think?.v ? { text: String(st.think.v).slice(0, 3000) } : {}) });
     const p = {
         think(k) { if (!k) return; st.started = true; st.think = k; (k.steps || []).forEach(x => { if (!st.steps.includes(x)) st.steps.push(x); }); if (k.h && !st.steps.includes(k.h) && !QUIET_STEP.test(k.h)) st.steps.push(k.h); view()?.think(k); },
         model(m) { st.started = true; st.model = m; view()?.model(m); },
         update(t) { st.started = true; st.text = t; view()?.update(t); },
         finish(t) { liveViews.delete(sid); if (activeSessionId === sid) UI.showLoading(false); const v = view(); const info = v ? v.finish(t) : null; return info || fallback(); },
-        fail(msg, actions) { liveViews.delete(sid); if (activeSessionId === sid) UI.showLoading(false); view()?.fail(msg, actions); },
+        fail(msg, actions) { liveViews.delete(sid); if (activeSessionId === sid) UI.showLoading(false); const v = view(); const info = v ? v.fail(msg, actions) : null; return info || fallback(); },
         remove() { liveViews.delete(sid); if (activeSessionId === sid) UI.showLoading(false); st.view?.remove(); },
         attach() { if (activeSessionId !== sid) return; if (st.started) view(); else UI.showLoading(true, 'Coden startet …'); }
     };
@@ -1532,11 +1533,14 @@ async function collectRun(r, live) {
     if (run.status === 'error' && !text.trim()) text = '⚠️ Coden konnte nicht antworten: ' + (run.error || 'unbekannter Fehler');
     const done = await processAnswer(text, (t) => live?.update(t), { ...run.meta?.extra, temp: !!run.meta?.temp, project: sess.projectId || null }); text = done.text;
     if (run.status === 'error' && run.text) text += '\n\n⚠️ Die Antwort wurde unterbrochen.';
-    const think = live ? live.finish(text) : { secs: Math.max(0, Math.round((Date.parse(run.updatedAt) - Date.parse(run.startedAt)) / 1000)), steps: run.think?.steps || [], ...(run.think?.v ? { text: String(run.think.v).slice(0, 3000) } : {}) };
+    const elapsed = Math.max(0, Math.round((Date.parse(run.updatedAt) - Date.parse(run.startedAt)) / 1000));
+    if (run.status === 'stopped' && !text.trim() && (elapsed >= 1 || run.think?.steps?.length || run.think?.v)) text = '⏹️ *Generierung gestoppt.*';
+    const think = live ? (text.trim() ? live.finish(text) : live.finish('')) : { secs: elapsed, steps: run.think?.steps || [], ...(run.think?.v ? { text: String(run.think.v).slice(0, 3000) } : {}) };
     if (!text.trim()) return;
-    sess.messages.push({ text, isUser: false, think });
+    const isErr = run.status === 'error' || run.status === 'stopped';
+    sess.messages.push({ text, isUser: false, think, ...(isErr ? { failed: run.text ? 'partial' : true } : {}) });
     if (sess.id !== activeSessionId) sess.unread = true;
-    else if (!live) { document.querySelectorAll('.followups').forEach(f => f.remove()); UI.appendMessage(text, false, false, { think, last: true }); }
+    else if (!live) { document.querySelectorAll('.followups').forEach(f => f.remove()); UI.appendMessage(text, false, false, { think, failed: isErr, last: true }); }
     saveAll(); UI.renderSidebar(sessions, activeSessionId);
     notifyDone(sess.title, text);
     if (!document.hidden && sess.id !== activeSessionId) toast(`Coden ist fertig: „${sess.title}“`, { type: 'ok', action: { label: 'Öffnen', run: () => { location.hash = '#/chat'; loadSession(sess.id); } }, ms: 6000 });
@@ -1633,11 +1637,12 @@ async function handleSend() {
 
     const userName = Storage.getSettings().userName || 'Entwickler';
     
-    const context = currentSession.messages.map((m, index, array) => {
+    const context = currentSession.messages.filter(m => m.failed !== true).map((m, index, array) => {
         // 1. RIESIGE BILD-CODES HERAUSFILTERN: 
         // Ersetzt alle Base64-Bild-Daten durch einen kleinen Platzhalter, 
         // damit sie die Token-Grenze der KI nicht sprengen!
         let cleanText = String(m.text || '').replace(/<suggestions>[\s\S]*?<\/suggestions>/gi, '').replace(/<choices>[\s\S]*?<\/choices>/gi, '');
+        if (m.failed === 'partial') cleanText = cleanText.replace(/\n\n⚠️ Die Antwort wurde unterbrochen[^\n]*$/i, '');
         if (cleanText.includes('data:image')) {
             cleanText = cleanText.replace(/data:image\/[^"')\]]+/g, "BILD_WURDE_AUSGEBLENDET");
         }
@@ -1688,7 +1693,7 @@ async function handleSend() {
     const initialLive = liveFor(sessionAtSend.id);
     UI.showLoading(true, 'Coden startet …');
 
-    let aiResponse = '', lastThink = null, lastRaw = '';
+    let aiResponse = '', lastThink = null, lastRaw = '', failedFlag = false;
     try {
       const proj = await Projects.promptFor(sessionAtSend.projectId);
       let appNames = [];
@@ -1787,12 +1792,32 @@ async function handleSend() {
             aiResponse = '';
         } catch (err) {
             ended = true;
-            if (err.name === 'AbortError' || ac.signal.aborted) { aiResponse = withPrefix(hideImageTags(aiResponse).trim()); lastThink = live.finish(aiResponse); break; }
+            if (err.name === 'AbortError' || ac.signal.aborted) {
+                aiResponse = withPrefix(hideImageTags(aiResponse).trim());
+                if (aiResponse.trim()) {
+                    lastThink = live.finish(aiResponse);
+                } else {
+                    const info = live.fail('⏹️ Generierung gestoppt.');
+                    if (info && (info.secs >= 1 || info.steps?.length || info.text)) {
+                        aiResponse = '⏹️ *Generierung gestoppt.*';
+                        lastThink = info;
+                        failedFlag = true;
+                    } else {
+                        live.remove();
+                    }
+                }
+                break;
+            }
             if (err.code === 'limit' && !String(err.text || aiResponse).trim()) { aiResponse = withPrefix(limitMessage(err)); live.update(aiResponse); lastThink = null; live.finish(aiResponse); refreshUsageBanner(true); break; }
             aiResponse = err.text || aiResponse;
             const partial = withPrefix(hideImageTags(aiResponse).trim());
-            if (partial.trim()) { aiResponse = partial; lastThink = live.finish(partial); live.fail('⚠️ Die Antwort wurde unterbrochen: ' + err.message); }
-            else {
+            if (partial.trim()) {
+                const notice = '⚠️ Die Antwort wurde unterbrochen: ' + err.message;
+                lastThink = live.finish(partial);
+                live.fail(notice);
+                aiResponse = partial + '\n\n' + notice;
+                failedFlag = 'partial';
+            } else {
                 const actions = isOwnTier(currentSelectedModel) && !attachedImages.length ? [
                     { label: 'Mit Coden Flash antworten', run: () => {
                         if (curStream()) return;
@@ -1806,7 +1831,9 @@ async function handleSend() {
                     } },
                     { label: 'Ausweich-Kette einrichten', run: () => window.dispatchEvent(new CustomEvent('coden:settings', { detail: { tab: 'models', sub: 'chains' } })) }
                 ] : [];
-                live.fail('❌ ' + err.message, actions);
+                lastThink = live.fail('❌ ' + err.message, actions);
+                aiResponse = '❌ ' + err.message;
+                failedFlag = true;
             }
             break;
         }
@@ -1821,7 +1848,7 @@ async function handleSend() {
     }
     const queued = sendWhenDone && activeSessionId === sessionAtSend.id; sendWhenDone = false;
 
-    if (aiResponse.trim()) { sessionAtSend.messages.push({ text: aiResponse, isUser: false, think: lastThink || undefined }); if (sessionAtSend.id !== activeSessionId) sessionAtSend.unread = true; }
+    if (aiResponse.trim()) { sessionAtSend.messages.push({ text: aiResponse, isUser: false, think: lastThink || undefined, ...(failedFlag ? { failed: failedFlag } : {}) }); if (sessionAtSend.id !== activeSessionId) sessionAtSend.unread = true; }
     {
         const finalSessionsToSave = JSON.parse(JSON.stringify(sessions));
         finalSessionsToSave.forEach(s => s.messages.forEach(m => { if (m.images) delete m.images; }));

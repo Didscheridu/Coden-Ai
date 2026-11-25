@@ -34,6 +34,16 @@ const gem = (t) => `data: ${JSON.stringify({ candidates: [{ content: { parts: [{
     if (mode === 'streamThink') return sseResponse([oa('Hal'), oa('lo <thi'), oa('nk>geheim</th'), oa('ink>Welt'), 'data: [DONE]\n\n']);
     if (mode === 'streamFallback') { if (body.model === 'openai/gpt-oss-120b') return new Response('{}', { status: 500 }); if (body.model === 'openai/gpt-oss-20b') return sseResponse([': ping\n\n', 'data: [DONE]\n\n']); return sseResponse([oa('Zweites Modell')]); }
     if (mode === 'streamReason') return sseResponse([`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: '**Frage lesen**\nIch lese. ' } }] })}\n\n`, `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: '\n**Antwort planen**\nJetzt plane ich.' } }] })}\n\n`, oa('Fertig'), 'data: [DONE]\n\n']);
+    if (mode === 'streamReasonTruncated') {
+      calls.push(body);
+      const wrap = JSON.stringify(body.messages).includes('Überlegungen wurden beendet');
+      if (wrap) return sseResponse([oa('Antwort nach langem Denken'), `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] })}\n\n`, 'data: [DONE]\n\n']);
+      return sseResponse([
+        `data: ${JSON.stringify({ choices: [{ delta: { reasoning_details: [{ text: '**Analyse**\n'.repeat(20) }] } }] })}\n\n`,
+        `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'length' }] })}\n\n`,
+        'data: [DONE]\n\n'
+      ]);
+    }
     if (mode === 'streamMidError') return sseResponse([oa('Teil1 '), oa('Teil2'), oa('Teil3')], { failAfter: 2 });
     if (mode === 'streamGoogle') return sseResponse([gem('Ge'), gem('mini')]);
   };
@@ -152,6 +162,10 @@ const gem = (t) => `data: ${JSON.stringify({ candidates: [{ content: { parts: [{
   mode = 'streamGoogle'; deltas = [];
   await ai.generateStream('flash', [{ role: 'user', content: 'hi' }], { isOwner: false, onDelta: (v) => deltas.push(v) });
   chk('Streaming über Google (SSE)', deltas.join(''), 'Gemini');
+
+  mode = 'streamReasonTruncated'; deltas = []; calls.length = 0; const ksTrunc = [];
+  await ai.generateStream('flash', [{ role: 'user', content: 'komplexe frage' }], { isOwner: false, pin: 'openrouter:nvidia/nemotron-3.5-super-vl:free', onDelta: (v) => deltas.push(v), onThink: (k) => ksTrunc.push(k) });
+  chk('Langes Denken bis Token-Limit: automatischer Abschluss liefert Antwort statt Abbruch', [deltas.join(''), calls.length, calls[1]?.reasoning?.effort, ksTrunc.some(k => k.h === 'Analyse')], ['Antwort nach langem Denken', 2, 'low', true]);
 
   // --- ThinkFilter einzeln ---
   const f = new ai.ThinkFilter(); let o = ''; for (const c of ['A<', 'b>', 'x <think>y</think>z']) o += f.push(c); o += f.flush();

@@ -34,6 +34,9 @@ app.get(['/', '/index.html'], (req, res) => {
 });
 
 const PORT = Number(process.env.PORT) || 3000;
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`Coden AI server listening on http://0.0.0.0:${PORT}`);
 });
+server.requestTimeout = 0;
+server.headersTimeout = 60_000;
+server.keepAliveTimeout = 65_000;

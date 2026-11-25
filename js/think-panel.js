@@ -5,7 +5,7 @@
 import { canAskNotify, askNotify } from './runs.js';
 
 const fmt = (s) => (s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')} s`);
-const QUIET = /^(Anfrage läuft|Modell antwortet langsam|Anderes Modell)/;
+const QUIET = /^(Anfrage läuft|Modell antwortet langsam|Anderes Modell|Neuer Versuch|Anbieter überlastet)/;
 
 export function createThinkPanel({ label = 'Coden denkt nach …', startedAt = Date.now(), hint = true } = {}) {
     const el = document.createElement('details'); el.className = 'think-panel live';
@@ -21,9 +21,10 @@ export function createThinkPanel({ label = 'Coden denkt nach …', startedAt = D
     const note = document.createElement('div'); note.className = 'think-note'; note.hidden = true;
     el.append(sum, steps, body, note);
 
-    const t0 = typeof startedAt === 'string' ? Date.parse(startedAt) : startedAt;
-    const seen = []; const notes = new Map(); let cur = ''; let lastText = ''; let ended = false;
-    const secs = () => Math.max(0, Math.round((Date.now() - t0) / 1000));
+    const parsedStart = typeof startedAt === 'number' ? startedAt : Date.parse(startedAt);
+    const t0 = Number.isFinite(parsedStart) ? parsedStart : Date.now();
+    const seen = []; const notes = new Map(); let cur = ''; let lastText = ''; let ended = false; let finalSecs = null;
+    const secs = () => (finalSecs !== null ? finalSecs : Math.max(0, Math.round((Date.now() - t0) / 1000)));
     const tick = () => {
         if (ended) return; const s = secs(); time.textContent = s >= 1 ? '· ' + fmt(s) : '';
         if (hint && s >= 8 && note.hidden) showNote();
@@ -71,16 +72,17 @@ export function createThinkPanel({ label = 'Coden denkt nach …', startedAt = D
         model(name) { if (!name) return; model.textContent = name; model.hidden = false; },
         // Antwort fertig: kompakt "Hat 12 s nachgedacht" (aufklappbar mit Schritten & Gedanken). Liefert {secs, steps, text?}
         done() {
-            if (ended) { const txt = buildSummaryText(); return { secs: secs(), steps: seen.slice(), ...(txt ? { text: txt } : {}) }; }
+            if (ended) { const txt = buildSummaryText(); return { secs: finalSecs ?? 0, steps: seen.slice(), ...(txt ? { text: txt } : {}) }; }
+            finalSecs = Math.max(0, Math.round((Date.now() - t0) / 1000));
             ended = true; clearInterval(timer);
             if (cur && !QUIET.test(cur) && !seen.includes(cur)) seen.push(cur);
-            const s = secs();
+            const s = finalSecs;
             const txt = buildSummaryText();
             el.classList.remove('live');
             note.hidden = true;
             body.textContent = txt;
             el.classList.toggle('has-body', !!txt);
-            head.textContent = s >= 2 ? `Hat ${fmt(s)} nachgedacht` : 'Kurz nachgedacht';
+            head.textContent = s >= 2 ? `Hat ${fmt(s)} nachgedacht` : (s >= 1 ? 'Hat 1 s nachgedacht' : 'Kurz nachgedacht');
             time.textContent = '';
             drawSteps();
             return { secs: s, steps: seen.slice(), ...(txt ? { text: txt } : {}) };
@@ -91,7 +93,7 @@ export function createThinkPanel({ label = 'Coden denkt nach …', startedAt = D
 
 // Gespeicherte Denk-Info einer fertigen Antwort (beim Neuladen des Chats)
 export function thinkSummary(info) {
-    if (!info || !(info.secs >= 2 || info.steps?.length || info.text)) return null;
+    if (!info || !(info.secs >= 1 || info.steps?.length || info.text)) return null;
     const p = createThinkPanel({ hint: false, startedAt: Date.now() - (info.secs || 0) * 1000 });
     p.think({ steps: info.steps || [], v: info.text || '' }); p.done(); return p.el;
 }

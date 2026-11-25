@@ -9,6 +9,7 @@ const { setup } = require('./helpers');
     const enc = new TextEncoder(); const signal = opts.signal;
     const body = new ReadableStream({
       async start(c) {
+        c.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: '**Planung**\nIch prüfe alles. ' } }] })}\n\n`));
         for (const v of chunks) {
           if (delay) await new Promise(r => setTimeout(r, delay));
           if (signal?.aborted) { c.error(Object.assign(new Error('abgebrochen'), { name: 'AbortError' })); return; }
@@ -41,7 +42,7 @@ const { setup } = require('./helpers');
   const id2 = events(first)[0].id; ac.abort();
   await wait(300);
   const mid = (await call('/runs/' + id2, null, anna)).j;
-  chk('Getrennt: läuft noch', mid.status, 'running');
+  chk('Getrennt: läuft noch und liefert Live-Denkschritt', [mid.status, mid.think?.h], ['running', 'Planung']);
   chk('Getrennt: taucht in offenen Läufen auf', (await call('/runs?kind=chat', null, anna)).j.runs.some(r => r.id === id2 && r.ref === 's2'), true);
   await wait(1200);
   const end = (await call('/runs/' + id2, null, anna)).j;
