@@ -534,6 +534,7 @@
         "tools": { "type": "array" },
         "status": { "type": "string", "enum": ["connected", "needs_reauth", "error"], "maxLength": 24 },
         "last_error": { "type": "string", "maxLength": 500 },
+        "allowed_repos": { "type": "array" },
         "created_at": { "type": "string", "format": "date-time", "maxLength": 64 },
         "updated_at": { "type": "string", "format": "date-time", "maxLength": 64 }
       },

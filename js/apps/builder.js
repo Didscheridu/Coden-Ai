@@ -9,7 +9,7 @@ import { getEffort, setEffort, bindEffortButtons } from '../effort.js';
 import { loadByok, byokReady, ownTiers, isOwnTier, isByokTier, byokEffort } from '../byok.js';
 import { createThinkPanel } from '../think-panel.js';
 import { parse } from './agent.js';
-import { ghExport } from './github.js';
+import { ghExport, ghManageAccess } from './github.js';
 import { KINDS } from './templates.js';
 import { databaseCard, askCard, secretCard, publishCard } from './tools.js';
 import { modal, confirmBox, promptBox, phoneTest, publish, invite } from './dialogs.js';
@@ -25,7 +25,7 @@ const getKit = () => kitP || (kitP = Promise.all(['kit/coden-kit.css', 'kit/code
 const TIERS = [{ id: 'ultra', label: 'Ultra', tip: 'Nur die allerbesten Modelle (nur Owner)' }, { id: 'pro', label: 'Pro', tip: 'Stärkste Modelle – am besten für Apps' }, { id: 'normal', label: 'Thinking', tip: 'Denkt länger nach' }, { id: 'flash', label: 'Flash', tip: 'Am schnellsten, für kleine Änderungen' }];
 const DEVICES = { ios: { w: 393, h: 852, label: 'iPhone', icon: 'phone_iphone' }, android: { w: 412, h: 915, label: 'Android', icon: 'android' }, desktop: { w: 0, h: 0, label: 'Desktop', icon: 'desktop_windows' }, tablet: { w: 834, h: 1112, label: 'Tablet', icon: 'tablet_mac' }, phone: { w: 390, h: 844, label: 'Handy', icon: 'smartphone' }, landscape: { w: 844, h: 390, label: 'Handy quer', icon: 'stay_current_landscape' } };
 const FILE_ICON = (n) => /\.html?$/.test(n) ? 'html' : /\.css$/.test(n) ? 'css' : /\.js$/.test(n) ? 'javascript' : /\.json$/.test(n) ? 'data_object' : /\.svg$/.test(n) ? 'image' : 'description';
-const MAX_AUTOFIX = 2;
+const MAX_AUTOFIX = 3;
 const AGENT_TOOLS = {
     list: ['folder_open', 'Dateien aufgelistet'],
     tree: ['account_tree', 'Projektstruktur analysiert'],
@@ -805,7 +805,16 @@ export function mountBuilder(host, appId) {
             try { addMessage(await postMessage('tool', `[Automatische Prüfung] In der Vorschau gibt es diese Fehler:\n${errs.map(e => '- Fehler in der Vorschau: ' + e).join('\n')}\nBehebe sie jetzt (nur die nötigen Änderungen).`, { display: `Coden hat die Vorschau geprüft: ${errs.length} Fehler – wird behoben …`, auto: true })); } catch (_) { return; }
             return runAgent();
         }
-        if (errs.length) log.append(h('div', { class: 'bl-event err' }, icon('warning'), h('span', { text: 'Es gibt noch Fehler. Öffne die Konsole oder sag Coden, was nicht klappt.' })));
+        if (errs.length) {
+            log.append(h('div', { class: 'bl-event err' },
+                icon('warning'),
+                h('span', { text: `Es gibt noch ${errs.length} Fehler in der Vorschau.` }),
+                h('button', { type: 'button', class: 'bl-btn sm', onclick: (ev) => {
+                    ev.currentTarget.closest('.bl-event')?.remove();
+                    runUser(`In der Vorschau gibt es noch diese Fehler. Bitte prüfe alle betroffenen Dateien und behebe sie vollständig:\n${errs.map(e => '- ' + e).join('\n')}`);
+                } }, icon('auto_fix_high'), ' Fehler prüfen & beheben')));
+            scrollLog(true);
+        }
         st.autoFix = 0;
     }
     // Nach einem Lauf: neue Nachrichten und Dateien holen
@@ -905,6 +914,7 @@ export function mountBuilder(host, appId) {
             item('swap_horiz', 'App-Typ ändern', changeKind),
             item('download', 'Als ZIP herunterladen', downloadZip),
             item('code', 'Auf GitHub speichern', () => ghExport({ app: st.app, files: st.files })),
+            item('verified_user', 'GitHub-Zugriff verwalten', () => ghManageAccess()),
             item('html', 'Als eine HTML-Datei herunterladen', downloadHtml),
             item('link', 'Testlink kopieren', async () => { if (await copy(st.app.testUrl)) toast('Testlink kopiert', { type: 'ok' }); }),
             owner ? item('lock_reset', 'Testlink erneuern', async () => { if (!(await confirmBox('Der alte Testlink funktioniert danach nicht mehr.', { ok: 'Erneuern' }))) return; try { setApp((await apiJson(`/apps/${appId}/token`, { method: 'POST', body: '{}' })).app); toast('Neuer Testlink erstellt', { type: 'ok' }); } catch (e) { toast(e.message, { type: 'error' }); } }) : null,

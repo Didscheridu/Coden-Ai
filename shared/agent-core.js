@@ -36,18 +36,19 @@ const KITS = {
 - Design-Tokens als CSS-Variablen in :root (--bg, --surface, --text, --muted, --accent, --radius, --shadow, Abstände 4/8/12/16/24/32/48). Höchstens 2 Schriftgrößen-Stufen pro Bereich, Zeilenhöhe 1.5, Kontrast mindestens 4.5:1.
 - Semantisches HTML (header, nav, main, section, footer, button statt div), alt-Texte, :focus-visible-Ringe, Touch-Ziele mindestens 44 px.
 - Schöne Details: weiche Schatten, abgerundete Ecken, Hover/Active-Zustände, transition .2s, dezente Verläufe. Keine Platzhalter-Optik.
-- Halte dich exakt an IDs/Klassen aus dem Vertrag, damit die Logik-Agenten sie finden.` },
+- Halte dich exakt an IDs/Klassen aus dem Vertrag, damit die Logik-Agenten sie finden. Keine doppelten id-Werte auf derselben Seite.
+- Lade eigene Skripte immer als <script src="…" defer></script> oder ganz am Ende vor </body> (niemals ohne defer im <head>). Buttons in <form>, die nicht absenden, bekommen type="button".` },
     components: { name: 'Komponenten-Agent', emoji: '🧩', for: 'UI-Bausteine: Formulare, Dialoge, Listen, Karten, Tabs, Animationen, Toasts', kit: `
 - Jede Komponente: Normal-, Hover-, Fokus-, Deaktiviert-, Lade-, Leer- und Fehlerzustand.
-- Formulare: label + input, Validierung beim Absenden mit klarer Fehlermeldung am Feld, Enter sendet ab.
+- Formulare: label + input, Validierung beim Absenden mit klarer Fehlermeldung am Feld, submit-Handler mit e.preventDefault(), sonstige Buttons immer mit type="button".
 - Dialoge/Sheets mit Coden.ui (Coden.toast, Coden.sheet) oder <dialog>; Esc schließt, Fokus zurück.
 - Listen: Leerer Zustand mit Hinweis + Knopf. Animationen mit transform/opacity (nie top/left), prefers-reduced-motion beachten.` },
     logic: { name: 'Logik-Entwickler', emoji: '⚙️', for: 'App-Zustand, Ereignisse, Berechnungen, Navigation, Speichern (app.js)', kit: `
 - Ein zentraler Zustand (const state = {...}), eine render()-Funktion pro Bereich, Änderungen nur über kleine Funktionen (addItem, toggle …), danach render().
-- Ereignisse per Delegation (container.addEventListener('click', e => { const b = e.target.closest('[data-action]') … })).
+- Ereignisse per Delegation (container?.addEventListener('click', e => { const b = e.target.closest('[data-action]') … })).
 - Speichern mit Coden.store.get/set (überlebt Neuladen), beim Start laden und Standardwerte setzen.
-- Alles defensiv: Elemente mit ?. prüfen, Eingaben trimmen und validieren, try/catch um JSON und Netzwerk.
-- Keine globalen Namen außer denen im Vertrag. Code am Ende von <body> laden (kein DOMContentLoaded nötig, aber erlaubt).` },
+- Alles defensiv: DOM-Elemente IMMER mit ?. oder if (el) prüfen; Initialisierung erst in DOMContentLoaded oder am Ende von <body>; try/catch um JSON.parse und fetch.
+- Keine globalen const/let-Namen doppelt über mehrere .js-Dateien vergeben (kapsle Dateien in (() => { … })() oder nutze window.App).` },
     game: { name: 'Spiel-Entwickler', emoji: '🎮', for: 'Spielschleife, Steuerung, Physik, Kollision, Gegner, Level, Punkte (game.js)', kit: `
 - Nutze Coden.game: const g = Coden.game.create({ canvas: '#game', width: 960, height: 540 }); g.loop((dt) => { update(dt); draw(g.ctx); }).
 - Zustände: 'menu' | 'play' | 'pause' | 'over'. reset() setzt alles zurück. Punkte, Leben, Level, Rekord über Coden.game.best(key, score).
@@ -188,8 +189,10 @@ SO ÄNDERST DU DATEIEN
 - [ ] Offen
 </plan>
 
-TECHNIK
-- Nur HTML, CSS und klassisches JavaScript. Kein npm, kein Build, kein import/export zwischen Dateien, kein type="module". Alle <script src> teilen sich globale Variablen; Reihenfolge: coden-kit.js zuerst, dann deine Dateien.
+TECHNIK & BUG-FREIE UMSETZUNG (PFLICHT)
+- Nur HTML, CSS und klassisches JavaScript. Kein npm, kein Build, KEIN import/export zwischen Dateien, KEIN type="module". Alle <script src> teilen sich globale Variablen; Reihenfolge: coden-kit.js zuerst, dann deine Dateien (z. B. data.js → ui.js → app.js).
+- Skript-Start ohne Null-Fehler: Binde eigene <script src="…"> IMMER mit defer im <head> oder direkt vor </body> ein (niemals blockierend im <head> ohne defer) und prüfe DOM-Zugriffe mit ?. oder if (el). Initialisiere sauber über DOMContentLoaded oder IIFE (() => { … })(), damit es bei mehreren .js-Dateien nie „Identifier already declared“ gibt.
+- Formulare & Buttons: Nicht-absendende <button> immer mit type="button" und Formular-Submit mit e.preventDefault(), damit die Vorschau sich nie versehentlich neu lädt.
 - Bibliotheken nur per CDN (cdn.jsdelivr.net, unpkg.com, cdnjs.cloudflare.com). Bilder: eigene .svg-Dateien, Emojis oder https-Bilder (z. B. https://images.unsplash.com/photo-…?w=800).
 - Dateien: index.html, style.css, app.js; bei Bedarf weitere .js, .json, .svg, (Webseite) weitere .html-Seiten. Links: <a href="kontakt.html">. fetch('daten.json') liest Projektdateien.
 - Jede Datei unter ~350 Zeilen; teile Logik auf (z. B. data.js, ui.js, app.js).
@@ -216,7 +219,7 @@ WERKZEUGE – schreibe das Werkzeug ans ENDE deiner Antwort und höre dann auf. 
 
 QUALITÄT
 - Es muss sofort funktionieren und richtig gut aussehen: echte, passende Inhalte (kein Lorem ipsum), leere Zustände, Ladezustände, Fehlermeldungen, Tippziele ≥ 44px, Abstand zu den Rändern.
-- Gehe jeden Button gedanklich durch. Keine Konsolenfehler, keine Verweise auf nicht vorhandene Elemente/Dateien.
+- Gehe jeden Button, jedes Formular, jedes Sheet und jedes data-go-Ziel gedanklich durch. Keine Konsolenfehler, keine Verweise auf nicht vorhandene Elemente/Dateien, und rufe vor dem Abschluss <tool name="check"/> auf.
 - Sicherheit: niemals geheime Schlüssel (service_role, Passwörter, private API-Keys) in den Code.
 ${db ? `\nVERBUNDENE DATENBANK: ${db.provider}\n${Object.entries(db).filter(([k]) => k !== 'provider' && k !== 'label').map(([k, v]) => `- ${k}: ${v}`).join('\n')}` : ''}${Object.keys(secrets).length ? `\nEINGEGEBENE SCHLÜSSEL:\n${Object.entries(secrets).map(([k, v]) => `- ${k}: ${v}`).join('\n')}` : ''}
 
@@ -337,34 +340,145 @@ function condense(text) {
 }
 
 
-// ---------- Statische Prüfung (läuft ohne KI): Syntaxfehler, fehlende Dateien und Elemente ----------
+// ---------- Statische Prüfung (läuft ohne KI): Syntax, Module, Script-Timing, doppelte IDs, Verweise, CSS ----------
 const SKIP_REF = /^(https?:|data:|blob:|\/\/|#|mailto:|tel:|javascript:)/i;
 const KIT_FILES = new Set(['coden-kit.css', 'coden-kit.js']);
 function scriptsOf(html) { const out = []; String(html).replace(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi, (m, a, code) => { if (!/\bsrc\s*=/.test(a) && !/type\s*=\s*["'](?!text\/javascript|module)[^"']+["']/i.test(a) && code.trim()) out.push(code); return m; }); return out; }
+function cssBraceDiff(css) {
+    const clean = String(css).replace(/\/\*[\s\S]*?\*\//g, '').replace(/(["'])(?:\\[\s\S]|(?!\1).)*\1/g, '');
+    let depth = 0;
+    for (let i = 0; i < clean.length; i++) {
+        if (clean[i] === '{') depth++;
+        else if (clean[i] === '}') { depth--; if (depth < 0) return -1; }
+    }
+    return depth;
+}
+function topLevelDecls(code) {
+    const stripped = String(code).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '').replace(/(["'`])(?:\\[\s\S]|(?!\1).)*\1/g, '""');
+    const decls = []; let depth = 0;
+    for (const line of stripped.split('\n')) {
+        if (depth === 0) {
+            const m = line.match(/^\s*(?:const|let|class)\s+([A-Za-z_$][\w$]*)\b/);
+            if (m) decls.push(m[1]);
+        }
+        for (let i = 0; i < line.length; i++) {
+            const ch = line[i];
+            if (ch === '{' || ch === '(' || ch === '[') depth++;
+            else if (ch === '}' || ch === ')' || ch === ']') depth = Math.max(0, depth - 1);
+        }
+    }
+    return decls;
+}
+function hasEsmSyntax(code) {
+    const clean = String(code).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+    return /(?:^|\n)\s*import\s+(?:[\w*{][\w\s{},*]*\s+from\s+["']|["'][^"']+["'])/m.test(clean)
+        || /(?:^|\n)\s*export\s+(?:default|async\s+function|function|const|let|var|class|\{|\*)/m.test(clean);
+}
 function check(files, { syntax } = {}) {
     const issues = []; const names = Object.keys(files || {});
     const html = names.filter(n => /\.html?$/i.test(n));
     if (!files['index.html']) issues.push('Es gibt keine index.html – sie ist die Startseite und muss existieren.');
     const ids = new Set(); const classes = new Set();
+    const idsPerPage = {}; const scriptsPerPage = {};
     for (const n of html) {
         const c = String(files[n]);
-        c.replace(/\bid\s*=\s*["']([^"']+)["']/gi, (m, v) => { ids.add(v); return m; });
-        c.replace(/\bclass\s*=\s*["']([^"']+)["']/gi, (m, v) => { v.split(/\s+/).forEach(x => x && classes.add(x)); return m; });
-        c.replace(/<(?:script|img|link|source|audio|video)\b[^>]*?\b(?:src|href)\s*=\s*["']([^"']+)["']/gi, (m, ref) => {
+        const cNoComments = c.replace(/<!--[\s\S]*?-->/g, '');
+        const pageIds = new Set(); const dupIds = new Set();
+        const cNoTemplates = cNoComments.replace(/<(script|style|template)\b[\s\S]*?<\/\1>/gi, '');
+        cNoTemplates.replace(/\bid\s*=\s*["']([^"']+)["']/gi, (m, v) => {
+            if (pageIds.has(v)) dupIds.add(v);
+            pageIds.add(v); ids.add(v); return m;
+        });
+        dupIds.forEach(id => issues.push(`Doppelte id="${id}" in ${n} – jede ID darf pro Seite nur einmal vorkommen.`));
+        idsPerPage[n] = pageIds;
+        cNoTemplates.replace(/\bclass\s*=\s*["']([^"']+)["']/gi, (m, v) => { v.split(/\s+/).forEach(x => x && classes.add(x)); return m; });
+        cNoComments.replace(/<(?:script|img|link|source|audio|video)\b[^>]*?\b(?:src|href)\s*=\s*["']([^"']+)["']/gi, (m, ref) => {
             const r = ref.split(/[?#]/)[0].replace(/^\.?\//, '');
-            if (!r || SKIP_REF.test(ref) || KIT_FILES.has(r) || /^(fonts|api)\b/.test(r) || /\.(png|jpe?g|gif|webp|mp3|wav|ogg|mp4)$/i.test(r) && !names.length) return m;
+            if (!r || SKIP_REF.test(ref) || KIT_FILES.has(r) || /^(fonts|api)\b/.test(r)) return m;
             if (!(r in files) && !/\.(png|jpe?g|gif|webp|mp3|wav|ogg|mp4|ico)$/i.test(r)) issues.push(`${n} lädt "${ref}", aber diese Datei gibt es nicht.`);
             return m;
         });
-        c.replace(/<a\b[^>]*?\bhref\s*=\s*["']([^"']+\.html)(?:[?#][^"']*)?["']/gi, (m, ref) => { const r = ref.replace(/^\.?\//, ''); if (!SKIP_REF.test(ref) && !(r in files)) issues.push(`${n} verlinkt auf "${ref}", aber diese Seite gibt es nicht.`); return m; });
+        cNoComments.replace(/<a\b[^>]*?\bhref\s*=\s*["']([^"']+\.html)(?:[?#][^"']*)?["']/gi, (m, ref) => { const r = ref.replace(/^\.?\//, ''); if (!SKIP_REF.test(ref) && !(r in files)) issues.push(`${n} verlinkt auf "${ref}", aber diese Seite gibt es nicht.`); return m; });
+        // <script type="module"> mit lokalen Dateien oder ohne CDN bricht in Inline-Bundling ohne Server-Importmap
+        const loadedOnPage = [];
+        const headEnd = cNoComments.search(/<\/head>/i);
+        cNoComments.replace(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi, (m, a, body, off) => {
+            const srcMatch = a.match(/\bsrc\s*=\s*["']([^"']+)["']/i);
+            const src = srcMatch ? srcMatch[1].split(/[?#]/)[0].replace(/^\.?\//, '') : null;
+            if (/type\s*=\s*["']module["']/i.test(a) && ((src && !SKIP_REF.test(srcMatch[1])) || /\bimport\s/.test(body))) {
+                issues.push(`${n} nutzt <script type="module"> mit import – verwende klassisches JS ohne import/export.`);
+            }
+            if (src && !SKIP_REF.test(srcMatch[1]) && !KIT_FILES.has(src)) {
+                loadedOnPage.push(src);
+                const inHead = headEnd >= 0 && off < headEnd;
+                const deferred = /\b(?:defer|async)\b/i.test(a);
+                if (inHead && !deferred && (src in files)) {
+                    const js = String(files[src]);
+                    const hasReadyWrap = /DOMContentLoaded|window\.onload|addEventListener\(\s*["'](?:DOMContentLoaded|load)["']/.test(js);
+                    const topTouch = /^[^/\n]*(?:getElementById|querySelector|querySelectorAll)\s*\(/m.test(js.replace(/(?:function\s+[\w$]*|=>\s*\{)[\s\S]*?\}/g, ''));
+                    if (topTouch && !hasReadyWrap) {
+                        issues.push(`${n} lädt "${src}" im <head> ohne defer/async, obwohl dort sofort DOM-Elemente gesucht werden → ergänzt defer oder ans Ende von <body> verschieben.`);
+                    }
+                }
+            }
+            return m;
+        });
+        scriptsPerPage[n] = loadedOnPage;
+        // Doppelte Top-Level const/let/class über Skripte derselben HTML-Seite erkennen
+        if (loadedOnPage.length > 1) {
+            const seenDecl = new Map();
+            for (const jsName of loadedOnPage) {
+                if (!(jsName in files)) continue;
+                for (const sym of topLevelDecls(files[jsName])) {
+                    if (seenDecl.has(sym)) issues.push(`Doppelte globale Deklaration "${sym}" in ${seenDecl.get(sym)} und ${jsName} (über ${n} geladen) – führt zu SyntaxError beim Laden.`);
+                    else seenDecl.set(sym, jsName);
+                }
+            }
+        }
+        // Buttons in <form> ohne type="..." lösen in srcdoc leicht ungewolltes Submit/Reload aus
+        cNoComments.replace(/<form\b[^>]*>([\s\S]*?)<\/form>/gi, (fm, fbody) => {
+            fbody.replace(/<button\b([^>]*)>/gi, (bm, ba) => {
+                if (!/\btype\s*=/i.test(ba)) issues.push(`<button> innerhalb <form> in ${n} hat kein type="button" oder type="submit".`);
+                return bm;
+            });
+            return fm;
+        });
+        // data-go / data-open-sheet Ziele prüfen
+        cNoComments.replace(/data-go\s*=\s*["']([\w-]+)["']/gi, (m, target) => {
+            if (!pageIds.has(target)) issues.push(`${n} verweist per data-go="${target}", aber kein Element hat id="${target}".`);
+            return m;
+        });
+        cNoComments.replace(/data-open-sheet\s*=\s*["']([\w-]+)["']/gi, (m, target) => {
+            if (!pageIds.has(target)) issues.push(`${n} verweist per data-open-sheet="${target}", aber kein Sheet hat id="${target}".`);
+            return m;
+        });
+    }
+    for (const cssFile of names.filter(n => /\.css$/i.test(n))) {
+        const diff = cssBraceDiff(files[cssFile]);
+        if (diff !== 0) issues.push(`CSS-Fehler in ${cssFile}: geschweifte Klammern { } nicht ausgeglichen.`);
     }
     const jsFiles = names.filter(n => /\.js$/i.test(n));
     const sources = jsFiles.map(n => [n, String(files[n])]).concat(html.flatMap(n => scriptsOf(files[n]).map((c, i) => [`${n} (Skript ${i + 1})`, c])));
     for (const [n, code] of sources) {
+        if (hasEsmSyntax(code)) issues.push(`${n} nutzt ES-Module (import/export) – im App-Builder wird klassisches JavaScript ohne import/export benötigt.`);
         if (syntax) { const e = syntax(code); if (e) issues.push(`Syntaxfehler in ${n}: ${e}`); }
+        // Lokale fetch('...') Ziele prüfen
+        code.replace(/\bfetch\(\s*["'`]([^"'`${}]+)["'`]/g, (m, url) => {
+            if (SKIP_REF.test(url) || url.startsWith('/')) return m;
+            const r = url.split(/[?#]/)[0].replace(/^\.?\//, '');
+            if (r && !(r in files) && /\.(json|csv|txt|svg|xml|tsv|html?)$/i.test(r)) {
+                issues.push(`${n} ruft fetch("${url}") auf, aber "${r}" existiert im Projekt nicht.`);
+            }
+            return m;
+        });
         if (!html.length) continue;
-        code.replace(/getElementById\(\s*["'`]([\w-]+)["'`]\s*\)/g, (m, id) => { if (!ids.has(id) && !new RegExp(`\\.id\\s*=\\s*["'\`]${id}["'\`]|id=\\\\?["']${id}`).test(code)) issues.push(`${n} sucht #${id} (getElementById), aber kein Element hat id="${id}".`); return m; });
-        code.replace(/querySelector\(\s*["'`]#([\w-]+)["'`]\s*\)/g, (m, id) => { if (!ids.has(id) && !new RegExp(`id=\\\\?["']${id}|\\.id\\s*=\\s*["'\`]${id}`).test(code)) issues.push(`${n} sucht #${id} (querySelector), aber kein Element hat id="${id}".`); return m; });
+        // Passende Seiten-IDs für diese JS-Quelle bestimmen (falls genau einer HTML-Seite zugeordnet, nur deren IDs nehmen)
+        const basePage = n.match(/^([^\s]+)\s+\(Skript/)?.[1];
+        const linkedPages = basePage ? [basePage] : html.filter(p => (scriptsPerPage[p] || []).includes(n));
+        const activeIds = linkedPages.length === 1 ? idsPerPage[linkedPages[0]] : ids;
+        code.replace(/getElementById\(\s*["'`]([\w-]+)["'`]\s*\)/g, (m, id) => { if (!activeIds.has(id) && !new RegExp(`\\.id\\s*=\\s*["'\`]${id}["'\`]|id=\\\\?["']${id}`).test(code)) issues.push(`${n} sucht #${id} (getElementById), aber kein passendes Element hat id="${id}".`); return m; });
+        code.replace(/querySelector\(\s*["'`]#([\w-]+)["'`]\s*\)/g, (m, id) => { if (!activeIds.has(id) && !new RegExp(`id=\\\\?["']${id}|\\.id\\s*=\\s*["'\`]${id}`).test(code)) issues.push(`${n} sucht #${id} (querySelector), aber kein passendes Element hat id="${id}".`); return m; });
+        code.replace(/Coden\.(?:go|sheet\.open|onScreen)\(\s*["'`]([\w-]+)["'`]/g, (m, id) => { if (!ids.has(id) && !new RegExp(`\\.id\\s*=\\s*["'\`]${id}["'\`]|id=\\\\?["']${id}`).test(code)) issues.push(`${n} nutzt Coden-Ziel "${id}", aber kein Element hat id="${id}".`); return m; });
     }
     return [...new Set(issues)].slice(0, 12);
 }

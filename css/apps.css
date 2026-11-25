@@ -387,12 +387,27 @@
 /* GitHub & Hero-Aktionen */
 .ap-hero .ap-actions, .ap-hero-actions { position: static; top: auto; right: auto; opacity: 1; transform: none; display: flex; gap: 8px; flex-wrap: wrap; align-items: center }
 .ap-gh { display: inline-flex; align-items: center; gap: 7px; padding: 9px 15px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-surface); color: var(--text-primary); font: 600 13.5px var(--font-main); cursor: pointer; white-space: nowrap; transition: background .15s, border-color .15s } .ap-gh:hover { background: var(--bg-surface-hover); border-color: var(--border-strong) }
+.ap-gh.scoped { border-color: rgba(124, 179, 255, .45); background: rgba(124, 179, 255, .1); color: var(--accent-blue) }
 .ap-gh.sm { padding: 8px 13px; font-size: 13px } .ap-gh .material-symbols-outlined { font-size: 18px }
 .cd-sep { display: flex; align-items: center; gap: 10px; margin: 16px 0 10px; color: var(--text-muted); font-size: 12px } .cd-sep::before, .cd-sep::after { content: ''; flex: 1; height: 1px; background: rgba(255, 255, 255, .1) }
 button.cd-link { all: unset; cursor: pointer; color: var(--accent-blue); font-size: 13px; text-decoration: underline }
 .cd-check { display: flex; align-items: center; gap: 8px; margin: 12px 0 6px; font-size: 14px }
-.gh-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; max-height: 50vh; overflow: auto }
+.gh-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px }
+.gh-bar .cd-input { flex: 1; min-width: 180px }
+.gh-scope-pill { font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 7px; background: rgba(124, 179, 255, .14); color: var(--accent-blue); border: 1px solid rgba(124, 179, 255, .28) }
+.gh-scope-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: rgba(255, 255, 255, .04); border: 1px solid var(--border-color); border-radius: 12px; padding: 4px; margin: 10px 0 8px }
+.gh-seg-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 9px; padding: 9px 10px; background: transparent; color: var(--text-secondary); font: 600 13px var(--font-main); cursor: pointer; transition: background .15s, color .15s }
+.gh-seg-btn:hover { color: #fff }
+.gh-seg-btn.active { background: var(--accent-blue-soft); color: var(--accent-blue) }
+.gh-seg-btn .material-symbols-outlined { font-size: 18px }
+.gh-count { display: block; color: var(--text-muted); font-size: 12.5px; margin-bottom: 10px }
+.gh-scope-box { display: flex; flex-direction: column; gap: 8px }
+.gh-scope-box.hidden { display: none }
+.gh-manual { display: flex; gap: 8px; align-items: center; margin-top: 4px }
+.gh-manual .cd-input { flex: 1 }
+.gh-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-height: 44vh; overflow: auto }
 .gh-repo { display: flex; align-items: center; gap: 12px; text-align: left; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, .08); background: rgba(255, 255, 255, .03); color: var(--text-primary); font: 14px var(--font-main); cursor: pointer } .gh-repo:hover { background: rgba(255, 255, 255, .08) }
+.gh-repo.check input[type="checkbox"] { flex: 0 0 auto; width: 16px; height: 16px; accent-color: var(--accent-blue); cursor: pointer }
 .gh-repo small { display: block; color: var(--text-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46ch }
 
 /* MCP-Verbindungen */

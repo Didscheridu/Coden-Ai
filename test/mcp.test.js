@@ -118,6 +118,18 @@ const { setup } = require('./helpers');
         return r.end(JSON.stringify({ error: 'unsupported_grant_type' }));
       }
 
+      if (p === '/user/repos' && q.method === 'GET') {
+        if (q.headers.authorization !== 'Bearer ghp-secret') {
+          r.statusCode = 401;
+          return r.end(JSON.stringify({ message: 'Bad credentials' }));
+        }
+        r.setHeader('Content-Type', 'application/json');
+        return r.end(JSON.stringify([
+          { full_name: 'anna/open-app', private: false, description: 'Freigegeben' },
+          { full_name: 'anna/secret-app', private: true, description: 'Geheim' }
+        ]));
+      }
+
       if (q.method === 'DELETE') { r.statusCode = 200; return r.end(); }
       if (p.startsWith('/oauth-mcp') && q.headers.authorization !== `Bearer ${currentAccessToken}`) {
         r.statusCode = 401;
@@ -138,7 +150,15 @@ const { setup } = require('./helpers');
       if (m.method === 'initialize') { r.setHeader('Mcp-Session-Id', 'sess-1'); return send({ protocolVersion: '2025-03-26', serverInfo: { name: 'Test', version: '1' }, capabilities: { tools: {} } }); }
       if (m.method === 'notifications/initialized') { r.statusCode = 202; return r.end(); }
       if (m.method === 'tools/list') return send({ tools: [{ name: 'echo', description: 'Gibt Text zurück', inputSchema: { type: 'object', properties: { text: { type: 'string' } } } }] });
-      if (m.method === 'tools/call') return send({ content: [{ type: 'text', text: 'Echo: ' + m.params.arguments.text }, { type: 'resource', uri: 'x' }] });
+      if (m.method === 'tools/call') {
+        if (m.params?.name === 'search_repositories') {
+          return send({ content: [{ type: 'text', text: JSON.stringify({ total_count: 2, items: [{ full_name: 'anna/open-app' }, { full_name: 'anna/secret-app' }] }) }] });
+        }
+        if (m.params?.name === 'search_code' || m.params?.name === 'get_file_contents') {
+          return send({ content: [{ type: 'text', text: JSON.stringify(m.params.arguments || {}) }] });
+        }
+        return send({ content: [{ type: 'text', text: 'Echo: ' + (m.params.arguments?.text ?? '') }, { type: 'resource', uri: 'x' }] });
+      }
       r.end('{}');
     });
   });
@@ -258,6 +278,41 @@ const { setup } = require('./helpers');
 
   // Callback HTML enthält BroadcastChannel-Unterstützung
   chk('Callback HTML enthält BroadcastChannel', cbHtml.includes('BroadcastChannel'), true);
+
+  // --- GitHub MCP Repository-Einschränkung (allowlist, Repo-Liste, Blockade & Filter) ---
+  chk('Nicht-GitHub-Verbindung lehnt allowedRepos ab', (await call(`/mcp/connections/${connId}`, { allowedRepos: ['anna/open-app'] }, T, 'PATCH')).s, 400);
+  const ghSave = await P('/mcp/connections', { name: 'GitHub', url: `${base}/json`, catalogId: 'github', token: 'ghp-secret', authType: 'key' }, T);
+  const ghId = ghSave.j.connection.id;
+  chk('GitHub-Verbindung startet uneingeschränkt', [ghSave.s, ghSave.j.connection.allowedRepos], [200, null]);
+
+  process.env.MCP_GITHUB_API_BASE = base;
+  const ghRepos = await call(`/mcp/connections/${ghId}/github-repos`, undefined, T, 'GET');
+  delete process.env.MCP_GITHUB_API_BASE;
+  chk('GitHub Repo-Liste für Verbindung geladen', [ghRepos.s, ghRepos.j.repos.map(r => r.fullName)], [200, ['anna/open-app', 'anna/secret-app']]);
+
+  chk('Ungültiger Repo-Name in allowedRepos abgelehnt', (await call(`/mcp/connections/${ghId}`, { allowedRepos: ['../evil'] }, T, 'PATCH')).s, 400);
+  const ghPatch = await call(`/mcp/connections/${ghId}`, { allowedRepos: ['Anna/Open-App'] }, T, 'PATCH');
+  chk('allowedRepos normalisiert auf lowercase', [ghPatch.s, ghPatch.j.connection.allowedRepos], [200, ['anna/open-app']]);
+
+  chk('Blockiert owner/repo für nicht freigegebenes Repo', [
+    (await P('/mcp/call', { connectionId: ghId, tool: 'get_file_contents', args: { owner: 'anna', repo: 'secret-app', path: 'README.md' } }, T)).s,
+    (await P('/mcp/call', { connectionId: ghId, tool: 'get_file_contents', args: { repository: 'anna/secret-app' } }, T)).s,
+    (await P('/mcp/call', { connectionId: ghId, tool: 'search_code', args: { query: 'secret repo:anna/secret-app' } }, T)).s,
+    (await P('/mcp/call', { connectionId: ghId, tool: 'create_repository', args: { name: 'neu' } }, T)).s
+  ], [403, 403, 403, 403]);
+
+  const ghAllowedCall = await P('/mcp/call', { connectionId: ghId, tool: 'get_file_contents', args: { owner: 'Anna', repo: 'Open-App', path: 'index.html' } }, T);
+  chk('Freigegebenes Repo bleibt erreichbar', ghAllowedCall.s, 200);
+
+  const ghSearchCode = await P('/mcp/call', { connectionId: ghId, tool: 'search_code', args: { query: 'init' } }, T);
+  chk('search_code bekommt repo:-Filter automatisch injiziert', [ghSearchCode.s, JSON.parse(ghSearchCode.j.content[0].text).query], [200, 'init repo:anna/open-app']);
+
+  const ghSearchRepos = await P('/mcp/call', { connectionId: ghId, tool: 'search_repositories', args: { query: 'app' } }, T);
+  const filteredRepos = JSON.parse(ghSearchRepos.j.content[0].text);
+  chk('search_repositories filtert nicht freigegebene Repos heraus', [ghSearchRepos.s, filteredRepos.total_count, filteredRepos.items.map(x => x.full_name)], [200, 1, ['anna/open-app']]);
+
+  const ghUnrestrict = await call(`/mcp/connections/${ghId}`, { allowedRepos: null }, T, 'PATCH');
+  chk('allowedRepos: null hebt Einschränkung auf', [ghUnrestrict.s, ghUnrestrict.j.connection.allowedRepos, (await P('/mcp/call', { connectionId: ghId, tool: 'get_file_contents', args: { owner: 'anna', repo: 'secret-app' } }, T)).s], [200, null, 200]);
 
   delete process.env.MCP_ALLOW_PRIVATE;
   chk('danach wieder gesperrt', (await P('/mcp/tools', { url: base + '/json' }, T)).s, 400);

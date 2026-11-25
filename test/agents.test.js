@@ -21,7 +21,11 @@ const { setup } = require('./helpers');
       'Alle Teile sind da und passen zusammen. Fertig!\n<tool name="done"/>'],
     etappen: ['Schritt eins: Grundgerüst.\n<file path="etappe.js">\nwindow.e = 1;\n</file>\n<tool name="check"/>', 'Schritt zwei: erweitert.\n<file path="etappe.js">\nwindow.e = 2;\n</file>\n<tool name="check"/>', 'Alles fertig und geprüft.\n<tool name="done"/>'],
     werkzeuge: ['<tool name="tree"/>\n<tool name="outline" path="index.html"/>\n<tool name="copy" from="etappe.js" to="kopie.js"/>\n<tool name="move" from="kopie.js" to="js/neu.js"/>\n<tool name="insert" path="js/neu.js" line="1">// header</tool>',
-      'Geändert: js/neu.js erstellt.\n<tool name="done"/>']
+      'Geändert: js/neu.js erstellt.\n<tool name="done"/>'],
+    donebug: [
+      'Ich baue die App.\n<file path="index.html">\n<!doctype html><html><body><button id="btn" type="button">Klick</button><script src="app.js"></script></body></html>\n</file>\n<file path="app.js">\nfunction boom(){ return nichtVorhanden.wert; }\ndocument.getElementById("btn").onclick = boom;\n</file>\nFertig!\n<tool name="done"/>',
+      'Ich behebe den Laufzeitfehler.\n<file path="app.js">\nfunction boom(){ return "ok"; }\ndocument.getElementById("btn").onclick = boom;\n</file>\nJetzt ohne Fehler.\n<tool name="done"/>'
+    ]
   };
   global.fetch = async (url, opts = {}) => {
     if (String(url).startsWith('http://127.0.0.1')) return realFetch(url, opts);
@@ -45,7 +49,7 @@ const { setup } = require('./helpers');
       seen.main.push(sys);
       const users = body.messages.filter(m => m.role === 'user'); const results = users.filter(m => /^\[Werkzeug-Ergebnisse\]/.test(m.content)).length;
       const wish = [...body.messages].reverse().find(m => m.role === 'user' && !/^\[Werkzeug-Ergebnisse\]/.test(m.content)).content;
-      const key = /Weltraum/.test(wish) ? 'team' : /dunkel/.test(wish) ? 'dunkel' : /Hilfsdatei/.test(wish) ? 'kaputt' : /merk/.test(wish) ? 'merk' : /Repariere/.test(wish) ? 'ankuendigung' : /Etappen/.test(wish) ? 'etappen' : /Rennspiel/.test(wish) ? 'rennen' : /Werkzeugkette/.test(wish) ? 'werkzeuge' : 'solo';
+      const key = /Weltraum/.test(wish) ? 'team' : /dunkel/.test(wish) ? 'dunkel' : /Hilfsdatei/.test(wish) ? 'kaputt' : /merk/.test(wish) ? 'merk' : /Repariere/.test(wish) ? 'ankuendigung' : /Etappen/.test(wish) ? 'etappen' : /Rennspiel/.test(wish) ? 'rennen' : /Werkzeugkette/.test(wish) ? 'werkzeuge' : /Bugfix/.test(wish) ? 'donebug' : 'solo';
       seen.results.push(users[users.length - 1].content);
       return sse(MAIN[key][Math.min(results, MAIN[key].length - 1)]);
     }
@@ -245,6 +249,43 @@ const { setup } = require('./helpers');
   const Bundle = require('../shared/app-bundle');
   const bundled = Bundle.build({ 'index.html': '<!doctype html><html><head><title>X</title></head><body><h1>Hi</h1><script src="app.js"></script></body></html>', 'app.js': 'console.log(1);' }, { kit: { css: '/*KITCSS*/', js: '/*KITJS*/' }, platform: 'web' });
   chk('Bundle: coden-kit.css und coden-kit.js automatisch injiziert', /\/\*KITCSS\*\//.test(bundled.pages['index.html']) && /\/\*KITJS\*\//.test(bundled.pages['index.html']), true);
+
+  // --- Anti-Bug statische Checks + Headless Runtime Smoke-Test + Done-Gate ---
+  const bugCheck = T.check({
+    'index.html': '<!doctype html><html><head><script src="head.js"></script></head><body><div id="dup">1</div><div id="dup">2</div><form><button>Absenden</button></form><button data-go="gibtsnicht" type="button">Go</button><script src="a.js"></script><script src="b.js"></script></body></html>',
+    'head.js': 'const el = document.getElementById("dup"); el.textContent = "x";',
+    'a.js': 'import x from "./b.js";\nconst shared = 1;\nfetch("daten.json");',
+    'b.js': 'const shared = 2;',
+    'style.css': 'body { color: red;'
+  });
+  const bugJoined = bugCheck.issues.join('\n');
+  chk('Anti-Bug: doppelte HTML-ID erkannt', /Doppelte id="dup"/.test(bugJoined), true);
+  chk('Anti-Bug: <head>-Skript ohne defer erkannt', /im <head> ohne defer/.test(bugJoined), true);
+  chk('Anti-Bug: ES-Module import/export erkannt', /ES-Module \(import\/export\)/.test(bugJoined), true);
+  chk('Anti-Bug: doppelte globale Deklaration erkannt', /Doppelte globale Deklaration "shared"/.test(bugJoined), true);
+  chk('Anti-Bug: Button in <form> ohne type erkannt', /<button> innerhalb <form>/.test(bugJoined), true);
+  chk('Anti-Bug: data-go auf fehlende ID erkannt', /data-go="gibtsnicht"/.test(bugJoined), true);
+  chk('Anti-Bug: fehlendes lokales fetch erkannt', /fetch\("daten\.json"\)/.test(bugJoined), true);
+  chk('Anti-Bug: unausgeglichene CSS-Klammern erkannt', /CSS-Fehler in style\.css/.test(bugJoined), true);
+
+  const clickCrash = T.check({
+    'index.html': '<!doctype html><html><body><button id="go" type="button">Go</button><script src="app.js"></script></body></html>',
+    'app.js': 'document.getElementById("go").addEventListener("click", () => { return kaputteVariable.prop; });'
+  });
+  chk('SmokeTest: Laufzeitfehler im Button-Click abgefangen', clickCrash.ok === false && clickCrash.issues.some(x => /Laufzeitfehler[\s\S]*#go/.test(x)), true);
+
+  const cleanCdn = T.check({
+    'index.html': '<!doctype html><html><head><script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script></head><body><button id="ok" type="button">Start</button><script src="app.js" defer></script></body></html>',
+    'app.js': 'const scene = new THREE.Scene(); document.getElementById("ok").onclick = () => { localStorage.setItem("k", "1"); };'
+  });
+  chk('SmokeTest: saubere App mit CDN-Global (THREE) besteht ohne Fehler', cleanCdn.ok, true);
+
+  const bugApp = (await P('/apps', { name: 'BugGate', kind: 'web', files: { 'index.html': '<!doctype html><html><body></body></html>' } }, anna)).j.app;
+  seen.main = []; seen.results = [];
+  await say(bugApp.id, 'Bugfix Gate testen');
+  await agent(bugApp.id, { tier: 'pro', mode: 'auto' });
+  chk('Done-Gate: <tool name="done"/> wird blockiert bis Laufzeitfehler behoben ist', seen.main.length >= 2 && seen.results.some(r => /Automatische Prüfung[\s\S]*Laufzeitfehler/.test(r)), true);
+  chk('Done-Gate: finaler Code ist fehlerfrei', T.check((await G('/apps/' + bugApp.id, anna)).j.files).ok, true);
 
   await finish();
 })();

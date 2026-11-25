@@ -12,7 +12,7 @@ const { Meter } = require('./usage');
 const Byok = require('./byok');
 const Push = require('./push');
 
-const MAX_FIX = 2, MAX_TEAM = 8, TEAM_PARALLEL = 8, HISTORY = 18; // alle Sub-Agenten eines Auftrags laufen gleichzeitig
+const MAX_FIX = 4, MAX_TEAM = 8, TEAM_PARALLEL = 8, HISTORY = 18; // alle Sub-Agenten eines Auftrags laufen gleichzeitig
 
 // Modell je nach Schwierigkeit: leicht -> Flash (schnell), mittel -> das gewählte Modell, schwer -> das stärkste erlaubte
 const RANK = { flash: 1, normal: 2, pro: 3, ultra: 4 };
@@ -232,23 +232,24 @@ async function runAppAgent(run, ctx) {
         const tail = tailText(p);
         const announced = !p.ops.length && (INTENT.test(tail) || /:\s*$/.test(tail));
         const nothingBuilt = !changed.size && !p.ops.length && !isQuestion(wish) && ctx.trigger === 'user' && !spawns;
-        if (!isDone && nudges < MAX_NUDGES && (announced || nothingBuilt)) {
+        if (dirtySinceCheck && fixes < MAX_FIX) {
+          const c = Tools.check(files); dirtySinceCheck = c.issues.length > 0;
+          if (c.issues.length) { fixes++; results.push({ name: 'check', ok: false, summary: c.summary + ' – Main Agent behebt sie', text: `[Automatische Prüfung] ${c.text}\nBehebe diese Probleme jetzt selbst (nicht beenden, bis alle behoben sind).` }); }
+        }
+        if (!results.length && !isDone && nudges < MAX_NUDGES && (announced || nothingBuilt)) {
           nudges++;
           results.push({ name: 'nudge', ok: false, summary: 'Coden setzt die Ankündigung jetzt um', text: announced
             ? '[System] Du hast nur angekündigt, was du tun willst, aber keine Änderung ausgegeben. Gib JETZT die vollständigen <file>- oder <edit>-Blöcke dafür aus (oder benutze ein Werkzeug) – ohne erneute Ankündigung.'
             : '[System] Der Nutzer möchte, dass du etwas baust oder änderst, aber es wurde noch keine Datei geändert. Setze es jetzt vollständig um (<file>/<edit>' + (spawnAllowed ? ' oder spawn' : '') + ').' });
-        } else if (dirtySinceCheck && fixes < MAX_FIX) {
-          const c = Tools.check(files); dirtySinceCheck = false;
-          if (c.issues.length) { fixes++; results.push({ name: 'check', ok: false, summary: c.summary + ' – Main Agent behebt sie', text: `[Automatische Prüfung] ${c.text}\nBehebe diese Probleme jetzt selbst.` }); }
         }
         // Abnahme: einmal pro Auftrag die Bitte Punkt für Punkt gegen den Code prüfen lassen
         if (!results.length && !reviewed && changed.size && (spawns || changed.size >= 2 || stepsTotal >= 3) && stepsTotal < MAX_TOTAL_STEPS - 1) {
           reviewed = true;
-          results.push({ name: 'review', ok: true, summary: 'Abnahme: prüft deine Bitte Punkt für Punkt', text: `[Abnahme] Prüfe kurz die Bitte des Nutzers gegen den AKTUELLEN Code (Start ohne Fehler? Alle Buttons aktiv? Mobil/Touch?). Bei ❌: sofort mit <file>/<edit>/<insert> beheben. Wenn alles ✅ ist: antworte in 1–2 knappen Sätzen was geändert wurde und gib <tool name="done"/> aus.\n\nBitte des Nutzers:\n${wish.slice(0, 3000)}` });
+          results.push({ name: 'review', ok: true, summary: 'Abnahme: prüft deine Bitte Punkt für Punkt', text: `[Abnahme] Prüfe kurz die Bitte des Nutzers gegen den AKTUELLEN Code (Start ohne Fehler? Alle Buttons/Formulare aktiv? Mobil/Touch?). Bei ❌: sofort mit <file>/<edit>/<insert> beheben. Wenn alles ✅ ist: antworte in 1–2 knappen Sätzen was geändert wurde und gib <tool name="done"/> aus.\n\nBitte des Nutzers:\n${wish.slice(0, 3000)}` });
         }
         if (!results.length) { finished = true; break; }
       }
-      flushResults(isDone ? '\n\nDu hattest "done" gesagt, aber es gibt noch offene Punkte – erledige sie und schließe dann ab.' : '');
+      flushResults(isDone ? '\n\nDu hattest "done" gesagt, aber es gibt noch Fehler oder offene Punkte – behebe sie erst und schließe dann sauber ab.' : '');
     }
   } finally { clearTimeout(legTimer); await meter.close(); }
 
@@ -299,7 +300,7 @@ async function runAppAgent(run, ctx) {
       case 'read': return Tools.read(files, a.path || a.file, a.start, a.end);
       case 'outline': return Tools.outline(files, a.path || a.file);
       case 'search': return Tools.search(files, a.query || t.body, a.regex, a.pattern, a.context);
-      case 'check': { dirtySinceCheck = false; return Tools.check(files); }
+      case 'check': { const c = Tools.check(files); dirtySinceCheck = c.issues.length > 0; return c; }
       case 'dom_map': return Tools.domMap(files);
       case 'move': return applyRes(Tools.move(files, a.from, a.to, a.overwrite));
       case 'copy': return applyRes(Tools.copy(files, a.from, a.to, a.overwrite));
@@ -393,7 +394,7 @@ async function runAppAgent(run, ctx) {
       subResume = { plan, n, open: paused, raw: raw.map((x, i) => paused.includes(i) ? x.slice(-60000) : ''), notes, done };
       return { ok: true, summary: `${done.filter(d => d.paths.length).length}/${tasks.length} Sub-Agenten fertig · ${paused.length} schreiben in der nächsten Etappe weiter`, text: '[Sub-Agenten] Ein Teil ist fertig, der Rest schreibt in der nächsten Etappe weiter.' };
     }
-    const c = Tools.check(files); dirtySinceCheck = false;
+    const c = Tools.check(files); dirtySinceCheck = c.issues.length > 0;
     set(main, { detail: 'prüft die Ergebnisse der Sub-Agenten' });
     const okN = subs.filter(x => x.status === 'done').length;
     const pathsOf = (i) => (done.find(d => d.i === i)?.paths || []).join(', ');

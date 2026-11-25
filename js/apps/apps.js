@@ -1,5 +1,5 @@
 // js/apps/apps.js – der Tab "Apps": Übersicht aller Apps, Assistent für neue Apps (Typ → Stil → Idee) und der Builder.
-import { ghImport } from './github.js';
+import { ghImport, ghInfo, ghManageAccess } from './github.js';
 import { apiJson } from '../backend.js';
 import { Router } from '../router.js';
 import { toast } from '../toast.js';
@@ -100,11 +100,28 @@ async function gallery(host) {
         h('div', { class: 'ap-qideas' }, QUICK_IDEAS.map(([label, kind, prompt]) =>
             h('button', { type: 'button', class: 'ap-qidea', onclick: () => { qKind = kind; drawQTypes(); qInput.value = prompt; qInput.focus(); } }, icon('bolt'), h('span', { text: label })))));
 
+    const ghScopeBtn = h('button', {
+        type: 'button',
+        class: 'ap-gh',
+        title: 'Festlegen, auf welche GitHub-Repositories Coden zugreifen darf',
+        onclick: async () => { await ghManageAccess(); drawGhScopeBtn(); }
+    });
+    const drawGhScopeBtn = () => {
+        const cfg = ghInfo();
+        const label = cfg?.accessMode === 'selected'
+            ? `GitHub: ${cfg.allowedRepos.length} Repo${cfg.allowedRepos.length === 1 ? '' : 's'}`
+            : 'GitHub-Zugriff';
+        ghScopeBtn.replaceChildren(icon('verified_user'), h('span', { text: label }));
+        ghScopeBtn.classList.toggle('scoped', cfg?.accessMode === 'selected');
+    };
+    drawGhScopeBtn();
+
     const page = h('div', { class: 'ap-page' },
         h('div', { class: 'ap-hero' },
             h('div', {}, h('h1', { text: 'App Studio' }), h('p', { text: 'Entwickle Webseiten, Handy-Apps und Spiele im Live-Workspace mit Vorschau, Code-Editor und eigenem Hosting.' })),
             h('div', { class: 'ap-actions ap-hero-actions' },
-                h('button', { type: 'button', class: 'ap-gh', title: 'Ein GitHub-Repository als App öffnen', onclick: () => ghImport((name, files) => createApp({ name, kind: 'web', files })) }, icon('code'), 'Von GitHub'),
+                ghScopeBtn,
+                h('button', { type: 'button', class: 'ap-gh', title: 'Ein GitHub-Repository als App öffnen', onclick: async () => { await ghImport((name, files) => createApp({ name, kind: 'web', files })); drawGhScopeBtn(); } }, icon('code'), 'Von GitHub'),
                 h('button', { type: 'button', class: 'ap-new', onclick: () => Router.go('apps/neu') }, icon('add'), 'Neue App'))),
         quickBox,
         filters, grid);

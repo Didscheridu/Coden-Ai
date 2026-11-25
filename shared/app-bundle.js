@@ -24,7 +24,17 @@
         var ok = true; try { window.localStorage.getItem('x'); } catch (e) { ok = false; }
         if (!ok) { try { Object.defineProperty(window, 'localStorage', { value: mk(true), configurable: true }); Object.defineProperty(window, 'sessionStorage', { value: mk(false), configurable: true }); } catch (e) {} }
         try { void document.cookie; } catch (e) { var jar = {}; try { Object.defineProperty(document, 'cookie', { configurable: true, get: function () { return Object.keys(jar).map(function (k) { return k + '=' + jar[k]; }).join('; '); }, set: function (v) { var p = String(v).split(';')[0].split('='); if (p[0]) jar[p[0].trim()] = (p[1] || '').trim(); } }); } catch (_) {} }
-        window.addEventListener('error', function (e) { send({ t: 'error', message: String(e.message || 'Fehler'), line: e.lineno || 0, col: e.colno || 0 }); });
+        window.addEventListener('error', function (e) {
+            if (e && e.target && e.target !== window && e.target.tagName) {
+                var tag = String(e.target.tagName).toLowerCase();
+                var src = e.target.getAttribute && (e.target.getAttribute('src') || e.target.getAttribute('href') || '');
+                if ((tag === 'img' || tag === 'script') && src && !/^https?:\/\//i.test(src)) {
+                    send({ t: 'error', message: '<' + tag + '> konnte nicht geladen werden: ' + src });
+                }
+                return;
+            }
+            send({ t: 'error', message: String(e.message || 'Fehler'), line: e.lineno || 0, col: e.colno || 0 });
+        }, true);
         window.addEventListener('unhandledrejection', function (e) { var r = e.reason; send({ t: 'error', message: 'Promise: ' + String((r && (r.message || r)) || 'abgelehnt') }); });
         ['log', 'info', 'warn', 'error'].forEach(function (lv) {
             var orig = console[lv]; console[lv] = function () {

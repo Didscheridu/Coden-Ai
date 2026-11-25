@@ -222,7 +222,7 @@ service cloud.firestore {
 
     function isValidMcpConnection(data) {
       return data.keys().hasAll(['id', 'uid', 'name', 'url', 'auth_type', 'enabled'])
-        && data.keys().hasOnly(['id', 'uid', 'name', 'url', 'catalog_id', 'auth_type', 'enabled', 'header_name', 'token_enc', 'oauth_enc', 'token_expires_at', 'scopes', 'server_name', 'tools', 'status', 'last_error', 'created_at', 'updated_at'])
+        && data.keys().hasOnly(['id', 'uid', 'name', 'url', 'catalog_id', 'auth_type', 'enabled', 'header_name', 'token_enc', 'oauth_enc', 'token_expires_at', 'scopes', 'server_name', 'tools', 'status', 'last_error', 'allowed_repos', 'created_at', 'updated_at'])
         && data.id is int && data.id > 0
         && isStr(data.uid, 1, 128)
         && isStr(data.name, 1, 40)
@@ -239,6 +239,7 @@ service cloud.firestore {
         && (!('tools' in data) || (data.tools is list && data.tools.size() <= 80))
         && (!('status' in data) || data.status in ['connected', 'needs_reauth', 'error'])
         && isOptStr(data, 'last_error', 500)
+        && (!('allowed_repos' in data) || data.allowed_repos == null || (data.allowed_repos is list && data.allowed_repos.size() <= 100))
         && (!('created_at' in data) || isIsoOrTs(data.created_at))
         && (!('updated_at' in data) || isIsoOrTs(data.updated_at));
     }
@@ -1032,7 +1033,7 @@ service cloud.firestore {
         && (isOwner(existing().uid) || isAdmin())
         && incoming().id == existing().id && incoming().uid == existing().uid
         && incoming().url == existing().url
-        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'auth_type', 'enabled', 'header_name', 'token_enc', 'oauth_enc', 'token_expires_at', 'scopes', 'server_name', 'tools', 'status', 'last_error', 'updated_at']);
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'auth_type', 'enabled', 'header_name', 'token_enc', 'oauth_enc', 'token_expires_at', 'scopes', 'server_name', 'tools', 'status', 'last_error', 'allowed_repos', 'updated_at']);
       allow delete: if isNumId(connId) && (isOwner(existing().uid) || isAdmin());
     }
   }

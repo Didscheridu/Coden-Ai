@@ -337,6 +337,110 @@ function validRedirectUri(raw, req) {
   return null;
 }
 
+// ---------- GitHub Repository-Einschränkung (MCP) ----------
+const REPO_FULL_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const isGithubConn = (doc) => doc?.catalog_id === 'github' || /^https:\/\/api\.github(?:copilot)?\.com(?:\/|$)/i.test(String(doc?.url || ''));
+
+function normalizeAllowedRepos(raw) {
+  if (raw === null || raw === undefined) return null;
+  if (!Array.isArray(raw)) throw httpErr(400, 'allowedRepos muss eine Liste oder null sein.');
+  if (raw.length > 100) throw httpErr(400, 'Höchstens 100 Repositories erlaubt.');
+  const out = [];
+  const seen = new Set();
+  for (const item of raw) {
+    const clean = String(item || '').trim().toLowerCase();
+    if (!clean) continue;
+    if (!REPO_FULL_RE.test(clean) || clean.includes('..')) {
+      throw httpErr(400, `Ungültiger Repository-Name: „${String(item).slice(0, 80)}“ (erwartet owner/repo).`);
+    }
+    if (!seen.has(clean)) { seen.add(clean); out.push(clean); }
+  }
+  return out;
+}
+
+function applyGithubScope(doc, params) {
+  if (!isGithubConn(doc) || !Array.isArray(doc.allowed_repos)) return params;
+  const allowed = new Set(doc.allowed_repos.map(x => String(x).toLowerCase()));
+  const toolName = String(params?.name || '');
+  const args = params?.arguments && typeof params.arguments === 'object' && !Array.isArray(params.arguments)
+    ? { ...params.arguments }
+    : {};
+
+  if (/^(create|fork|delete)_repo/i.test(toolName) || toolName === 'create_repository') {
+    throw httpErr(403, 'Zugriff blockiert: Bei eingeschränktem Repository-Zugriff dürfen keine Repositories erstellt oder gelöscht werden.', { code: 'REPO_RESTRICTED' });
+  }
+
+  const targets = [];
+  if (typeof args.owner === 'string' && args.owner.trim() && typeof args.repo === 'string' && args.repo.trim()) {
+    targets.push(`${args.owner.trim()}/${args.repo.trim()}`);
+  }
+  for (const k of ['repository', 'full_name', 'repo_name', 'repository_full_name']) {
+    if (typeof args[k] === 'string' && args[k].includes('/')) {
+      targets.push(args[k].trim().replace(/\.git$/i, ''));
+    }
+  }
+  let hasRepoQualifier = false;
+  for (const qk of ['q', 'query']) {
+    if (typeof args[qk] === 'string') {
+      const re = /\brepo:([^\s]+)/gi;
+      let m;
+      while ((m = re.exec(args[qk]))) {
+        hasRepoQualifier = true;
+        targets.push(m[1].trim());
+      }
+    }
+  }
+
+  for (const t of targets) {
+    if (!allowed.has(t.toLowerCase())) {
+      throw httpErr(403, `Zugriff blockiert: Repository „${t}“ ist in dieser GitHub-Verbindung nicht freigegeben.`, { code: 'REPO_RESTRICTED' });
+    }
+  }
+
+  const isRepoSearchTool = /^search_(code|issues|pull_requests|commits)$/i.test(toolName)
+    || (/search/i.test(toolName) && !/user|repo/i.test(toolName) && (typeof args.query === 'string' || typeof args.q === 'string'));
+  if (isRepoSearchTool && !hasRepoQualifier && !targets.length) {
+    if (!allowed.size) {
+      throw httpErr(403, 'Zugriff blockiert: In dieser GitHub-Verbindung sind keine Repositories freigegeben.', { code: 'REPO_RESTRICTED' });
+    }
+    if (allowed.size > 15) {
+      throw httpErr(403, 'Zugriff blockiert: Bitte gib eines der freigegebenen Repositories (repo:owner/name) in der Suche an.', { code: 'REPO_RESTRICTED' });
+    }
+    const qualifiers = [...allowed].map(r => `repo:${r}`).join(' ');
+    if (typeof args.query === 'string') args.query = `${args.query} ${qualifiers}`.trim();
+    else if (typeof args.q === 'string') args.q = `${args.q} ${qualifiers}`.trim();
+  }
+
+  return { ...params, arguments: args };
+}
+
+function filterGithubResult(doc, toolName, result) {
+  if (!isGithubConn(doc) || !Array.isArray(doc.allowed_repos) || !result) return result;
+  if (!/^(search_repositories|list_repositories|get_repositories|list_user_repos)$/i.test(String(toolName || ''))) return result;
+  const allowed = new Set(doc.allowed_repos.map(x => String(x).toLowerCase()));
+  const pickName = (x) => String(x?.full_name || x?.nameWithOwner || x?.fullName || '').toLowerCase();
+  const filterArr = (arr) => arr.filter(x => x && allowed.has(pickName(x)));
+  const out = { ...result };
+  if (Array.isArray(result.content)) {
+    out.content = result.content.map(c => {
+      if (c?.type !== 'text' || typeof c.text !== 'string') return c;
+      try {
+        const parsed = JSON.parse(c.text);
+        if (Array.isArray(parsed)) return { ...c, text: JSON.stringify(filterArr(parsed)) };
+        if (parsed && Array.isArray(parsed.items)) {
+          const items = filterArr(parsed.items);
+          return { ...c, text: JSON.stringify({ ...parsed, total_count: items.length, items }) };
+        }
+        if (parsed && Array.isArray(parsed.repositories)) {
+          return { ...c, text: JSON.stringify({ ...parsed, repositories: filterArr(parsed.repositories) }) };
+        }
+      } catch (_) {}
+      return c;
+    });
+  }
+  return out;
+}
+
 // ---------- Verschlüsselte Speicherung in Firestore (mcp_connections) ----------
 function sanitizeConn(doc) {
   if (!doc) return null;
@@ -353,6 +457,7 @@ function sanitizeConn(doc) {
     scopes: doc.scopes || '',
     serverName: doc.server_name || '',
     tools: Array.isArray(doc.tools) ? doc.tools : [],
+    allowedRepos: Array.isArray(doc.allowed_repos) ? doc.allowed_repos : null,
     status: doc.status || 'connected',
     lastError: doc.last_error || null,
     createdAt: doc.created_at || null,
@@ -430,15 +535,20 @@ async function runConnectionRequest(uid, connId, { method, params }) {
   const doc = await db.getDoc(`mcp_connections/${id}`);
   if (!doc || doc.uid !== uid) throw httpErr(404, 'Verbindung nicht gefunden.');
 
+  const effectiveParams = method === 'tools/call' ? applyGithubScope(doc, params) : params;
+  const finish = (res) => method === 'tools/call'
+    ? { ...res, result: filterGithubResult(doc, effectiveParams?.name, res.result) }
+    : res;
+
   let { headers, oauth } = await resolveConnectionHeaders(doc);
   try {
-    return { doc, ...(await mcpRequest({ url: doc.url, headers, method, params })) };
+    return { doc, ...finish(await mcpRequest({ url: doc.url, headers, method, params: effectiveParams })) };
   } catch (e) {
     if (e.status === 401 && doc.auth_type === 'oauth') {
       if (oauth?.refreshToken) {
         const renewed = await refreshAndSave(doc, oauth);
         headers = { Authorization: `${renewed.tokenType || 'Bearer'} ${renewed.accessToken}` };
-        return { doc, ...(await mcpRequest({ url: doc.url, headers, method, params })) };
+        return { doc, ...finish(await mcpRequest({ url: doc.url, headers, method, params: effectiveParams })) };
       }
       await db.updateDoc(`mcp_connections/${doc.id}`, {
         status: 'needs_reauth',
@@ -652,8 +762,51 @@ function mcpRouter(requireAuth) {
     const patch = { updated_at: db.nowIso() };
     if (typeof req.body?.enabled === 'boolean') patch.enabled = req.body.enabled;
     if (typeof req.body?.name === 'string' && req.body.name.trim()) patch.name = req.body.name.trim().slice(0, 40);
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'allowedRepos')) {
+      if (!isGithubConn(doc)) throw httpErr(400, 'Repository-Einschränkung wird nur für GitHub-Verbindungen unterstützt.');
+      patch.allowed_repos = normalizeAllowedRepos(req.body.allowedRepos);
+    }
     const next = await db.updateDoc(`mcp_connections/${id}`, patch);
     res.json({ connection: sanitizeConn(next) });
+  }));
+
+  r.get('/connections/:id/github-repos', rateLimit('mcp-gh-repos', 30, 60), guard(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id) || id <= 0) throw httpErr(400, 'Ungültige ID.');
+    const doc = await db.getDoc(`mcp_connections/${id}`);
+    if (!doc || doc.uid !== req.user.uid) throw httpErr(404, 'Verbindung nicht gefunden.');
+    if (!isGithubConn(doc)) throw httpErr(400, 'Diese Verbindung ist keine GitHub-Verbindung.');
+
+    const { headers } = await resolveConnectionHeaders(doc);
+    const authHdr = headers.Authorization || Object.values(headers)[0] || '';
+    if (!authHdr) throw httpErr(401, 'Keine GitHub-Anmeldedaten hinterlegt.', { code: 'NEEDS_REAUTH' });
+
+    const ghBase = (ALLOW_PRIVATE() && process.env.MCP_GITHUB_API_BASE) || 'https://api.github.com';
+    const r = await requestJson(`${ghBase}/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator`, {
+      method: 'GET',
+      headers: {
+        Authorization: authHdr,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'User-Agent': 'Coden-MCP/1.0'
+      },
+      timeout: 12_000
+    });
+    if (r.status === 401 || r.status === 403) {
+      throw httpErr(403, 'GitHub erlaubt mit diesem Token kein Auflisten deiner Repositories. Du kannst Repositories aber direkt als owner/repo eintragen.', { code: 'GITHUB_LIST_FORBIDDEN' });
+    }
+    if (r.status >= 400 || !Array.isArray(r.json)) {
+      throw httpErr(502, `GitHub-Repositories konnten nicht geladen werden (HTTP ${r.status}).`);
+    }
+    res.json({
+      repos: r.json
+        .map(x => ({
+          fullName: String(x?.full_name || ''),
+          private: Boolean(x?.private),
+          description: String(x?.description || '').slice(0, 140)
+        }))
+        .filter(x => x.fullName)
+    });
   }));
 
   r.delete('/connections/:id', guard(async (req, res) => {
