@@ -35,6 +35,13 @@ const { setup, root } = require('./helpers');
   chk('Seiten eines Hefts, sortiert, ohne große Daten', [list.j.pages.map(p => p.id), 'strokes' in list.j.pages[0], list.j.pages[0].corrected, list.j.pages[0].score], [['pg1abc', 'pg2abc'], false, true, 78]);
   chk('Heft löschen entfernt nur dessen Seiten', [(await D('/study/docs/dc1abc', anna)).s, (await G('/study/pages', anna)).j.pages.map(p => p.id)], [200, ['pg3abc']]);
 
+  // Bilder auf der Seite (wie GoodNotes) und neue Vorlagen
+  const it = await P('/study/pages/pg9abc', { doc: 'dc9abc', paper: 'cornell', strokes: '[]', items: [{ id: 'im1', x: 100, y: 200, w: 300, h: 150, src: png }] }, anna);
+  const gi = (await G('/study/pages/pg9abc', anna)).j.page;
+  chk('Seite mit eingefügtem Bild + Cornell-Vorlage', [it.s, it.j.page.items, gi.paper, gi.items[0].w, gi.items[0].src === png], [200, 1, 'cornell', 300, true]);
+  chk('Bild-Objekt ohne echtes Bild abgelehnt', (await P('/study/pages/pg9abc', { doc: 'dc9abc', items: [{ x: 1, y: 1, w: 1, h: 1, src: 'https://evil.example/x.png' }] }, anna)).s, 413);
+  chk('Unbekannte Vorlage → liniert', (await P('/study/pages/pg9abc', { doc: 'dc9abc', paper: '<script>' }, anna)).j.page.paper, 'liniert');
+
   // ---------- Erinnerungen ----------
   const push = require(path.join(root, 'server/push')); const sent = [];
   push._setSender(async (sub, body) => { sent.push(JSON.parse(body)); });

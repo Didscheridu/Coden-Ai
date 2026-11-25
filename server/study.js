@@ -12,10 +12,10 @@ const { wrapRouter } = require('./util');
 let waitUntil = () => {};
 try { waitUntil = require('@vercel/functions').waitUntil; } catch (_) { /* lokal ohne Vercel */ }
 
-const LIMITS = { strokes: 4_000_000, bg: 3_500_000, page: 7_000_000, pagesPerDoc: 200, reminders: 80, text: 160 };
+const LIMITS = { strokes: 4_000_000, bg: 3_500_000, item: 1_800_000, items: 30, page: 7_000_000, pagesPerDoc: 300, reminders: 80, text: 160 };
 const ID_RE = /^[A-Za-z0-9_-]{4,64}$/;
 const IMG_RE = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
-const PAPERS = ['blanko', 'liniert', 'karo', 'punkte'];
+const PAPERS = ['blanko', 'liniert', 'eng', 'karo', 'punkte', 'cornell', 'noten'];
 const fail = (status, error) => Object.assign(new Error(error), { status });
 const str = (v, n) => String(v ?? '').replace(/\u0000/g, '').slice(0, n);
 const pagePath = (uid, id) => `study/${uid}/pages/${id}`;
@@ -44,11 +44,17 @@ function cleanPage(body, id) {
     id, doc: b.doc, idx: Math.max(0, Math.min(999, parseInt(b.idx, 10) || 0)),
     paper: PAPERS.includes(b.paper) ? b.paper : 'liniert',
     strokes, bg, correction: cleanCorrection(b.correction),
-    text: (Array.isArray(b.text) ? b.text : []).slice(0, 200).map(t => ({ x: +t?.x || 0, y: +t?.y || 0, s: str(t?.s, 2000), c: str(t?.c, 9), z: Math.max(8, Math.min(72, +t?.z || 18)) }))
+    text: (Array.isArray(b.text) ? b.text : []).slice(0, 200).map(t => ({ x: +t?.x || 0, y: +t?.y || 0, s: str(t?.s, 2000), c: str(t?.c, 9), z: Math.max(8, Math.min(120, +t?.z || 18)) })),
+    // eingefügte Bilder (verschiebbar, wie in GoodNotes)
+    items: (Array.isArray(b.items) ? b.items : []).slice(0, LIMITS.items).map(i => {
+      if (!i || typeof i.src !== 'string' || i.src.length > LIMITS.item || !IMG_RE.test(i.src)) throw fail(413, 'Ein eingefügtes Bild ist zu groß oder kein Bild.');
+      const n = (v, d) => (Number.isFinite(+v) ? Math.max(-2000, Math.min(4000, +v)) : d);
+      return { id: str(i.id, 30) || 'im', type: 'img', x: n(i.x, 0), y: n(i.y, 0), w: Math.max(4, n(i.w, 200)), h: Math.max(4, n(i.h, 200)), src: i.src };
+    })
   };
 }
 
-const meta = (p) => ({ id: p._id || p.id, doc: p.doc, idx: p.idx, paper: p.paper, hasBg: !!p.bg, corrected: !!p.correction, score: p.correction?.score ?? null, updatedAt: p.updated_at });
+const meta = (p) => ({ id: p._id || p.id, doc: p.doc, idx: p.idx, paper: p.paper, hasBg: !!p.bg, items: (p.items || []).length, corrected: !!p.correction, score: p.correction?.score ?? null, updatedAt: p.updated_at });
 
 // ---------- Erinnerungen ----------
 function cleanReminders(items) {

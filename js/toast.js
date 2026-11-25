@@ -8,4 +8,5 @@ export function toast(msg, { type = 'info', ms = 3200, action } = {}) {
     if (action) { const b = document.createElement('button'); b.textContent = action.label; b.addEventListener('click', () => { action.run(); t.remove(); }); t.appendChild(b); }
     box.appendChild(t);
     setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 300); }, ms);
+    return t;
 }

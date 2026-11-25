@@ -9,6 +9,7 @@ import { toast } from './toast.js';
 import { merkzettelPrompt, cleanMerkzettel, titleOf, renderSheet, printSheet, defaultPaper } from './merkzettel.js';
 import { loader } from './rich-elements.js';
 import { renderStudioTab, resetStudio } from './study-studio.js';
+import { renderNotebooksTab } from './notebooks.js';
 import { StudyStore } from './study-store.js';
 
 const h = (tag, attrs = {}, ...kids) => {
@@ -55,7 +56,7 @@ function renderMd(text) {
     return window.DOMPurify ? window.DOMPurify.sanitize(raw) : raw;
 }
 
-const TABS = [['faecher', 'school', 'Fächer'], ['notizbuecher', 'menu_book', 'Notizbücher'], ['plan', 'event_note', 'Lernplan'], ['stundenplan', 'calendar_month', 'Stundenplan'], ['statistik', 'monitoring', 'Statistik']];
+const TABS = [['faecher', 'school', 'Fächer'], ['lernhilfen', 'menu_book', 'Lernhilfen'], ['plan', 'event_note', 'Lernplan'], ['stundenplan', 'calendar_month', 'Stundenplan'], ['statistik', 'monitoring', 'Statistik'], ['notizbuecher', 'auto_stories', 'Notizbücher']];
 const state = {
     host: null,
     tab: 'faecher',
@@ -728,12 +729,13 @@ function render() {
         type: 'button', role: 'tab', class: state.tab === k ? 'active' : '', 'aria-selected': state.tab === k ? 'true' : 'false',
         onclick: () => { if (state.tab === k) resetStudio(); state.tab = k; history.replaceState(null, '', '#/lernen/' + k); render(); }
     }, ic(icon), h('span', { text: label })))));
-    if (state.tab === 'notizbuecher') { const ov = renderOverview(); ov.querySelector('.st-head')?.remove(); wrap.append(ov); }
+    if (state.tab === 'lernhilfen') { const ov = renderOverview(); ov.querySelector('.st-head')?.remove(); wrap.append(ov); }
+    else if (state.tab === 'notizbuecher') wrap.append(renderNotebooksTab(render));
     else wrap.append(renderStudioTab(state.tab, render));
     state.host.replaceChildren(wrap);
     state.host.scrollTop = scroll;
 }
-document.addEventListener('studyChanged', () => { if (state.host && !currentNb() && state.tab !== 'notizbuecher' && !document.querySelector('.cd-overlay')) render(); });
+document.addEventListener('studyChanged', () => { if (state.host && !currentNb() && state.tab !== 'lernhilfen' && !document.querySelector('.cd-overlay, .ink-app')) render(); });
 
 export const StudyView = {
     mount(host, params = []) {
