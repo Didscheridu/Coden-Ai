@@ -11,7 +11,7 @@ import { confirmBox } from './apps/dialogs.js';
 const RE = /<artifact\s+([^>]*)>([\s\S]*?)(<\/artifact>|$)/g;
 const attr = (s, k) => (s.match(new RegExp(k + '\\s*=\\s*"([^"]*)"', 'i')) || [])[1] || '';
 const TYPES = ARTIFACT_TYPES;
-const ALIAS = { jsx: 'react', tsx: 'react', diagram: 'mermaid', graph: 'mermaid', csv: 'table', presentation: 'slides', md: 'markdown', py: 'python' };
+const ALIAS = { jsx: 'react', tsx: 'react', diagram: 'mermaid', graph: 'mermaid', csv: 'table', presentation: 'slides', md: 'markdown', py: 'python', '3d': 'three', webgl: 'three', p5: 'canvas', '2d': 'canvas', math: 'latex', katex: 'latex' };
 
 export function splitArtifacts(text) {
     const out = []; let last = 0; let m; RE.lastIndex = 0;
@@ -27,12 +27,12 @@ export function splitArtifacts(text) {
     return out;
 }
 
-const EXT = { html: 'html', svg: 'svg', markdown: 'md', code: 'txt', react: 'jsx', mermaid: 'mmd', chart: 'json', table: 'csv', slides: 'md', python: 'py' };
+const EXT = { html: 'html', svg: 'svg', markdown: 'md', code: 'txt', react: 'jsx', mermaid: 'mmd', chart: 'json', table: 'csv', slides: 'md', python: 'py', three: 'js', canvas: 'js', latex: 'tex', json: 'json' };
 const LANG_EXT = { python: 'py', javascript: 'js', typescript: 'ts', java: 'java', c: 'c', cpp: 'cpp', csharp: 'cs', go: 'go', rust: 'rs', php: 'php', ruby: 'rb', bash: 'sh', sql: 'sql', css: 'css', json: 'json', html: 'html', lua: 'lua', kotlin: 'kt', swift: 'swift' };
-export const ARTIFACT_ICON = { html: 'web', svg: 'draw', markdown: 'article', code: 'code', react: 'deployed_code', mermaid: 'account_tree', chart: 'bar_chart', table: 'table_chart', slides: 'slideshow', python: 'terminal' };
-export const ARTIFACT_LABEL = { html: 'Webseite', svg: 'Grafik', markdown: 'Dokument', code: 'Code', react: 'React-App', mermaid: 'Diagramm', chart: 'Diagramm', table: 'Tabelle', slides: 'Präsentation', python: 'Python (ausführbar)' };
+export const ARTIFACT_ICON = { html: 'web', svg: 'draw', markdown: 'article', code: 'code', react: 'deployed_code', mermaid: 'account_tree', chart: 'bar_chart', table: 'table_chart', slides: 'slideshow', python: 'terminal', three: 'view_in_ar', canvas: 'brush', latex: 'functions', json: 'data_object' };
+export const ARTIFACT_LABEL = { html: 'Webseite', svg: 'Grafik', markdown: 'Dokument', code: 'Code', react: 'React-App', mermaid: 'Diagramm', chart: 'Diagramm', table: 'Tabelle', slides: 'Präsentation', python: 'Python (ausführbar)', three: '3D-Szene', canvas: '2D-Canvas', latex: 'Mathe / LaTeX', json: 'JSON-Explorer' };
 const ICON = ARTIFACT_ICON;
-const LIVE = new Set(['html', 'svg', 'react', 'mermaid', 'chart', 'table', 'slides', 'python']); // brauchen ein iframe
+const LIVE = new Set(['html', 'svg', 'react', 'mermaid', 'chart', 'table', 'slides', 'python', 'three', 'canvas', 'latex', 'json']); // brauchen ein iframe
 const CDN = "https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com https://esm.sh https://cdn.tailwindcss.com";
 // Artefakte laufen im Sandbox-iframe ohne eigenen Ursprung. Erlaubt: CDNs + esm.sh (npm-Pakete), data:-Module
 // (Coden-Bundler), fetch zu https-APIs (Wetter, Kurse, …). Kein Zugriff auf Coden, Login oder Cookies.
@@ -96,6 +96,22 @@ async function boot(){py=await loadPyodide({stdout:function(t){w(t)},stderr:func
 async function run(){out.innerHTML='';btn.disabled=true;st.textContent='Läuft …';var t0=performance.now();try{await py.loadPackagesFromImports(src);if(/matplotlib/.test(src))py.runPython("import matplotlib\\nmatplotlib.use('AGG')\\nimport matplotlib.pyplot as plt, io, base64\\ndef _cs(*a, **k):\\n    b=io.BytesIO(); plt.savefig(b, format='png', bbox_inches='tight'); b.seek(0); _coden_img(base64.b64encode(b.read()).decode()); plt.clf()\\nplt.show=_cs");await py.runPythonAsync(src);st.textContent='Fertig in '+Math.round(performance.now()-t0)+' ms'}catch(e){w(String(e.message||e).split('\\n').slice(-6).join('\\n'),'e');st.textContent='Fehler'}btn.disabled=false}
 btn.onclick=run;boot().catch(function(e){st.textContent='Python konnte nicht geladen werden: '+e.message})})()<\/script>`);
 }
+function threeDoc(src) {
+    return page('three', `<style>html,body{height:100%;overflow:hidden;background:#0b0c10}canvas{display:block;width:100%;height:100%}</style><script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"><\/script><script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"><\/script>`,
+        `<script>${showErr}try{var scene=new THREE.Scene();scene.background=new THREE.Color(0x0b0c10);var camera=new THREE.PerspectiveCamera(60,innerWidth/innerHeight,0.1,1000);camera.position.set(0,2,5);var renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);document.body.appendChild(renderer.domElement);var controls=THREE.OrbitControls?new THREE.OrbitControls(camera,renderer.domElement):null;if(controls)controls.enableDamping=true;addEventListener('resize',function(){camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});var fn=new Function('THREE','scene','camera','renderer','controls',${js(src)}+';return typeof update==="function"?update:null;');var update=fn(THREE,scene,camera,renderer,controls);var last=performance.now();(function loop(now){requestAnimationFrame(loop);var dt=Math.min(0.05,(now-last)/1000);last=now;if(update)update(dt);if(controls)controls.update();renderer.render(scene,camera)})(last)}catch(e){__err(e.message)}<\/script>`);
+}
+function canvasDoc(src) {
+    return page('canvas', `<style>html,body{height:100%;overflow:hidden;background:#0b0c10}canvas{display:block;width:100%;height:100%;touch-action:none}</style>`,
+        `<canvas id="c"></canvas><script>${showErr}try{var canvas=document.getElementById('c'),ctx=canvas.getContext('2d'),width=innerWidth,height=innerHeight,pointer={x:width/2,y:height/2,down:false};function resize(){var dpr=Math.min(devicePixelRatio||1,2);width=innerWidth;height=innerHeight;canvas.width=width*dpr;canvas.height=height*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}resize();addEventListener('resize',resize);canvas.addEventListener('pointermove',function(e){pointer.x=e.clientX;pointer.y=e.clientY});canvas.addEventListener('pointerdown',function(e){pointer.down=true;pointer.x=e.clientX;pointer.y=e.clientY});addEventListener('pointerup',function(){pointer.down=false});var fn=new Function('canvas','ctx','pointer',${js(src)}+';return typeof draw==="function"?draw:null;');var draw=fn(canvas,ctx,pointer);var last=performance.now();if(draw){(function loop(now){requestAnimationFrame(loop);var dt=Math.min(0.05,(now-last)/1000);last=now;draw(dt,width,height)})(last)}}catch(e){__err(e.message)}<\/script>`);
+}
+function latexDoc(src) {
+    return page('latex', `<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"><style>body{max-width:780px;margin:0 auto;padding:32px 24px;font-size:17px;line-height:1.75;color:#111827;background:#fff}.katex-display{overflow-x:auto;padding:8px 0}</style><script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"><\/script><script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"><\/script><script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"><\/script>`,
+        `<div id="m"></div><script>${showErr}try{document.getElementById('m').innerHTML=marked.parse(${js(src)});renderMathInElement(document.getElementById('m'),{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false},{left:'\\\\[',right:'\\\\]',display:true},{left:'\\\\(',right:'\\\\)',display:false}],throwOnError:false})}catch(e){__err(e.message)}<\/script>`);
+}
+function jsonDoc(src) {
+    return page('json', `<style>body{background:#0b0c10;color:#e4e4e7;font:13.5px/1.55 ui-monospace,Menlo,Consolas,monospace;padding:16px}.bar{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}input{flex:1;min-width:160px;background:#18181b;color:#f4f4f5;border:1px solid #27272a;border-radius:8px;padding:7px 12px;font:inherit}button{background:#27272a;color:#f4f4f5;border:0;border-radius:8px;padding:7px 12px;cursor:pointer;font:12.5px Inter,system-ui,sans-serif}button:hover{background:#3f3f46}details{margin-left:16px}summary{cursor:pointer;list-style:none}summary::-webkit-details-marker{display:none}.k{color:#a1a1aa}.s{color:#a7f3d0}.n{color:#fde68a}.b{color:#fca5a5}.m{color:#71717a}</style>`,
+        `<div class="bar"><input id="q" placeholder="Schlüssel oder Wert filtern …"><button id="exp">Alle öffnen</button><button id="col">Alle schließen</button></div><div id="tree"></div><script>${showErr}try{var data=JSON.parse(${js(src)}),tree=document.getElementById('tree'),q=document.getElementById('q');function node(k,v,f){var s=JSON.stringify(v).toLowerCase();if(f&&String(k||'').toLowerCase().indexOf(f)<0&&s.indexOf(f)<0)return null;if(v&&typeof v==='object'){var isArr=Array.isArray(v),keys=Object.keys(v),d=document.createElement('details');d.open=keys.length<=12||!!f;var sum=document.createElement('summary');sum.innerHTML=(k!==null?'<span class="k">'+JSON.stringify(k)+'</span>: ':'')+'<span class="m">'+(isArr?'['+keys.length+']':'{'+keys.length+'}')+'</span>';d.appendChild(sum);keys.forEach(function(ck){var c=node(isArr?null:ck,v[ck],f);if(c)d.appendChild(c)});return d}var row=document.createElement('div');row.style.marginLeft='16px';var cls=typeof v==='string'?'s':typeof v==='number'?'n':typeof v==='boolean'?'b':'m';row.innerHTML=(k!==null?'<span class="k">'+JSON.stringify(k)+'</span>: ':'')+'<span class="'+cls+'">'+JSON.stringify(v)+'</span>';return row}function draw(){tree.innerHTML='';var r=node(null,data,q.value.trim().toLowerCase());if(r)tree.appendChild(r)}q.oninput=draw;document.getElementById('exp').onclick=function(){tree.querySelectorAll('details').forEach(function(d){d.open=true})};document.getElementById('col').onclick=function(){tree.querySelectorAll('details').forEach(function(d){d.open=false})};draw()}catch(e){__err('JSON ungültig: '+e.message)}<\/script>`);
+}
 export function previewDoc(item) {
     const meta = `<meta http-equiv="Content-Security-Policy" content="${cspFor(item.type)}">`;
     if (item.type === 'react') return reactDoc(item.body);
@@ -104,6 +120,10 @@ export function previewDoc(item) {
     if (item.type === 'table') return tableDoc(item.body);
     if (item.type === 'slides') return slidesDoc(item.body);
     if (item.type === 'python') return pythonDoc(item.body);
+    if (item.type === 'three') return threeDoc(item.body);
+    if (item.type === 'canvas') return canvasDoc(item.body);
+    if (item.type === 'latex') return latexDoc(item.body);
+    if (item.type === 'json') return jsonDoc(item.body);
     if (item.type === 'svg') return `<!doctype html><html><head><meta charset="utf-8">${meta}${SHIM}<style>html,body{margin:0;height:100%;display:flex;align-items:center;justify-content:center;background:#fff}svg{max-width:100%;max-height:100%}</style></head><body>${item.body}</body></html>`;
     const html = item.body.includes('<head') ? item.body.replace(/<head([^>]*)>/i, `<head$1>${meta}${SHIM}`) : `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${meta}${SHIM}</head><body>${item.body}</body></html>`;
     // <script type="module"> mit import (three, npm-Pakete, …) läuft über den Coden-Bundler

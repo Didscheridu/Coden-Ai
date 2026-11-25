@@ -1,27 +1,27 @@
 :root {
-    --bg-main: #0b0d12;       /* Deep Slate-Ink Canvas */
-    --bg-sidebar: #0e1118;    /* Subtle Sidebar Contrast */
-    --bg-input: #12151e;      /* Eingabefeld */
-    --bg-surface: #131722;    /* Karten, Popovers */
-    --bg-surface-hover: #1a2030;
-    --bg-code: #080a0f;       /* Code-Blöcke */
+    --bg-main: #09090b;       /* Tiefes Zinc-Schwarz */
+    --bg-sidebar: #0e0f12;    /* Dunkles Graphit */
+    --bg-input: #141519;      /* Eingabefeld */
+    --bg-surface: #18191f;    /* Karten, Popovers */
+    --bg-surface-hover: #22242c;
+    --bg-code: #070709;       /* Code-Blöcke */
 
-    --text-primary: #f1f5f9;
-    --text-secondary: #94a3b8;
-    --text-muted: #64748b;
+    --text-primary: #f4f4f5;
+    --text-secondary: #a1a1aa;
+    --text-muted: #71717a;
 
-    --border-color: #222836;
-    --border-strong: #343d52;
-    --hairline: #1e2432;
+    --border-color: #27272a;
+    --border-strong: #3f3f46;
+    --hairline: #1f1f23;
 
-    --accent-blue: #3b82f6;   /* Primär-Akzent: Cobalt Blue */
-    --accent-blue-strong: #2563eb;
-    --accent-blue-soft: rgba(59, 130, 246, 0.14);
-    --accent-amber: #f97316;  /* Zweit-Akzent: Warm Coral */
-    --accent-amber-soft: rgba(249, 115, 22, 0.14);
+    --accent-blue: #e4e4e7;   /* Primär-Akzent: Crisp Silver */
+    --accent-blue-strong: #ffffff;
+    --accent-blue-soft: rgba(244, 244, 245, 0.10);
+    --accent-amber: #d6d3d1;  /* Zweit-Akzent: Warm Stone */
+    --accent-amber-soft: rgba(214, 211, 209, 0.12);
     --accent-green: #22c55e;
     --accent-red: #ef4444;
-    --accent-purple: #3b82f6;
+    --accent-purple: #a1a1aa;
 
     --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;

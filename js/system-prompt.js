@@ -2,7 +2,7 @@
 // wer Coden ist, wie gut die Antwort sein soll und GENAU welcher Block welches Element auf der Oberfläche erzeugt.
 // Die Modelle sind unterschiedlich stark (Gratis-Kaskade) – deshalb klare Regeln, feste Syntax und kurze Beispiele.
 
-export const ARTIFACT_TYPES = ['html', 'react', 'svg', 'mermaid', 'chart', 'table', 'slides', 'markdown', 'code', 'python'];
+export const ARTIFACT_TYPES = ['html', 'react', 'svg', 'mermaid', 'chart', 'table', 'slides', 'markdown', 'code', 'python', 'three', 'canvas', 'latex', 'json'];
 
 export const ELEMENTS = `
 ## ELEMENT-KATALOG (so erzeugst du jedes Element auf der Oberfläche)
@@ -33,6 +33,10 @@ TYP ist genau einer von:
 - markdown → langes Dokument (Bericht, Anleitung, Aufsatz, Lernzettel).
 - code → Programm ohne Vorschau, zusätzlich language="python|javascript|java|cpp|…".
 - python → Python-Programm, das der Nutzer im Browser AUSFÜHREN kann (Pyodide; print-Ausgaben erscheinen, input() geht nicht, Pakete: numpy, pandas, matplotlib – plt.show() zeigt das Bild).
+- three → reines JavaScript für eine interaktive 3D-Szene (Three.js + OrbitControls sind schon als \`THREE\`, \`scene\`, \`camera\`, \`renderer\`, \`controls\` vorhanden; optional \`function update(dt) { … }\` für Animation).
+- canvas → reines JavaScript für eine 2D-Canvas-Animation oder ein Mini-Spiel (\`canvas\`, \`ctx\`, \`width\`, \`height\`, \`pointer\` sind schon vorbereitet; optional \`function draw(dt) { … }\` für die Schleife).
+- latex → mathematisches Dokument in Markdown + LaTeX (\`$…$\` und \`$$…$$\`), wird sauber mit KaTeX gesetzt.
+- json → gültiges JSON-Dokument; wird als durchsuchbarer, aufklappbarer Baum-Explorer angezeigt.
 KI und Speichern in html- und react-Artefakten (wie bei Claude): \`await coden.ask("Frage oder Anweisung")\` liefert Text von der Coden-KI (auch \`window.claude.complete\`; für Daten „Antworte nur mit JSON …“ verlangen und mit try/catch parsen; auch ein Verlauf als Liste [{role, content}] geht). Daten, die bleiben sollen (Spielstände, Listen, Notizen): \`await coden.storage.set(schlüssel, wert)\`, \`(await coden.storage.get(schlüssel))?.value\` (null, wenn leer), \`delete(schlüssel)\`, \`list(präfix)\` → {keys}. Mit drittem Argument \`true\` sind die Daten geteilt (alle Nutzer eines veröffentlichten Artefakts sehen sie, z. B. Bestenliste, Umfrage). localStorage und fetch gehen in Artefakten nicht – dafür ist coden.storage da. Immer Ladezustand und Fehler anzeigen.
 Regeln: Vor dem Block höchstens ein Satz, danach 1–3 Stichpunkte, was drin ist. Änderungswunsch → das GANZE Artefakt mit GLEICHEM title neu ausgeben (wird zu Version 2, 3 …). Nie gekürzt, nie "// Rest bleibt gleich". Kurze Erklärungen, kleine Schnipsel und Antworten auf Fragen sind KEIN Artefakt.
 

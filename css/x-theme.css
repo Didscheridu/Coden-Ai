@@ -1,46 +1,99 @@
-/* css/x-theme.css – Coden AI Studio Design System:
-   Deep Slate-Ink (#0b0d12), Cobalt Blue (#2563eb / #3b82f6) + Warm Coral (#f97316),
-   fluide Skalierung für alle Bildschirmgrößen (320px bis Ultrawide),
-   garantierter Button-Kontrast, 2x2-Starter-Grid & 60fps Mikro-Interaktionen. */
+/* css/x-theme.css – Coden AI Monochrome Studio Design System:
+   Abgestufte Schwarz- & Grautöne (#09090b, #0e0f12, #18191f, #27272a, #f4f4f5),
+   kontextabhängiges Layout-Scaling (Chat / Split-Artefakt / Vollansicht),
+   garantierter Viewport-Schutz (niemals außerhalb des Bildschirms) & 60fps-Animationen. */
 
 :root {
-  --x-bg: #0b0d12;
-  --x-sidebar: #0e1118;
-  --x-surface: #131722;
-  --x-surface-hover: #1a2030;
-  --x-border: #222836;
-  --x-border-strong: #343d52;
-  --x-text: #f1f5f9;
-  --x-muted: #7c8aa0;
-  --x-accent: #2563eb;
-  --x-accent-light: #3b82f6;
-  --x-accent-hover: #3b82f6;
-  --x-coral: #f97316;
-  --x-coral-soft: rgba(249, 115, 22, 0.14);
-  --x-ink-on-accent: #ffffff;
-  --grad-brand: #3b82f6;
-  --glass: rgba(11, 13, 18, 0.88);
-  --shadow-lg: 0 14px 40px rgba(0, 0, 0, 0.62);
-  --sb-w: clamp(236px, 18vw, 276px);
+  --x-bg: #09090b;
+  --x-sidebar: #0e0f12;
+  --x-surface: #18191f;
+  --x-surface-hover: #22242c;
+  --x-border: #27272a;
+  --x-border-strong: #3f3f46;
+  --x-text: #f4f4f5;
+  --x-muted: #71717a;
+  --x-accent: #f4f4f5;
+  --x-accent-hover: #d4d4d8;
+  --x-stone: #d6d3d1;
+  --x-stone-soft: rgba(214, 211, 209, 0.12);
+  --x-ink-on-accent: #09090b;
+  --grad-brand: #e4e4e7;
+  --glass: rgba(9, 9, 11, 0.88);
+  --shadow-lg: 0 14px 40px rgba(0, 0, 0, 0.7);
+  --sb-w: clamp(230px, 18vw, 272px);
   --col: min(820px, 100%);
-  --gutter: clamp(14px, 3vw, 36px);
+  --gutter: clamp(12px, 3vw, 32px);
   --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* ---------- Grundfläche & Fluide Typografie ---------- */
+/* ---------- Strikter Viewport-Schutz (niemals horizontal überlaufen) ---------- */
 html,
 body,
 .app-container,
 .main-content,
-.view-host {
+.view-host,
+.chat-scroll-area,
+.input-section {
   background: var(--x-bg) !important;
   color: var(--x-text);
   font-family: var(--font-main);
+  max-width: 100%;
+  overflow-x: hidden !important;
+}
+
+.app-container {
+  width: 100vw;
+  height: 100dvh;
+  display: flex;
+}
+
+.main-content,
+.view-host,
+.chat-scroll-area,
+.input-section,
+.input-box,
+.message,
+.message-row {
+  min-width: 0 !important;
 }
 
 body {
   font-size: clamp(14.5px, 0.25vw + 13.8px, 16px);
   line-height: 1.55;
+}
+
+/* ---------- Kontextabhängiges Layout-Scaling je nach aktiver Funktion ---------- */
+/* 1. Chat + geöffnetes Artefakt-Fenster (Split-View) */
+@media (min-width: 901px) {
+  .app-container:has(.artifact-panel.open) .main-content {
+    flex: 1 1 0% !important;
+    min-width: 340px !important;
+  }
+  .app-container:has(.artifact-panel.open) .artifact-panel.open {
+    max-width: 58vw !important;
+    min-width: 340px !important;
+  }
+}
+@media (max-width: 900px) {
+  .artifact-panel.open {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100dvh !important;
+    z-index: 950 !important;
+  }
+}
+
+/* 2. Vollansichten (Apps, Artefakte, Projekte, Buddy, Konnektoren) */
+.view-host:not(.hidden) {
+  flex: 1 1 0% !important;
+  width: 100%;
+  min-width: 0;
+  height: 100dvh;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  padding: var(--gutter) !important;
 }
 
 /* ---------- Boot-Overlay ---------- */
@@ -65,19 +118,20 @@ body {
 }
 .db-boot-ring {
   border: 2px solid var(--x-border) !important;
-  border-top-color: var(--x-accent-light) !important;
+  border-top-color: var(--x-text) !important;
 }
 .db-boot-ring-inner {
   display: none !important;
 }
 .db-boot-dots span {
-  background: var(--x-accent-light) !important;
+  background: var(--x-stone) !important;
 }
 
 /* ---------- Login-Screen ---------- */
 .login-screen {
   background: var(--x-bg) !important;
   padding: clamp(16px, 4vw, 36px) !important;
+  overflow-y: auto !important;
 }
 
 .x-login-shell {
@@ -100,7 +154,7 @@ body {
 .x-login-mark {
   width: min(240px, 26vw);
   height: auto;
-  color: var(--x-accent-light);
+  color: var(--x-text);
 }
 
 .x-login-brand-tag {
@@ -108,9 +162,9 @@ body {
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--x-coral);
-  background: var(--x-coral-soft);
-  border: 1px solid rgba(249, 115, 22, 0.3);
+  color: var(--x-stone);
+  background: var(--x-stone-soft);
+  border: 1px solid var(--x-border-strong);
   padding: 5px 14px;
   border-radius: 9999px;
 }
@@ -132,7 +186,7 @@ body {
   width: 40px;
   height: 40px;
   margin-bottom: 20px;
-  color: var(--x-accent-light);
+  color: var(--x-text);
 }
 
 .x-login-title {
@@ -147,7 +201,7 @@ body {
 
 .login-box .btn-google {
   background: #ffffff !important;
-  color: #0f172a !important;
+  color: #09090b !important;
   border: 1px solid #ffffff !important;
   border-radius: 9999px !important;
   height: 44px;
@@ -156,7 +210,7 @@ body {
   font-weight: 700 !important;
 }
 .login-box .btn-google:hover {
-  background: #e2e8f0 !important;
+  background: #e4e4e7 !important;
 }
 
 .login-box .auth-divider {
@@ -182,9 +236,9 @@ body {
   font-size: 15px !important;
 }
 .login-box .settings-input:focus {
-  border-color: var(--x-accent-light) !important;
+  border-color: var(--x-stone) !important;
   outline: none !important;
-  box-shadow: 0 0 0 1px var(--x-accent-light) !important;
+  box-shadow: 0 0 0 1px var(--x-stone) !important;
 }
 .login-box .settings-input::placeholder {
   color: var(--x-muted) !important;
@@ -221,7 +275,7 @@ body {
 }
 .login-box #btn-email-register:hover {
   background: var(--x-surface-hover) !important;
-  border-color: var(--x-accent-light) !important;
+  border-color: var(--x-stone) !important;
 }
 
 .x-login-legal {
@@ -297,11 +351,11 @@ body {
 }
 .sb-item.active {
   font-weight: 700 !important;
-  background: rgba(59, 130, 246, 0.12) !important;
-  color: #93c5fd !important;
+  background: var(--x-surface-hover) !important;
+  color: var(--x-text) !important;
 }
 .sb-item.active .material-symbols-outlined {
-  color: var(--x-accent-light) !important;
+  color: var(--x-text) !important;
 }
 
 .sb-item.new-chat-btn {
@@ -342,7 +396,7 @@ body {
   color: var(--x-text) !important;
 }
 .sb-search input:focus {
-  border-color: var(--x-accent-light) !important;
+  border-color: var(--x-stone) !important;
   background: var(--x-bg) !important;
 }
 
@@ -374,14 +428,15 @@ body {
   background: var(--x-surface-hover) !important;
 }
 .uc-avatar {
-  background: var(--x-accent) !important;
-  color: var(--x-ink-on-accent) !important;
-  font-weight: 800 !important;
+  background: var(--x-surface-hover) !important;
+  border: 1px solid var(--x-border-strong) !important;
+  color: var(--x-text) !important;
+  font-weight: 700 !important;
 }
 
 /* ---------- Top-Bar ---------- */
 .top-bar {
-  background: rgba(11, 13, 18, 0.86) !important;
+  background: rgba(9, 9, 11, 0.88) !important;
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--x-border) !important;
   height: clamp(50px, 6vh, 58px) !important;
@@ -393,9 +448,9 @@ body {
   letter-spacing: -0.01em !important;
 }
 #owner-badge {
-  background: var(--x-coral-soft) !important;
-  color: var(--x-coral) !important;
-  border: 1px solid rgba(249, 115, 22, 0.3) !important;
+  background: var(--x-stone-soft) !important;
+  color: var(--x-stone) !important;
+  border: 1px solid var(--x-border-strong) !important;
   border-radius: 9999px !important;
   padding: 2px 9px !important;
   font-size: 11px !important;
@@ -457,15 +512,12 @@ body {
   border-color: var(--x-border-strong) !important;
 }
 .x-starter-grid .chip.chip-accent {
-  border-color: rgba(59, 130, 246, 0.45) !important;
+  border-color: var(--x-border-strong) !important;
 }
 .x-starter-grid .chip .material-symbols-outlined {
-  color: var(--x-accent-light) !important;
+  color: var(--x-stone) !important;
   font-size: 21px !important;
   flex-shrink: 0;
-}
-.x-starter-grid .chip[data-prompt*="Fehler"] .material-symbols-outlined {
-  color: var(--x-coral) !important;
 }
 .chip-copy {
   display: flex;
@@ -505,7 +557,7 @@ body {
   box-shadow: none !important;
 }
 .input-box:focus-within {
-  border-color: var(--x-accent-light) !important;
+  border-color: var(--x-border-strong) !important;
 }
 .input-box textarea {
   color: var(--x-text) !important;
@@ -541,10 +593,10 @@ body {
 }
 .live-pill-btn:hover {
   background: var(--x-surface-hover) !important;
-  border-color: var(--x-coral) !important;
+  border-color: var(--x-border-strong) !important;
 }
 .live-pill-btn .material-symbols-outlined {
-  color: var(--x-coral) !important;
+  color: var(--x-stone) !important;
 }
 
 .text-btn#model-selector-btn {
@@ -557,7 +609,7 @@ body {
   color: var(--x-text) !important;
 }
 
-/* ---------- Chat-Nachrichten (optimale Lesebreite auf allen Monitoren) ---------- */
+/* ---------- Chat-Nachrichten ---------- */
 .chat-scroll-area {
   padding-left: var(--gutter) !important;
   padding-right: var(--gutter) !important;
@@ -589,9 +641,22 @@ pre.hljs,
   background: var(--bg-code) !important;
   border: 1px solid var(--x-border) !important;
   border-radius: 12px !important;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
-/* ---------- Popovers, Menüs, Modals & Karten ---------- */
+/* ---------- Popovers, Menüs, Modals & Viewport-Clamping ---------- */
+.cm-panel,
+.user-menu,
+.model-dropdown-menu,
+.command-popup,
+.composer-tools-menu,
+.tb-more-menu {
+  max-width: calc(100vw - 16px) !important;
+  max-height: min(72dvh, calc(100dvh - 16px)) !important;
+  overflow-y: auto !important;
+}
+
 .cm-panel,
 .user-menu,
 .model-dropdown-menu,
@@ -605,7 +670,7 @@ pre.hljs,
   box-shadow: var(--shadow-lg) !important;
 }
 .modal-overlay {
-  background: rgba(5, 7, 12, 0.74) !important;
+  background: rgba(5, 5, 7, 0.76) !important;
   backdrop-filter: none !important;
 }
 .modal-header,
@@ -679,7 +744,7 @@ textarea.settings-input {
   color: var(--x-text) !important;
 }
 .settings-input:focus {
-  border-color: var(--x-accent-light) !important;
+  border-color: var(--x-stone) !important;
 }
 
 /* ---------- Sub-Views (Apps, Artefakte, Buddy, Projekte, Konnektoren) ---------- */
@@ -736,9 +801,10 @@ textarea.settings-input {
 /* ---------- Ruhiger DB-Hinweis ---------- */
 .db-banner {
   background: var(--x-surface) !important;
-  border: 1px solid var(--x-coral) !important;
+  border: 1px solid var(--x-border-strong) !important;
   border-radius: 12px !important;
   color: var(--x-text) !important;
+  max-width: calc(100vw - 24px) !important;
 }
 
 /* ---------- Smoothe Motion & Taktile Mikro-Interaktionen (Compositor-only) ---------- */
@@ -853,7 +919,7 @@ button:not(:disabled):active,
   margin-left: 4px;
   vertical-align: -2px;
   border-radius: 2px;
-  background: var(--x-accent-light);
+  background: var(--x-stone);
   animation: x-cursor-blink 900ms ease-in-out infinite;
 }
 

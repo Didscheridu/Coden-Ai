@@ -108,17 +108,36 @@ export function closeAll() {
     for (const r of roots) r.close();
 }
 // Verbindet einen Knopf mit einem Menü (Element mit Klasse cm-panel): auf/zu, außerhalb klicken, Esc, Pfeiltasten.
+function clampPanel(menu) {
+    if (!menu) return;
+    menu.style.maxWidth = 'calc(100vw - 16px)';
+    menu.style.maxHeight = 'min(72dvh, calc(100dvh - 16px))';
+    menu.style.overflowY = 'auto';
+    menu.style.transform = '';
+    requestAnimationFrame(() => {
+        if (!menu.isConnected || menu.classList.contains('hidden')) return;
+        const r = menu.getBoundingClientRect();
+        const vw = window.innerWidth, vh = window.innerHeight;
+        let dx = 0, dy = 0;
+        if (r.right > vw - 8) dx = (vw - 8) - r.right;
+        if (r.left + dx < 8) dx = 8 - r.left;
+        if (r.bottom > vh - 8) dy = (vh - 8) - r.bottom;
+        if (r.top + dy < 8) dy = 8 - r.top;
+        if (dx || dy) menu.style.transform = `translate3d(${Math.round(dx)}px, ${Math.round(dy)}px, 0)`;
+    });
+}
 export function bindMenu(btn, menu, { onOpen, onClose } = {}) {
     if (!btn || !menu) return null;
     const ctl = {
         get open() { return !menu.classList.contains('hidden'); },
-        show() { closeAll(); onOpen?.(menu); menu.classList.remove('hidden'); btn.setAttribute('aria-expanded', 'true'); btn.classList.add('open'); },
+        show() { closeAll(); onOpen?.(menu); menu.classList.remove('hidden'); btn.setAttribute('aria-expanded', 'true'); btn.classList.add('open'); clampPanel(menu); },
         close() { if (!ctl.open) return; menu.classList.add('hidden'); btn.setAttribute('aria-expanded', 'false'); btn.classList.remove('open'); closeSubs(0); onClose?.(); },
         toggle() { ctl.open ? ctl.close() : ctl.show(); }
     };
     roots.add(ctl);
     btn.setAttribute('aria-haspopup', 'menu'); btn.setAttribute('aria-expanded', 'false');
     btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); ctl.toggle(); });
+    window.addEventListener('resize', () => { if (ctl.open) clampPanel(menu); }, { passive: true });
     // Einträge ohne eigenes Untermenü schließen das Menü nach dem Klick
     menu.addEventListener('click', (e) => { const it = e.target.closest('.cm-item'); if (it && it.getAttribute('aria-haspopup') !== 'menu' && !it.dataset.keep) setTimeout(() => closeAll(), 0); });
     return ctl;
