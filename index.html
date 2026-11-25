@@ -7,7 +7,8 @@
     <link rel="icon" href="./images/coden_logo.jpg" type="image/jpeg">
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="apple-touch-icon" href="/images/coden_logo.jpg">
-    <meta name="theme-color" content="#F9F8F6">
+    <meta name="theme-color" content="#09090B" id="meta-theme-color">
+    <script>(function(){var t=localStorage.getItem('coden_theme')||'dark';document.documentElement.dataset.theme=t;var m=document.getElementById('meta-theme-color');if(m)m.content=t==='light'?'#F9F8F6':'#09090B';})();</script>
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Coden">
     
@@ -218,6 +219,7 @@
                     <div id="user-email-display" class="cm-head"></div>
                     <button type="button" class="cm-item" id="open-settings-btn" role="menuitem"><span class="material-symbols-outlined cm-ic">settings</span><span class="cm-label">Einstellungen</span><span class="cm-kbd" data-kbd="Strg+,">Strg+,</span></button>
                     <button type="button" class="cm-item" id="um-usage" role="menuitem"><span class="material-symbols-outlined cm-ic">data_usage</span><span class="cm-label">Nutzung</span></button>
+                    <button type="button" class="cm-item" id="um-theme" role="menuitem" data-keep="1"><span class="material-symbols-outlined cm-ic" id="um-theme-icon">light_mode</span><span class="cm-label" id="um-theme-label">Hell-Modus</span></button>
                     <button type="button" class="cm-item" id="um-skills" role="menuitem"><span class="material-symbols-outlined cm-ic">auto_awesome</span><span class="cm-label">Skills</span></button>
                     <button type="button" class="cm-item" id="um-help" role="menuitem"><span class="material-symbols-outlined cm-ic">help</span><span class="cm-label">Hilfe &amp; Tastenkürzel</span><span class="cm-kbd" data-kbd="Strg+/">Strg+/</span></button>
                     <button type="button" class="cm-item" id="um-more" role="menuitem" aria-haspopup="menu"><span class="material-symbols-outlined cm-ic">info</span><span class="cm-label">Mehr erfahren</span><span class="material-symbols-outlined cm-chev">chevron_right</span></button>
@@ -243,6 +245,9 @@
                     </div>
                 </div>
                 <div class="tb-right">
+                    <button type="button" class="icon-btn" id="theme-toggle-btn" title="Design wechseln (Hell / Dunkel)" aria-label="Design wechseln">
+                        <span class="material-symbols-outlined" id="theme-toggle-icon">light_mode</span>
+                    </button>
                     <div class="tb-more-wrap">
                         <button type="button" class="icon-btn" id="tb-more-btn" title="Chat-Optionen" aria-label="Chat-Optionen" aria-haspopup="true" aria-expanded="false">
                             <span class="material-symbols-outlined">more_horiz</span>
@@ -546,5 +551,29 @@
     <script src="shared/upload-check.js"></script>
     <script src="js/vendor/qrcode.js"></script>
     <script type="module" src="js/app.js"></script>
+    <script>
+      (function () {
+        function syncThemeUi(t) {
+          var isLight = t === 'light';
+          document.documentElement.dataset.theme = isLight ? 'light' : 'dark';
+          var m = document.getElementById('meta-theme-color');
+          if (m) m.content = isLight ? '#F9F8F6' : '#09090B';
+          var ti = document.getElementById('theme-toggle-icon');
+          if (ti) ti.textContent = isLight ? 'dark_mode' : 'light_mode';
+          var ui = document.getElementById('um-theme-icon');
+          if (ui) ui.textContent = isLight ? 'dark_mode' : 'light_mode';
+          var ul = document.getElementById('um-theme-label');
+          if (ul) ul.textContent = isLight ? 'Dunkel-Modus' : 'Hell-Modus';
+        }
+        function toggleTheme() {
+          var next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+          try { localStorage.setItem('coden_theme', next); } catch (_) {}
+          syncThemeUi(next);
+        }
+        syncThemeUi(localStorage.getItem('coden_theme') || 'dark');
+        document.getElementById('theme-toggle-btn')?.addEventListener('click', toggleTheme);
+        document.getElementById('um-theme')?.addEventListener('click', toggleTheme);
+      })();
+    </script>
 </body>
 </html>
