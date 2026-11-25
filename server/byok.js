@@ -194,17 +194,60 @@ async function listKeys(uid) {
 }
 
 async function allocUniqueShortDoc(collection, buildDoc) {
+  let denied = 0;
   for (let i = 0; i < 8; i++) {
     const id = 10_000_000 + crypto.randomInt(0, 900_000_000);
     const doc = buildDoc(id);
     try {
       return await db.createDoc(`${collection}/${id}`, doc);
     } catch (e) {
-      if (e.code === 'ALREADY_EXISTS' || e.code === 'PERMISSION_DENIED') continue;
+      if (e.code === 'PERMISSION_DENIED') { denied++; continue; } // auch bei belegter fremder ID
+      if (e.code === 'ALREADY_EXISTS') continue;
       throw e;
     }
   }
+  // Immer abgelehnt: dann liegt es an den Firestore-Regeln, nicht an der ID
+  if (denied === 8) throw fail(403, `Firebase lehnt das Speichern ab (Firestore-Regeln). Bitte die aktuelle firestore.rules in der Firebase-Konsole veröffentlichen${collection === 'user_models' ? ' oder die Neon-Datenbank einrichten' : ''}.`);
   throw fail(500, 'Konnte keine ID vergeben.');
+}
+
+// ---------- Eigene Modelle: Firestore (user_models) oder Neon (byok_models) ----------
+// Modelle der Anbieter, deren Keys in Neon liegen (NEON_BYOK_PROVIDERS, Standard OrcaRouter), kommen auch nach Neon.
+// So hängen sie nicht an den Firestore-Regeln. IDs sind in beiden Speichern Zahlen aus demselben Bereich.
+const NEON_MODELS = 'byok_models';
+const fromNeon = (r) => ({ id: Number(r.id), uid: r.uid, provider: r.provider, model_id: r.model_id, label: r.label, levels: Array.isArray(r.levels) ? r.levels : [], default_level: r.default_level ?? null, _neon: true });
+const neonRows = (filters) => (neon.isConfigured()
+  ? neon.select(NEON_MODELS, filters).catch((e) => { console.error('[byok] Neon lesen:', e.message); return []; })
+  : Promise.resolve([]));
+async function getModel(id) {
+  if (!Number.isFinite(id)) return null;
+  const rows = await neonRows({ id });
+  if (rows[0]) return fromNeon(rows[0]);
+  return db.getDoc(`user_models/${id}`);
+}
+async function listModels(uid) {
+  const [fsModels, nModels] = await Promise.all([db.runQuery('user_models', { where: [['uid', '==', uid]] }), neonRows({ uid })]);
+  return [...fsModels, ...nModels.map(fromNeon)].sort((a, b) => a.id - b.id);
+}
+async function createModel(doc) {
+  if (!inNeon(doc.provider)) return allocUniqueShortDoc('user_models', (id) => ({ id, ...doc }));
+  for (let i = 0; i < 8; i++) {
+    const id = 10_000_000 + crypto.randomInt(0, 900_000_000);
+    if (await db.getDoc(`user_models/${id}`).catch(() => null)) continue; // ID schon in Firestore vergeben
+    let row;
+    try { row = await neon.insert(NEON_MODELS, { id, ...doc }, ['id']); } catch (e) { throw neonFail(e); }
+    if (row) return fromNeon(row);
+  }
+  throw fail(500, 'Konnte keine ID vergeben.');
+}
+async function updateModel(m, patch) {
+  if (!m._neon) return db.updateDoc(`user_models/${m.id}`, patch);
+  const row = { id: m.id, uid: m.uid, provider: m.provider, model_id: m.model_id, label: m.label, levels: m.levels, default_level: m.default_level, ...patch };
+  try { await neon.upsert(NEON_MODELS, row, ['id']); } catch (e) { throw neonFail(e); }
+}
+async function deleteModel(m) {
+  if (!m._neon) return db.deleteDoc(`user_models/${m.id}`);
+  try { await neon.remove(NEON_MODELS, { id: m.id }); } catch (e) { throw neonFail(e); }
 }
 
 // ---------- Zugriff ----------
@@ -217,7 +260,7 @@ async function keyOf(uid, provider) {
 // "byok:<id>" -> { provider, id (Modell-ID beim Anbieter), apiKey, levels, defaultLevel, label }
 async function resolve(uid, tier) {
   if (!isByok(tier)) throw fail(400, 'Ungültiges Modell.');
-  const m = await db.getDoc(`user_models/${parseInt(tier.slice(5), 10)}`);
+  const m = await getModel(parseInt(tier.slice(5), 10));
   if (!m || m.uid !== uid) throw fail(404, 'Dieses eigene Modell gibt es nicht mehr. Wähle ein anderes Modell.');
   const apiKey = await keyOf(uid, m.provider);
   if (!apiKey) throw fail(400, `Für ${PROVIDERS[m.provider]?.name || m.provider} ist kein API-Key hinterlegt (Einstellungen → Eigene Modelle).`);
@@ -258,7 +301,7 @@ async function freeOfQuota(uid, tier) {
 // Gehört das Modell/die Kette diesem Nutzer? (für Anfragen mit frei wählbarer Stufe)
 async function owns(uid, tier) {
   if (isByok(tier)) {
-    const m = await db.getDoc(`user_models/${parseInt(tier.slice(5), 10)}`);
+    const m = await getModel(parseInt(tier.slice(5), 10));
     return !!m && m.uid === uid;
   }
   if (isChain(tier)) {
@@ -270,7 +313,7 @@ async function owns(uid, tier) {
 // Anzeigenamen aller eigenen Modelle/Ketten (für die Agenten-Anzeige)
 async function labels(uid) {
   const out = {};
-  const models = await db.runQuery('user_models', { where: [['uid', '==', uid]] });
+  const models = await listModels(uid);
   const chains = await db.runQuery('user_chains', { where: [['uid', '==', uid]] });
   for (const m of models) out['byok:' + m.id] = m.label;
   for (const c of chains) out['chain:' + c.id] = c.name;
@@ -287,7 +330,7 @@ async function getAgentConfig(uid) {
 }
 async function setAgentConfig(uid, b = {}) {
   const [models, chains] = await Promise.all([
-    db.runQuery('user_models', { where: [['uid', '==', uid]] }),
+    listModels(uid),
     db.runQuery('user_chains', { where: [['uid', '==', uid]] })
   ]);
   const mine = new Set([...models.map(m => 'byok:' + m.id), ...chains.map(c => 'chain:' + c.id)]);
@@ -308,7 +351,7 @@ async function setAgentConfig(uid, b = {}) {
 async function overview(uid) {
   const [keys, models, chains] = await Promise.all([
     listKeys(uid),
-    db.runQuery('user_models', { where: [['uid', '==', uid]], orderBy: 'id' }),
+    listModels(uid),
     db.runQuery('user_chains', { where: [['uid', '==', uid]], orderBy: 'id' })
   ]);
   const have = new Map(keys.map(k => [k.provider, k.hint]));
@@ -411,14 +454,13 @@ function byokRouter(requireAuth) {
     const label = (typeof b.label === 'string' && b.label.trim() ? b.label.trim() : modelId).slice(0, 60);
     const levels = LEVELS.filter(l => Array.isArray(b.levels) && b.levels.includes(l)); // in fester Reihenfolge, nur bekannte Stufen
     const def = levels.includes(b.defaultLevel) ? b.defaultLevel : (levels.includes('medium') ? 'medium' : levels[0] || null);
-    const mine = await db.runQuery('user_models', { where: [['uid', '==', req.user.uid]] });
+    const mine = await listModels(req.user.uid);
     const known = mine.find(m => m.provider === p && m.model_id === modelId);
     if (known) {
-      await db.updateDoc(`user_models/${known.id}`, { label, levels, default_level: def });
+      await updateModel(known, { label, levels, default_level: def });
     } else {
       if (mine.length >= MAX_MODELS) throw fail(400, `Du kannst höchstens ${MAX_MODELS} eigene Modelle anlegen.`);
-      await allocUniqueShortDoc('user_models', (id) => ({
-        id,
+      await createModel({
         uid: req.user.uid,
         provider: p,
         model_id: modelId,
@@ -426,16 +468,16 @@ function byokRouter(requireAuth) {
         levels,
         default_level: def,
         created_at: db.nowIso()
-      }));
+      });
     }
     res.json(await overview(req.user.uid));
   });
 
   r.delete('/models/:id', async (req, res) => {
     const id = parseInt(req.params.id, 10); if (!Number.isFinite(id)) throw fail(400, 'Ungültig.');
-    const existing = await db.getDoc(`user_models/${id}`);
+    const existing = await getModel(id);
     if (existing && existing.uid === req.user.uid) {
-      await db.deleteDoc(`user_models/${id}`);
+      await deleteModel(existing);
     }
     const chains = await db.runQuery('user_chains', { where: [['uid', '==', req.user.uid]] });
     const tag = 'byok:' + id;
@@ -453,7 +495,7 @@ function byokRouter(requireAuth) {
     if (!name) throw fail(400, 'Gib der Kette einen Namen.');
     const members = [...new Set(Array.isArray(b.members) ? b.members.filter(m => BUILTIN[m] || isByok(m)) : [])].slice(0, MAX_CHAIN_LEN);
     if (!members.length) throw fail(400, 'Eine Kette braucht mindestens ein Modell.');
-    const myModels = await db.runQuery('user_models', { where: [['uid', '==', req.user.uid]] });
+    const myModels = await listModels(req.user.uid);
     const mine = new Set(myModels.map(m => 'byok:' + m.id));
     if (members.some(m => isByok(m) && !mine.has(m))) throw fail(400, 'Die Kette enthält ein unbekanntes Modell.');
     const id = parseInt(b.id, 10);

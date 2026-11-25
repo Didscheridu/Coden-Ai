@@ -48,10 +48,30 @@ const { setup, root } = require('./helpers');
     seen.push({ url: u, headers: opts.headers || {} });
     return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: 'Hallo aus Neon' } }] })}\n\ndata: [DONE]\n\n`, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
   };
-  const m = (await call('/byok/models', { provider: 'orcarouter', modelId: 'orcarouter/free', levels: ['low'] }, anna)).j.models.find(x => x.provider === 'orcarouter');
+  const added = await call('/byok/models', { provider: 'orcarouter', modelId: 'orcarouter/free', levels: ['low', 'high'] }, anna);
+  const m = added.j.models.find(x => x.provider === 'orcarouter');
+  const nRows = (await pg.query('select * from byok_models')).rows;
+  chk('OrcaRouter-Modell liegt in Neon, nicht in Firestore', [added.s, nRows.length, nRows[0].model_id, nRows[0].levels, (await db.runQuery('user_models', { where: [['uid', '==', 'uid-anna']] })).length], [200, 1, 'orcarouter/free', ['low', 'high'], 0]);
+  chk('Übersicht zeigt das Neon-Modell bereit', [m.tier, m.ready, m.providerName], ['byok:' + nRows[0].id, true, 'OrcaRouter']);
   const t = await realFetch(base + '/chat/stream', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + anna }, body: JSON.stringify({ tier: m.tier, messages: [{ role: 'user', content: 'Hi' }] }) }).then(r => r.text());
   chk('Chat nutzt den Key aus Neon', [t.includes('Hallo aus Neon'), seen.at(-1)?.url, seen.at(-1)?.headers.Authorization], [true, 'https://api.orcarouter.ai/v1/chat/completions', 'Bearer sk-orca-zwei-9999']);
   global.fetch = realFetch;
+
+  // Modell bearbeiten (gleiche Modell-ID) -> Neon-Zeile wird aktualisiert, nicht doppelt
+  await call('/byok/models', { provider: 'orcarouter', modelId: 'orcarouter/free', levels: ['medium'], label: 'Orca Gratis' }, anna);
+  const upd = (await pg.query('select label, levels from byok_models')).rows;
+  chk('Neon-Modell bearbeitet', [upd.length, upd[0].label, upd[0].levels], [1, 'Orca Gratis', ['medium']]);
+  // Google-Modell bleibt in Firestore, beide erscheinen zusammen
+  const both = (await call('/byok/models', { provider: 'google', modelId: 'gemini-x', levels: ['low'] }, anna)).j.models;
+  chk('Google-Modell in Firestore, beide in der Übersicht', [(await db.runQuery('user_models', { where: [['uid', '==', 'uid-anna']] })).length, both.map(x => x.provider).sort()], [1, ['google', 'orcarouter']]);
+  // Kette mit Neon-Modell
+  const ch = await call('/byok/chains', { name: 'Orca zuerst', members: [m.tier, 'flash'] }, anna);
+  chk('Kette mit Neon-Modell möglich', [ch.s, ch.j.chains?.[0]?.members?.[0]?.label], [200, 'Orca Gratis']);
+  // Ben darf das Neon-Modell nicht löschen
+  await call('/byok/models/' + m.id, null, ben, 'DELETE');
+  chk('Fremdes Neon-Modell nicht löschbar', (await pg.query('select 1 from byok_models')).rows.length, 1);
+  await call('/byok/models/' + m.id, null, anna, 'DELETE');
+  chk('Neon-Modell gelöscht und aus der Kette entfernt', [(await pg.query('select 1 from byok_models')).rows.length, (await call('/byok', null, anna)).j.chains[0].members.map(x => x.tier)], [0, ['flash']]);
 
   // Fremde sehen den Key nicht
   chk('Ben hat keinen OrcaRouter-Key', orca((await call('/byok', null, ben)).j).hasKey, false);
@@ -75,6 +95,14 @@ const { setup, root } = require('./helpers');
   neon.useClient({ query: async () => { throw new Error('connection refused'); } });
   const r = await call('/byok/keys/orcarouter', { key: 'sk-orca-weg-1111' }, anna, 'PUT');
   chk('Neon nicht erreichbar: klare Meldung', [r.s, /Neon-Datenbank ist nicht erreichbar/.test(r.j.error || '')], [502, true]);
+
+  // Ohne Neon und mit alten Firestore-Regeln: klare Meldung statt „Konnte keine ID vergeben“
+  neon.useClient(null);
+  const realCreate = db.createDoc;
+  db.createDoc = async () => { throw Object.assign(new Error('Missing or insufficient permissions.'), { code: 'PERMISSION_DENIED' }); };
+  const denied = await call('/byok/models', { provider: 'orcarouter', modelId: 'orcarouter/auto', levels: [] }, anna);
+  db.createDoc = realCreate;
+  chk('Firestore-Regeln lehnen ab: klare Meldung', [denied.s, /Firestore-Regeln/.test(denied.j.error || ''), /Neon/.test(denied.j.error || '')], [403, true, true]);
 
   // URL-Erkennung
   neon.useClient(null);
