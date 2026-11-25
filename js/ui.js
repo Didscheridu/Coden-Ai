@@ -2,6 +2,7 @@
 import { splitArtifacts, Artifacts, ARTIFACT_ICON, ARTIFACT_LABEL } from './artifacts.js';
 import { createThinkPanel, thinkSummary } from './think-panel.js';
 import { splitSuggestions } from './system-prompt.js';
+import { colorize, extractWidgets, hydrateWidgets, loader } from './rich-elements.js';
 
 const AI_PROFILE_PIC_SRC = './images/coden_logo.jpg';
 
@@ -17,7 +18,7 @@ function protectMath(text) {
             .replace(/\\\[([\s\S]+?)\\\]/g, (m, f) => { math.push({ f, d: true }); return `@@MATH${math.length - 1}@@`; })
             .replace(/(^|[^\\$\w])\$(?=\S)([^$\n]{1,300}?\S)\$(?!\d)/g, (m, pre, f) => { math.push({ f, d: false }); return `${pre}@@MATH${math.length - 1}@@`; })
             .replace(/\\\(([^\n]+?)\\\)/g, (m, f) => { math.push({ f, d: false }); return `@@MATH${math.length - 1}@@`; });
-    }).join('');
+    }).map((part, i) => (i % 2 ? part : colorize(part))).join(''); // ==Markierung== und {{farbe:Text}} (nie in Code)
     return { out, math };
 }
 function renderMath(html, math) {
@@ -32,11 +33,19 @@ function safeMarkdown(text) {
     const { out, math } = protectMath(text);
     return renderMath(DOMPurify.sanitize(marked.parse(out), { ADD_ATTR: ['download', 'target'] }), math);
 }
+// Markdown für Inhalte in Quiz, Karteikarten usw.: kurz (ohne umschließendes <p>) oder als Block
+function richMd(text, block = false) {
+    const html = safeMarkdown(String(text || ''));
+    if (block) { const d = document.createElement('div'); d.innerHTML = html; enhance(d); return d.innerHTML; }
+    return html.trim().replace(/^<p>([\s\S]*?)<\/p>$/, (m, x) => (x.includes('<p>') ? m : x));
+}
 // > [!TIP] … wird zu einem farbigen Hinweis-Kasten
-const CALLOUT = { NOTE: ['info', 'Hinweis'], TIP: ['lightbulb', 'Tipp'], WARNING: ['warning', 'Achtung'], IMPORTANT: ['priority_high', 'Wichtig'], CAUTION: ['error', 'Vorsicht'] };
+const CALLOUT = { NOTE: ['info', 'Hinweis'], TIP: ['lightbulb', 'Tipp'], WARNING: ['warning', 'Achtung'], IMPORTANT: ['priority_high', 'Wichtig'], CAUTION: ['error', 'Vorsicht'],
+    SUCCESS: ['check_circle', 'Richtig'], QUESTION: ['help', 'Frage'], EXAMPLE: ['science', 'Beispiel'], SUMMARY: ['summarize', 'Kurz gesagt'], DEFINITION: ['menu_book', 'Definition'], FORMULA: ['function', 'Formel'], KEY: ['key', 'Merke'] };
+const CALLOUT_RE = new RegExp('^\\s*\\[!(' + Object.keys(CALLOUT).join('|') + ')\\]\\s*(<br>)?', 'i');
 function enhance(root) {
     root.querySelectorAll('blockquote').forEach(q => {
-        const p = q.firstElementChild; const m = p && p.innerHTML.match(/^\s*\[!(NOTE|TIP|WARNING|IMPORTANT|CAUTION)\]\s*(<br>)?/i); if (!m) return;
+        const p = q.firstElementChild; const m = p && p.innerHTML.match(CALLOUT_RE); if (!m) return;
         const k = m[1].toUpperCase(); p.innerHTML = p.innerHTML.slice(m[0].length); if (!p.textContent.trim() && !p.children.length) p.remove();
         const head = document.createElement('div'); head.className = 'callout-head'; head.innerHTML = '<span class="material-symbols-outlined"></span><b></b>'; head.firstChild.textContent = CALLOUT[k][0]; head.lastChild.textContent = CALLOUT[k][1];
         q.classList.add('callout', 'callout-' + k.toLowerCase()); q.prepend(head);
@@ -128,11 +137,15 @@ export const UI = {
     },
 
     renderRich: (content, text, msgKey) => {
-        const frag = document.createDocumentFragment(); let n = 0; const items = [];
+        const frag = document.createDocumentFragment(); let n = 0, tn = 0; const items = [];
         for (const seg of splitArtifacts(splitSuggestions(text).text)) {
             if (seg.kind === 'text') {
                 if (!seg.text.trim()) continue;
-                const d = document.createElement('div'); d.className = 'md'; d.innerHTML = safeMarkdown(seg.text); enhance(d); frag.appendChild(d);
+                // Interaktive Blöcke (<quiz>, <flashcards>, <steps> …) erst herausnehmen, dann Markdown, dann die Elemente einsetzen
+                const { text: md, widgets } = extractWidgets(seg.text);
+                const d = document.createElement('div'); d.className = 'md'; d.innerHTML = safeMarkdown(md); enhance(d);
+                if (widgets.length) hydrateWidgets(d, widgets, richMd, msgKey + ':t' + (tn++));
+                frag.appendChild(d);
             } else {
                 const item = { ...seg, key: msgKey + ':' + (n++) }; items.push(item);
                 const ver = Artifacts.register(item);
@@ -155,7 +168,7 @@ export const UI = {
         const chatContainer = document.getElementById('chat-container');
         const welcomeScreen = document.getElementById('welcome-screen'); if (welcomeScreen) welcomeScreen.classList.add('hidden');
         document.getElementById('welcome-extra')?.classList.add('hidden');
-        const loadingIndicator = document.getElementById('coden-loading-row'); if (loadingIndicator) loadingIndicator.remove();
+        const loadingIndicator = document.getElementById('coden-loading-row'); if (loadingIndicator) { clearInterval(loadingIndicator._timer); loadingIndicator.remove(); }
         const row = document.createElement('div'); row.className = `message-row ${isUser ? 'user-message' : 'ai-message'}`;
         const avatar = document.createElement('div'); avatar.className = 'avatar';
         if (!isUser) { const img = document.createElement('img'); img.src = AI_PROFILE_PIC_SRC; img.alt = ''; img.onerror = () => { img.style.display = 'none'; }; avatar.appendChild(img); }
@@ -287,21 +300,28 @@ export const UI = {
         };
     },
 
-    showLoading: (show, modelNameDisplay = "Coden denkt nach...") => {
+    // Lade-Anzeige, bevor die Antwort startet: gleiche Animation wie überall + was gerade passiert + Zeit
+    showLoading: (show, modelNameDisplay = 'Coden denkt nach …') => {
         const chatContainer = document.getElementById('chat-container');
         if (!chatContainer) return;
         const existing = document.getElementById('coden-loading-row');
-        if (!show) { if (existing) existing.remove(); return; }
+        if (!show) { if (existing) { clearInterval(existing._timer); existing.remove(); } return; }
         if (UI.welcomeScreen) UI.welcomeScreen.style.display = 'none';
         if (existing) {
             const label = existing.querySelector('.loading-text');
-            if (label) label.textContent = modelNameDisplay;
+            if (label && label.textContent !== modelNameDisplay) label.textContent = modelNameDisplay;
             UI.scrollToBottom();
             return;
         }
         const row = document.createElement('div'); row.id = 'coden-loading-row'; row.className = 'loading-row';
-        row.innerHTML = '<div class="spinner-container"><div class="spinner"></div><img class="spinner-logo" alt=""></div><span class="loading-text"></span>';
-        row.querySelector('img').src = AI_PROFILE_PIC_SRC; row.querySelector('.loading-text').textContent = modelNameDisplay;
+        const tx = document.createElement('div'); tx.className = 'loading-info';
+        const label = document.createElement('span'); label.className = 'loading-text'; label.textContent = modelNameDisplay;
+        const sub = document.createElement('small'); sub.className = 'loading-sub';
+        tx.append(label, sub); row.append(loader({ size: 30 }), tx);
+        const PHASES = ['Liest deine Nachricht', 'Wählt das passende Modell', 'Verbindet mit dem Server', 'Plant die Antwort', 'Sucht die wichtigsten Infos heraus', 'Formuliert die Antwort'];
+        const t0 = Date.now();
+        const tick = () => { const s = Math.round((Date.now() - t0) / 1000); sub.textContent = PHASES[Math.min(PHASES.length - 1, Math.floor(s / 3))] + ' …' + (s >= 1 ? ' · ' + s + ' s' : ''); };
+        tick(); row._timer = setInterval(() => { if (!row.isConnected) return clearInterval(row._timer); tick(); }, 1000);
         chatContainer.appendChild(row); UI.scrollToBottom(true);
     },
 
