@@ -33,8 +33,10 @@ export function outsideCode(text, fn) {
     return String(text).split(/(```[\s\S]*?(?:```|$)|`[^`\n]*`)/g).map((p, i) => (i % 2 ? p : fn(p))).join('');
 }
 
+import { parsePlanLines, fmtDate } from './study-core.js';
+
 // ---------- Blöcke finden ----------
-export const WIDGETS = ['quiz', 'flashcards', 'steps', 'stats', 'proscons', 'bars', 'tabs', 'plot', 'pie'];
+export const WIDGETS = ['quiz', 'flashcards', 'steps', 'stats', 'proscons', 'bars', 'tabs', 'plot', 'pie', 'lernplan'];
 const NAMES = WIDGETS.join('|');
 const OPEN = new RegExp(`<(${NAMES})(\\s[^>]*)?>`, 'i');
 const attrsOf = (s) => { const a = {}; String(s || '').replace(/([a-zA-Z_-]+)\s*=\s*["“„]([^"“”]*)["”“]/g, (m, k, v) => { a[k.toLowerCase()] = v; }); return a; };
@@ -78,6 +80,7 @@ export function progressOf(w) {
         case 'quiz': { const k = n(/^(\?|\d+[.)]\s)/) || (String(w.body).match(/"(q|question|frage)"\s*:/g) || []).length; return k ? `${k} ${k === 1 ? 'Frage' : 'Fragen'}` : ''; }
         case 'flashcards': { const k = n(/::|\s\|\s|->|→/) || (String(w.body).match(/"(front|vorne)"\s*:/g) || []).length; return k ? `${k} ${k === 1 ? 'Karte' : 'Karten'}` : ''; }
         case 'steps': return L.length ? `${L.length} ${L.length === 1 ? 'Schritt' : 'Schritte'}` : '';
+        case 'lernplan': { const k = n(/\|/); return k ? `${k} ${k === 1 ? 'Einheit' : 'Einheiten'}` : ''; }
         case 'plot': { const k = n(/=/); return k ? `${k} ${k === 1 ? 'Funktion' : 'Funktionen'}` : ''; }
         default: return L.length ? `${L.length} ${L.length === 1 ? 'Eintrag' : 'Einträge'}` : '';
     }
@@ -203,8 +206,8 @@ const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls)
 const icon = (name) => mk('span', 'material-symbols-outlined', name);
 const LABEL = { quiz: 'Quiz wird erstellt', flashcards: 'Karteikarten werden erstellt', steps: 'Schritte werden geschrieben', stats: 'Kennzahlen werden berechnet', proscons: 'Vor- und Nachteile werden gesammelt', bars: 'Balken werden gezeichnet', tabs: 'Abschnitte werden geschrieben' };
 
-const VERB = { quiz: 'Erstellt Quiz', flashcards: 'Erstellt Karteikarten', steps: 'Schreibt die Schritte', stats: 'Berechnet Kennzahlen', proscons: 'Sammelt Vor- und Nachteile', bars: 'Zeichnet Balken', tabs: 'Schreibt Abschnitte', plot: 'Zeichnet den Graphen', pie: 'Zeichnet das Kreisdiagramm' };
-const PICON = { quiz: 'quiz', flashcards: 'style', steps: 'format_list_numbered', stats: 'monitoring', proscons: 'thumbs_up_down', bars: 'bar_chart', tabs: 'tab', plot: 'show_chart', pie: 'pie_chart' };
+const VERB = { lernplan: 'Erstellt deinen Lernplan', quiz: 'Erstellt Quiz', flashcards: 'Erstellt Karteikarten', steps: 'Schreibt die Schritte', stats: 'Berechnet Kennzahlen', proscons: 'Sammelt Vor- und Nachteile', bars: 'Zeichnet Balken', tabs: 'Schreibt Abschnitte', plot: 'Zeichnet den Graphen', pie: 'Zeichnet das Kreisdiagramm' };
+const PICON = { lernplan: 'event_note', quiz: 'quiz', flashcards: 'style', steps: 'format_list_numbered', stats: 'monitoring', proscons: 'thumbs_up_down', bars: 'bar_chart', tabs: 'tab', plot: 'show_chart', pie: 'pie_chart' };
 // Platzhalter, solange ein Block noch geschrieben wird: gleiche Lade-Animation + was entsteht + wie weit
 function pending(type) {
     const box = mk('div', 'cw-card cw-pending cw-new');
@@ -433,7 +436,28 @@ function buildPie(w, md) {
     const mid = sv('text', { y: 8, 'text-anchor': 'middle', class: 'pie-total' }); mid.textContent = w.attrs.center || (de(total) + (w.attrs.unit || '')); svg.append(mid);
     body.append(svg, legend); box.append(body); return box;
 }
-const BUILD = { plot: buildPlot, pie: buildPie, quiz: buildQuiz, flashcards: buildCards, steps: buildSteps, stats: buildStats, proscons: buildProsCons, bars: buildBars, tabs: buildTabs };
+// Lernplan aus dem Chat: Übersicht + "Ins Lern-Studio übernehmen" (js/study-store.js hört auf das Ereignis)
+function buildLernplan(w, md) {
+    const sessions = parsePlanLines(w.body, null); if (!sessions.length) return null;
+    const box = mk('div', 'cw-card cw-lernplan');
+    const head = mk('div', 'qz-head'); const ttl = mk('div', 'qz-title'); ttl.append(icon('event_note'), mk('b', '', w.attrs.title || 'Dein Lernplan'));
+    const total = sessions.reduce((n, s) => n + s.min, 0); head.append(ttl, mk('span', 'qz-count', `${sessions.length} Einheiten · ${String(Math.round(total / 6) / 10).replace('.', ',')} h`));
+    const list = mk('div', 'lp-list'); let lastDate = '';
+    sessions.forEach(s => {
+        if (s.date !== lastDate) { list.append(mk('div', 'lp-day', fmtDate(s.date))); lastDate = s.date; }
+        const row = mk('div', 'lp-row'); row.append(mk('span', 'lp-time', s.start), mk('span', 'lp-min', s.min + ' min'));
+        const tx = mk('span', 'lp-tx'); tx.innerHTML = md(`**${s.subjectName}:** ${s.title}`); row.append(tx); list.append(row);
+    });
+    const actions = mk('div', 'qz-actions');
+    const take = mk('button', 'qz-primary'); take.type = 'button'; take.append(icon('add_task'), document.createTextNode('Ins Lern-Studio übernehmen'));
+    take.addEventListener('click', () => {
+        document.dispatchEvent(new CustomEvent('codenStudyPlan', { detail: { title: w.attrs.title || '', sessions: sessions.map(s => ({ ...s })), done: () => {} } }));
+        take.disabled = true; take.replaceChildren(icon('check'), document.createTextNode('Übernommen – mit Erinnerungen'));
+    });
+    const open = mk('button', 'qz-ghost'); open.type = 'button'; open.append(icon('open_in_new'), document.createTextNode('Lernplan ansehen')); open.addEventListener('click', () => { location.hash = '#/lernen/plan'; });
+    actions.append(open, take); box.append(head, list, actions); return box;
+}
+const BUILD = { lernplan: buildLernplan, plot: buildPlot, pie: buildPie, quiz: buildQuiz, flashcards: buildCards, steps: buildSteps, stats: buildStats, proscons: buildProsCons, bars: buildBars, tabs: buildTabs };
 
 // Fertige Elemente merken, damit ein Quiz beim Weiterschreiben der Antwort seinen Stand behält
 const cache = new Map();

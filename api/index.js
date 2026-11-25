@@ -419,6 +419,7 @@ api.post('/live-token', requireAuth, rateLimit('live', 5, 300), async (req, res)
 });
 
 const { projectsRouter } = require('../server/projects');
+const { studyRouter } = require('../server/study');
 const { serversRouter } = require('../server/servers');
 const needsDb = (req, res, next) => { ensureSchema().then(() => next(), next); };
 api.use('/byok', needsDb); api.use('/buddy', needsDb); api.use('/mcp', needsDb); api.use('/servers', needsDb); api.use('/projects', needsDb); api.use('/apps', needsDb); api.use('/data', needsDb); api.use('/runs', needsDb); api.use('/usage', needsDb); api.use('/push', needsDb); api.use('/research', needsDb); api.use('/tasks', needsDb); api.use('/artifacts', needsDb);
@@ -434,6 +435,7 @@ api.use('/byok', byok.byokRouter(requireAuth));
 api.use('/buddy', buddyRouter(requireAuth));
 api.use('/mcp', mcpRouter(requireAuth));
 api.use('/projects', projectsRouter(requireAuth));
+api.use('/study', needsDb, studyRouter(requireAuth));
 api.use('/servers', serversRouter(requireAuth));
 api.use('/runs', runsRouter(requireAuth));
 api.use('/usage', usageRouter(requireAuth, requireOwner));

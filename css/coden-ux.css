@@ -419,3 +419,10 @@ html[data-theme="light"] {
   #mz-print-root * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   #mz-print-root .md h2, #mz-print-root blockquote, #mz-print-root .cw-card { break-inside: avoid; }
 }
+
+/* Lernplan-Block im Chat */
+.cw-lernplan { max-width: 620px; }
+.lp-list { display: grid; gap: 2px; margin-top: 4px; }
+.lp-day { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin: 10px 0 4px; }
+.lp-row { display: grid; grid-template-columns: 48px 56px 1fr; gap: 10px; align-items: baseline; padding: 7px 10px; border-radius: 10px; background: var(--bg-surface-hover); font-size: 14px; }
+.lp-time { font-weight: 700; font-variant-numeric: tabular-nums; } .lp-min { color: var(--text-muted); font-size: 12.5px; }

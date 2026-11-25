@@ -126,6 +126,17 @@ async function reserveQuota(model, isOwner) {
   });
 }
 
+// ---------- Bilder: nur Modelle, die Bilder verstehen ----------
+const VISION_RE = /gemini|gemma|[-_.]vl\b|-vl-|omni|vision|llava|pixtral|claude|gpt-4o|gpt-4\.1|gpt-5|qwen[\w.-]*vl|llama-4/i;
+const canSee = (m) => !!m && (m.own || m.vision === true || VISION_RE.test(String(m.id || '')));
+function visionFirst(cascade) {
+  const own = cascade.filter(canSee);
+  if (own.length) return own;
+  const seen = new Set(); const all = [];
+  for (const list of Object.values(CASCADES)) for (const m of list || []) if (canSee(m) && !seen.has(m.id)) { seen.add(m.id); all.push(m); }
+  return all.length ? all : cascade;
+}
+
 // ---------- Nachrichten umwandeln ----------
 function toOpenAI(messages) {
   return messages.map(m => {
@@ -450,6 +461,7 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
   const limitHit = () => { stopper.abort(); const e = new Error(meter.message()); e.limit = true; e.status = 429; return e; };
   if (meter?.stop) throw limitHit();
   let cascade = entries || CASCADES[tier];
+  if (!pin && cascade && messages.some(m => m.images?.length)) cascade = visionFirst(cascade); // Bilder (z. B. Heft-Korrektur) nur an Modelle, die sehen können
   if (pin) { // ein bestimmtes Modell erzwingen (nur Owner, kein Ausweichen auf andere)
     const m = findModel(pin);
     if (!m) throw Object.assign(new Error('Unbekanntes Modell.'), { status: 400 });
@@ -645,4 +657,4 @@ async function probe(key, messages, { signal, onProgress = () => {}, maxTokens =
 const generate = async (tier, messages, opts = {}) => (await run(tier, messages, opts)).text;
 const generateStream = (tier, messages, opts) => run(tier, messages, { ...opts, stream: true });
 
-module.exports = { CONTINUE, probe, TEST_PROMPT, listModels, generate, generateStream, CASCADES, QUOTAS, ThinkFilter, ThinkTracker, EFFORTS };
+module.exports = { CONTINUE, probe, TEST_PROMPT, listModels, generate, generateStream, CASCADES, QUOTAS, ThinkFilter, ThinkTracker, EFFORTS, visionFirst, canSee };

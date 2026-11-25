@@ -8,6 +8,7 @@ import { initByok, loadByok, clearByok, openByokSettings, syncEffortRow, byokEff
 import { runModelTest } from './model-test.js';
 import { Artifacts } from './artifacts.js';
 import { buildChatPrompt } from './system-prompt.js';
+import { StudyStore } from './study-store.js';
 import { runAiResponse, watchRun, listRuns, claimRun, notifyDone } from './runs.js';
 import { renderUsage, refreshUsageBanner, limitMessage } from './usage.js';
 import { pushState, enablePush, disablePush, testPush, refreshPush } from './push.js';
@@ -1870,7 +1871,7 @@ async function handleSend() {
       const skillInfo = Skills.forMessage(text); Skills.clearPicked();
       const loadedSkills = [...skillInfo.loaded];
       if (loadedSkills.length) live0Steps(initialLive, loadedSkills);
-      const systemPrompt = buildChatPrompt({ userName, extras: `${MCP.prompt()}${ChatApps.prompt()}${personal}${Assistants.prompt(sessionAtSend.assistantId)}${skillInfo.text}${researchOn ? '' : WebSearch.prompt()}${proj.text}` });
+      const systemPrompt = buildChatPrompt({ userName, extras: `${sessionAtSend.temp ? '' : StudyStore.context()}\n${MCP.prompt()}${ChatApps.prompt()}${personal}${Assistants.prompt(sessionAtSend.assistantId)}${skillInfo.text}${researchOn ? '' : WebSearch.prompt()}${proj.text}` });
       context.unshift({ role: 'system', content: systemPrompt });
 
       Storage.syncNow(); // Frage sofort sichern, damit andere Geräte sie sehen

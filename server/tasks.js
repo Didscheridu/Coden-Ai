@@ -95,7 +95,8 @@ function cronHandler(req, res) {
   const given = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '') || String(req.headers['x-cron-secret'] || '') || String(req.query?.key || '');
   const a = Buffer.from(given), b = Buffer.from(secret);
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return res.status(401).json({ error: 'Nicht erlaubt.' });
-  return tick({ limit: 5 }).then(n => res.json({ ran: n }));
+  // Derselbe Pinger verschickt auch die Lern-Erinnerungen (Arbeiten, Abgaben, Lernplan)
+  return Promise.all([tick({ limit: 5 }), require('./study').dispatchDue().catch(() => 0)]).then(([n, reminders]) => res.json({ ran: n, reminders }));
 }
 
 // ---------- Schnittstelle für die App ----------
