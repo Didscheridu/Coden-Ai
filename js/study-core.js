@@ -23,7 +23,7 @@ export const fmtDate = (d) => new Date(typeof d === 'string' && /^\d{4}-\d{2}-\d
 // ---------- Grundgerüst ----------
 export function blank() {
     return {
-        v: 1, subjects: [], assignments: [], exams: [], docs: [], plan: [],
+        v: 1, subjects: [], assignments: [], exams: [], docs: [], folders: [], plan: [],
         timetable: Object.fromEntries(DAYS.map(d => [d, []])),
         prefs: { learnStart: '15:30', learnEnd: '19:30', maxPerDay: 90, sessionMin: 30, freeDays: ['so'], breakAfterSchool: 60, best: 'nachmittag' }
     };
@@ -31,7 +31,8 @@ export function blank() {
 export function normalize(s) {
     const b = blank(); const x = s && typeof s === 'object' ? s : {};
     const out = { ...b, ...x, prefs: { ...b.prefs, ...(x.prefs || {}) }, timetable: { ...b.timetable, ...(x.timetable || {}) } };
-    for (const k of ['subjects', 'assignments', 'exams', 'docs', 'plan']) out[k] = Array.isArray(x[k]) ? x[k] : [];
+    for (const k of ['subjects', 'assignments', 'exams', 'docs', 'folders', 'plan']) out[k] = Array.isArray(x[k]) ? x[k] : [];
+    out.docs.forEach(d => { d.pages = Array.isArray(d.pages) ? d.pages : []; d.bookmarks = Array.isArray(d.bookmarks) ? d.bookmarks : []; if (d.folderId && !out.folders.some(f => f.id === d.folderId)) d.folderId = null; });
     for (const d of DAYS) out.timetable[d] = Array.isArray(out.timetable[d]) ? out.timetable[d] : [];
     out.subjects.forEach(su => { su.topics = Array.isArray(su.topics) ? su.topics : []; su.grades = Array.isArray(su.grades) ? su.grades : []; });
     return out;
@@ -60,6 +61,53 @@ export function gradeAverage(grades) {
     const list = (grades || []).filter(g => Number.isFinite(g?.value));
     const w = list.reduce((a, g) => a + (+g.weight || 1), 0); if (!w) return null;
     return Math.round(list.reduce((a, g) => a + asNote(g) * (+g.weight || 1), 0) / w * 100) / 100;
+}
+
+// ---------- Notizbücher-Bibliothek (Ordner, Favoriten, Suche) ----------
+export const folderOf = (st, id) => st.folders.find(f => f.id === id) || null;
+export const childFolders = (st, parentId = null) => st.folders.filter(f => (f.parentId || null) === (parentId || null)).sort((a, b) => a.name.localeCompare(b.name, 'de'));
+export function folderPath(st, id) { const out = []; let f = folderOf(st, id); const seen = new Set(); while (f && !seen.has(f.id)) { seen.add(f.id); out.unshift(f); f = folderOf(st, f.parentId); } return out; }
+export function isInside(st, id, ancestorId) { let f = folderOf(st, id); const seen = new Set(); while (f && !seen.has(f.id)) { if (f.id === ancestorId) return true; seen.add(f.id); f = folderOf(st, f.parentId); } return false; }
+export function addFolder(st, name, parentId = null, color = '#5B8DEF') {
+    const n = str(name, 60); if (!n) return null;
+    const f = { id: uid('fo'), name: n, parentId: parentId && folderOf(st, parentId) ? parentId : null, color, createdAt: new Date().toISOString() };
+    st.folders.push(f); return f;
+}
+// Ordner verschieben – nie in sich selbst oder einen eigenen Unterordner
+export function moveFolder(st, id, parentId) {
+    const f = folderOf(st, id); if (!f) return false;
+    if (parentId && (parentId === id || isInside(st, parentId, id))) return false;
+    f.parentId = parentId || null; return true;
+}
+// Ordner löschen: Inhalt (Notizbücher und Unterordner) wandert eine Ebene nach oben
+export function deleteFolder(st, id) {
+    const f = folderOf(st, id); if (!f) return;
+    st.folders.forEach(x => { if (x.parentId === id) x.parentId = f.parentId || null; });
+    st.docs.forEach(d => { if (d.folderId === id) d.folderId = f.parentId || null; });
+    st.folders = st.folders.filter(x => x.id !== id);
+}
+export function countIn(st, folderId) {
+    let n = st.docs.filter(d => d.folderId === folderId).length;
+    for (const c of childFolders(st, folderId)) n += countIn(st, c.id);
+    return n;
+}
+export function sortDocs(list, by = 'bearbeitet') {
+    const t = (d, k) => Date.parse(d[k] || d.createdAt || 0) || 0;
+    const arr = list.slice();
+    if (by === 'name') arr.sort((a, b) => String(a.title).localeCompare(String(b.title), 'de', { numeric: true }));
+    else if (by === 'erstellt') arr.sort((a, b) => t(b, 'createdAt') - t(a, 'createdAt'));
+    else if (by === 'geoeffnet') arr.sort((a, b) => t(b, 'openedAt') - t(a, 'openedAt'));
+    else arr.sort((a, b) => t(b, 'updatedAt') - t(a, 'updatedAt'));
+    return arr;
+}
+export function searchDocs(st, q) {
+    const words = String(q || '').toLowerCase().split(/\s+/).filter(Boolean); if (!words.length) return [];
+    return st.docs.filter(d => { const hay = [d.title, subjectOf(st, d.subjectId)?.name, ...folderPath(st, d.folderId).map(f => f.name)].join(' ').toLowerCase(); return words.every(w => hay.includes(w)); });
+}
+export function newDoc(st, { title, folderId = null, subjectId = null, paper = 'liniert', cover = null }) {
+    const now = new Date().toISOString();
+    const d = { id: 'dc' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), title: str(title, 80) || 'Unbenanntes Notizbuch', folderId: folderId && folderOf(st, folderId) ? folderId : null, subjectId: subjectId && subjectOf(st, subjectId) ? subjectId : null, assignmentId: null, paper, cover: cover || { color: '#2B3A55', style: 'leinen' }, pages: [], bookmarks: [], favorite: false, createdAt: now, updatedAt: now };
+    st.docs.push(d); return d;
 }
 
 // ---------- Aufträge ----------
