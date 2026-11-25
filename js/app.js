@@ -1924,6 +1924,24 @@ async function handleSend() {
             const done = await processAnswer(aiResponse, (t) => live.update(withPrefix(cite(t))), { ...extra, temp: !!sessionAtSend.temp });
             const call = done.call;
             if (!call) {
+                const rawTrim = aiResponse.trim();
+                const openArts = (rawTrim.match(/<artifact\b/gi) || []).length;
+                const closeArts = (rawTrim.match(/<\/artifact>/gi) || []).length;
+                const unclosedFence = ((rawTrim.match(/```/g) || []).length % 2) === 1;
+                const wantsBuild = /\b(bau|baue|erstell|schreib|programmier|spiel|app|webseite|code|rechner|tool|diagramm|präsentation)\b/i.test(text);
+                const isTeaserOnly = wantsBuild && rawTrim.length > 0 && rawTrim.length < 110 && !/[<>`{};]/.test(rawTrim);
+                if (round < 4 && (openArts > closeArts || unclosedFence || isTeaserOnly)) {
+                    context.push({ role: 'assistant', content: rawTrim });
+                    shownPrefix = withPrefix(cite(done.text));
+                    context.push({
+                        role: 'user',
+                        content: isTeaserOnly
+                            ? 'Du hast nur eine kurze Einleitung geschrieben, aber das eigentliche Ergebnis fehlt noch. Gib jetzt sofort das komplette <artifact …>…</artifact> bzw. die vollständige Lösung aus, ohne die Einleitung zu wiederholen.'
+                            : 'Deine letzte Ausgabe wurde mitten im <artifact> oder Codeblock abgebrochen. Schreibe nahtlos genau dort weiter und schließe den Block vollständig ab.'
+                    });
+                    aiResponse = '';
+                    continue;
+                }
                 if (round < 4 && !done.text.trim()) {
                     if (/<mcp_call\b/i.test(aiResponse)) {
                         context.push({ role: 'assistant', content: aiResponse.trim() });
@@ -2015,7 +2033,18 @@ async function handleSend() {
             }
             if (err.code === 'limit' && !String(err.text || aiResponse).trim()) { aiResponse = withPrefix(limitMessage(err)); live.update(aiResponse); lastThink = null; live.finish(aiResponse); refreshUsageBanner(true); break; }
             aiResponse = err.text || aiResponse;
-            const partial = withPrefix(hideImageTags(aiResponse).trim());
+            const partialRaw = hideImageTags(aiResponse).trim();
+            // Stream-Verbindung unterwegs abgerissen? Automatisch nahtlos fortsetzen statt mit Fehlermeldung abzubrechen!
+            if (partialRaw && round < 4 && !err.code) {
+                ended = false;
+                context.push({ role: 'assistant', content: aiResponse.trim() });
+                context.push({ role: 'user', content: 'Deine letzte Ausgabe wurde mitten im Satz oder Code unterbrochen. Schreibe nahtlos genau an der Stelle weiter, an der du aufgehört hast, ohne Wiederholung und ohne Einleitung.' });
+                shownPrefix = withPrefix(cite(partialRaw));
+                live.update(shownPrefix);
+                aiResponse = '';
+                continue;
+            }
+            const partial = withPrefix(partialRaw);
             if (partial.trim()) {
                 const notice = '⚠️ Die Antwort wurde unterbrochen: ' + err.message;
                 lastThink = live.finish(partial);

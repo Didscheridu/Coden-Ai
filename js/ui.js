@@ -153,7 +153,8 @@ export const UI = {
 
     _newRow: (isUser) => {
         const chatContainer = document.getElementById('chat-container');
-        const welcomeScreen = document.getElementById('welcome-screen'); if (welcomeScreen) welcomeScreen.style.display = 'none';
+        const welcomeScreen = document.getElementById('welcome-screen'); if (welcomeScreen) welcomeScreen.classList.add('hidden');
+        document.getElementById('welcome-extra')?.classList.add('hidden');
         const loadingIndicator = document.getElementById('coden-loading-row'); if (loadingIndicator) loadingIndicator.remove();
         const row = document.createElement('div'); row.className = `message-row ${isUser ? 'user-message' : 'ai-message'}`;
         const avatar = document.createElement('div'); avatar.className = 'avatar';
@@ -387,7 +388,8 @@ export const UI = {
         messages.forEach(msg => msg.remove());
         const loadingIndicator = document.getElementById('coden-loading-row');
         if (loadingIndicator) loadingIndicator.remove();
-        if (UI.welcomeScreen) UI.welcomeScreen.style.display = 'flex';
+        if (UI.welcomeScreen) { UI.welcomeScreen.style.display = ''; UI.welcomeScreen.classList.remove('hidden'); }
+        document.getElementById('welcome-extra')?.classList.remove('hidden');
     }
 };
 

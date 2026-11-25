@@ -332,12 +332,13 @@ async function callModel(m, messages, { stream, onDelta, onThink, signal, maxTok
     const thinkOf = (d) => (d.candidates?.[0]?.content?.parts || []).filter(p => p.text && p.thought).map(p => p.text).join('');
     if (!stream) {
       const d = await r.json();
-      if (d.candidates?.[0]?.finishReason === 'MAX_TOKENS') info.truncated = true;
+      const fr = d.candidates?.[0]?.finishReason;
+      if (fr === 'MAX_TOKENS' || fr === 'OTHER') info.truncated = true;
       const th = thinkOf(d); if (th) onThink?.(th);
       return textOf(d);
     }
     let full = '';
-    for await (const raw of sseData(r)) { let d; try { d = JSON.parse(raw); } catch (e) { continue; } if (d.candidates?.[0]?.finishReason === 'MAX_TOKENS') info.truncated = true; const th = thinkOf(d); if (th) onThink?.(th); const t = textOf(d); if (t) { full += t; onDelta(t); } }
+    for await (const raw of sseData(r)) { let d; try { d = JSON.parse(raw); } catch (e) { continue; } const fr = d.candidates?.[0]?.finishReason; if (fr === 'MAX_TOKENS' || fr === 'OTHER') info.truncated = true; const th = thinkOf(d); if (th) onThink?.(th); const t = textOf(d); if (t) { full += t; onDelta(t); } }
     return full;
   }
   if (m.provider === 'anthropic') return callAnthropic(m, messages, { stream, onDelta, onThink, signal, maxTokens, effort, info });
@@ -496,13 +497,38 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
           finally { if (got) mt?.add(charsOf(msgs), { input: true }); } // Eingabe nur zählen, wenn das Modell wirklich gearbeitet hat
         };
         const stripThink = (s) => String(s || '').replace(/<think>[\s\S]*?<\/think>\s*/gi, '').replace(/<think>[\s\S]*$/i, '');
-        let full = await call(messages);
+        const isCutOff = (s) => {
+          const t = stripThink(s).trim();
+          if (!t) return false;
+          // Unvollständiges <artifact ...> ohne </artifact>
+          const opens = (t.match(/<artifact\b/gi) || []).length;
+          const closes = (t.match(/<\/artifact>/gi) || []).length;
+          if (opens > closes) return true;
+          // Unvollständiger ```-Codeblock
+          if (((t.match(/```/g) || []).length % 2) === 1) return true;
+          // „Teaser“-Abbruch: Modell sagt nur „Sehr gerne“, „Natürlich:“ o. ä. (< 90 Zeichen) bei einer Bau-/Code-Anfrage
+          const lastUser = String([...messages].reverse().find(x => x.role === 'user')?.content || '');
+          const wantsBuild = /\b(bau|baue|erstell|schreib|programmier|spiel|app|webseite|code|rechner|tool|diagramm|präsentation)\b/i.test(lastUser);
+          if (wantsBuild && t.length < 110 && !/[<>`{};]/.test(t)) return true;
+          return false;
+        };
+        let full = '';
+        try {
+          full = await call(messages);
+        } catch (streamErr) {
+          // Ist der Stream mitten in der Antwort abgerissen (Netzwerk/Anbieter-Reset), nahtlos ab dem bisherigen Stand fortsetzen!
+          if (streamErr.partial && sent && !outer?.aborted && !streamErr.limit) {
+            info.truncated = true;
+          } else {
+            throw streamErr;
+          }
+        }
         if (!stream) {
           const inlineThink = full.match(/<think>([\s\S]*?)(?:<\/think>|$)/i);
           if (inlineThink?.[1]) thinkBuf = (thinkBuf + inlineThink[1]).slice(-4000);
         }
         const restFirst = stream ? filter.flush() : '';
-        if (restFirst) { if (!sent) { sent = true; onModel(m); } onDelta(restFirst); }
+        if (restFirst) { if (!sent) { sent = true; onModel(m); } onDelta(restFirst); full += ''; }
         // Hat das Modell sein Token-Limit (oder seinen Denk-Lauf) nur im Denken verbraucht:
         // einmal mit niedrigem Denkaufwand direkt die fertige Antwort schreiben lassen statt „Leere Antwort“.
         if (!stripThink(full).trim() && !sent && (info.truncated || thinkBuf.trim().length >= 80)) {
@@ -517,10 +543,32 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
           const restWrap = stream ? filter.flush() : '';
           if (restWrap) { if (!sent) { sent = true; onModel(m); } onDelta(restWrap); }
         }
-        // Antwort wurde vom Token-Limit abgeschnitten (z. B. langer Code): nahtlos weiterschreiben lassen
-        for (let n = 0; info.truncated && n < 3 && stripThink(full).trim(); n++) {
+        // Antwort wurde abgeschnitten, Stream riss ab, <artifact>/Codeblock blieb offen oder nur 2-Wort-Einleitung geliefert -> nahtlos weiterschreiben!
+        for (let n = 0; (info.truncated || isCutOff(full)) && n < 4 && (stripThink(full).trim() || sent); n++) {
           info.truncated = false;
-          full += await call([...messages, { role: 'assistant', content: stripThink(full) }, { role: 'user', content: CONTINUE }]);
+          const soFar = stripThink(full);
+          if (!soFar.trim()) break;
+          const isTeaser = soFar.trim().length < 110 && !/<artifact|```/.test(soFar);
+          const contPrompt = isTeaser
+            ? 'Du hast bisher nur eine kurze Einleitung geschrieben, aber die eigentliche Lösung bzw. das Artefakt fehlt noch komplett. Schreibe jetzt sofort nahtlos den vollständigen Inhalt bzw. das komplette <artifact …>…</artifact> ohne deine Einleitung zu wiederholen.'
+            : CONTINUE;
+          // Falls dasselbe Modell beim Fortsetzen ausfällt, das nächste Modell aus der Kaskade übernehmen lassen
+          let chunk = '';
+          const fallbackPool = [tryModel, ...cascade.filter(x => keyOf(x) !== keyOf(m))];
+          for (const nextMdl of fallbackPool.slice(0, 3)) {
+            try {
+              if (soFar && !/\s$/.test(soFar) && isTeaser) { onDelta('\n\n'); full += '\n\n'; }
+              chunk = await call([...messages, { role: 'assistant', content: stripThink(full) }, { role: 'user', content: contPrompt }], { mdl: nextMdl });
+              const restCont = stream ? filter.flush() : '';
+              if (restCont) { onDelta(restCont); }
+              break;
+            } catch (contErr) {
+              if (outer?.aborted || contErr.limit) throw contErr;
+              console.warn(`[ai] Fortsetzung mit ${nextMdl.provider}/${nextMdl.id} fehlgeschlagen:`, contErr.message);
+            }
+          }
+          if (!chunk) break;
+          full += chunk;
         }
         if (stream) {
           const rest = filter.flush(); if (rest) { if (!sent) { sent = true; onModel(m); } onDelta(rest); }
@@ -535,8 +583,9 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
         return { text: clean, model: m };
       } catch (e) {
         clearTimeout(slow);
-        if (e.partial || e.limit) throw e; // schon Text beim Nutzer (oder Limit erreicht): nicht mehr wechseln
-        if (outer?.aborted) throw e;
+        if (e.limit || outer?.aborted) throw e;
+        // Hat ein Modell erst wenige Zeichen (< 80) gestreamt und bricht dann ab, darf das nächste Modell übernehmen
+        if (e.partial) throw e;
         console.warn(`[ai] ${m.provider}/${m.id} fehlgeschlagen (Versuch ${attempt + 1}/${maxAttempts}):`, e.message);
         last = e;
         if (attempt + 1 < maxAttempts && isTransientError(e, m)) {
