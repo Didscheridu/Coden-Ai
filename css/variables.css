@@ -1,28 +1,28 @@
 :root {
-    --bg-main: #0c0e12;       /* Ruhiger Studio-Canvas (60%) */
-    --bg-sidebar: #13161c;    /* Seitenleiste & sekundäre Flächen (30%) */
-    --bg-input: #171b23;      /* Eingabefeld */
-    --bg-surface: #1d222c;    /* Karten, Popovers, Hover */
-    --bg-surface-hover: #252b38;
-    --bg-code: #0f1218;       /* Code-Blöcke */
+    --bg-main: #000000;       /* X Pure Black Canvas */
+    --bg-sidebar: #000000;    /* X Pure Black Sidebar */
+    --bg-input: #000000;      /* X Input */
+    --bg-surface: #16181c;    /* X Elevated Surface / Cards */
+    --bg-surface-hover: #1d1f23;
+    --bg-code: #0f1114;       /* Code-Blöcke */
 
-    --text-primary: #eef1f6;
-    --text-secondary: #b4bece;
-    --text-muted: #7d889a;
+    --text-primary: #e7e9ea;
+    --text-secondary: #8b98a5;
+    --text-muted: #71767b;
 
-    --border-color: rgba(255, 255, 255, 0.08);
-    --border-strong: rgba(255, 255, 255, 0.15);
-    --hairline: rgba(255, 255, 255, 0.055);
+    --border-color: #2f3336;
+    --border-strong: #536471;
+    --hairline: #2f3336;
 
-    --accent-blue: #7cb3ff;   /* Akzentfarbe (10%) */
-    --accent-blue-strong: #5b9bff;
-    --accent-blue-soft: rgba(124, 179, 255, 0.13);
-    --accent-green: #4ade80;
-    --accent-amber: #fbbf24;
-    --accent-red: #f87171;
-    --accent-purple: #c4b5fd;
+    --accent-blue: #1d9bf0;   /* X Blue */
+    --accent-blue-strong: #1a8cd8;
+    --accent-blue-soft: rgba(29, 155, 240, 0.12);
+    --accent-green: #00ba7c;
+    --accent-amber: #ffd400;
+    --accent-red: #f4212e;
+    --accent-purple: #7856ff;
 
-    --font-main: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
     --radius-sm: 8px;
@@ -43,7 +43,7 @@ body {
     background-color: var(--bg-main);
     color: var(--text-primary);
     font-family: var(--font-main);
-    letter-spacing: 0.005em;
+    letter-spacing: 0;
     overflow: hidden;
 }
 .hidden { display: none !important; }

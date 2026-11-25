@@ -18,6 +18,7 @@ const { researchJob, researchRouter } = require('../server/research');
 const { tasksRouter, cronHandler } = require('../server/tasks');
 const { artifactsRouter, publicArtifactsRouter, sharedPageRouter } = require('../server/artifacts');
 const byok = require('../server/byok');
+const neon = require('../server/neon');
 const { Meter, limitGate, usageRouter } = require('../server/usage');
 const meterFor = (req) => new Meter(req.user, req.body?.tier);
 
@@ -81,10 +82,32 @@ const sanitizeSessionId = (id, idx) => {
 
 api.get('/data', requireAuth, async (req, res) => {
   const uid = req.user.uid;
-  const [userDoc, subSessions] = await Promise.all([
-    db.getDoc(`user_data/${uid}`),
-    db.listDocs(`user_data/${uid}/sessions`, { limit: 300 }).catch(() => [])
-  ]);
+  if (neon.isConfigured()) {
+    try {
+      const rows = await neon.select('user_data', { uid });
+      if (rows[0]) {
+        const s = Array.isArray(rows[0].sessions) ? rows[0].sessions : [];
+        const st = rows[0].settings && typeof rows[0].settings === 'object' ? rows[0].settings : {};
+        return res.json({ exists: true, sessions: s, settings: st });
+      }
+    } catch (e) {
+      console.warn('[data] Neon read fallback:', e.message);
+    }
+  }
+
+  let userDoc = null;
+  let subSessions = [];
+  try {
+    [userDoc, subSessions] = await Promise.all([
+      db.getDoc(`user_data/${uid}`),
+      db.listDocs(`user_data/${uid}/sessions`, { limit: 300 }).catch(() => [])
+    ]);
+  } catch (e) {
+    if (e?.code === 'RESOURCE_EXHAUSTED' || e?.status === 429) {
+      return res.json({ exists: false, quotaExceeded: true });
+    }
+    throw e;
+  }
   if (!userDoc && !subSessions.length) return res.json({ exists: false });
 
   let sessions = [];
@@ -114,7 +137,17 @@ api.get('/data', requireAuth, async (req, res) => {
     sessions = userDoc.sessions;
   }
 
-  res.json({ exists: true, sessions, settings: userDoc?.settings || {} });
+  const settings = userDoc?.settings || {};
+  if (neon.isConfigured() && (sessions.length || Object.keys(settings).length)) {
+    neon.upsert('user_data', {
+      uid,
+      sessions: JSON.stringify(sessions),
+      settings: JSON.stringify(stripSecrets(settings)),
+      updated_at: new Date().toISOString()
+    }, ['uid']).catch(() => {});
+  }
+
+  res.json({ exists: true, sessions, settings });
 });
 
 api.put('/data', requireAuth, rateLimit('data', 30, 60), async (req, res) => {
@@ -131,27 +164,39 @@ api.put('/data', requireAuth, rateLimit('data', 30, 60), async (req, res) => {
   const keptIds = [];
   const seen = new Set();
 
-  const limitedSessions = sessions.slice(0, 300);
-  for (let i = 0; i < limitedSessions.length; i++) {
-    const raw = limitedSessions[i] || {};
-    let id = sanitizeSessionId(raw.id, i);
+  const limitedSessions = sessions.slice(0, 300).map((raw, i) => {
+    const r = raw || {};
+    let id = sanitizeSessionId(r.id, i);
     while (seen.has(id)) id = `${id.slice(0, 110)}_${i}`;
     seen.add(id);
     keptIds.push(id);
-
-    await db.setDoc(`user_data/${uid}/sessions/${id}`, {
+    return {
       id,
       uid,
-      title: String(raw.title || 'Neuer Chat').slice(0, 200),
-      messages: Array.isArray(raw.messages) ? raw.messages.slice(-1000) : [],
-      pinned: !!raw.pinned,
-      unread: !!raw.unread,
-      projectId: raw.projectId || null,
-      assistantId: raw.assistantId || null,
+      title: String(r.title || 'Neuer Chat').slice(0, 200),
+      messages: Array.isArray(r.messages) ? r.messages.slice(-1000) : [],
+      pinned: !!r.pinned,
+      unread: !!r.unread,
+      projectId: r.projectId || null,
+      assistantId: r.assistantId || null,
       orderIndex: i,
-      createdAt: raw.createdAt || now,
-      updatedAt: raw.updatedAt || now
-    });
+      createdAt: r.createdAt || now,
+      updatedAt: r.updatedAt || now
+    };
+  });
+
+  if (neon.isConfigured()) {
+    await neon.upsert('user_data', {
+      uid,
+      sessions: JSON.stringify(limitedSessions),
+      settings: JSON.stringify(cleanSettings),
+      updated_at: now
+    }, ['uid']);
+    return res.json({ ok: true, backend: 'neon' });
+  }
+
+  for (const s of limitedSessions) {
+    await db.setDoc(`user_data/${uid}/sessions/${s.id}`, s);
   }
 
   // Entferne gelöschte Chats aus der Subcollection
@@ -421,6 +466,9 @@ app.use((err, req, res, next) => {
   }
   if (err?.code === 'NOT_FOUND' || err?.status === 404) {
     return res.status(404).json({ error: 'Nicht gefunden.', code: 'NOT_FOUND' });
+  }
+  if (err?.code === 'RESOURCE_EXHAUSTED' || err?.status === 429) {
+    return res.status(429).json({ error: 'Datenbank-Limit vorübergehend erreicht. Bitte kurz warten.', code: 'RESOURCE_EXHAUSTED' });
   }
   if (err?.status >= 400 && err?.status < 500) {
     return res.status(err.status).json({ error: err.message || 'Ungültige Anfrage.' });
