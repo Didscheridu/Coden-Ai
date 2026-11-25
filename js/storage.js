@@ -240,36 +240,20 @@ async function flushCloudSync() {
     const sessions = Storage.getSessions();
     const settings = Storage.getSettings();
     markDirty(uid);
-    // Bei Offline oder verweigertem Zugriff nicht unnöig anklopfen
-    if (dbState.reason === 'denied' || dbState.reason === 'offline') return false;
-    let ok = false;
-    if (dbState.reason !== 'quota') {
-      ok = await writeToFirestore(uid, sessions, settings);
+    // Primär über /api/data synchronisieren (einheitliche Quelle für alle Geräte/Apps: Neon oder Firestore)
+    const apiRes = await apiJson('/data', { method: 'PUT', body: JSON.stringify({ sessions, settings }) }).catch(() => null);
+    if (apiRes?.ok) {
+      const prev = getSyncState(uid) || { uid, sigs: null, user: null };
+      setSyncState({ ...prev, dirty: false });
+      return true;
     }
-    if (!ok) {
-      // Fallback: Backend API (/api/data nutzt Neon Postgres, falls konfiguriert)
-      const res = await apiJson('/data', { method: 'PUT', body: JSON.stringify({ sessions, settings }) }).catch(() => null);
-      if (res?.ok) {
-        const prev = getSyncState(uid) || { uid, sigs: null, user: null };
-        setSyncState({ ...prev, dirty: false });
-        return true;
-      }
-      return false;
-    }
-    return true;
+    // Fallback: direkt über Client-Firestore, falls Server-API nicht erreichbar
+    if (dbState.reason === 'denied' || dbState.reason === 'offline' || dbState.reason === 'quota') return false;
+    return await writeToFirestore(uid, sessions, settings);
   } catch (e) {
     console.error('Cloud Sync Error:', e);
     if (e?.code === 'resource-exhausted' || /quota|resource.exhausted/i.test(String(e?.message || e))) {
       Object.assign(dbState, { ok: false, reason: 'quota' });
-      try {
-        const res = await apiJson('/data', { method: 'PUT', body: JSON.stringify({ sessions: Storage.getSessions(), settings: Storage.getSettings() }) });
-        if (res?.ok) {
-          const uid = auth.currentUser?.uid;
-          const prev = getSyncState(uid) || { uid, sigs: null, user: null };
-          setSyncState({ ...prev, dirty: false });
-          return true;
-        }
-      } catch (_) {}
     }
     return false;
   } finally {
@@ -403,13 +387,24 @@ export const Storage = {
     let remoteFound = false;
     let loadFailed = false;
 
-    if (dbState.reason !== 'quota') {
+    // Primär über /api/data laden (einheitliche Quelle für alle Geräte/Apps)
+    try {
+      const apiData = await apiJson('/data');
+      if (apiData?.exists) {
+        remoteFound = true;
+        if (Array.isArray(apiData.sessions)) remoteSessions = apiData.sessions;
+        if (apiData.settings && typeof apiData.settings === 'object') remoteSettings = apiData.settings;
+      }
+    } catch (_) {}
+
+    // Fallback über Client-Firestore, falls /api/data noch nichts hat
+    if ((!remoteFound || !hasRealContent(remoteSessions)) && dbState.reason !== 'quota') {
       try {
         const userSnap = await getDoc(doc(db, 'user_data', uid));
         const userDoc = userSnap.exists() ? userSnap.data() : null;
         if (userDoc) {
           remoteFound = true;
-          if (userDoc.settings && typeof userDoc.settings === 'object') {
+          if (!remoteSettings && userDoc.settings && typeof userDoc.settings === 'object') {
             remoteSettings = userDoc.settings;
           }
         }
@@ -433,18 +428,19 @@ export const Storage = {
         if (byId.size > 0) {
           remoteFound = true;
           const order = Array.isArray(userDoc?.sessionOrder) ? userDoc.sessionOrder.map(String) : [];
+          const fsSessions = [];
           if (order.length) {
             for (const id of order) {
               if (byId.has(id)) {
-                remoteSessions.push(byId.get(id));
+                fsSessions.push(byId.get(id));
                 byId.delete(id);
               }
             }
           }
           const rest = Array.from(byId.values()).sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
-          remoteSessions.push(...rest);
-        } else if (Array.isArray(userDoc?.sessions) && userDoc.sessions.length > 0) {
-          // Alte Einzeldokument-Struktur -> direkt übernehmen und in Subcollection migrieren
+          fsSessions.push(...rest);
+          if (fsSessions.length > remoteSessions.length) remoteSessions = fsSessions;
+        } else if (Array.isArray(userDoc?.sessions) && userDoc.sessions.length > remoteSessions.length) {
           remoteFound = true;
           remoteSessions = userDoc.sessions;
         }
@@ -454,28 +450,11 @@ export const Storage = {
         }
         if (error?.code === 'resource-exhausted' || /quota|resource.exhausted/i.test(String(error?.message || error))) {
           Object.assign(dbState, { ok: false, reason: 'quota' });
-        } else {
+        } else if (!remoteFound) {
           loadFailed = true;
         }
         console.error('Firestore Load Error:', error);
       }
-    }
-
-    // Fallback über /api/data (Neon Postgres oder Server-Migration)
-    if (!remoteFound || (!remoteSessions.length && !hasRealContent(remoteSessions))) {
-      try {
-        const apiData = await apiJson('/data');
-        if (apiData?.exists) {
-          remoteFound = true;
-          loadFailed = false;
-          if (Array.isArray(apiData.sessions) && apiData.sessions.length > 0 && !remoteSessions.length) {
-            remoteSessions = apiData.sessions;
-          }
-          if (!remoteSettings && apiData.settings) {
-            remoteSettings = apiData.settings;
-          }
-        }
-      } catch (_) {}
     }
 
     if (loadFailed && !remoteFound) return false;
