@@ -15,6 +15,7 @@ const { setup } = require('./helpers');
     if (u.includes('generativelanguage.googleapis.com/v1beta/models?')) return new Response(JSON.stringify({ models: [{ name: 'models/gemini-4-hydrogen', displayName: 'Gemini 4 Hydrogen', supportedGenerationMethods: ['generateContent'] }, { name: 'models/embedding-1', supportedGenerationMethods: ['embedContent'] }] }), { status: 200 });
     if (u === 'https://api.openai.com/v1/models') return new Response(JSON.stringify({ data: [{ id: 'gpt-x' }, { id: 'text-embedding-9' }, { id: 'whisper-1' }] }), { status: 200 });
     if (u.startsWith('https://api.anthropic.com/v1/models')) return new Response(JSON.stringify({ data: [{ id: 'claude-x', display_name: 'Claude X' }] }), { status: 200 });
+    if (u === 'https://ai-gateway.kilo.ai/api/v1/models') return new Response(JSON.stringify({ data: [{ id: 'inclusionai/ling-3.0-flash-vl:free', name: 'inclusionAI: Ling 3.0 Flash VL (free)' }, { id: 'kilo-auto/free', name: 'Auto Free' }] }), { status: 200 });
     return new Response('{}', { status: 500 });
   };
   const { call, chk, finish, token, base, db } = await setup();
@@ -29,7 +30,7 @@ const { setup } = require('./helpers');
 
   // 1) Start: vier voreingestellte Anbieter, kein Key
   let o = (await call('/byok', null, anna)).j;
-  chk('Anbieter voreingestellt', o.providers.map(p => p.id), ['google', 'openai', 'anthropic', 'openrouter', 'numes']);
+  chk('Anbieter voreingestellt', o.providers.map(p => p.id), ['google', 'openai', 'anthropic', 'openrouter', 'numes', 'kilo']);
   chk('Google AI Studio heißt so', o.providers[0].name, 'Google AI Studio');
   chk('Anfangs kein Key, keine Modelle', `${o.providers.some(p => p.hasKey)} ${o.models.length}`, 'false 0');
   chk('Ohne Login geht nichts', (await call('/byok')).s, 401);
@@ -144,6 +145,18 @@ const { setup } = require('./helpers');
   seen.length = 0; t = await stream(nm.tier, anna, { effort: 'low' });
   const numesErr = events(t).find(e => e.t === 'e')?.error || '';
   chk('Numes: nach 3 Versuchen klarer Hinweis ohne Coden-Fallback', [/provider capacity is exhausted.*kostenlosen Server bei Numes/.test(numesErr), seen.length, seen.every(s => s.url.includes('api.numes.ai'))], [true, 3, true]);
+
+  // Kilo (ai-gateway.kilo.ai): eigener Key, Modellliste laden, Ling 3.0 Flash VL (free)
+  reply = null;
+  const kiloProvider = o.providers.find(p => p.id === 'kilo');
+  chk('Kilo: schlägt Ling 3.0 Flash VL (free) vor', kiloProvider.suggest.some(s => s.id === 'inclusionai/ling-3.0-flash-vl:free'), true);
+  await call('/byok/keys/kilo', { key: 'kilo-test-key-8888' }, anna, 'PUT');
+  const kiloList = await call('/byok/providers/kilo/models', null, anna);
+  chk('Kilo: Modelle geladen', kiloList.j.models.map(m => m.id), ['inclusionai/ling-3.0-flash-vl:free', 'kilo-auto/free']);
+  const km = (await addModel('kilo', 'inclusionai/ling-3.0-flash-vl:free', ['low', 'high'], anna, 'Ling 3.0 Flash VL')).j.models.find(m => m.provider === 'kilo');
+  reply = () => sse([`data: ${JSON.stringify({ choices: [{ delta: { content: 'Hallo von Kilo' } }] })}\n\n`, 'data: [DONE]\n\n']);
+  seen.length = 0; t = await stream(km.tier, anna, { effort: 'high' });
+  chk('Kilo: eigener Key, Adresse, Modell und Antwort', [textOf(t), last().url, last().headers.Authorization, last().body.model, last().body.reasoning.effort, km.providerName], ['Hallo von Kilo', 'https://ai-gateway.kilo.ai/api/v1/chat/completions', 'Bearer kilo-test-key-8888', 'inclusionai/ling-3.0-flash-vl:free', 'high', 'Kilo']);
 
   // 9) Fehler eines eigenen Modells: genaue Ursache, kein Ausweichen auf Coden-Modelle
   reply = () => new Response(JSON.stringify({ error: { message: 'Incorrect API key provided' } }), { status: 401 });

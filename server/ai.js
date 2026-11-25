@@ -71,6 +71,7 @@ const OPENAI_COMPAT = {
   groq: { url: 'https://api.groq.com/openai/v1/chat/completions', env: 'GROQ_API_KEY' },
   openai: { url: 'https://api.openai.com/v1/chat/completions', env: null }, // nur mit eigenem Key (Bring your own Key)
   numes: { url: 'https://api.numes.ai/api/v1/chat/completions', env: null }, // nur mit eigenem Key (numes.ai)
+  kilo: { url: 'https://ai-gateway.kilo.ai/api/v1/chat/completions', env: null }, // nur mit eigenem Key (ai-gateway.kilo.ai)
 };
 
 // ---------- Tageskontingent ----------
@@ -361,7 +362,7 @@ async function callModel(m, messages, { stream, onDelta, onThink, signal, maxTok
 }
 
 // ---------- Modellliste (für den Befehl /modelle) ----------
-const PROVIDER_NAMES = { groq: 'Groq', openrouter: 'OpenRouter', google: 'Google', openai: 'OpenAI', anthropic: 'Anthropic', numes: 'Numes' };
+const PROVIDER_NAMES = { groq: 'Groq', openrouter: 'OpenRouter', google: 'Google', openai: 'OpenAI', anthropic: 'Anthropic', numes: 'Numes', kilo: 'Kilo' };
 const keyOf = (m) => `${m.provider}:${m.id}`;
 function listModels() {
   const seen = new Map();
@@ -381,10 +382,10 @@ const sleepAbort = (ms, signal) => new Promise((resolve, reject) => {
 function isTransientError(e, m) {
   if (!e || e.limit || e.partial) return false;
   if ([408, 429, 502, 503, 504].includes(e.status)) return true;
-  if (e.status === 500 && (m.provider === 'numes' || e.errorType === 'server')) return true;
+  if (e.status === 500 && (m.provider === 'numes' || m.provider === 'kilo' || e.errorType === 'server')) return true;
   if (['rate_limited', 'provider_overloaded', 'provider_unavailable', 'service_unavailable', 'routing_unavailable', 'timeout', 'rate_limit_exceeded'].includes(e.errorType)) return true;
   if (/provider capacity is exhausted|capacity.*exhausted|overloaded|provider.?unavailable|service.?unavailable|rate.?limit|bad gateway|gateway timeout|timed? ?out|econnreset|socket hang up|fetch failed/i.test(e.message || '')) return true;
-  if (e.message === 'Leere Antwort' && (m.own || m.provider === 'numes')) return true;
+  if (e.message === 'Leere Antwort' && (m.own || m.provider === 'numes' || m.provider === 'kilo')) return true;
   return false;
 }
 
@@ -428,12 +429,12 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
   for (const m of cascade) {
     if (signal?.aborted) throw new Error('abgebrochen');
     if (QUOTAS[m.id] && !(await reserveQuota(m.id, isOwner))) { last = new Error(`${m.id}: Tageslimit erreicht`); continue; }
-    const maxAttempts = (cascade.length === 1 && (m.own || m.provider === 'numes')) || m.provider === 'numes' ? 3 : (m.own ? 2 : 1);
+    const maxAttempts = (cascade.length === 1 && (m.own || m.provider === 'numes' || m.provider === 'kilo')) || m.provider === 'numes' || m.provider === 'kilo' ? 3 : (m.own ? 2 : 1);
     let modelDone = false;
     for (let attempt = 0; attempt < maxAttempts && !modelDone; attempt++) {
       if (signal?.aborted) throw new Error('abgebrochen');
       let slow = null;
-      const tryModel = attempt > 0 && m.provider === 'numes' ? { ...m, level: null } : m;
+      const tryModel = attempt > 0 && (m.provider === 'numes' || m.provider === 'kilo') ? { ...m, level: null } : m;
       try {
         const mt = m.own ? null : meter; // eigene Modelle zählen nicht gegen die Coden-Limits (auch nicht in gemischten Ketten)
         let sent = false;
@@ -500,8 +501,8 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
     } else if (last?.status === 402 || /insufficient_credits|credit|balance|funding/i.test(msg)) {
       hint = ` – Guthaben oder Ausgabenlimit bei ${prov} reicht nicht aus`;
     } else if (own && ([429, 502, 503, 504].includes(last?.status) || /capacity|exhausted|overload|unavailable|bad gateway|http 50[234]|http 429/i.test(msg))) {
-      hint = m.provider === 'numes' && /:free$/i.test(m.id)
-        ? ' – die kostenlosen Server bei Numes sind gerade ausgelastet. Wechsle kurz auf ein Coden-Modell oder richte eine Ausweich-Kette ein.'
+      hint = (m.provider === 'numes' || m.provider === 'kilo') && /:free$/i.test(m.id)
+        ? ` – die kostenlosen Server bei ${prov} sind gerade ausgelastet. Wechsle kurz auf ein Coden-Modell oder richte eine Ausweich-Kette ein.`
         : ` – ${prov} ist gerade überlastet oder nicht erreichbar.`;
     }
     throw Object.assign(

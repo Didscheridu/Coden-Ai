@@ -444,7 +444,7 @@
       "type": "object",
       "properties": {
         "uid": { "type": "string", "maxLength": 128 },
-        "provider": { "type": "string", "enum": ["google", "openai", "anthropic", "openrouter", "numes"], "maxLength": 32 },
+        "provider": { "type": "string", "enum": ["google", "openai", "anthropic", "openrouter", "numes", "kilo"], "maxLength": 32 },
         "key_enc": { "type": "string", "maxLength": 2000 },
         "hint": { "type": "string", "maxLength": 32 },
         "created_at": { "type": "string", "format": "date-time", "maxLength": 64 }
@@ -458,7 +458,7 @@
       "properties": {
         "id": { "type": "number" },
         "uid": { "type": "string", "maxLength": 128 },
-        "provider": { "type": "string", "enum": ["google", "openai", "anthropic", "openrouter", "numes"], "maxLength": 32 },
+        "provider": { "type": "string", "enum": ["google", "openai", "anthropic", "openrouter", "numes", "kilo"], "maxLength": 32 },
         "model_id": { "type": "string", "maxLength": 120 },
         "label": { "type": "string", "maxLength": 60 },
         "levels": { "type": "array" },

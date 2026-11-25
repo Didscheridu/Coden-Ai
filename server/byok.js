@@ -36,6 +36,15 @@ const PROVIDERS = {
     name: 'Numes', link: 'https://numes.ai/dashboard/keys', keyHint: 'Inference-Key',
     levels: ['minimal', 'low', 'medium', 'high', 'xhigh'],
     suggest: [{ id: 'deepseek/deepseek-v4.1-flash:free', label: 'DeepSeek V4.1 Flash (gratis)' }, { id: 'moonshotai/kimi-k3.1-pro:free', label: 'Kimi K3.1 Pro (gratis)' }]
+  },
+  // Kilo: AI Gateway mit OpenAI-kompatibler Schnittstelle (https://ai-gateway.kilo.ai/api/v1), viele Modelle & Gratismodelle
+  kilo: {
+    name: 'Kilo', link: 'https://app.kilo.ai', keyHint: 'Kilo-API-Key',
+    levels: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+    suggest: [
+      { id: 'inclusionai/ling-3.0-flash-vl:free', label: 'Ling 3.0 Flash VL (gratis)' },
+      { id: 'kilo-auto/free', label: 'Kilo Auto Free (gratis)' }
+    ]
   }
 };
 const MAX_MODELS = 40;
@@ -254,6 +263,11 @@ async function listProviderModels(provider, key) {
   }
   if (provider === 'numes') {
     const d = await fetchJson('https://api.numes.ai/api/v1/models', { Authorization: `Bearer ${key}` });
+    const list = Array.isArray(d) ? d : (d.data || d.models || []);
+    return list.map(m => (typeof m === 'string' ? { id: m, label: m } : { id: m.id, label: m.name || m.id })).filter(m => m.id);
+  }
+  if (provider === 'kilo') {
+    const d = await fetchJson('https://ai-gateway.kilo.ai/api/v1/models', { Authorization: `Bearer ${key}` });
     const list = Array.isArray(d) ? d : (d.data || d.models || []);
     return list.map(m => (typeof m === 'string' ? { id: m, label: m } : { id: m.id, label: m.name || m.id })).filter(m => m.id);
   }
