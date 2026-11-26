@@ -22,6 +22,9 @@ const chk = (name, got, want) => { const ok = JSON.stringify(got) === JSON.strin
   const open = R.extractWidgets('Los geht\'s\n<flashcards>\nHund :: dog');
   chk('offener Block beim Streamen', [open.widgets[0].type, open.widgets[0].closed, open.text.includes('Hund')], ['flashcards', false, false]);
   chk('halber Anfangs-Tag wird versteckt', R.extractWidgets('Text <qui').text, 'Text ');
+  const unclosed = R.extractWidgets('Überblick:\n<stats>\n7 | Stunden heute\n2 | Freiarbeit', { final: true });
+  chk('fertige Antwort: ungeschlossener Block wird trotzdem gebaut (kein Dauer-Laden)', [unclosed.widgets[0].type, unclosed.widgets[0].closed, R.extractWidgets('<stats>\n7 | x').widgets[0].closed], ['stats', true, false]);
+  chk('fertige Antwort: Text am Ende bleibt stehen', R.extractWidgets('a <b', { final: true }).text, 'a <b');
   chk('Tags mitten in echtem ```Code``` bleiben Code', R.extractWidgets('```js\nconst t = "<steps>a</steps>";\n```').widgets.length, 0);
   chk('mehrere Blöcke', R.extractWidgets('<steps>\na: b\n</steps>\nx\n<stats>\n1 | eins\n</stats>').widgets.map(w => w.type), ['steps', 'stats']);
 
@@ -76,6 +79,7 @@ const chk = (name, got, want) => { const ok = JSON.stringify(got) === JSON.strin
   // ---------- Systemprompt kennt alles ----------
   const P = await import(pathToFileURL(path.join(__dirname, '../js/system-prompt.js')).href);
   const prompt = P.buildChatPrompt();
+  chk('Systemprompt kennt Datum und Uhrzeit', /es ist jetzt \d{2}:\d{2} Uhr \(Zeitzone /.test(prompt), true);
   chk('Systemprompt erklärt Markieren, Farben und alle Elemente', ['==grün:', '{{rot:', ...R.WIDGETS.filter(w => w !== 'lernplan').map(w => '<' + w)].every(x => prompt.includes(x)), true);
 
   console.log(fails ? `\n${fails} Fehler` : '\nAlle Rich-Element-Tests grün');

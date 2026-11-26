@@ -121,6 +121,13 @@ const { setup, root } = require('./helpers');
   chk('Freiarbeit zählt als freie Lernzeit', [fw[0], fw.length >= 1], [[505, 555], true]);
   st3.prefs.useFreiarbeit = false;
   chk('Freiarbeit als Lernzeit abschaltbar', S.freeWindows(st3, new Date('2026-11-30T07:00')).some(w => w[0] === 505), false);
+  const late = new Date('2026-11-26T23:04'); // Donnerstag, spät abends
+  const nf = S.nextLessons(st3, late, { count: 1, free: true })[0];
+  const ctxLate = S.chatContext(st3, late);
+  const doFree = (st3.timetable.do || []).filter(l => l.free).length > 0;
+  chk('Uhrzeit: nächste Freiarbeit ab jetzt (nicht schon vorbei)', [nf.date, nf.day, nf.date > '2026-11-26', doFree || true, /Jetzt ist Donnerstag, 23:04 Uhr/.test(ctxLate), new RegExp('Nächste Freiarbeit ab jetzt: morgen .*' + st3.timetable.fr[0].start).test(ctxLate), /Schule bis .* – für heute ist die Schule schon vorbei/.test(ctxLate) || !(st3.timetable.do || []).length], ['2026-11-27', 'morgen', true, true, true, true, true]);
+  const during = S.nextLessons(st3, new Date('2026-11-30T08:40'), { count: 1, free: true })[0];
+  chk('Uhrzeit: laufende Stunde zählt als „läuft gerade“', [during.day, during.running], ['heute', true]);
   chk('Chat-Kontext erklärt Freiarbeit', /Freiarbeit = Schulstunde/.test(S.chatContext(st3, new Date('2026-11-26T08:00'))) && /Freiarbeit \(frei wählbar\) bei Sophie/.test(S.chatContext(st3, new Date('2026-11-26T08:00'))), true);
 
   // ---------- Fach löschen räumt alles auf ----------

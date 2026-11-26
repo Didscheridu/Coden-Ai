@@ -361,6 +361,21 @@ export function reminders(st, now = Date.now()) {
 }
 
 // ---------- Kontext für den Chat (Coden hat Überblick) ----------
+// Nächste Schulstunden ab jetzt (heute nur, was noch nicht vorbei ist), höchstens 8 Tage voraus.
+// Rechnet die App selbst aus, damit Coden nicht „heute 14:50“ sagt, wenn es schon 23 Uhr ist.
+export function nextLessons(st, now = new Date(), { count = 3, free = false } = {}) {
+    const out = []; const nowMin = now.getHours() * 60 + now.getMinutes();
+    for (let i = 0; i < 8 && out.length < count; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
+        const list = (st.timetable[dayKey(d)] || []).filter(l => (!free || l.free) && toMin(l.start) != null)
+            .filter(l => i > 0 || toMin(l.end ?? l.start) > nowMin)
+            .sort((a, b) => toMin(a.start) - toMin(b.start));
+        for (const l of list) { if (out.length >= count) break; out.push({ date: isoDate(d), day: i === 0 ? 'heute' : i === 1 ? 'morgen' : DAY_LABEL[dayKey(d)], start: l.start, end: l.end, name: l.name, teacher: l.teacher || '', free: !!l.free, running: i === 0 && toMin(l.start) <= nowMin }); }
+    }
+    return out;
+}
+const lessonText = (l) => `${l.day} (${fmtDate(l.date)}) ${l.start}–${l.end} ${l.name}${l.teacher ? ` bei ${l.teacher}` : ''}${l.running ? ' – läuft gerade' : ''}`;
+
 export function chatContext(st, now = new Date()) {
     if (!st.subjects.length && !st.exams.length && !st.assignments.length) return '';
     const name = (id) => subjectOf(st, id)?.name || '?'; const today = isoDate(now);
@@ -376,7 +391,15 @@ export function chatContext(st, now = new Date()) {
     if (open.length) lines.push('Offene Aufträge: ' + open.map(a => `${name(a.subjectId)}: ${a.title}${a.due ? ` (fällig ${fmtDate(a.due)})` : ''} [${STATUS[a.status] || 'Offen'}]`).join('; '));
     const soon = st.plan.filter(p => !p.done && p.date >= today).sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start)).slice(0, 8);
     if (soon.length) lines.push('Geplante Lerneinheiten: ' + soon.map(p => `${fmtDate(p.date)} ${p.start} ${p.min} min ${subjectOf(st, p.subjectId)?.name || p.subjectName || ''}: ${p.title}`).join('; '));
-    const today2 = (st.timetable[dayKey(now)] || []); if (today2.length) lines.push(`Heute (${DAY_LABEL[dayKey(now)]}) Schule bis ${fromMin(schoolEnd(st, dayKey(now)))}.`);
+    const today2 = (st.timetable[dayKey(now)] || []); if (today2.length) {
+        const end = schoolEnd(st, dayKey(now)); const over = end != null && now.getHours() * 60 + now.getMinutes() >= end;
+        lines.push(`Heute (${DAY_LABEL[dayKey(now)]}) Schule bis ${fromMin(end)}${over ? ' – für heute ist die Schule schon vorbei' : ''}.`);
+    }
+    // Was als Nächstes kommt, ab der aktuellen Uhrzeit gerechnet (diese Angaben haben Vorrang vor eigenen Rechnungen)
+    const clock = now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    const nxt = nextLessons(st, now, { count: 3 }); const nf = nextLessons(st, now, { count: 1, free: true });
+    if (nxt.length) lines.push(`Jetzt ist ${DAY_LABEL[dayKey(now)]}, ${clock} Uhr. Nächste Schulstunden ab jetzt: ${nxt.map(lessonText).join('; ')}.`);
+    if (nf.length) lines.push(`Nächste Freiarbeit ab jetzt: ${lessonText(nf[0])}.`);
     lines.push(`Wenn der Nutzer einen Lernplan will: plane in seinen freien Zeiten (nach Schulschluss + Pause, innerhalb der Lernzeiten, nicht an freien Tagen), verteilt bis zur Arbeit, zur Arbeit hin dichter, letzte Einheit = Generalprobe am Vortag. Gib ihn als Block aus, den er mit einem Klick ins Lern-Studio übernehmen kann:
 <lernplan title="Mathe-Arbeit 12.12.">
 2026-12-01 16:00 | 30 | Mathe | Scheitelform üben

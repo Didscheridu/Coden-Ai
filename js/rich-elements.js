@@ -47,7 +47,9 @@ const FENCED = new RegExp('```[a-zA-Z]*[ \\t]*\\n(\\s*<(?:' + NAMES + ')\\b[\\s\
 
 // Ersetzt jeden Block durch einen Platzhalter <div class="cw" data-cw="n"></div> (auch noch offene Blöcke beim Streamen).
 // Liefert { text, widgets: [{ type, attrs, body, closed }] }
-export function extractWidgets(text) {
+// final: die Antwort ist fertig (nicht mehr am Streamen). Dann wird ein Block, den das Modell nicht geschlossen hat,
+// trotzdem gebaut, statt für immer als „Berechnet Kennzahlen …“ stehen zu bleiben.
+export function extractWidgets(text, { final = false } = {}) {
     const widgets = []; const ph = () => `\n\n<div class="cw" data-cw="${widgets.length - 1}"></div>\n\n`;
     const parts = String(text).replace(FENCED, (m, inner) => inner + '\n').split(/(```[\s\S]*?(?:```|$))/g);
     const out = parts.map((part, i) => {
@@ -59,7 +61,7 @@ export function extractWidgets(text) {
             const close = rest.toLowerCase().indexOf(`</${type}>`, after);
             let body = close < 0 ? rest.slice(after) : rest.slice(after, close);
             if (close < 0) body = body.replace(/<\/[a-z]*$/i, ''); // halber Schluss-Tag beim Streamen
-            widgets.push({ type, attrs: attrsOf(m[2]), body: body.replace(/^\n+|\s+$/g, ''), closed: close >= 0 });
+            widgets.push({ type, attrs: attrsOf(m[2]), body: body.replace(/^\n+|\s+$/g, ''), closed: close >= 0 || final });
             res += rest.slice(0, start) + ph();
             if (close < 0) { rest = ''; break; }
             rest = rest.slice(close + type.length + 3);
@@ -67,6 +69,7 @@ export function extractWidgets(text) {
         // Anfangs-Tag noch nicht fertig geschrieben ("<qu", "<quiz title="Pho"): nichts Rohes anzeigen
         return res.replace(/<([a-z]+)(\s[^<>]*)?$/i, (t, name, attrs) => {
             const n = name.toLowerCase();
+            if (final) return t; // fertige Antwort: nichts verschlucken
             if (WIDGETS.includes(n)) { widgets.push({ type: n, attrs: attrsOf(attrs), body: '', closed: false }); return ph(); }
             return !attrs && WIDGETS.some(w => w.startsWith(n)) ? '' : t;
         });

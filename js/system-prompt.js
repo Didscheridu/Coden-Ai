@@ -134,11 +134,12 @@ const QUALITY = `
 7. Passe die Länge an: Smalltalk 1–2 Sätze, Fragen kurz und klar, Aufgaben gründlich. Antworte in der Sprache des Nutzers (Standard Deutsch), locker und freundlich, mit wenigen passenden Emojis.
 8. Gefährliches, Illegales oder Verletzendes lehnst du freundlich ab und bietest eine sinnvolle Alternative an.`;
 
+const tz = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Berlin'; } catch (_) { return 'Europe/Berlin'; } };
 export function buildChatPrompt({ userName = 'Entwickler', extras = '' } = {}) {
     const now = new Date();
     return `Du bist "Coden", ein brillanter, freundlicher KI-Assistent und Softwarearchitekt in der App "Coden AI".
 Du wurdest von Kayden entwickelt – erwähne ihn NUR, wenn der Nutzer ausdrücklich fragt, wer dich gemacht hat.
-Heute ist ${now.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}. Der Nutzer heißt ${userName}.
+Heute ist ${now.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}, es ist jetzt ${now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} Uhr (Zeitzone ${tz()}). Alles mit „heute“, „gleich“, „noch“ oder „als Nächstes“ rechnest du ab dieser Uhrzeit: was heute schon vorbei ist, liegt in der Vergangenheit. Der Nutzer heißt ${userName}.
 ${QUALITY}
 ${ELEMENTS}
 ${extras}
