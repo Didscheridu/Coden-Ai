@@ -9,6 +9,7 @@ import * as S from './study-core.js';
 import { openInkEditor, createPages, filesToBackgrounds, deleteDocPages } from './ink.js';
 import { loader } from './rich-elements.js';
 import { enablePush, pushState } from './push.js';
+import * as Menu from './menu.js';
 
 const h = (tag, attrs = {}, ...kids) => {
     const el = document.createElement(tag);
@@ -218,16 +219,45 @@ const section = (title, iconName, action, body) => h('section', { class: 'sd-sec
 function assignmentCard(st, a) {
     const state = S.assignmentState(a); const d = a.due ? days(a.due) : null;
     const label = { puenktlich: 'Abgegeben ✓', spaet: 'Zu spät abgegeben', ueberfaellig: 'Überfällig', offen: S.STATUS[a.status] || 'Offen' }[state];
+    const progress = h('div', { class: 'sd-solve', hidden: true });
+    const editBtn = h('button', { type: 'button', class: 'cd-primary', onclick: () => openAssignment(st, a) }, ic('stylus_note'), a.status === 'abgegeben' ? ' Ansehen' : ' Bearbeiten');
+    // Drei Punkte: Coden lösen lassen, Abgabe, Löschen
+    const more = h('button', { type: 'button', class: 'cd-btn sd-more', title: 'Mehr', 'aria-label': `Optionen für ${a.title}` }, ic('more_vert'));
+    const menu = h('div', { class: 'cm-panel sd-menu hidden', role: 'menu' },
+        Menu.item({ icon: 'auto_awesome', label: a.coden ? 'Coden nochmal lösen lassen' : 'Coden lösen lassen', desc: 'Schreibt die Lösung in deiner Handschrift ins Heft', accent: true, onClick: () => solveWithCoden(st, a, { progress, buttons: [editBtn, more] }) }),
+        a.coden ? Menu.item({ icon: 'ink_eraser', label: 'Coden-Lösung entfernen', onClick: async () => { if (!(await confirmBox('Alles entfernen, was Coden in dieses Heft geschrieben hat? Deine eigenen Striche bleiben.', { ok: 'Entfernen', danger: true }))) return; const { removeCodenSolution } = await import('./study-solve.js'); await removeCodenSolution(st, a); save(st); toast('Coden-Lösung entfernt.', { type: 'ok' }); } }) : null,
+        Menu.sep(),
+        a.status !== 'abgegeben'
+            ? Menu.item({ icon: 'task_alt', label: 'Als abgegeben markieren', onClick: () => { S.submitAssignment(st, a.id); save(st); toast('Abgegeben ✓', { type: 'ok' }); } })
+            : Menu.item({ icon: 'undo', label: 'Doch nicht abgegeben', onClick: () => { a.status = 'fertig'; a.submittedAt = null; save(st); } }),
+        Menu.item({ icon: 'delete', label: 'Löschen', danger: true, onClick: async () => { if (!(await confirmBox(`Auftrag „${a.title}“ löschen?`, { ok: 'Löschen', danger: true }))) return; const doc = st.docs.find(x => x.assignmentId === a.id); if (doc) { deleteDocPages(doc.id); st.docs = st.docs.filter(x => x !== doc); } st.assignments = st.assignments.filter(x => x.id !== a.id); save(st); } }));
+    Menu.bindMenu(more, menu);
     return h('div', { class: 'sd-card sd-as ' + state },
         h('div', { class: 'sd-card-main' },
             h('b', { text: a.title }),
-            h('small', { class: 'sd-muted', text: [a.due ? `Abgabe ${S.fmtDate(a.due)} (${inDays(d)})` : 'ohne Abgabedatum', a.score != null ? `Coden-Score ${a.score} %` : ''].filter(Boolean).join(' · ') }),
-            a.desc ? h('p', { class: 'sd-desc', text: a.desc.slice(0, 220) + (a.desc.length > 220 ? ' …' : '') }) : null),
+            h('small', { class: 'sd-muted', text: [a.due ? `Abgabe ${S.fmtDate(a.due)} (${inDays(d)})` : 'ohne Abgabedatum', a.score != null ? `Coden-Score ${a.score} %` : '', a.coden ? 'von Coden gelöst' : ''].filter(Boolean).join(' · ') }),
+            a.desc ? h('p', { class: 'sd-desc', text: a.desc.slice(0, 220) + (a.desc.length > 220 ? ' …' : '') }) : null,
+            progress),
         h('span', { class: 'sd-status ' + state, text: label }),
-        h('div', { class: 'sd-row' },
-            h('button', { type: 'button', class: 'cd-primary', onclick: () => openAssignment(st, a) }, ic('stylus_note'), a.status === 'abgegeben' ? ' Ansehen' : ' Bearbeiten'),
-            a.status !== 'abgegeben' ? h('button', { type: 'button', class: 'cd-btn', title: 'Als abgegeben markieren', onclick: () => { S.submitAssignment(st, a.id); save(st); toast('Abgegeben ✓', { type: 'ok' }); } }, ic('task_alt')) : h('button', { type: 'button', class: 'cd-btn', title: 'Doch nicht abgegeben', onclick: () => { a.status = 'fertig'; a.submittedAt = null; save(st); } }, ic('undo')),
-            h('button', { type: 'button', class: 'cd-btn', title: 'Löschen', onclick: async () => { if (!(await confirmBox(`Auftrag „${a.title}“ löschen?`, { ok: 'Löschen', danger: true }))) return; const doc = st.docs.find(x => x.assignmentId === a.id); if (doc) { deleteDocPages(doc.id); st.docs = st.docs.filter(x => x !== doc); } st.assignments = st.assignments.filter(x => x.id !== a.id); save(st); } }, ic('delete'))));
+        h('div', { class: 'sd-row' }, editBtn, h('div', { class: 'sd-more-wrap' }, more, menu)));
+}
+// Coden löst den Auftrag und schreibt in der Handschrift des Nutzers ins Heft, danach öffnet sich das Heft
+async function solveWithCoden(st, a, { progress, buttons = [] } = {}) {
+    const step = (t) => { progress.hidden = false; progress.replaceChildren(loader({ size: 18 }), h('span', { text: t })); };
+    buttons.forEach(b => { b.disabled = true; });
+    try {
+        const { solveAssignment } = await import('./study-solve.js');
+        const r = await solveAssignment(st, a, { ensureDoc, onStep: step });
+        const where = [r.placed ? `${r.placed} Antwort${r.placed === 1 ? '' : 'en'} aufs Blatt` : '', r.extraPages ? `${r.extraPages} Seite${r.extraPages === 1 ? '' : 'n'} mit Rechenwegen` : ''].filter(Boolean).join(', ');
+        toast(`Coden hat ${r.total} Aufgabe${r.total === 1 ? '' : 'n'} gelöst${where ? ': ' + where : ''}. Prüf es bitte kurz.`, { type: 'ok', ms: 7000 });
+        rerender();
+        openDoc(st, r.doc, a);
+    } catch (e) {
+        toast(e.message || 'Coden konnte den Auftrag nicht lösen.', { type: 'error', ms: 7000 });
+    } finally {
+        progress.hidden = true;
+        buttons.forEach(b => { b.disabled = false; });
+    }
 }
 async function openAssignment(st, a) {
     let doc = st.docs.find(d => d.assignmentId === a.id);

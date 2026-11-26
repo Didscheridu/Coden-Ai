@@ -173,3 +173,11 @@ small.warn, .sd-li small.warn { color: var(--c-orange); font-weight: 700; } smal
 .sd-lesson .sd-free-l { color: var(--sc) !important; font-weight: 600; }
 .sd-lesson b { overflow-wrap: anywhere; }
 .modal .cd-text, .cd-text { white-space: pre-line; }
+
+/* Drei Punkte am Auftrag: Coden lösen lassen, Abgabe, Löschen */
+.sd-more-wrap { position: relative; }
+.sd-more { padding-inline: 8px !important; }
+.sd-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 80; min-width: 250px; }
+.sd-menu .cm-desc { white-space: normal; }
+.sd-solve { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 13px; color: var(--accent-brand); font-weight: 600; }
+.sd-solve[hidden] { display: none; }

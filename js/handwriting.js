@@ -69,20 +69,29 @@ export function renderHandwritingCanvas(canvas, text, opts = {}) {
     return { layout, profile: prof, hw, trained: trainedCount(prof), own: layout.usedTrained, preview: layout.usedFallback };
 }
 
-// Ins Heft: Striche passend auf das Karo/die Linien der Notizbuch-Seite legen (mehrere Seiten bei langen Lösungen)
-export async function saveHandwritingAsNotebook({ title, text, paper, ink, profile }) {
-    const hw = StudyStore.handwriting();
-    const prof = activeProfile(hw, profile);
-    const nbPaper = (paper || prof.paper) === 'blanko' ? 'blanko' : (paper || prof.paper) === 'liniert' ? 'liniert' : 'karo';
-    // Notizbuch: Karo 25er-Raster, Linien alle 36 ab y = 120
+// Notizbuch-Striche aus Layout-Strichen (dicht, Seiten-Einheiten), optional als „von Coden“ markiert
+function toInkStrokes(strokes, { color, pen, dx = 0, dy = 0, origin } = {}) {
+    const kind = pen === 'kugel' ? 'kugel' : pen;
+    return strokes.map(s => {
+        const pts = s.straight ? [[s.p[0], s.p[1]], [s.p[s.p.length - 3], s.p[s.p.length - 2]]] : smoothPoints(s.p, 0.9);
+        const p = [];
+        for (const [x, y] of pts) p.push(Math.round((x + dx) * 10) / 10, Math.round((y + dy) * 10) / 10, 0.5);
+        if (p.length === 3) p.push(p[0] + 0.4, p[1], 0.5);
+        return { t: 'pen', c: color, w: Math.round(s.w * penFactor(pen) / 1.1 * 100) / 100, k: kind, p, ...(origin ? { o: origin } : {}) };
+    });
+}
+
+// Text → Striche für Notizbuch-Seiten, passend aufs Karo (25er-Raster) bzw. die Linien (alle 36 ab y = 120)
+export function notebookPagesFor(text, prof, { paper, ink, origin, seed = 5 } = {}) {
+    const want = paper || prof?.paper;
+    const nbPaper = want === 'blanko' ? 'blanko' : want === 'liniert' ? 'liniert' : 'karo';
     const layout = layoutFor(text, prof, nbPaper === 'liniert'
-        ? { paper: 'liniert', width: PAGE_W, grid: 20, seed: 5 }
-        : { paper: nbPaper, width: PAGE_W, grid: 25, seed: 5 });
+        ? { paper: 'liniert', width: PAGE_W, grid: 20, seed }
+        : { paper: nbPaper, width: PAGE_W, grid: 25, seed });
     const shiftY = nbPaper === 'liniert' ? 120 - layout.firstBase : (nbPaper === 'karo' ? 50 : 40);
     const chunk = nbPaper === 'liniert' ? Math.floor((PAGE_H - 170) / layout.pitch) * layout.pitch : Math.floor((PAGE_H - 110) / layout.pitch) * layout.pitch;
-    const color = resolveInkHex(ink, prof.inkColor || '#1b1f2a');
+    const color = resolveInkHex(ink, prof?.inkColor || '#1b1f2a');
     const pen = penOf(prof);
-    const kind = pen === 'kugel' ? 'kugel' : pen;
     const pages = [];
     // Seite nach der Zeile (nicht nach dem einzelnen Strich), damit kein Buchstabe zerrissen wird
     const perPage = Math.max(1, Math.round(chunk / layout.pitch));
@@ -92,19 +101,38 @@ export async function saveHandwritingAsNotebook({ title, text, paper, ink, profi
         for (let i = 1; i < s.p.length; i += 3) { sumY += s.p[i]; n++; }
         const pg = pageOf(sumY / Math.max(1, n));
         while (pages.length <= pg) pages.push([]);
-        const pts = s.straight ? [[s.p[0], s.p[1]], [s.p[s.p.length - 3], s.p[s.p.length - 2]]] : smoothPoints(s.p, 0.9);
-        const p = [];
-        for (const [x, y] of pts) p.push(Math.round(x * 10) / 10, Math.round((y - pg * chunk + shiftY) * 10) / 10, 0.5);
-        if (p.length === 3) p.push(p[0] + 0.4, p[1], 0.5);
-        pages[pg].push({ t: 'pen', c: color, w: Math.round(s.w * penFactor(pen) / 1.1 * 100) / 100, k: kind, p });
+        pages[pg].push(...toInkStrokes([s], { color, pen, dy: shiftY - pg * chunk, origin }));
     }
     for (const m of layout.marks || []) {
-        const pg = pageOf(m.y0);
+        const pg = pageOf(m.y1 - layout.k * 0.3);
         while (pages.length <= pg) pages.push([]);
         const y = (m.y0 + m.y1) / 2 - pg * chunk + shiftY;
-        pages[pg].unshift({ t: 'hl', c: m.color, w: Math.round(m.y1 - m.y0), k: 'fueller', p: [m.x0, y, 0.5, (m.x0 + m.x1) / 2, y, 0.5, m.x1, y, 0.5] });
+        pages[pg].unshift({ t: 'hl', c: m.color, w: Math.round(m.y1 - m.y0), k: 'fueller', p: [m.x0, y, 0.5, (m.x0 + m.x1) / 2, y, 0.5, m.x1, y, 0.5], ...(origin ? { o: origin } : {}) });
     }
     if (!pages.length) pages.push([]);
+    return { pages, paper: nbPaper };
+}
+
+// Kurze Antwort in einen Kasten auf dem Arbeitsblatt schreiben (Seiten-Einheiten). null, wenn sie nicht hineinpasst.
+export function strokesInBox(text, prof, rect, { ink, origin = 'coden', seed = 7, maxK = 24, minK = 7 } = {}) {
+    const rich = profileRich(prof);
+    const color = resolveInkHex(ink, prof?.inkColor || '#1b1f2a');
+    let k = Math.min(maxK, rect.h / 1.75);
+    for (let i = 0; i < 14 && k >= minK; i++, k *= 0.9) {
+        const L = layoutRich(text, rich, { fit: { k, pitch: 2.25 * k, firstBase: 1.5 * k }, width: rect.w, paper: 'blanko', seed, weight: prof?.rich ? (prof.strokeScale || 1) : 1, fallback: fallbackRich() });
+        if (L.maxX > rect.w + 0.5 || L.height > rect.h * 1.2) continue;
+        // eine Zeile sitzt unten im Feld (auf der Schreiblinie), mehrere Zeilen oben
+        const dy = rect.y + (L.lineCount <= 1 ? Math.max(0, rect.h - L.height - 0.1 * k) : 0);
+        return toInkStrokes(L.strokes, { color, pen: penOf(prof), dx: rect.x, dy, origin });
+    }
+    return null;
+}
+
+// Ins Heft: neues Notizbuch mit der Lösung in der Handschrift
+export async function saveHandwritingAsNotebook({ title, text, paper, ink, profile }) {
+    const hw = StudyStore.handwriting();
+    const prof = activeProfile(hw, profile);
+    const { pages, paper: nbPaper } = notebookPagesFor(text, prof, { paper, ink });
     const inkMod = await import('./ink.js');
     const st = StudyStore.get();
     const doc = S.newDoc(st, { title: title || 'Handschrift-Lösung', paper: nbPaper });

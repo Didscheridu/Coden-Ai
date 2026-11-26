@@ -158,6 +158,40 @@ const chk = (name, got, want) => {
     H.setMasterRich(null);
     chk('Kaydens weg (anderer Nutzer): fällt auf eigenes Profil zurück', [H.activeProfile(hwM).id === pv.id, H.allProfiles(hwM).length], [true, 1]);
 
+    // 10. Im Chat: „schreib das auf Papier in meiner Handschrift“
+    chk('Chat erkennt den Wunsch nach Handschrift', [
+        'Löse Aufgabe 3 in meiner Handschrift', 'schreib mir das bitte auf papier', 'kannst du das handschriftlich machen?', 'Schreib die Zusammenfassung aufs Blatt', 'mach es in Kaydens Handschrift',
+        'Wie kann ich meine Handschrift trainieren?', 'Was ist Papier?', 'Erkläre Photosynthese'
+    ].map(H.handwritingRequested), [true, true, true, true, true, false, false, false]);
+    chk('Erzwungene Handschrift-Antwort: Block + Hinweis aufs Arbeitsblatt nur mit Bild', [H.forceHandwritingPrompt().includes('<handwriting'), H.forceHandwritingPrompt().includes('Coden lösen lassen'), H.forceHandwritingPrompt({ withImage: true }).includes('Coden lösen lassen')], [true, false, true]);
+
+    // 11. Kasten-Modus (Antwort in ein Feld auf dem Arbeitsblatt)
+    const fitL = E.layoutRich('ab ab ab', rich, { fit: { k: 10, pitch: 22.5, firstBase: 15 }, width: 400, paper: 'blanko', wordLib: 0 });
+    const fitN = E.layoutRich('ab ab ab ab ab ab', rich, { fit: { k: 10, pitch: 22.5, firstBase: 15 }, width: 60, paper: 'blanko', wordLib: 0 });
+    chk('Kasten-Modus: kein Rand, eine Zeile, Höhe passt; schmaler Kasten bricht um', [Math.min(...fitL.strokes.map(s => s.p[0])) < 3, fitL.lineCount, fitL.height < 30, fitN.lineCount > 1], [true, 1, true, true]);
+
+    // 12. Striche: Fineliner bleibt Fineliner, „von Coden“ bleibt markiert
+    const IC = await import(pathToFileURL(path.join(__dirname, '../js/ink-core.js')).href);
+    const round = IC.decodeStrokes(IC.encodeStrokes([{ t: 'pen', c: '#111111', w: 2, k: 'fineliner', p: [1, 2, 0.5, 3, 4, 0.5] }, { t: 'pen', c: '#111111', w: 2, k: 'fueller', o: 'coden', p: [1, 2, 0.5, 3, 4, 0.5] }, { t: 'pen', c: '#111111', w: 2, p: [1, 2, 0.5] }]));
+    chk('Striche: fineliner, o=coden und normale Striche überstehen Speichern', round.map(s => [s.k, s.o || '']), [['fineliner', ''], ['fueller', 'coden'], ['fueller', '']]);
+
+    // 13. „Coden lösen lassen“: Prompt, Antwort lesen, Felder aufs Blatt umrechnen
+    const SV = await import(pathToFileURL(path.join(__dirname, '../js/study-solve-core.js')).href);
+    const sp = SV.solvePrompt({ subject: 'Mathe', title: 'AB Parabeln', desc: '', pages: 2 });
+    chk('Lösen-Prompt: JSON, Felder als box_2d, keine Aufgabe auslassen', [sp.user.includes('box_2d'), sp.user.includes('2 Bilder'), sp.system.includes('Keine Aufgabe'), SV.solvePrompt({ desc: 'Löse 3x=9', pages: 0 }).user.includes('kein Arbeitsblatt')], [true, true, true, true]);
+    const answer = 'Klar!\n```json\n{"aufgaben":[{"nr":"1a","seite":1,"antwort":"x=3","box_2d":[500,100,540,400],"rechnung":"3x=9 |:3\\nx=3"},{"nr":"2","seite":2,"antwort":"Scheitel S(1|2)","box_2d":[0,0,1000,1000]},{"nr":"3","seite":9,"antwort":"ja","box_2d":[10,10,40,200]},{"nr":"4","antwort":"","rechnung":""},{"nr":"5","seite":1,"antwort":"X","box_2d":[300,700,280,650]}]}\n```';
+    const items = SV.parseSolve(answer, 2);
+    chk('Antwort lesen: Felder geprüft, zu große/falsche Seiten → ins Heft, leere Aufgaben raus, vertauschte Ecken repariert', [
+        items.length, items[0].page, items[0].box.y0, items[1].box, items[2].page, items[3].nr, items[3].box && Math.round(items[3].box.x0 * 1000)
+    ], [4, 0, 0.5, null, null, '5', 650]);
+    chk('Antwort lesen: kaputtes JSON → null', [SV.parseSolve('keine Ahnung', 1), SV.parseSolve('{"aufgaben": 5}', 1)], [null, null]);
+    const rect = SV.boxToPage({ x0: 0.1, y0: 0.5, x1: 0.4, y1: 0.54 }, 1600, 1131, 1000, 1414);
+    chk('Feld → Heft-Seite: Querformat-Blatt wird oben eingepasst', [Math.round(rect.x), Math.round(rect.y), Math.round(rect.w)], [102, 353, 296]);
+    items[0].placed = true;
+    const extraTxt = SV.extraPagesText(items, { title: 'Lösungen' });
+    chk('Extra-Seiten: Rechenwege + alles, was nicht aufs Blatt passte', [extraTxt.startsWith('# Lösungen'), extraTxt.includes('Aufgabe 1 a)\n3x=9 |:3'), extraTxt.includes('Scheitel S(1|2)'), extraTxt.includes('x=3\n3x=9') ], [true, true, true, false]);
+    chk('Extra-Seiten: nichts übrig → leer', SV.extraPagesText([{ nr: '1', answer: 'x', work: '', placed: true }]), '');
+
     console.log(fails ? `\n${fails} Fehler` : '\nAlle Handschrift-Tests grün');
     process.exit(fails ? 1 : 0);
 })();

@@ -13,15 +13,19 @@ export function encodeStrokes(strokes) {
     return JSON.stringify(strokes.map(s => {
         const d = []; let px = 0, py = 0, pp = 0;
         for (let i = 0; i < s.p.length; i += 3) { const x = Math.round(s.p[i] * 10), y = Math.round(s.p[i + 1] * 10), p = Math.round((s.p[i + 2] ?? 0.5) * 100); d.push(x - px, y - py, p - pp); px = x; py = y; pp = p; }
+        // o = Herkunft ('coden' = von Coden geschrieben, lässt sich wieder entfernen)
+        if (s.o) return [s.t, s.c, s.w, d, s.k || 'fueller', s.o];
         return s.k && s.k !== 'fueller' ? [s.t, s.c, s.w, d, s.k] : [s.t, s.c, s.w, d];
     }));
 }
 export function decodeStrokes(str) {
     let arr; try { arr = JSON.parse(str || '[]'); } catch (_) { return []; }
-    return (Array.isArray(arr) ? arr : []).map(([t, c, w, d, k]) => {
+    return (Array.isArray(arr) ? arr : []).map(([t, c, w, d, k, o]) => {
         const p = []; let x = 0, y = 0, q = 0;
         for (let i = 0; i + 2 < (d || []).length; i += 3) { x += d[i]; y += d[i + 1]; q += d[i + 2]; p.push(x / 10, y / 10, q / 100); }
-        return { t: t === 'hl' ? 'hl' : 'pen', c: String(c || '#1b1f2a'), w: +w || 2, k: ['kugel', 'pinsel'].includes(k) ? k : 'fueller', p };
+        const s = { t: t === 'hl' ? 'hl' : 'pen', c: String(c || '#1b1f2a'), w: +w || 2, k: ['kugel', 'pinsel', 'fineliner'].includes(k) ? k : 'fueller', p };
+        if (o === 'coden') s.o = 'coden';
+        return s;
     }).filter(s => s.p.length >= 3);
 }
 

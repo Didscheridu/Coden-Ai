@@ -648,3 +648,15 @@ WICHTIG: Wenn der Nutzer dich bittet, eine Aufgabe, Rechnung, Lösung, Zusammenf
     return `## HANDSCHRIFT IM CHAT (<handwriting>)
 Der Nutzer hat noch keine eigene Handschrift trainiert (Profil „${act.name}“ hat noch 0 Zeichen). Wenn er trotzdem um eine Lösung oder einen Text „in meiner Handschrift“ bittet, gib die Lösung in \`<handwriting title="…" paper="karo">…\` aus (Coden zeigt sie in Vorschau-Handschrift und bietet direkt auf der Karte einen Knopf „Meine Handschrift trainieren“, um seine echte Schrift anzulernen).`;
 }
+
+// ---------- „Schreib das auf Papier in meiner Handschrift“ im Chat ----------
+const HW_ASK = /(in|mit)\s+(meiner|seiner|deiner|kaydens|der)\s+hand\s?schrift|handschriftlich|wie\s+von\s+mir\s+geschrieben|auf[s]?\s+(das\s+|dem\s+|ein\s+|einem\s+)?(papier|blatt|karo(papier)?|heft)\b.*\b(schreib|lös|loes|mach)|\b(schreib|lös|loes)\w*\b.*\bauf[s]?\s+(das\s+|dem\s+|ein\s+|einem\s+)?(papier|karopapier|blatt|arbeitsblatt|heft)\b|für\s+goodnotes|in\s+hand\s?schrift\b/i;
+export function handwritingRequested(text) {
+    const t = String(text || '').slice(0, 4000);
+    if (/hand\s?schrift\s+(trainieren|anlernen|lernen|einspielen|löschen)/i.test(t) && !/(schreib|lös|loes)/i.test(t)) return false;
+    return HW_ASK.test(t);
+}
+export function forceHandwritingPrompt({ withImage = false } = {}) {
+    return `## DIESE ANTWORT AUF PAPIER IN DER HANDSCHRIFT DES NUTZERS
+Der Nutzer will diese Antwort auf Papier in seiner Handschrift. Schreibe die komplette Lösung bzw. den ganzen Text in EINEN \`<handwriting title="…" paper="karo">…</handwriting>\`-Block, davor höchstens 1 kurzer Satz, danach höchstens 1 kurzer Satz. Inhalt wie in einem Schulheft: \`Aufgabe 1\` als eigene Zeile, Teilaufgaben mit \`a)\`, jede Umformung einer Rechnung in eine eigene Zeile (\`3x+6=21 |-6\`), kurze einfache Sätze, Unicode-Mathe (x², √, ·), kein LaTeX, kein **Fett**.${withImage ? ' Der Nutzer hat ein Bild angehängt: lies jede Aufgabe darauf und löse alle, mit der Nummer vom Blatt. Sag am Ende in einem Satz, dass Coden im Lern-Studio bei einem Auftrag über ⋮ → „Coden lösen lassen“ auch direkt aufs Arbeitsblatt schreiben kann.' : ''}`;
+}
