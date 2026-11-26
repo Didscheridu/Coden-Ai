@@ -426,3 +426,14 @@ html[data-theme="light"] {
 .lp-day { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin: 10px 0 4px; }
 .lp-row { display: grid; grid-template-columns: 48px 56px 1fr; gap: 10px; align-items: baseline; padding: 7px 10px; border-radius: 10px; background: var(--bg-surface-hover); font-size: 14px; }
 .lp-time { font-weight: 700; font-variant-numeric: tabular-nums; } .lp-min { color: var(--text-muted); font-size: 12.5px; }
+
+/* ---------- Handy: Seitenleiste liegt ÜBER dem Inhalt (x-theme.css setzte sie auf position: relative,
+   dadurch nahm die zugeklappte Leiste weiter 290 px Breite weg und der Inhalt wurde rechts zusammengequetscht) ---------- */
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed !important; top: 0; left: 0; bottom: 0; height: 100dvh !important;
+    z-index: 9999 !important; transition: transform .28s var(--ease-ui, ease) !important;
+  }
+  .sidebar.collapsed { transform: translateX(-105%) !important; margin-left: 0 !important; box-shadow: none !important; }
+  .main-content { width: 100% !important; min-width: 0 !important; flex: 1 1 100% !important; margin-left: 0 !important; }
+}
