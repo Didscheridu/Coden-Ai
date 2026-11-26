@@ -18,7 +18,7 @@ const WIDTHS = { pen: [1.8, 2.9, 4.6], hl: [14, 22, 32], eraser: [8, 18, 40], sh
 // ---------- kleine Helfer ----------
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 const icon = (n) => el('span', 'material-symbols-outlined', n);
-const btn = (ic, label, fn, cls = '') => { const b = el('button', 'ink-btn ' + cls); b.type = 'button'; b.title = label; b.setAttribute('aria-label', label); if (ic) b.append(icon(ic)); if (cls.includes('labeled')) b.append(el('span', '', label)); b.addEventListener('click', fn); return b; };
+const btn = (ic, label, fn, cls = '') => { const b = el('button', 'ink-btn ' + cls); b.type = 'button'; b.title = label; b.setAttribute('aria-label', label); if (ic) b.append(icon(ic)); if (cls.includes('labeled')) b.append(el('span', 'ink-l', label)); b.addEventListener('click', fn); return b; };
 export const newPageId = () => 'pg' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const clone = (pg) => ({ strokes: pg.strokes.slice(), text: pg.text.map(t => ({ ...t })), items: pg.items.map(i => ({ ...i })) });
 
@@ -212,9 +212,10 @@ export function openInkEditor(ctx) {
     const checkB = btn('fact_check', 'Coden prüfen', () => correct(), 'primary labeled');
     const doneB = ctx.assignment ? btn('task_alt', 'Fertig & abgeben', () => finish(), 'labeled') : null;
     const moreB = btn('more_horiz', 'Mehr', (e) => moreMenu(e.currentTarget));
-    const left = el('div', 'ink-row'); left.append(btn('arrow_back', 'Zurück zur Bibliothek', () => close()), sideB, title);
+    const left = el('div', 'ink-row ink-left'); left.append(btn('arrow_back', 'Zurück zur Bibliothek', () => close()), sideB, title);
     const mid = el('div', 'ink-row ink-mid'); mid.append(undoB, redoB, pageLbl);
-    const right = el('div', 'ink-row'); right.append(saveState, markB, addB, liveB, checkB, ...(doneB ? [doneB] : []), moreB);
+    markB.classList.add('ink-wide'); addB.classList.add('ink-wide'); doneB?.classList.add('ink-wide');
+    const right = el('div', 'ink-row ink-right'); right.append(saveState, markB, addB, liveB, checkB, ...(doneB ? [doneB] : []), moreB);
     top.append(left, mid, right);
 
     // Werkzeugleiste (GoodNotes: mittig, Werkzeuge + passende Optionen)
@@ -741,6 +742,11 @@ export function openInkEditor(ctx) {
     function moreMenu(anchor) {
         document.querySelector('.ink-pop')?.remove(); const pop = el('div', 'ink-pop ink-menu');
         const it = (ic, l, fn) => pop.append(btn(ic, l, () => { pop.remove(); fn(); }, 'labeled'));
+        if (window.matchMedia('(max-width: 700px)').matches) {
+            if (doneB) it('task_alt', 'Fertig & abgeben', () => finish());
+            it('note_add', 'Seite hinzufügen', () => templateMenu(anchor, (t) => insertPage(st.cur + 1, t)));
+            const on = doc.bookmarks.includes(pages[st.cur]?.id); it(on ? 'bookmark_remove' : 'bookmark', on ? 'Lesezeichen entfernen' : 'Lesezeichen setzen', () => toggleBookmark(st.cur));
+        }
         it('picture_as_pdf', 'Als PDF exportieren', () => exportPdf());
         it('upload_file', 'PDF / Fotos importieren', () => bgIn.click());
         it('wallpaper', 'Vorlage dieser Seite', () => templateMenu(anchor, (t) => setPaper(st.cur, t)));
