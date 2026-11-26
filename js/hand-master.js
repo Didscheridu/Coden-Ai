@@ -2,12 +2,11 @@
 // Die Daten liegen nur in der Datenbank (nie im öffentlichen Repo). Der Server gibt sie nur dem Owner
 // (ADMIN_EMAIL, bestätigt). Alle anderen Nutzer trainieren ihre eigene Handschrift.
 import { apiJson } from './backend.js';
-import { setMasterRich, getMasterProfile, MASTER_ID } from './handwriting-core.js';
+import { setMasterRich, getMasterProfile, MASTER_ID, chooseHandwriting } from './handwriting-core.js';
 import { normalizeRich } from './hand-engine.js';
 import { StudyStore } from './study-store.js';
 
 const KEY = 'coden_hand_master_v2';
-const AUTO_KEY = 'coden_hand_master_auto';
 const changed = () => document.dispatchEvent(new CustomEvent('codenHandwritingChanged'));
 let owner = false;
 
@@ -17,13 +16,11 @@ function activate(raw, { remember = true } = {}) {
     const prof = setMasterRich(raw);
     if (!prof) return null;
     if (remember) { try { localStorage.setItem(KEY, JSON.stringify(raw)); } catch (_) { /* Speicher voll */ } }
-    // Beim ersten Mal „Kaydens“ als aktive Handschrift setzen (danach entscheidet der Nutzer)
+    // Nur beim allerersten Mal (für das ganze Konto, nicht pro Gerät) „Kaydens“ wählen.
+    // Danach bleibt die Handschrift, die der Nutzer gewählt und gespeichert hat.
     try {
-        if (!localStorage.getItem(AUTO_KEY)) {
-            localStorage.setItem(AUTO_KEY, '1');
-            const hw = StudyStore.handwriting();
-            if (hw.activeId !== MASTER_ID) StudyStore.saveHandwriting({ ...hw, activeId: MASTER_ID });
-        }
+        const hw = StudyStore.handwriting();
+        if (!hw.masterSeen) StudyStore.saveHandwriting({ ...(hw.activeAt ? hw : chooseHandwriting(hw, MASTER_ID)), masterSeen: true });
     } catch (_) { /* egal */ }
     return prof;
 }
@@ -61,8 +58,10 @@ export async function importMasterFile(file) {
     const rich = normalizeRich(raw);
     if (!rich) throw new Error('Die Datei ist keine gültige Handschrift-Datei (coden-hand).');
     await apiJson('/study/hand-master', { method: 'PUT', body: JSON.stringify({ profile: rich }) });
-    try { localStorage.removeItem(AUTO_KEY); } catch (_) { /* egal */ }
     activate(rich);
+    // Einspielen ist eine bewusste Wahl: ab jetzt schreibt Coden in Kaydens
+    StudyStore.saveHandwriting({ ...chooseHandwriting(StudyStore.handwriting(), MASTER_ID), masterSeen: true });
+    StudyStore.syncNow?.();
     changed();
     return getMasterProfile();
 }

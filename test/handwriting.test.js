@@ -158,6 +158,16 @@ const chk = (name, got, want) => {
     H.setMasterRich(null);
     chk('Kaydens weg (anderer Nutzer): fällt auf eigenes Profil zurück', [H.activeProfile(hwM).id === pv.id, H.allProfiles(hwM).length], [true, 1]);
 
+    // 9b. Gewählte Handschrift bleibt nach dem Neuladen / Abgleich mit der Cloud
+    const own = H.blankProfile('Kayden Schrift'); own.glyphs.a = one;
+    const chosen = H.chooseHandwriting(H.normalizeHandwriting({ profiles: [own] }), H.MASTER_ID);
+    const oldCloud = H.normalizeHandwriting({ activeId: own.id, profiles: [own] });
+    chk('Abgleich: Kaydens bleibt gewählt, auch wenn die Cloud noch die alte Wahl hat', [H.mergeHandwriting(chosen, oldCloud).activeId, H.mergeHandwriting(oldCloud, chosen).activeId], ['kaydens', 'kaydens']);
+    const later = { ...H.chooseHandwriting(oldCloud, own.id), activeAt: new Date(Date.now() + 5000).toISOString() };
+    chk('Abgleich: die zuletzt aktiv gewählte Handschrift gewinnt', [H.mergeHandwriting(chosen, later).activeId, H.mergeHandwriting(later, chosen).activeId], [own.id, own.id]);
+    const seen = H.normalizeHandwriting({ ...chosen, masterSeen: true });
+    chk('Wahl und „Kaydens schon eingerichtet“ überstehen Speichern und Abgleich', [seen.activeId, !!seen.activeAt, seen.masterSeen, H.mergeHandwriting(oldCloud, seen).masterSeen], ['kaydens', true, true, true]);
+
     // 10. Im Chat: „schreib das auf Papier in meiner Handschrift“
     chk('Chat erkennt den Wunsch nach Handschrift', [
         'Löse Aufgabe 3 in meiner Handschrift', 'schreib mir das bitte auf papier', 'kannst du das handschriftlich machen?', 'Schreib die Zusammenfassung aufs Blatt', 'mach es in Kaydens Handschrift',

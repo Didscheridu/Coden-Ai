@@ -107,9 +107,14 @@ export function normalizeHandwriting(raw) {
             updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt.slice(0, 40) : new Date().toISOString()
         });
     }
-    if (!profiles.length) return { ...blankHandwriting(), ...(x.activeId === MASTER_ID ? { activeId: MASTER_ID } : {}) };
+    // activeAt: wann der Nutzer zuletzt selbst eine Handschrift gewählt hat (entscheidet beim Abgleich zwischen Geräten)
+    const extra = {
+        ...(typeof x.activeAt === 'string' && !Number.isNaN(Date.parse(x.activeAt)) ? { activeAt: x.activeAt.slice(0, 40) } : {}),
+        ...(x.masterSeen ? { masterSeen: true } : {})
+    };
+    if (!profiles.length) return { ...blankHandwriting(), ...(x.activeId === MASTER_ID ? { activeId: MASTER_ID } : {}), ...extra };
     const activeId = profiles.some(p => p.id === x.activeId) || x.activeId === MASTER_ID ? x.activeId : profiles[0].id;
-    return { v: 1, activeId, profiles };
+    return { v: 1, activeId, profiles, ...extra };
 }
 
 // ---------- Kaydens Handschrift (kommt nur für die Admin-Mail vom Server, nie aus dem Repo) ----------
@@ -143,6 +148,11 @@ export function updateMasterPrefs(patch) {
     return masterProfile;
 }
 export const getMasterProfile = () => masterProfile;
+
+// Handschrift aktiv wählen (nur durch den Nutzer bzw. beim Einspielen von Kaydens)
+export function chooseHandwriting(hw, id) {
+    return { ...hw, activeId: id, activeAt: new Date().toISOString() };
+}
 
 // Alle wählbaren Profile: eigene + (nur beim Admin) Kaydens
 export function allProfiles(hw) {
@@ -212,10 +222,14 @@ export function mergeHandwriting(localHw, remoteHw) {
     const mergedList = Array.from(byId.values())
         .sort((a, b) => (trainedCount(b) - trainedCount(a)) || ((Date.parse(b.updatedAt || 0) || 0) - (Date.parse(a.updatedAt || 0) || 0)))
         .slice(0, 6);
-    const activeId = mergedList.some(p => p.id === loc.activeId)
-        ? loc.activeId
-        : (mergedList.some(p => p.id === rem.activeId) ? rem.activeId : mergedList[0]?.id);
-    return normalizeHandwriting({ v: 1, activeId, profiles: mergedList });
+    // Gewählte Handschrift: die zuletzt aktiv gewählte gewinnt (Kaydens zählt auch, obwohl sie nicht in der Liste steht)
+    const valid = (id) => id === MASTER_ID || mergedList.some(p => p.id === id);
+    const tLoc = Date.parse(loc.activeAt || 0) || 0, tRem = Date.parse(rem.activeAt || 0) || 0;
+    const first = tRem > tLoc ? rem : loc, second = first === rem ? loc : rem;
+    const pick = valid(first.activeId) ? first : valid(second.activeId) ? second : null;
+    const activeId = pick ? pick.activeId : mergedList[0]?.id;
+    const activeAt = pick?.activeAt || first.activeAt || second.activeAt;
+    return normalizeHandwriting({ v: 1, activeId, profiles: mergedList, ...(activeAt ? { activeAt } : {}), ...(loc.masterSeen || rem.masterSeen ? { masterSeen: true } : {}) });
 }
 
 // ---------- Kompakte Glyphen-Kodierung (0..100 Box, 1/10-Genauigkeit) ----------
