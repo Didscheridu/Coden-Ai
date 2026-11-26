@@ -185,6 +185,14 @@ const chk = (name, got, want) => {
     const round = IC.decodeStrokes(IC.encodeStrokes([{ t: 'pen', c: '#111111', w: 2, k: 'fineliner', p: [1, 2, 0.5, 3, 4, 0.5] }, { t: 'pen', c: '#111111', w: 2, k: 'fueller', o: 'coden', p: [1, 2, 0.5, 3, 4, 0.5] }, { t: 'pen', c: '#111111', w: 2, p: [1, 2, 0.5] }]));
     chk('Striche: fineliner, o=coden und normale Striche überstehen Speichern', round.map(s => [s.k, s.o || '']), [['fineliner', ''], ['fueller', 'coden'], ['fueller', '']]);
 
+    // Coden-Striche werden im Heft exakt gezeichnet (kein Nachglätten, gleich dick, keine Spitzen)
+    const corner = { t: 'pen', c: '#000', w: 2, k: 'kugel', o: 'coden', p: [0, 0, 0.5, 10, 0, 0.5, 10, 10, 0.5] };
+    const ol = IC.strokeOutline(corner);
+    const near = (x, y) => Math.min(...ol.map(([a, b]) => Math.hypot(a - x, b - y)));
+    const olHand = IC.strokeOutline({ ...corner, o: undefined });
+    const nearH = (x, y) => Math.min(...olHand.map(([a, b]) => Math.hypot(a - x, b - y)));
+    chk('Heft: Coden-Striche behalten Ecke und Dicke (Nutzer-Striche werden weiter geglättet)', [near(10, 0) < 1.5, nearH(10, 0) > near(10, 0)], [true, true]);
+
     // 13. „Coden lösen lassen“: Prompt, Antwort lesen, Felder aufs Blatt umrechnen
     const SV = await import(pathToFileURL(path.join(__dirname, '../js/study-solve-core.js')).href);
     const sp = SV.solvePrompt({ subject: 'Mathe', title: 'AB Parabeln', desc: '', pages: 2 });
