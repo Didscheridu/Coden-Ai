@@ -58,8 +58,8 @@ export const Research = {
             };
             const depth = this.depth();
             host.replaceChildren(
-                h('div', { class: 'rs-status' }, icon(cur ? 'travel_explore' : 'search'), h('div', {}, h('b', { text: cur ? `Suche über ${cur.name}` : 'Gratis-Suche (DuckDuckGo)' }),
-                    h('small', { text: cur ? 'Zuverlässige Treffer mit deinem eigenen Key.' : 'Funktioniert ohne Key, liefert aber manchmal keine Treffer. Mit einem eigenen Key unten wird es deutlich besser.' }))),
+                h('div', { class: 'rs-status' }, icon(cur ? 'travel_explore' : 'search'), h('div', {}, h('b', { text: cur ? `Suche über ${cur.name}` : o.server?.length ? 'Suche über den Coden-Server' : o.google ? 'Gratis-Suche (Google, DuckDuckGo, Bing, News)' : 'Gratis-Suche (DuckDuckGo, Bing, News)' }),
+                    h('small', { text: cur ? 'Zuverlässige Treffer mit deinem eigenen Key.' : 'Funktioniert ohne Key: Coden fragt mehrere Suchdienste nacheinander, bis es Treffer gibt. Mit einem eigenen Key unten geht es noch zuverlässiger.' }))),
                 h('h5', { class: 'rs-h', text: 'Such-Key (optional)' }),
                 h('div', { class: 'rs-cards' }, o.providers.map(card)),
                 h('p', { class: 'settings-hint', text: 'Dein Key wird verschlüsselt auf dem Server gespeichert und nur für deine Recherchen benutzt. Bei Fehlern fällt Coden automatisch auf die Gratis-Suche zurück.' }),

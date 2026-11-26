@@ -734,9 +734,10 @@ async function ddgResults(query) {
 async function webSearch(query) {
   const q = String(query || '').trim(); if (!q) return { ok: false, summary: 'keine Suche angegeben', text: 'Fehler: web_search braucht query="…".' };
   try {
-    const out = (await module.exports.ddgResults(q)).slice(0, 8);
+    // mehrere Gratis-Quellen (Google über Gemini, DuckDuckGo, Bing, News, Wikipedia), siehe server/websearch.js
+    const out = (await require('./websearch').freeSearch(q, 8)).results.slice(0, 8);
     if (!out.length) return { ok: false, summary: 'keine Ergebnisse', text: `Keine Suchergebnisse für "${q}".` };
-    return { ok: true, summary: `„${q.slice(0, 40)}“: ${plural(out.length, 'Ergebnis', 'Ergebnisse')}`, text: `Suchergebnisse für "${q}":\n${out.map((x, i) => `${i + 1}. ${x.title}\n   ${x.url}\n   ${x.snippet}`).join('\n')}\nLies eine Seite genauer mit <tool name="fetch" url="…"/>.` };
+    return { ok: true, summary: `„${q.slice(0, 40)}“: ${plural(out.length, 'Ergebnis', 'Ergebnisse')}`, text: `Suchergebnisse für "${q}":\n${out.map((x, i) => `${i + 1}. ${x.title}\n   ${x.url}\n   ${x.text || x.snippet}`).join('\n')}\nLies eine Seite genauer mit <tool name="fetch" url="…"/>.` };
   } catch (e) { return { ok: false, summary: 'Suche nicht erreichbar', text: `Die Websuche ist gerade nicht erreichbar (${e.message}). Arbeite mit deinem Wissen weiter.` }; }
 }
 
