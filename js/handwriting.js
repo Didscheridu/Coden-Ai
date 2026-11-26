@@ -8,7 +8,7 @@ import { PAGE_W, PAGE_H, encodeStrokes } from './ink-core.js';
 import {
     GUIDES, CHAR_GROUPS, ALL_TRAIN_CHARS, MAX_VARIANTS, MASTER_ID,
     blankProfile, normalizeHandwriting, activeProfile, allProfiles, trainedCount, variantCount, glyphVariants,
-    encodeGlyphStrokes, decodeGlyphStrokes, profileRich, fallbackRich, resolveInkHex, getMasterProfile, updateMasterPrefs
+    encodeGlyphStrokes, decodeGlyphStrokes, profileRich, fallbackRich, resolveInkHex, getMasterProfile, updateMasterPrefs, chooseHandwriting
 } from './handwriting-core.js';
 import { layoutRich, paintLayout, drawInk, drawPaper, smoothPoints, PENS, penFactor, richVariantCount } from './hand-engine.js';
 
@@ -219,7 +219,7 @@ export function openHandwritingTrainer({ initialChar = '', onSaved } = {}) {
                 const name = await promptBox('Neue Handschrift', { label: 'Name (z. B. Schönschrift, Druckschrift, Mathe)', placeholder: 'Schönschrift', ok: 'Erstellen' });
                 if (!name) return;
                 const p = blankProfile(name);
-                hw.profiles.push(p); hw.activeId = p.id;
+                hw.profiles.push(p); hw = chooseHandwriting(hw, p.id);
                 persistHw({ sync: true }); state.variant = 0; loadStrokes(); renderAll();
             }
         }, ic('add'), ' Neu'),
@@ -241,7 +241,7 @@ export function openHandwritingTrainer({ initialChar = '', onSaved } = {}) {
                 const p = ownProf();
                 if (!(await confirmBox(`Handschrift „${p.name}“ wirklich löschen?`, { ok: 'Löschen', danger: true }))) return;
                 hw.profiles = hw.profiles.filter(x => x.id !== p.id);
-                hw.activeId = hw.profiles[0].id;
+                if (hw.activeId === p.id || !hw.profiles.some(x => x.id === hw.activeId)) hw = chooseHandwriting(hw, hw.profiles[0].id);
                 persistHw({ sync: true }); state.variant = 0; loadStrokes(); renderAll();
             }
         }, ic('delete'))
@@ -252,8 +252,8 @@ export function openHandwritingTrainer({ initialChar = '', onSaved } = {}) {
             h('button', { type: 'button', class: 'cd-primary sm', title: 'Speichern und schließen', onclick: () => closeTrainer() }, ic('check'), ' Fertig'))
     );
     profSelect.addEventListener('change', () => {
-        hw.activeId = profSelect.value;
-        persistHw(); state.variant = 0; loadStrokes(); renderAll();
+        hw = chooseHandwriting(hw, profSelect.value);
+        persistHw({ sync: true }); state.variant = 0; loadStrokes(); renderAll();
     });
 
     // ---- GoodNotes-Werkzeugleiste ----
@@ -344,7 +344,7 @@ export function openHandwritingTrainer({ initialChar = '', onSaved } = {}) {
             try {
                 const prof = await mod.importMasterFile(f);
                 hw = normalizeHandwriting(StudyStore.handwriting());
-                hw.activeId = MASTER_ID; persistHw({ sync: true });
+                hw = chooseHandwriting(hw, MASTER_ID); persistHw({ sync: true });
                 toast(`„${prof.name}“ ist gespeichert – nur für deine Admin-Mail.`, { type: 'ok' });
                 renderAll();
             } catch (e) { toast(e.message || 'Import fehlgeschlagen.', { type: 'err' }); }
@@ -360,7 +360,7 @@ export function openHandwritingTrainer({ initialChar = '', onSaved } = {}) {
                 type: 'button', class: 'cd-btn sm', title: 'Kaydens aus der Datenbank löschen',
                 onclick: async () => {
                     if (!(await confirmBox('Kaydens Handschrift aus der Datenbank löschen? Du kannst die Datei später wieder einspielen.', { ok: 'Löschen', danger: true }))) return;
-                    try { await mod.deleteMaster(); if (hw.activeId === MASTER_ID) { hw.activeId = hw.profiles[0].id; persistHw(); } renderAll(); } catch (e) { toast(e.message, { type: 'err' }); }
+                    try { await mod.deleteMaster(); if (hw.activeId === MASTER_ID) { hw = chooseHandwriting(hw, hw.profiles[0].id); persistHw({ sync: true }); } renderAll(); } catch (e) { toast(e.message, { type: 'err' }); }
                 }
             }, ic('delete')) : null
         );

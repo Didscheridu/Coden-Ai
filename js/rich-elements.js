@@ -538,8 +538,8 @@ function buildHandwriting(w) {
         try {
             if (!hwMod) hwMod = await import('./handwriting.js');
             const hw = hwMod.getHandwritingState();
+            // Ohne eigene Wahl auf der Karte gilt immer die gespeicherte Handschrift (auch wenn Kaydens erst nach dem Laden kommt)
             const prof = activeProfile(hw, selectedProfile);
-            if (!selectedProfile) selectedProfile = prof.id;
             const list = allProfiles(hw);
             if (list.length > 1) {
                 profSel.hidden = false;
