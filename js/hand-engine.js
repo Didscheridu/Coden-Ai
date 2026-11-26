@@ -418,21 +418,23 @@ export function layoutRich(rawText, rich, opts = {}) {
     const prep = prepareRich(rich);
     const fallback = opts.fallback ? prepareRich(opts.fallback) : null;
     const paper = ['karo', 'liniert', 'blanko', 'punkte'].includes(opts.paper) ? opts.paper : 'karo';
-    const width = clamp(+opts.width || 720, 240, 2400);
+    const width = clamp(+opts.width || 720, opts.fit ? 10 : 240, 2400);
     const grid = clamp(+opts.grid || 20, 8, 60);
     const text = prepareText(rawText);
     const lines = text.split('\n');
     const mathe = opts.mathe === true || (opts.mathe !== false && lines.filter(l => l.trim()).length >= 2 && lines.filter(l => l.trim()).every(l => isMathLine(l) || /^(aufgabe|a\)|b\)|c\)|d\))/i.test(l.trim())));
     let pitch, k;
-    if (paper === 'liniert') { pitch = Math.round(grid * 1.8); k = Math.min(grid, 0.74 * pitch / 1.5); }
+    const fit = opts.fit && +opts.fit.k > 0 ? opts.fit : null; // fester Kasten (z. B. Lücke auf dem Arbeitsblatt)
+    if (fit) { k = +fit.k; pitch = +fit.pitch || k * 2.3; }
+    else if (paper === 'liniert') { pitch = Math.round(grid * 1.8); k = Math.min(grid, 0.74 * pitch / 1.5); }
     else if (mathe) { pitch = grid * 2; k = grid * 0.73; }
     else { pitch = grid * 3; k = grid; }
-    k *= clamp(+opts.size || 1, 0.5, 1.6);
+    if (!fit) k *= clamp(+opts.size || 1, 0.5, 1.6);
     const hand = new Hand(prep, fallback, { seed: opts.seed ?? 1, jitter: opts.jitter ?? 1, wordLib: opts.wordLib ?? (Object.keys(prep.w).length ? 0.35 : 0) });
     const rng = hand.rng;
-    const xLeft = paper === 'liniert' ? grid * 3.5 : grid;
-    const xRight = width - grid * 0.8;
-    const firstBase = paper === 'liniert' ? pitch * 2 : Math.ceil(0.35 + 0.55 * pitch / grid - 1e-6) * grid;
+    const xLeft = fit ? 0 : paper === 'liniert' ? grid * 3.5 : grid;
+    const xRight = fit ? width : width - grid * 0.8;
+    const firstBase = fit ? (+fit.firstBase || 1.5 * k) : paper === 'liniert' ? pitch * 2 : Math.ceil(0.35 + 0.55 * pitch / grid - 1e-6) * grid;
     const swPx = prep.style.sw * k * clamp(+opts.weight || 1, 0.5, 1.8);
     const placed = [], lineItems = [], marks = [];
     let base = firstBase - pitch; let lineCount = 0;
@@ -593,9 +595,9 @@ export function layoutRich(rawText, rich, opts = {}) {
         for (let i = 0; i < li.pts.length; i += 2) p.push(li.pts[i], li.pts[i + 1], 0.5);
         strokes.push({ p, w: li.w, straight: !!li.straight });
     }
-    const height = Math.max(opts.minHeight || 0, Math.ceil((base + pitch * 0.9) / grid) * grid + grid, grid * 6);
+    const height = fit ? base + 0.8 * k : Math.max(opts.minHeight || 0, Math.ceil((base + pitch * 0.9) / grid) * grid + grid, grid * 6);
     return {
-        width, height, grid, pitch, k, paper, mathe, firstBase,
+        width, height, grid, pitch, k, paper, mathe, firstBase, maxX: strokes.reduce((m, s) => { for (let i = 0; i < s.p.length; i += 3) if (s.p[i] > m) m = s.p[i]; return m; }, 0),
         strokes, marks, lineCount,
         usedTrained: hand.usedTrained, usedFallback: hand.usedFallback, usedWords: hand.usedWords,
         missing: [...hand.missing]
