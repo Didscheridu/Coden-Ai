@@ -32,7 +32,7 @@ const inDays = (n) => (n === 0 ? 'heute' : n === 1 ? 'morgen' : n === -1 ? 'gest
 const dot = (color) => h('i', { class: 'sd-dot', style: { background: color || '#888' } });
 const field = (label, input, hint) => h('label', { class: 'sd-field' }, h('span', { text: label }), input, hint ? h('small', { text: hint }) : null);
 const busyBtn = async (b, label, fn) => { const old = [...b.childNodes]; b.disabled = true; b.replaceChildren(loader({ size: 18 }), ' ' + label); try { return await fn(); } finally { b.disabled = false; b.replaceChildren(...old); } };
-const ask = async (system, user, images) => (await apiJson('/chat', { method: 'POST', body: JSON.stringify({ tier: 'flash', messages: [{ role: 'system', content: system }, { role: 'user', content: user, ...(images?.length ? { images: images.slice(0, 3) } : {}) }] }) })).content;
+const ask = async (system, user, images, tier = 'flash') => (await apiJson('/chat', { method: 'POST', body: JSON.stringify({ tier, messages: [{ role: 'system', content: system }, { role: 'user', content: user, ...(images?.length ? { images: images.slice(0, 3) } : {}) }] }) })).content;
 const json = (t) => { const s = String(t || ''); const i = s.search(/[[{]/); const j = Math.max(s.lastIndexOf('}'), s.lastIndexOf(']')); if (i < 0 || j < i) return null; try { return JSON.parse(s.slice(i, j + 1)); } catch (_) { return null; } };
 
 export function renderStudioTab(tab, rr) {
@@ -308,11 +308,21 @@ function renderTimetable(st) {
     photo.addEventListener('change', () => busyBtn(upBtn, 'Coden liest …', async () => {
         try {
             const imgs = await filesToBackgrounds([...photo.files].slice(0, 1)); photo.value = ''; if (!imgs.length) return;
-            const raw = json(await ask('Du liest Stundenpläne von Fotos. Antworte NUR mit JSON.', S.TIMETABLE_PROMPT, imgs.slice(0, 1)));
+            // 1. Durchgang lesen, 2. Durchgang Karte für Karte gegen das Bild prüfen (Freiarbeit, kleine Karten, Termine)
+            const SYS = 'Du liest Stundenpläne von Fotos, sehr genau und vollständig. Antworte NUR mit JSON.';
+            const read = async (prompt) => { try { return json(await ask(SYS, prompt, imgs.slice(0, 1), 'pro')); } catch (_) { return json(await ask(SYS, prompt, imgs.slice(0, 1))); } };
+            const first = await read(S.TIMETABLE_PROMPT);
+            let raw = first;
+            if (first) { const second = await read(S.timetableCheckPrompt(first)).catch(() => null); if (second && S.lessonCount(second) >= S.lessonCount(first)) raw = second; }
             const tt = S.cleanTimetable(raw, st); const n = S.DAYS.reduce((a, d) => a + tt[d].length, 0);
             if (!n) { toast('Coden konnte den Stundenplan nicht lesen. Versuch ein schärferes Foto oder trag ihn unten ein.', { type: 'warn', ms: 7000 }); return; }
-            if (S.DAYS.some(d => st.timetable[d].length) && !(await confirmBox(`Coden hat ${n} Stunden erkannt. Deinen bisherigen Stundenplan ersetzen?`, { ok: 'Ersetzen' }))) return;
-            st.timetable = tt; save(st); toast(`Stundenplan übernommen: ${n} Stunden, ${st.subjects.length} Fächer.`, { type: 'ok' });
+            const fa = S.DAYS.reduce((a, d) => a + tt[d].filter(l => l.free).length, 0);
+            if (S.DAYS.some(d => st.timetable[d].length) && !(await confirmBox(`Coden hat ${n} Stunden erkannt${fa ? `, davon ${fa}× Freiarbeit` : ''}. Deinen bisherigen Stundenplan ersetzen?`, { ok: 'Ersetzen', title: 'Stundenplan erkannt' }))) return;
+            st.timetable = tt;
+            const events = S.cleanEvents(raw);
+            let added = 0;
+            if (events.length && await confirmBox(`Auf dem Plan stehen auch Termine:\n${events.map(e => `• ${S.fmtDate(e.date)} ${e.subject}: ${e.title || (e.type === 'abgabe' ? 'Abgabe' : 'Test')}`).join('\n')}\n\nAls ${events.some(e => e.type === 'abgabe') ? 'Arbeiten/Abgaben' : 'Arbeiten'} eintragen?`, { ok: 'Eintragen', title: 'Termine gefunden' })) added = S.applyEvents(st, events);
+            save(st); toast(`Stundenplan übernommen: ${n} Stunden${fa ? ` (${fa}× Freiarbeit)` : ''}, ${st.subjects.length} Fächer${added ? `, ${added} Termine` : ''}. Prüf kurz, ob alles stimmt – Zeiten kannst du anpassen.`, { type: 'ok', ms: 7000 });
         } catch (e) { toast('Lesen ging nicht: ' + e.message, { type: 'error' }); }
     }));
     wrap.append(h('div', { class: 'sd-sec-head' }, h('div', {}, h('h2', { text: 'Stundenplan' }), h('small', { class: 'sd-muted', text: 'Coden weiß so, wann du Schule hast und wann Zeit zum Lernen ist.' })), h('div', { class: 'sd-row' }, upBtn, photo)));
@@ -321,7 +331,8 @@ function renderTimetable(st) {
         const col = h('div', { class: 'sd-tt-day' + (S.dayKey(new Date()) === d ? ' today' : '') }, h('b', { text: S.DAY_LABEL[d] }));
         for (const [i, l] of (st.timetable[d] || []).entries()) {
             const su = S.subjectOf(st, l.subjectId);
-            col.append(h('div', { class: 'sd-lesson', style: { '--sc': su?.color || '#888' } }, h('small', { text: `${l.start}–${l.end}` }), h('b', { text: su?.name || l.name }), l.room ? h('small', { text: l.room }) : null,
+            const meta = [l.group, l.teacher, l.room].filter(Boolean).join(' · ');
+            col.append(h('div', { class: 'sd-lesson' + (l.free ? ' free' : ''), style: { '--sc': l.free ? 'var(--accent-green, #2fb380)' : su?.color || '#888' } }, h('small', { text: `${l.start}–${l.end}` }), h('b', { text: su?.name || l.name }), l.free ? h('small', { class: 'sd-free-l', text: 'Frei wählbar', title: 'Hier arbeitest du an dem, was du willst – Coden schlägt dir vor, was gerade dran ist' }) : null, meta ? h('small', { text: meta }) : null,
                 h('button', { type: 'button', class: 'sd-x', title: 'Stunde entfernen', onclick: () => { st.timetable[d].splice(i, 1); save(st); } }, ic('close'))));
         }
         const last = (st.timetable[d] || []).slice(-1)[0];
@@ -329,6 +340,7 @@ function renderTimetable(st) {
         const e = h('input', { class: 'cd-input sd-small', type: 'time', value: last ? S.fromMin(S.toMin(last.end) + 50) : '08:45' });
         const sub = subjectSelect(st, null);
         col.append(h('details', { class: 'sd-add-lesson' }, h('summary', {}, ic('add'), ' Stunde'), s, e, sub,
+            h('button', { type: 'button', class: 'cd-btn', title: 'Freiarbeit: Zeit, in der du an dem arbeitest, was du willst', onclick: () => { if (S.toMin(e.value) <= S.toMin(s.value)) return toast('Ende muss nach dem Beginn liegen.', { type: 'warn' }); st.timetable[d].push({ start: s.value, end: e.value, subjectId: null, name: 'Freiarbeit', room: '', free: true }); st.timetable[d].sort((a, b) => S.toMin(a.start) - S.toMin(b.start)); save(st); } }, 'Freiarbeit'),
             h('button', { type: 'button', class: 'cd-btn', onclick: () => { const sid = pickSubject(st, sub); if (!sid) return; if (S.toMin(e.value) <= S.toMin(s.value)) return toast('Ende muss nach dem Beginn liegen.', { type: 'warn' }); st.timetable[d].push({ start: s.value, end: e.value, subjectId: sid, name: S.subjectOf(st, sid).name, room: '' }); st.timetable[d].sort((a, b) => S.toMin(a.start) - S.toMin(b.start)); save(st); } }, 'Hinzufügen')));
         grid.append(col);
     }
@@ -339,11 +351,12 @@ function renderTimetable(st) {
     const mx = h('input', { class: 'cd-input', type: 'number', min: 15, max: 300, step: 15, value: p.maxPerDay }), sl = h('input', { class: 'cd-input', type: 'number', min: 15, max: 90, step: 5, value: p.sessionMin });
     const br = h('input', { class: 'cd-input', type: 'number', min: 0, max: 240, step: 15, value: p.breakAfterSchool });
     const free = h('div', { class: 'sd-days' }, ...S.DAYS.map(d => h('label', { class: 'sd-daychip' }, h('input', { type: 'checkbox', checked: (p.freeDays || []).includes(d), value: d }), h('span', { text: S.DAY_SHORT[d] }))));
+    const fa = h('label', { class: 'sd-daychip' }, h('input', { type: 'checkbox', checked: p.useFreiarbeit !== false }), h('span', { text: 'Ja' }));
     const best = h('select', { class: 'cd-input' }, ...[['frueh', 'Direkt nach der Schule'], ['nachmittag', 'Nachmittags'], ['abend', 'Abends']].map(([v, l]) => h('option', { value: v, text: l, ...(p.best === v ? { selected: true } : {}) })));
     best.addEventListener('change', () => { const map = { frueh: ['14:00', '17:30', 15], nachmittag: ['15:30', '19:30', 60], abend: ['18:00', '21:30', 120] }[best.value]; ls.value = map[0]; le.value = map[1]; br.value = map[2]; });
     wrap.append(section('Wann lernst du am besten?', 'schedule', null, h('div', { class: 'sd-prefs' },
-        field('Ich lerne am liebsten', best), field('Lernen ab', ls), field('Lernen bis', le), field('Pause nach der Schule (min)', br), field('Höchstens pro Tag (min)', mx), field('Länge einer Lerneinheit (min)', sl, '25–45 min sind für die meisten ideal'), field('Freie Tage (kein Lernen)', free),
-        h('div', { class: 'cd-row end' }, h('button', { type: 'button', class: 'cd-primary', onclick: () => { Object.assign(p, { learnStart: ls.value || p.learnStart, learnEnd: le.value || p.learnEnd, maxPerDay: Math.max(15, +mx.value || 90), sessionMin: Math.max(15, Math.min(90, +sl.value || 30)), breakAfterSchool: Math.max(0, +br.value || 0), best: best.value, freeDays: [...free.querySelectorAll('input:checked')].map(i => i.value) }); save(st); toast('Lernzeiten gespeichert.', { type: 'ok' }); } }, ic('check'), ' Speichern')))));
+        field('Ich lerne am liebsten', best), field('Lernen ab', ls), field('Lernen bis', le), field('Pause nach der Schule (min)', br), field('Höchstens pro Tag (min)', mx), field('Länge einer Lerneinheit (min)', sl, '25–45 min sind für die meisten ideal'), field('Freie Tage (kein Lernen)', free), field('Freiarbeit zum Lernen nutzen', fa, 'Coden plant Lerneinheiten auch in deine Freiarbeit'),
+        h('div', { class: 'cd-row end' }, h('button', { type: 'button', class: 'cd-primary', onclick: () => { Object.assign(p, { learnStart: ls.value || p.learnStart, learnEnd: le.value || p.learnEnd, maxPerDay: Math.max(15, +mx.value || 90), sessionMin: Math.max(15, Math.min(90, +sl.value || 30)), breakAfterSchool: Math.max(0, +br.value || 0), best: best.value, freeDays: [...free.querySelectorAll('input:checked')].map(i => i.value), useFreiarbeit: fa.querySelector('input').checked }); save(st); toast('Lernzeiten gespeichert.', { type: 'ok' }); } }, ic('check'), ' Speichern')))));
     return wrap;
 }
 

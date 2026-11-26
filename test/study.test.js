@@ -93,11 +93,34 @@ const { setup, root } = require('./helpers');
   const rem = S.reminders(st, now.getTime());
   chk('Erinnerungen: Arbeit (7/3/1 Tage), Lerneinheiten, offene Abgaben', [rem.some(r => r.id === 'ex:e1:7'), rem.some(r => r.id === 'ex:e1:1'), rem.some(r => r.id.startsWith('pl:')), rem.some(r => r.id === 'as:a2:1'), rem.every(r => Date.parse(r.at) > now.getTime() - 60e3)], [true, true, true, false, true]);
   const ctx = S.chatContext(st, now);
-  chk('Chat-Kontext: Fächer, Stundenplan, Arbeiten, Lernplan-Block', [ctx.includes('Mathe (Ø Note 2,38)'), ctx.includes('Mo: 08:00 Mathe'), ctx.includes('KA 2'), ctx.includes('<lernplan')], [true, true, true, true]);
+  chk('Chat-Kontext: Fächer, Stundenplan, Arbeiten, Lernplan-Block', [ctx.includes('Mathe (Ø Note 2,38)'), ctx.includes('Mo: 08:00–13:25 Mathe'), ctx.includes('KA 2'), ctx.includes('<lernplan')], [true, true, true, true]);
   chk('Leeres Lern-Studio: kein Kontext im Chat', S.chatContext(S.normalize({})), '');
   const lp = S.parsePlanLines('2026-12-01 16:00 | 45 | mathe | Parabeln üben\n3.12.26 17:30 | Englisch | Vokabeln\nQuatsch', st);
   chk('Lernplan aus dem Chat lesen', lp.map(p => [p.date, p.start, p.min, !!p.subjectId, p.title]), [['2026-12-01', '16:00', 45, true, 'Parabeln üben'], ['2026-12-03', '17:30', 30, true, 'Vokabeln']]);
   chk('Korrektur lesen (JSON mitten im Text, Werte begrenzt)', S.parseCorrection('Hier: {"grade":"3+","score":140,"items":[{"y":2,"ok":true,"text":"gut"}]} ok') && [S.parseCorrection('{"grade":"3+","score":140,"items":[{"y":2,"ok":true,"text":"gut"}]}').score, S.parseCorrection('{"grade":"3+","score":140,"items":[{"y":2,"ok":true,"text":"gut"}]}').items[0].y], [100, 1]);
   chk('Korrektur: Unsinn → null', S.parseCorrection('keine Ahnung'), null);
+
+  // ---------- Stundenplan-Wand mit Kärtchen (keine Uhrzeiten, nur Pausen), Freiarbeit, Termine ----------
+  const st3 = S.normalize({});
+  const wall = { dayStart: '08:00', breaks: [{ start: '10:00', end: '10:30' }, { start: '12:30', end: '13:15' }, { start: '14:15', end: '14:30' }],
+    days: { mo: [{ subject: 'Klassenrat', block: 1, size: 0.5 }, { subject: 'Freiarbeit', free: true, teacher: 'Sophie', block: 1 }, { subject: 'Französisch', group: 'Diff 2', teacher: 'Sophie/Kerstin', block: 1 }, { subject: 'Deutsch', group: 'Diff 1', block: 2 }, { subject: 'Mathe', group: '9/10C', teacher: 'Matthias', block: 2 }, { subject: 'Chemie', block: 3 }, { subject: 'Kunst', room: 'Kunstraum', block: 4 }, { subject: 'Musik', block: 4 }],
+      fr: [{ subject: 'Freiarbeit', teacher: 'Kerstin', block: 1 }, { subject: 'Klassenrat', block: 2, size: 0.5 }], di: [{ subject: 'FA', block: 3 }] },
+    events: [{ type: 'test', subject: 'Deutsch', title: 'LSÜ', date: '07.12.' }, { type: 'test', subject: 'Englisch', title: 'LSÜ', date: '26.11' }, { type: 'abgabe', subject: 'Gesellschaftslehre', title: 'Abgabe', date: '17.12.' }, { subject: 'Mathe', date: '' }] };
+  st3.timetable = S.cleanTimetable(wall, st3);
+  const mo = st3.timetable.mo;
+  chk('Wand: alle 8 Karten am Montag, Freiarbeit bleibt drin', [mo.length, mo[1].name, mo[1].free, mo[1].teacher], [8, 'Freiarbeit', true, 'Sophie']);
+  chk('Wand: Zeiten aus Blöcken zwischen den Pausen (Klassenrat halb so lang)', mo.map(l => l.start + '-' + l.end), ['08:00-08:25', '08:25-09:15', '09:15-10:00', '10:30-11:30', '11:30-12:30', '13:15-14:15', '14:30-15:15', '15:15-16:00']);
+  chk('Wand: Kurs/Lehrkraft/Raum, Klassenrat + Freiarbeit sind keine Fächer', [mo[2].group, mo[2].teacher, mo[6].room, st3.subjects.map(s => s.name).includes('Klassenrat'), st3.subjects.map(s => s.name).includes('Freiarbeit'), st3.timetable.di[0].name], ['Diff 2', 'Sophie/Kerstin', 'Kunstraum', false, false, 'Freiarbeit']);
+  chk('Wand: Freiarbeit auch ohne free-Flag erkannt', st3.timetable.fr[0].free, true);
+  const ev = S.cleanEvents(wall, new Date('2026-11-26T08:00'));
+  chk('Termine vom Plan: Datum ohne Jahr, Abgabe erkannt, leere weg', ev.map(e => [e.type, e.subject, e.date]), [['test', 'Deutsch', '2026-12-07'], ['test', 'Englisch', '2026-11-26'], ['abgabe', 'Gesellschaftslehre', '2026-12-17']]);
+  chk('Termine eintragen, ohne Doppelte', [S.applyEvents(st3, ev), S.applyEvents(st3, ev), st3.exams.length, st3.assignments[0].due], [3, 0, 2, '2026-12-17']);
+  chk('Datum im Januar → nächstes Jahr', S.parseDay('12.01.', new Date('2026-11-26')), '2027-01-12');
+  // Freiarbeit ist Lernzeit: Montag 08:25–09:15 + nach der Schule
+  const fw = S.freeWindows(st3, new Date('2026-11-30T07:00'));
+  chk('Freiarbeit zählt als freie Lernzeit', [fw[0], fw.length >= 1], [[505, 555], true]);
+  st3.prefs.useFreiarbeit = false;
+  chk('Freiarbeit als Lernzeit abschaltbar', S.freeWindows(st3, new Date('2026-11-30T07:00')).some(w => w[0] === 505), false);
+  chk('Chat-Kontext erklärt Freiarbeit', /Freiarbeit = Schulstunde/.test(S.chatContext(st3, new Date('2026-11-26T08:00'))) && /Freiarbeit \(frei wählbar\) bei Sophie/.test(S.chatContext(st3, new Date('2026-11-26T08:00'))), true);
   await finish();
 })();
