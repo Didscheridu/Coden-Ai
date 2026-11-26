@@ -26,7 +26,8 @@ export const StudyStore = {
     handwritingContext() { try { return handwritingPrompt(StudyStore.handwriting()); } catch (_) { return ''; } },
     context() { try { return chatContext(StudyStore.get()); } catch (_) { return ''; } },
     notebooksContext(opts) { try { return notebooksPrompt(StudyStore.get(), opts); } catch (_) { return ''; } },
-    syncReminders() { scheduleReminders(StudyStore.get(), 0); }
+    syncReminders() { scheduleReminders(StudyStore.get(), 0); },
+    syncNow() { return Storage.syncNow ? Storage.syncNow() : Promise.resolve(false); }
 };
 
 function scheduleReminders(st, delay = 2500) {

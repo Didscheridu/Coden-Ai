@@ -36,7 +36,10 @@
 .hw-prof-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .hw-prof-sel { width: auto; min-width: 190px; }
 .hw-lbl { font-size: 12px; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 4px; }
+.hw-top-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-left: auto; }
 .hw-prog-txt { font-size: 13px; color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hw-save-badge { font-size: 12px; color: var(--text-muted); white-space: nowrap; transition: color 0.18s ease; }
+.hw-save-badge.ok { color: var(--c-green, #30a46c); font-weight: 600; }
 
 .hw-main { display: grid; grid-template-columns: 336px minmax(0, 1fr); gap: 18px; align-items: start; }
 .hw-stage { display: flex; flex-direction: column; gap: 10px; }

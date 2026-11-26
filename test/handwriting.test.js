@@ -92,6 +92,22 @@ const chk = (name, got, want) => {
         pr1.includes('2 trainierte Zeichen') && pr1.includes('<handwriting')
     ], [true, true]);
 
+    // 7. Merge & Persistenz-Schutz bei Cloud-Abgleich
+    const locHw = H.normalizeHandwriting({
+        activeId: 'p1',
+        profiles: [{ id: 'p1', name: 'Meine', glyphs: { a: p.glyphs['a'], e: H.encodeGlyphStrokes([[[25, 55, 0.5], [45, 55, 0.5]]]) }, updatedAt: '2026-11-26T10:00:00Z' }]
+    });
+    const remHw = H.normalizeHandwriting({
+        activeId: 'p1',
+        profiles: [{ id: 'p1', name: 'Meine', glyphs: { '2': p.glyphs['2'] }, updatedAt: '2026-11-26T09:00:00Z' }]
+    });
+    const mergedHw = H.mergeHandwriting(locHw, remHw);
+    chk('mergeHandwriting erhält lokale und Cloud-Glyphen zusammen', [
+        mergedHw.activeId,
+        Object.keys(mergedHw.profiles[0].glyphs).sort(),
+        H.trainedCount(mergedHw.profiles[0])
+    ], ['p1', ['2', 'a', 'e'], 3]);
+
     console.log(fails ? `\n${fails} Fehler` : '\nAlle Handschrift-Tests grün');
     process.exit(fails ? 1 : 0);
 })();

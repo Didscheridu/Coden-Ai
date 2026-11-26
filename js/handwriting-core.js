@@ -118,6 +118,36 @@ export function activeProfile(hw, requested = '') {
 
 export const trainedCount = (profile) => Object.keys(profile?.glyphs || {}).length;
 
+export function mergeHandwriting(localHw, remoteHw) {
+    const loc = normalizeHandwriting(localHw);
+    const rem = normalizeHandwriting(remoteHw);
+    const pickProfile = (a, b) => {
+        if (!a) return b;
+        if (!b) return a;
+        const glyphs = { ...b.glyphs, ...a.glyphs };
+        const aTime = Date.parse(a.updatedAt || 0) || 0;
+        const bTime = Date.parse(b.updatedAt || 0) || 0;
+        const newer = aTime >= bTime ? a : b;
+        return { ...newer, glyphs };
+    };
+    const byId = new Map();
+    for (const p of rem.profiles) byId.set(p.id, p);
+    for (const p of loc.profiles) {
+        if (byId.has(p.id)) {
+            byId.set(p.id, pickProfile(p, byId.get(p.id)));
+        } else if (trainedCount(p) > 0 || byId.size < 6) {
+            byId.set(p.id, p);
+        }
+    }
+    const mergedList = Array.from(byId.values())
+        .sort((a, b) => (trainedCount(b) - trainedCount(a)) || ((Date.parse(b.updatedAt || 0) || 0) - (Date.parse(a.updatedAt || 0) || 0)))
+        .slice(0, 6);
+    const activeId = mergedList.some(p => p.id === loc.activeId)
+        ? loc.activeId
+        : (mergedList.some(p => p.id === rem.activeId) ? rem.activeId : mergedList[0]?.id);
+    return normalizeHandwriting({ v: 1, activeId, profiles: mergedList });
+}
+
 // ---------- Kompakte Glyphen-Kodierung (0..100 Box, 1/10-Genauigkeit) ----------
 function distSeg(px, py, ax, ay, bx, by) {
     const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;

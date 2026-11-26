@@ -13,6 +13,7 @@ import {
 import { auth } from './auth.js';
 import { db, fbAuth, OperationType, handleFirestoreError, dbState } from './firebase.js';
 import { apiJson } from './backend.js';
+import { mergeHandwriting, trainedCount } from './handwriting-core.js';
 
 const LOCAL_SESSIONS_KEY = 'coden_sessions';
 const LOCAL_SETTINGS_KEY = 'coden_settings';
@@ -107,9 +108,11 @@ function stripSecrets(settings) {
       password: ''
     };
   }
-  // Firestore rule erlaubt max 40 Keys in settings
+  // Firestore rule erlaubt max 40 Keys in settings – wichtige Felder wie study nie abschneiden
+  const priority = ['study', 'userName', 'persona', 'customPersona', 'fontSize', 'theme', 'instructions', 'memoryOn', 'memoryItems', 'assistants', 'skills', 'webSearch', 'researchDepth', 'emailConfig'];
+  const keys = [...new Set([...priority.filter(k => k in s), ...Object.keys(s)])].slice(0, 40);
   const trimmed = {};
-  for (const k of Object.keys(s).slice(0, 40)) trimmed[k] = s[k];
+  for (const k of keys) trimmed[k] = s[k];
   return trimmed;
 }
 
@@ -129,10 +132,14 @@ function getSyncState(uid) {
 function setSyncState(st) {
   try { localStorage.setItem(LOCAL_SYNC_KEY, JSON.stringify(st)); } catch (_) {}
 }
-function markDirty(uid) {
+function markDirty(uid, { settings = false } = {}) {
   if (!uid) return;
   const st = getSyncState(uid) || { uid, sigs: null, user: null };
-  if (!st.dirty) { st.dirty = true; setSyncState(st); }
+  if (!st.dirty || (settings && !st.settingsDirty)) {
+    st.dirty = true;
+    if (settings) st.settingsDirty = true;
+    setSyncState(st);
+  }
 }
 const dbUnavailable = () => dbState.reason === 'quota' || dbState.reason === 'denied' || dbState.reason === 'offline';
 
@@ -224,7 +231,7 @@ async function writeToFirestore(uid, sessions, settings) {
       handleFirestoreError(error, OperationType.WRITE, `user_data/${uid}/sessions`);
     }
   }
-  setSyncState({ uid, sigs: nextSigs, user: userSig, dirty: false });
+  setSyncState({ uid, sigs: nextSigs, user: userSig, dirty: false, settingsDirty: false });
   return true;
 }
 
@@ -244,7 +251,7 @@ async function flushCloudSync() {
     const apiRes = await apiJson('/data', { method: 'PUT', body: JSON.stringify({ sessions, settings }) }).catch(() => null);
     if (apiRes?.ok) {
       const prev = getSyncState(uid) || { uid, sigs: null, user: null };
-      setSyncState({ ...prev, dirty: false });
+      setSyncState({ ...prev, dirty: false, settingsDirty: false });
       return true;
     }
     // Fallback: direkt über Client-Firestore, falls Server-API nicht erreichbar
@@ -337,7 +344,7 @@ export const Storage = {
   saveSettings: (settings) => {
     if (auth.currentUser?.uid) localStorage.setItem(LOCAL_UID_KEY, auth.currentUser.uid);
     localStorage.setItem(LOCAL_SETTINGS_KEY, JSON.stringify(settings));
-    markDirty(auth.currentUser?.uid);
+    markDirty(auth.currentUser?.uid, { settings: true });
     Storage.syncToCloud();
   },
 
@@ -459,13 +466,16 @@ export const Storage = {
 
     if (loadFailed && !remoteFound) return false;
 
+    const syncStBefore = sameOrLegacyLocal ? getSyncState(uid) : null;
+    const localSettings = sameOrLegacyLocal ? Storage.getSettings() : DEFAULT_SETTINGS();
+
     localStorage.setItem(LOCAL_UID_KEY, uid);
 
     // Wenn lokal echte Chats existieren, die Cloud aber leer ist, diese einmalig in Firebase sichern statt zu überschreiben!
     if (!hasRealContent(remoteSessions) && hasRealContent(localSessions)) {
       remoteSessions = localSessions.filter(s => !s.temp);
       if (fbAuth.currentUser?.emailVerified) {
-        writeToFirestore(uid, remoteSessions, remoteSettings || Storage.getSettings()).catch(() => {});
+        writeToFirestore(uid, remoteSessions, remoteSettings || localSettings).catch(() => {});
       }
       remoteFound = true;
     }
@@ -473,10 +483,9 @@ export const Storage = {
     if (remoteFound && remoteSessions.length > 0) {
       let normalized = remoteSessions.map((s, idx) => sanitizeSession(s, idx)).filter(Boolean);
       const remoteSigs = {}; normalized.forEach((x, i) => { remoteSigs[x.id] = sigOf(x, i); });
-      const st = sameOrLegacyLocal ? getSyncState(uid) : null;
-      const merged = st?.dirty ? mergeOffline(localSessions, normalized, st) : null;
+      const merged = syncStBefore?.dirty ? mergeOffline(localSessions, normalized, syncStBefore) : null;
       // Basis für spätere Abgleiche: das, was jetzt wirklich in der Cloud liegt
-      setSyncState({ uid, sigs: remoteSigs, user: st?.user || null, dirty: !!merged });
+      setSyncState({ uid, sigs: remoteSigs, user: syncStBefore?.user || null, dirty: !!(merged || syncStBefore?.settingsDirty), settingsDirty: !!syncStBefore?.settingsDirty });
       if (merged) normalized = merged;
       localStorage.setItem(LOCAL_SESSIONS_KEY, JSON.stringify(normalized));
       if (merged) setTimeout(() => { flushCloudSync(); }, 500);
@@ -485,9 +494,39 @@ export const Storage = {
     }
 
     if (remoteSettings) {
-      const merged = { ...DEFAULT_SETTINGS(), ...remoteSettings };
-      if (merged.emailConfig) merged.emailConfig.password = localPw;
-      localStorage.setItem(LOCAL_SETTINGS_KEY, JSON.stringify(merged));
+      let mergedSettings;
+      let needPushSettings = false;
+      if (syncStBefore?.settingsDirty) {
+        // Lokale Änderungen wurden noch nicht synchronisiert → nicht mit altem Cloud-Stand überschreiben!
+        mergedSettings = { ...DEFAULT_SETTINGS(), ...remoteSettings, ...localSettings };
+        if (localSettings.study || remoteSettings.study) {
+          const locStudy = localSettings.study || {};
+          const remStudy = remoteSettings.study || {};
+          mergedSettings.study = { ...remStudy, ...locStudy };
+          if (locStudy.handwriting || remStudy.handwriting) {
+            mergedSettings.study.handwriting = mergeHandwriting(locStudy.handwriting, remStudy.handwriting);
+          }
+        }
+        needPushSettings = true;
+      } else {
+        mergedSettings = { ...DEFAULT_SETTINGS(), ...remoteSettings };
+        const locHw = localSettings?.study?.handwriting;
+        const remHw = remoteSettings?.study?.handwriting;
+        const locTrained = (locHw?.profiles || []).reduce((n, p) => n + trainedCount(p), 0);
+        if (sameOrLegacyLocal && locTrained > 0) {
+          const combinedHw = mergeHandwriting(locHw, remHw);
+          const remTrained = (remHw?.profiles || []).reduce((n, p) => n + trainedCount(p), 0);
+          if (JSON.stringify(combinedHw) !== JSON.stringify(remHw) || remTrained < locTrained) {
+            mergedSettings.study = { ...(mergedSettings.study || {}), handwriting: combinedHw };
+            needPushSettings = true;
+          }
+        }
+      }
+      if (mergedSettings.emailConfig) mergedSettings.emailConfig.password = localPw;
+      localStorage.setItem(LOCAL_SETTINGS_KEY, JSON.stringify(mergedSettings));
+      if (needPushSettings) setTimeout(() => { flushCloudSync(); }, 400);
+    } else if (sameOrLegacyLocal && syncStBefore?.settingsDirty) {
+      setTimeout(() => { flushCloudSync(); }, 400);
     }
 
     lastLoadedUid = uid;
@@ -496,3 +535,12 @@ export const Storage = {
 
   lastLoadedUid: () => lastLoadedUid
 };
+
+if (typeof window !== 'undefined') {
+  const flushPending = () => {
+    const uid = auth.currentUser?.uid;
+    if (uid && getSyncState(uid)?.settingsDirty) Storage.syncNow();
+  };
+  window.addEventListener('pagehide', flushPending);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushPending(); });
+}

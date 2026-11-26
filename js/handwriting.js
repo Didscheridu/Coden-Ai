@@ -175,7 +175,7 @@ function paintTileGlyph(canvas, ch, prof) {
 
 // ---------- Interaktiver Handschrift-Trainer ----------
 export function openHandwritingTrainer({ initialChar = '', onSaved } = {}) {
-    let hw = StudyStore.handwriting();
+    let hw = normalizeHandwriting(StudyStore.handwriting());
     const state = {
         groupId: 'quick',
         char: initialChar || CHAR_GROUPS[0].chars[0],
@@ -186,7 +186,7 @@ export function openHandwritingTrainer({ initialChar = '', onSaved } = {}) {
         previewText: 'Aufgabe: x² - 5x + 6 = 0\n→ x₁ = 3, x₂ = 2\nProbe: 3² - 5·3 + 6 = 0 ✓'
     };
 
-    const getProf = () => activeProfile(hw);
+    const getProf = () => hw.profiles.find(p => p.id === hw.activeId) || hw.profiles[0];
     const loadCurrentCharStrokes = () => {
         const enc = getProf().glyphs?.[state.char];
         state.strokes = enc ? decodeGlyphStrokes(enc) : [];
@@ -197,9 +197,16 @@ export function openHandwritingTrainer({ initialChar = '', onSaved } = {}) {
     }
     loadCurrentCharStrokes();
 
-    const persistHw = () => {
+    const saveBadge = h('small', { class: 'hw-save-badge', text: 'Automatisch gespeichert' });
+    let saveBadgeTimer = 0;
+    const persistHw = ({ sync = false } = {}) => {
         hw = StudyStore.saveHandwriting(hw);
         onSaved?.(hw);
+        saveBadge.textContent = 'Gespeichert ✓';
+        saveBadge.classList.add('ok');
+        clearTimeout(saveBadgeTimer);
+        saveBadgeTimer = setTimeout(() => { saveBadge.classList.remove('ok'); }, 1800);
+        if (sync) StudyStore.syncNow?.();
     };
 
     const root = h('div', { class: 'hw-trainer' });
@@ -207,6 +214,11 @@ export function openHandwritingTrainer({ initialChar = '', onSaved } = {}) {
     // --- Kopfzeile: Profil-Verwaltung ---
     const profSelect = h('select', { class: 'cd-input hw-prof-sel', title: 'Handschrift-Profil wählen' });
     const progTxt = h('small', { class: 'hw-prog-txt' });
+    let closeTrainer = () => {};
+    const doneBtn = h('button', {
+        type: 'button', class: 'cd-primary sm', title: 'Handschrift sichern und zurückkehren',
+        onclick: () => closeTrainer()
+    }, ic('check'), ' Fertig');
     const topBar = h('div', { class: 'hw-top' },
         h('div', { class: 'hw-prof-row' },
             h('label', { class: 'hw-lbl', text: 'Handschrift-Profil' }),
@@ -220,7 +232,7 @@ export function openHandwritingTrainer({ initialChar = '', onSaved } = {}) {
                     const p = blankProfile(name);
                     hw.profiles.push(p);
                     hw.activeId = p.id;
-                    persistHw();
+                    persistHw({ sync: true });
                     loadCurrentCharStrokes();
                     renderAll();
                 }
@@ -233,7 +245,7 @@ export function openHandwritingTrainer({ initialChar = '', onSaved } = {}) {
                     if (!name) return;
                     p.name = name.slice(0, 40);
                     p.updatedAt = new Date().toISOString();
-                    persistHw();
+                    persistHw({ sync: true });
                     renderHeader();
                 }
             }, ic('edit')),
@@ -245,13 +257,13 @@ export function openHandwritingTrainer({ initialChar = '', onSaved } = {}) {
                     if (!(await confirmBox(`Handschrift „${p.name}“ wirklich löschen?`, { ok: 'Löschen', danger: true }))) return;
                     hw.profiles = hw.profiles.filter(x => x.id !== p.id);
                     hw.activeId = hw.profiles[0].id;
-                    persistHw();
+                    persistHw({ sync: true });
                     loadCurrentCharStrokes();
                     renderAll();
                 }
             }, ic('delete'))
         ),
-        progTxt
+        h('div', { class: 'hw-top-meta' }, progTxt, saveBadge, doneBtn)
     );
 
     profSelect.addEventListener('change', () => {
@@ -281,19 +293,30 @@ export function openHandwritingTrainer({ initialChar = '', onSaved } = {}) {
             h('label', { class: 'hw-chk', title: 'Auf iPad/Tablet Handballen ignorieren' }, penChk, h('span', { text: 'Nur Stift' }))
         ),
         h('div', { class: 'hw-pad-btns' },
-            h('button', { type: 'button', class: 'cd-btn', title: 'Letzten Strich rückgängig', onclick: () => { if (!state.strokes.length) return; state.strokes.pop(); drawPad(); } }, ic('undo'), ' Strich zurück'),
-            h('button', { type: 'button', class: 'cd-btn', title: 'Feld leeren', onclick: () => { state.strokes = []; drawPad(); } }, ic('ink_eraser'), ' Leeren'),
             h('button', {
-                type: 'button', class: 'cd-btn', title: 'Dieses Zeichen aus Training entfernen',
+                type: 'button', class: 'cd-btn', title: 'Letzten Strich rückgängig',
                 onclick: () => {
+                    if (!state.strokes.length) return;
+                    state.strokes.pop();
                     const p = getProf();
-                    delete p.glyphs[state.char];
-                    p.updatedAt = new Date().toISOString();
-                    state.strokes = [];
-                    persistHw();
-                    renderAll();
+                    if (state.strokes.length) commitCurrentChar();
+                    else { delete p.glyphs[state.char]; p.updatedAt = new Date().toISOString(); persistHw(); }
+                    renderHeader(); renderCharHead(); renderTabs(); renderGrid(); drawPad(); renderPreview();
                 }
-            }, ic('delete_outline')),
+            }, ic('undo'), ' Strich zurück'),
+            h('button', {
+                type: 'button', class: 'cd-btn', title: 'Dieses Zeichen leeren',
+                onclick: () => {
+                    state.strokes = [];
+                    const p = getProf();
+                    if (p.glyphs[state.char]) {
+                        delete p.glyphs[state.char];
+                        p.updatedAt = new Date().toISOString();
+                        persistHw();
+                    }
+                    renderHeader(); renderCharHead(); renderTabs(); renderGrid(); drawPad(); renderPreview();
+                }
+            }, ic('ink_eraser'), ' Leeren'),
             h('button', {
                 type: 'button', class: 'cd-primary', title: 'Zeichen speichern und zum nächsten (Enter)',
                 onclick: () => saveCurrentAndNext()
@@ -452,12 +475,21 @@ export function openHandwritingTrainer({ initialChar = '', onSaved } = {}) {
         if (currentPts.length >= 1) state.strokes.push(currentPts);
         currentPts = null;
         activePointer = null;
+        if (state.strokes.length) {
+            commitCurrentChar();
+            renderHeader();
+            renderCharHead();
+            renderTabs();
+            renderGrid();
+        }
         drawPad();
+        renderPreview();
     };
     padCanvas.addEventListener('pointerup', endStroke);
     padCanvas.addEventListener('pointercancel', endStroke);
+    padCanvas.addEventListener('lostpointercapture', endStroke);
 
-    function commitCurrentChar() {
+    function commitCurrentChar({ sync = false } = {}) {
         const p = getProf();
         if (state.strokes.length) {
             const enc = encodeGlyphStrokes(state.strokes);
@@ -466,7 +498,7 @@ export function openHandwritingTrainer({ initialChar = '', onSaved } = {}) {
             return false;
         }
         p.updatedAt = new Date().toISOString();
-        persistHw();
+        persistHw({ sync });
         return true;
     }
 
@@ -481,7 +513,7 @@ export function openHandwritingTrainer({ initialChar = '', onSaved } = {}) {
     }
 
     function saveCurrentAndNext() {
-        const saved = commitCurrentChar();
+        const saved = commitCurrentChar({ sync: true });
         const grp = CHAR_GROUPS.find(g => g.id === state.groupId) || CHAR_GROUPS[0];
         const idx = grp.chars.indexOf(state.char);
         const nextChar = grp.chars[(idx + 1) % grp.chars.length];
@@ -619,19 +651,31 @@ export function openHandwritingTrainer({ initialChar = '', onSaved } = {}) {
         renderPreview();
     }
 
+    const flushAndCommit = () => {
+        if (currentPts && currentPts.length >= 1) {
+            state.strokes.push(currentPts);
+            currentPts = null;
+            activePointer = null;
+        }
+        if (state.strokes.length) commitCurrentChar({ sync: true });
+        else StudyStore.syncNow?.();
+    };
     const onKey = (e) => {
         if (!root.isConnected) { document.removeEventListener('keydown', onKey); return; }
         if (/INPUT|TEXTAREA|SELECT/.test(e.target?.tagName)) return;
         if (e.key === 'Enter') { e.preventDefault(); saveCurrentAndNext(); }
     };
     document.addEventListener('keydown', onKey);
+    window.addEventListener('pagehide', flushAndCommit);
 
     renderAll();
-    modal('Handschrift trainieren', root, {
+    const m = modal('Handschrift trainieren', root, {
         wide: true,
         onClose: () => {
-            if (state.strokes.length) commitCurrentChar();
+            flushAndCommit();
             document.removeEventListener('keydown', onKey);
+            window.removeEventListener('pagehide', flushAndCommit);
         }
     });
+    closeTrainer = () => m.close();
 }

@@ -70,8 +70,10 @@ function stripSecrets(settings) {
       password: ''
     };
   }
+  const priority = ['study', 'userName', 'persona', 'customPersona', 'fontSize', 'theme', 'instructions', 'memoryOn', 'memoryItems', 'assistants', 'skills', 'webSearch', 'researchDepth', 'emailConfig'];
+  const keys = [...new Set([...priority.filter(k => k in s), ...Object.keys(s)])].slice(0, 40);
   const trimmed = {};
-  for (const k of Object.keys(s).slice(0, 40)) trimmed[k] = s[k];
+  for (const k of keys) trimmed[k] = s[k];
   return trimmed;
 }
 
