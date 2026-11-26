@@ -130,8 +130,8 @@ body.ink-open { overflow: hidden; }
   .ink-side { position: absolute; left: 0; top: 0; bottom: 0; z-index: 9; box-shadow: var(--shadow-float); }
   .ink-hint, .ink-pages { display: none; }
   .ink-panel { position: absolute; right: 0; left: 0; bottom: 0; width: auto; max-height: 55%; border-left: 0; border-top: 1px solid var(--border-color); border-radius: 16px 16px 0 0; z-index: 10; box-shadow: var(--shadow-float); }
-  .ink-btn.labeled span { display: none; }
-  .ink-btn.labeled { padding: 0 9px; }
+  .ink-top .ink-btn.labeled .ink-l { display: none; }
+  .ink-top .ink-btn.labeled { padding: 0 9px; }
   .ink-save { display: none; }
 }
 
@@ -199,3 +199,19 @@ body.ink-open { overflow: hidden; }
 .gemini-live-overlay.compact .live-bottom { margin-top: 0 !important; order: 1; flex: 1; flex-direction: row !important; align-items: center; gap: 8px; padding: 0 !important; min-height: 0 !important; height: 44px; position: relative; }
 .gemini-live-overlay.compact .live-waves { position: static !important; width: 92px !important; height: 40px !important; flex: none; }
 .gemini-live-overlay.compact .live-status-text { font-size: 14px !important; margin: 0 !important; position: static !important; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Handy: alles passt in die Bildschirmbreite – Kopfleiste ohne Überlauf, Werkzeuge links beginnend und wischbar */
+.ink-menu .ink-l { display: inline !important; }
+@media (max-width: 700px) {
+  .ink-top { gap: 4px; padding: 6px 6px; }
+  .ink-left { flex: 1 1 auto; min-width: 0; gap: 2px; }
+  .ink-mid, .ink-right { flex: none; gap: 2px; }
+  .ink-title { min-width: 0; flex: 1 1 auto; padding: 2px 4px; }
+  .ink-title b { font-size: 14px; } .ink-title small { display: none; }
+  .ink-top .ink-btn { min-width: 34px; height: 34px; padding: 0 6px; }
+  .ink-top .ink-btn.labeled { padding: 0 7px; }
+  .ink-top .ink-wide { display: none; }
+  .ink-tools { justify-content: flex-start; padding: 6px 6px; }
+  .ink-menu { min-width: 0; width: min(280px, calc(100vw - 16px)); max-height: calc(100dvh - 120px); overflow-y: auto; }
+}
+@media (max-width: 370px) { .ink-top .ink-mid { display: none; } }
