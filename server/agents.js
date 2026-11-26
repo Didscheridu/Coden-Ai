@@ -39,6 +39,7 @@ function slots(max) {
     }
   };
 }
+const { compressMessages } = require('./context');
 const SOFT_DEADLINE_MS = 230_000; // danach keine neuen Runden mehr (Vercel beendet Funktionen nach 300 s)
 const syntax = (code) => { try { new vm.Script(code); return null; } catch (e) { return e.message; } };
 const FILE_OK = /^(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9_.\-/]{0,99}$/;
@@ -54,7 +55,8 @@ function historyFrom(rows) {
   }
   while (out.length && out[0].role !== 'user') out.shift();
   if (!out.length) out.push({ role: 'user', content: 'Mach weiter.' });
-  return out.map(m => ({ ...m, content: m.content.slice(0, 90000) }));
+  // Nur der Chatverlauf wird komprimiert (~10.000 Tokens), die Dateien der App stehen vollständig im Systemprompt
+  return compressMessages(out.map(m => ({ ...m, content: m.content.slice(0, 90000) })), { systemShare: 0 }).messages;
 }
 
 const LEVEL = { leicht: 'easy', easy: 'easy', einfach: 'easy', mittel: 'medium', medium: 'medium', normal: 'medium', schwer: 'hard', hard: 'hard', schwierig: 'hard' };

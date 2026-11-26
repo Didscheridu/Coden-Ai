@@ -311,11 +311,14 @@ api.post('/models/test', requireAuth, rateLimit('model-test', 3, 600), async (re
 function checksOf(text) {
   return [/<\/html>/i, /<canvas|getContext|<div|<table/i, /keydown|ArrowUp/i, /game ?over/i, /neustart|restart|reset|neu starten/i, /score|punkte/i].filter(r => r.test(text)).length;
 }
+// Chatverlauf komprimieren: höchstens ~10.000 Eingabe-Tokens (CODEN_INPUT_BUDGET), die letzte Nutzer-Nachricht bleibt ganz
+const { compressMessages } = require('../server/context');
+const squeeze = (msgs) => compressMessages(msgs).messages;
 const pinOf = (req) => (typeof req.body?.model === 'string' && req.user.isOwner ? req.body.model.slice(0, 120) : undefined);
 
 function validChat(body) {
   const { messages, tier } = body || {};
-  if (!Array.isArray(messages) || !messages.length || messages.length > 60 || typeof tier !== 'string') return false;
+  if (!Array.isArray(messages) || !messages.length || messages.length > 200 || typeof tier !== 'string') return false; // lange Chats: der Server komprimiert (squeeze)
   return messages.every(m => ['system', 'user', 'assistant'].includes(m.role) && typeof m.content === 'string' && m.content.length <= 2_500_000
     && (!m.images || (Array.isArray(m.images) && m.images.length <= 4 && m.images.every(i => typeof i === 'string' && CodenUpload.inspectImageDataUrl(i).ok))));
 }
@@ -327,7 +330,7 @@ api.post('/chat', requireAuth, rateLimit('chat', 20, 60), enforceSystemState, ga
   if (!validChat(req.body)) return res.status(400).json({ error: 'Ungültige Anfrage.' });
   const meter = meterFor(req);
   try {
-    res.json({ content: await generate(req.body.tier, req.body.messages, { isOwner: req.user.isOwner, uid: req.user.uid, maxTokens: maxTokensOf(req.body), effort: effortOf(req.body), pin: pinOf(req), meter }) });
+    res.json({ content: await generate(req.body.tier, squeeze(req.body.messages), { isOwner: req.user.isOwner, uid: req.user.uid, maxTokens: maxTokensOf(req.body), effort: effortOf(req.body), pin: pinOf(req), meter }) });
   } catch (e) {
     res.status(e.status || 502).json({ error: e.message, ...(e.limit ? { code: 'limit' } : {}) });
   } finally { meter.close(); }
@@ -341,7 +344,7 @@ api.post('/chat/stream', requireAuth, rateLimit('chat', 20, 60), enforceSystemSt
   const send = (o) => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(o)}\n\n`); };
   const meter = meterFor(req);
   try {
-    await generateStream(req.body.tier, req.body.messages, {
+    await generateStream(req.body.tier, squeeze(req.body.messages), {
       isOwner: req.user.isOwner, uid: req.user.uid, signal: ac.signal, maxTokens: maxTokensOf(req.body), effort: effortOf(req.body), pin: pinOf(req), meter,
       onModel: (m) => { if (req.user.isOwner || m.own) send({ t: 'm', model: m.id }); },
       onThink: (k) => send({ t: 'k', h: k.h, v: k.v }),
@@ -363,7 +366,7 @@ api.post('/runs/chat', requireAuth, rateLimit('chat', 20, 60), researchLimit, en
   const meta = { title: String(m.title || '').slice(0, 120), userText: String(m.userText || '').slice(0, 4000), tier: req.body.tier, ...(m.temp ? { temp: true } : {}), ...(research ? { research: true } : {}) };
   await ensureSchema();
   const state = {
-    user: { uid: req.user.uid, email: req.user.email, isOwner: req.user.isOwner }, tier: req.body.tier, messages: req.body.messages, title: meta.title,
+    user: { uid: req.user.uid, email: req.user.email, isOwner: req.user.isOwner }, tier: req.body.tier, messages: squeeze(req.body.messages), title: meta.title,
     opts: { maxTokens: maxTokensOf(req.body), effort: effortOf(req.body), pin: pinOf(req) },
     base: baseUrl(req), self: selfUrl(req), leg: 1, ...(research ? { depth: ['quick', 'normal', 'deep'].includes(req.body.depth) ? req.body.depth : 'normal' } : {})
   };

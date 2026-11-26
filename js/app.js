@@ -1845,6 +1845,8 @@ async function handleSend() {
             images: activeImages
         };
     }).reduce((acc, m) => { const l = acc[acc.length - 1]; if (l && l.role === m.role) { l.content += '\n\n' + m.content; l.images = [...(l.images || []), ...(m.images || [])]; } else acc.push(m); return acc; }, []);
+    // Sehr lange Chats: nur die letzten 150 Nachrichten schicken, der Server fasst Älteres zusammen und hält ~10.000 Tokens ein
+    if (context.length > 150) { context.splice(0, context.length - 150); while (context.length > 1 && context[0].role !== 'user') context.shift(); }
 
     const maybeEmail = ['mail', 'gmail', 'sende', 'schick', 'weiterleiten'].some(w => text.toLowerCase().includes(w));
     if (!maybeEmail) {
