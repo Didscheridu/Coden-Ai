@@ -161,3 +161,7 @@ small.warn, .sd-li small.warn { color: var(--c-orange); font-weight: 700; } smal
   .sd-subject-head h1 { font-size: 20px; flex-basis: 100%; order: -1; }
   .sd-card .sd-row { width: 100%; }
 }
+.st-head-live { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.st-live-btn { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+.st-live-btn .material-symbols-outlined { font-size: 20px; }
+@media (max-width: 768px) { .st-live-btn { width: 100%; justify-content: center; } }

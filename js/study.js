@@ -10,6 +10,7 @@ import { merkzettelPrompt, cleanMerkzettel, titleOf, renderSheet, printSheet, de
 import { loader } from './rich-elements.js';
 import { renderStudioTab, resetStudio } from './study-studio.js';
 import { renderNotebooksTab } from './notebooks.js';
+import { startStudyLive } from './study-live.js';
 import { StudyStore } from './study-store.js';
 
 const h = (tag, attrs = {}, ...kids) => {
@@ -723,8 +724,9 @@ function render() {
     if (nb) { state.host.replaceChildren(renderWorkspace(nb)); return; }
     const scroll = state.host.scrollTop;
     const wrap = h('div', { class: 'st-wrap st-home' });
-    wrap.append(h('div', { class: 'st-head' },
-        h('div', {}, h('h1', { text: 'Lern-Studio' }), h('p', { text: 'Fächer, Aufträge, Arbeiten und Hefte an einem Ort. Coden plant mit dir, korrigiert deine Seiten und erinnert dich rechtzeitig.' }))));
+    wrap.append(h('div', { class: 'st-head st-head-live' },
+        h('div', {}, h('h1', { text: 'Lern-Studio' }), h('p', { text: 'Fächer, Aufträge, Arbeiten und Hefte an einem Ort. Coden plant mit dir, korrigiert deine Seiten und erinnert dich rechtzeitig.' })),
+        h('button', { type: 'button', class: 'cd-primary st-live-btn', title: 'Per Stimme mit Coden über deine Aufgaben reden', onclick: () => startStudyLive({}) }, ic('graphic_eq'), h('span', { text: 'Live mit Coden' }))));
     wrap.append(h('nav', { class: 'st-tabs', role: 'tablist' }, ...TABS.map(([k, icon, label]) => h('button', {
         type: 'button', role: 'tab', class: state.tab === k ? 'active' : '', 'aria-selected': state.tab === k ? 'true' : 'false',
         onclick: () => { if (state.tab === k) resetStudio(); state.tab = k; history.replaceState(null, '', '#/lernen/' + k); render(); }

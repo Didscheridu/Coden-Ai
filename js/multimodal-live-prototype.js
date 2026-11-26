@@ -25,6 +25,19 @@ export class MultimodalLivePrototype {
         this.currentScreenText = ''; 
         this.isNewAITurn = true;
         this.ideas = []; this.waves = null; this.outAnalyser = null; this.outData = null; this.userLevel = 0;
+        this.opts = {}; // Lern-Modus: { system, greeting, boardTitle, compact, onReady(live), onEnd() }
+    }
+
+    // Bild an Coden schicken (z. B. die aktuelle Heftseite), damit er mitsieht
+    sendImage(dataUrl) {
+        if (!this.isSessionActive || !this.setupCompleteReceived || !this.websocket || this.websocket.readyState !== 1) return false;
+        const m = String(dataUrl || '').match(/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/); if (!m) return false;
+        try { this.websocket.send(JSON.stringify({ realtimeInput: { mediaChunks: [{ mimeType: m[1], data: m[2] }] } })); return true; } catch (_) { return false; }
+    }
+    // Text-Hinweis (z. B. "Ich bin jetzt auf Seite 3") ohne dass Coden sofort antworten muss
+    sendNote(text) {
+        if (!this.isSessionActive || !this.setupCompleteReceived || !this.websocket) return;
+        try { this.websocket.send(JSON.stringify({ clientContent: { turns: [{ role: 'user', parts: [{ text: String(text).slice(0, 4000) }] }], turnComplete: false } })); } catch (_) {}
     }
 
     // ---------- Brainstorm-Board ----------
@@ -50,8 +63,9 @@ export class MultimodalLivePrototype {
         box.scrollTop = box.scrollHeight;
     }
 
-    async initSession(liveCallBtn, liveStatusIndicator, chatHistory = []) {
+    async initSession(liveCallBtn, liveStatusIndicator, chatHistory = [], opts = {}) {
         if (this.isSessionActive) return;
+        this.opts = opts || {};
 
         this.chatHistory = chatHistory; 
         this.currentScreenText = ''; 
@@ -63,7 +77,9 @@ export class MultimodalLivePrototype {
         const callModal = document.getElementById('live-call-modal');
         const endCallBtn = document.getElementById('end-call-btn');
         
-        if (callModal) callModal.classList.remove('hidden');
+        if (callModal) { callModal.classList.remove('hidden'); callModal.classList.toggle('compact', !!this.opts.compact); callModal.classList.toggle('study', !!this.opts.system); }
+        const boardHead = document.querySelector('#live-call-modal .live-board-head');
+        if (boardHead) { if (!boardHead.dataset.orig) boardHead.dataset.orig = boardHead.innerHTML; if (this.opts.boardTitle) boardHead.textContent = this.opts.boardTitle; else boardHead.innerHTML = boardHead.dataset.orig; }
         const cv = document.getElementById('live-waves');
         if (cv) { this.waves?.stop(); this.waves = new LiveWaves(cv); this.waves.start(); }
         if (endCallBtn) endCallBtn.onclick = () => this.stopSession(liveCallBtn, liveStatusIndicator);
@@ -131,7 +147,7 @@ export class MultimodalLivePrototype {
             historyString += "-----------------------------------\nNutze dieses Wissen zwingend!";
         }
 
-        const systemPrompt = `Du bist "Coden", eine smarte und empathische KI, erschaffen von dem Entwickler "Kayden". 
+        const systemPrompt = this.opts.system ? this.opts.system + historyString : `Du bist "Coden", eine smarte und empathische KI, erschaffen von dem Entwickler "Kayden". 
 Sprich den Nutzer "${userName}" mit seinem Namen an!
 WICHTIGE REGELN:
 1. Du sprichst mit dem Nutzer per Stimme. Der Nutzer sieht neben dir ein Brainstorm-Board mit Ideen.
@@ -219,11 +235,12 @@ WICHTIGE REGELN:
             // 🔥 NEU: Coden zwingen, sofort das Gespräch zu starten!
             const initialGreeting = {
                 clientContent: {
-                    turns: [{ role: "user", parts: [{ text: "Hallo Coden! Ich bin jetzt im Live-Call. Bitte begrüße mich kurz und freundlich auf Deutsch, ohne dass ich etwas sagen muss. Mache es kurz!" }] }],
+                    turns: [{ role: "user", parts: [{ text: this.opts.greeting || "Hallo Coden! Ich bin jetzt im Live-Call. Bitte begrüße mich kurz und freundlich auf Deutsch, ohne dass ich etwas sagen muss. Mache es kurz!" }] }],
                     turnComplete: true
                 }
             };
             this.websocket.send(JSON.stringify(initialGreeting));
+            try { this.opts.onReady?.(this); } catch (_) {}
             return; 
         }
 
@@ -356,10 +373,13 @@ WICHTIGE REGELN:
     }
 
     stopSession(liveCallBtn, liveStatusIndicator) {
-        if (!this.isSessionActive) return;
+        const callModal0 = document.getElementById('live-call-modal');
+        // auch wenn die Verbindung nie zustande kam: Fenster schließen (vorher blieb es dann offen)
+        if (!this.isSessionActive) { this.waves?.stop(); this.waves = null; if (callModal0) setTimeout(() => callModal0.classList.add('hidden'), 400); try { this.opts.onEnd?.(); } catch (_) {} this.opts = {}; return; }
         this.updateCallUI('Aufgelegt.');
         const ideas = this.ideas.slice(); this.waves?.stop(); this.waves = null; this.outAnalyser = null; this.outData = null;
-        if (ideas.length) document.dispatchEvent(new CustomEvent('liveBrainstormDone', { detail: ideas }));
+        if (ideas.length && !this.opts.system) document.dispatchEvent(new CustomEvent('liveBrainstormDone', { detail: ideas }));
+        try { this.opts.onEnd?.(ideas); } catch (_) {}
         
         if (this.mediaStream) this.mediaStream.getTracks().forEach(track => track.stop()); 
         if (this.audioProcessor) this.audioProcessor.disconnect(); 
@@ -373,6 +393,10 @@ WICHTIGE REGELN:
         this.nextPlaybackTime = 0; this.currentScreenText = '';
         
         const callModal = document.getElementById('live-call-modal'); 
-        if (callModal) { setTimeout(() => callModal.classList.add('hidden'), 500); }
+        if (callModal) { setTimeout(() => { callModal.classList.add('hidden'); callModal.classList.remove('compact', 'study'); }, 500); }
+        this.opts = {};
     }
 }
+
+// eine gemeinsame Live-Verbindung für Chat und Lern-Studio
+export const sharedLive = new MultimodalLivePrototype();

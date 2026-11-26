@@ -45,12 +45,13 @@ body.ink-open { overflow: hidden; }
 .ink-hint { color: var(--text-muted); font-size: 12px; white-space: nowrap; margin-left: 4px; }
 
 /* Arbeitsfläche: Seiten untereinander wie in GoodNotes */
-.ink-stage { flex: 1; overflow: auto; padding: 22px 16px 60px; overscroll-behavior: contain; touch-action: none; background: var(--bg-sidebar); }
+.ink-stage { flex: 1; overflow: auto; padding: 0; overscroll-behavior: contain; touch-action: none; background: var(--bg-sidebar); }
 .ink-stage[data-tool="hand"] { cursor: grab; }
 .ink-stage[data-tool="text"] .ink-page { cursor: text; }
 .ink-stage[data-tool="eraser"] .ink-page { cursor: cell; }
 .ink-stage[data-tool="lasso"] .ink-page { cursor: crosshair; }
-.ink-col { margin: 0 auto; display: flex; flex-direction: column; gap: 22px; align-items: center; }
+.ink-world { width: max-content; min-width: 100%; box-sizing: border-box; }
+.ink-col { margin: 0; display: flex; flex-direction: column; gap: 22px; align-items: center; }
 .ink-page { position: relative; flex: none; border-radius: 3px; background: #fffefb; box-shadow: 0 1px 3px rgba(0,0,0,.3), 0 14px 36px rgba(0,0,0,.32); --k: 1; cursor: crosshair; }
 .ink-page.loading { background: linear-gradient(100deg, #f4f3ee 30%, #fbfaf6 50%, #f4f3ee 70%); background-size: 200% 100%; animation: cw-sheen 1.6s linear infinite; }
 .ink-page.marked::after { content: ''; position: absolute; top: -4px; right: 34px; width: 18px; height: 34px; background: #e5484d; clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 75%, 0 100%); z-index: 6; }
@@ -182,3 +183,19 @@ body.ink-open { overflow: hidden; }
 
 /* kurze Meldung bei Gesten (2 Finger tippen = Rückgängig) */
 .ink-toast { position: absolute; left: 50%; top: 120px; transform: translateX(-50%); z-index: 40; padding: 8px 16px; border-radius: 999px; background: rgba(20,20,24,.86); color: #fff; font-size: 14px; font-weight: 600; pointer-events: none; animation: x-fade-up .18s ease both; }
+
+/* Live im Heft: kompakte Leiste unten rechts – weiterschreiben, während Coden zuhört und die Seite sieht */
+.ink-btn.live.on { color: #fff; background: linear-gradient(135deg, #6d5ce7, #e5484d); border-color: transparent; animation: ink-live 1.6s ease-in-out infinite; }
+@keyframes ink-live { 0%, 100% { box-shadow: 0 0 0 0 rgba(229,72,77,.45); } 50% { box-shadow: 0 0 0 6px rgba(229,72,77,0); } }
+.gemini-live-overlay.compact {
+  inset: auto 16px calc(16px + env(safe-area-inset-bottom)) auto !important; width: min(360px, calc(100vw - 32px)) !important; height: auto !important;
+  border-radius: 22px; z-index: 2600 !important; flex-direction: row !important; align-items: center; gap: 8px; padding: 8px 10px;
+  box-shadow: 0 10px 40px rgba(0,0,0,.5); border: 1px solid rgba(255,255,255,.12);
+}
+.gemini-live-overlay.compact .live-board, .gemini-live-overlay.compact .live-voice, .gemini-live-overlay.compact .live-top-bar .grow { display: none !important; }
+.gemini-live-overlay.compact .live-top-bar { order: 2; padding: 0 !important; margin: 0 !important; background: none !important; border: 0 !important; width: auto !important; }
+.gemini-live-overlay.compact .live-top-bar .live-badge { display: none; }
+.gemini-live-overlay.compact .live-end .l { display: none; }
+.gemini-live-overlay.compact .live-bottom { margin-top: 0 !important; order: 1; flex: 1; flex-direction: row !important; align-items: center; gap: 8px; padding: 0 !important; min-height: 0 !important; height: 44px; position: relative; }
+.gemini-live-overlay.compact .live-waves { position: static !important; width: 92px !important; height: 40px !important; flex: none; }
+.gemini-live-overlay.compact .live-status-text { font-size: 14px !important; margin: 0 !important; position: static !important; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

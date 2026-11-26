@@ -7,6 +7,7 @@
 import { apiJson } from './backend.js';
 import { loader } from './rich-elements.js';
 import { correctionPrompt, parseCorrection, fmtDate } from './study-core.js';
+import { startStudyLive, stopLive, liveActive, sendLiveImage, sendLiveNote } from './study-live.js';
 import { PAGE_W, PAGE_H, TEMPLATES, PEN_TYPES, encodeStrokes, decodeStrokes, widthAt, recognizeShape, eraseFrom, eraseWhole, lassoSelect, selectionBox, transformSelection, strokeOutline, rotateSelection, isPalm } from './ink-core.js';
 export { PAGE_W, PAGE_H, encodeStrokes, decodeStrokes } from './ink-core.js';
 
@@ -207,12 +208,13 @@ export function openInkEditor(ctx) {
     const markB = btn('bookmark', 'Lesezeichen für diese Seite', () => toggleBookmark(st.cur));
     const sideB = btn('view_sidebar', 'Seitenübersicht', () => { st.sidebar = !st.sidebar; side.hidden = !st.sidebar; sideB.classList.toggle('on', st.sidebar); if (st.sidebar) drawSidebar(); requestAnimationFrame(layoutAll); });
     const addB = btn('note_add', 'Seite hinzufügen', (e) => templateMenu(e.currentTarget, (t) => insertPage(st.cur + 1, t)));
+    const liveB = btn('graphic_eq', 'Live mit Coden', () => toggleLive(), 'labeled live');
     const checkB = btn('fact_check', 'Coden prüfen', () => correct(), 'primary labeled');
     const doneB = ctx.assignment ? btn('task_alt', 'Fertig & abgeben', () => finish(), 'labeled') : null;
     const moreB = btn('more_horiz', 'Mehr', (e) => moreMenu(e.currentTarget));
     const left = el('div', 'ink-row'); left.append(btn('arrow_back', 'Zurück zur Bibliothek', () => close()), sideB, title);
     const mid = el('div', 'ink-row ink-mid'); mid.append(undoB, redoB, pageLbl);
-    const right = el('div', 'ink-row'); right.append(saveState, markB, addB, checkB, ...(doneB ? [doneB] : []), moreB);
+    const right = el('div', 'ink-row'); right.append(saveState, markB, addB, liveB, checkB, ...(doneB ? [doneB] : []), moreB);
     top.append(left, mid, right);
 
     // Werkzeugleiste (GoodNotes: mittig, Werkzeuge + passende Optionen)
@@ -229,7 +231,8 @@ export function openInkEditor(ctx) {
 
     // Seitenleiste + Arbeitsfläche + Korrektur
     const side = el('aside', 'ink-side'); side.hidden = !st.sidebar; sideB.classList.toggle('on', st.sidebar);
-    const stage = el('div', 'ink-stage'); const col = el('div', 'ink-col'); stage.append(col);
+    // ink-world: Fläche um die Seiten herum – beim Kleinzoomen lässt sich das Blatt frei hinschieben (nicht fest in der Mitte)
+    const stage = el('div', 'ink-stage'); const world = el('div', 'ink-world'); const col = el('div', 'ink-col'); world.append(col); stage.append(world);
     const addTile = el('button', 'ink-addpage'); addTile.type = 'button'; addTile.append(icon('add'), el('span', '', 'Seite hinzufügen'));
     addTile.addEventListener('click', (e) => templateMenu(e.currentTarget, (t) => insertPage(pages.length, t)));
     const panel = el('aside', 'ink-panel'); panel.hidden = true;
@@ -277,12 +280,25 @@ export function openInkEditor(ctx) {
         io.disconnect(); pages.forEach(pg => io.observe(pg.wrap));
         layoutAll(); updateLabel(); if (st.sidebar) drawSidebar();
     }
+    let base = 800; // Seitenbreite bei Zoom 1 (passt in die Breite)
     function layoutAll() {
-        const avail = Math.max(260, stage.clientWidth - 32); cssW = Math.round(Math.min(avail, 900) * st.zoom);
+        const avail = Math.max(260, stage.clientWidth - 32); base = Math.min(avail, 900); cssW = Math.round(base * st.zoom);
         const cssH = Math.round(cssW * PAGE_H / PAGE_W); dpr = Math.min(window.devicePixelRatio || 1, 2600 / cssW, 3);
-        col.style.width = cssW + 'px';
+        // Rand um die Seiten: kleingezoomt viel Platz zum Hinschieben, sonst wenig (kein seitliches Wegrutschen beim Scrollen)
+        const free = st.zoom < 0.98;
+        st.padx = free ? Math.round(stage.clientWidth * 0.55) : Math.max(16, Math.round((stage.clientWidth - cssW) / 2));
+        st.pady = free ? Math.round(stage.clientHeight * 0.4) : 22;
+        world.style.padding = `${st.pady}px ${st.padx}px ${Math.max(st.pady, 60)}px`;
+        col.style.width = cssW + 'px'; col.style.gap = Math.round(22 * st.zoom) + 'px';
         pages.forEach(pg => { if (!pg.wrap) return; pg.wrap.style.width = cssW + 'px'; pg.wrap.style.height = cssH + 'px'; pg.wrap.style.setProperty('--k', cssW / PAGE_W); if (pg.view) sizeView(pg); });
         placeSel();
+    }
+    // Zoomen um einen Bildschirmpunkt (cx, cy relativ zur Arbeitsfläche); optional gleichzeitig verschieben (2 Finger)
+    function zoomAt(z, cx, cy, anchor = null) {
+        z = Math.max(0.35, Math.min(3, z));
+        const a = anchor || { wx: (stage.scrollLeft + cx - st.padx) / st.zoom, wy: (stage.scrollTop + cy - st.pady) / st.zoom };
+        st.zoom = z; layoutAll();
+        stage.scrollLeft = st.padx + a.wx * z - cx; stage.scrollTop = st.pady + a.wy * z - cy;
     }
     const kOf = () => cssW * dpr / PAGE_W;
     // Sichtbare Seiten bekommen Zeichenflächen, ferne geben sie wieder frei (Speicher auf dem iPad)
@@ -367,7 +383,7 @@ export function openInkEditor(ctx) {
 
     // ---------- Speichern ----------
     let saveTimer = 0;
-    function markDirty(pg, what = {}) { pg.dirty = true; if (what.bg) pg.bgDirty = true; if (what.corr) pg.corrDirty = true; pg.thumb = null; saveState.textContent = 'Ungespeichert …'; clearTimeout(saveTimer); saveTimer = setTimeout(flush, 1200); }
+    function markDirty(pg, what = {}) { pg.dirty = true; pg.rev = (pg.rev || 0) + 1; if (what.bg) pg.bgDirty = true; if (what.corr) pg.corrDirty = true; pg.thumb = null; saveState.textContent = 'Ungespeichert …'; clearTimeout(saveTimer); saveTimer = setTimeout(flush, 1200); }
     async function flush() {
         clearTimeout(saveTimer); const dirty = pages.filter(p => p.dirty && p.data); if (!dirty.length) return;
         saveState.textContent = 'Speichert …'; let ok = true;
@@ -407,7 +423,8 @@ export function openInkEditor(ctx) {
             if (live.length >= 2) {
                 if (op && op.touch) { clearLive(op.pg); if (op.kind === 'erase' && op.changed) applySnap(op.pg, op.before); op = null; }
                 pan = null; tapGesture = { n: live.length, t: performance.now(), moved: false };
-                const [a, b] = live; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, z: st.zoom }; return;
+                const [a, b] = live; const r = stage.getBoundingClientRect(); const mx = (a.x + b.x) / 2 - r.left, my = (a.y + b.y) / 2 - r.top;
+                pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, z: st.zoom, anchor: { wx: (stage.scrollLeft + mx - st.padx) / st.zoom, wy: (stage.scrollTop + my - st.pady) / st.zoom }, mx, my }; return;
             }
             tapGesture = null;
         }
@@ -435,12 +452,11 @@ export function openInkEditor(ctx) {
         }
         if (pinch) {
             const live = liveTouches(); if (live.length < 2) return; const [a, b] = live; const d = Math.hypot(a.x - b.x, a.y - b.y);
-            if (Math.abs(d - pinch.d) < 14 && tapGesture && !tapGesture.moved) return; // noch kein Zoomen – vielleicht nur ein Tipp
+            const r = stage.getBoundingClientRect(); const mx = (a.x + b.x) / 2 - r.left, my = (a.y + b.y) / 2 - r.top;
+            if (tapGesture && !tapGesture.moved && Math.abs(d - pinch.d) < 14 && Math.hypot(mx - pinch.mx, my - pinch.my) < 12) return; // vielleicht nur ein Tipp
             if (tapGesture) tapGesture.moved = true;
-            const z = Math.max(0.5, Math.min(3, pinch.z * d / pinch.d)); const r = stage.getBoundingClientRect();
-            const cx = (a.x + b.x) / 2 - r.left, cy = (a.y + b.y) / 2 - r.top; const ratio = z / st.zoom;
-            const nx = (stage.scrollLeft + cx) * ratio - cx, ny = (stage.scrollTop + cy) * ratio - cy;
-            st.zoom = z; layoutAll(); stage.scrollLeft = nx; stage.scrollTop = ny; return;
+            // zwei Finger: zoomen UND verschieben zugleich – der Punkt unter den Fingern bleibt unter den Fingern
+            zoomAt(pinch.z * d / pinch.d, mx, my, pinch.anchor); return;
         }
         if (pan && e.pointerId === pan.id) {
             const now = performance.now(), dt = Math.max(1, now - pan.t);
@@ -733,8 +749,8 @@ export function openInkEditor(ctx) {
         if (pages[st.cur]?.data?.correction) it('ink_eraser', 'Korrektur dieser Seite entfernen', () => removeCorrection(pages[st.cur]));
         popAt(pop, anchor, -200);
     }
-    function setZoom(z) { const ratio = stage.scrollTop / Math.max(1, stage.scrollHeight); st.zoom = Math.max(0.5, Math.min(3, z)); layoutAll(); stage.scrollTop = ratio * stage.scrollHeight; }
-    function scrollToPage(i, keep = false) { const pg = pages[i]; if (!pg?.wrap) return; if (keep) { const r = pg.wrap.getBoundingClientRect(), s = stage.getBoundingClientRect(); if (r.bottom > s.top && r.top < s.bottom) return; } stage.scrollTo({ top: pg.wrap.offsetTop - 16, behavior: 'smooth' }); st.cur = i; updateLabel(); }
+    function setZoom(z) { zoomAt(z, stage.clientWidth / 2, stage.clientHeight / 2); }
+    function scrollToPage(i, keep = false) { const pg = pages[i]; if (!pg?.wrap) return; if (keep) { const r = pg.wrap.getBoundingClientRect(), s = stage.getBoundingClientRect(); if (r.bottom > s.top && r.top < s.bottom) return; } const r = pg.wrap.getBoundingClientRect(), s = stage.getBoundingClientRect(); stage.scrollTo({ top: stage.scrollTop + r.top - s.top - 16, left: stage.scrollLeft + r.left - s.left - Math.max(16, (s.width - r.width) / 2), behavior: 'smooth' }); st.cur = i; updateLabel(); }
     function updateLabel() {
         pageLbl.textContent = `${st.cur + 1} / ${pages.length}`;
         const on = doc.bookmarks.includes(pages[st.cur]?.id); markB.classList.toggle('on', on); markB.querySelector('.material-symbols-outlined').textContent = on ? 'bookmark_added' : 'bookmark';
@@ -746,6 +762,25 @@ export function openInkEditor(ctx) {
         pages.forEach((pg, i) => { if (!pg.wrap) return; const r = pg.wrap.getBoundingClientRect(); const d = r.top <= mid && r.bottom >= mid ? 0 : Math.min(Math.abs(r.top - mid), Math.abs(r.bottom - mid)); if (d < bd) { bd = d; best = i; } });
         if (best !== st.cur) { st.cur = best; updateLabel(); }
     }, { passive: true });
+
+    // ---------- Live mit Coden (über die Aufgabe reden, Coden sieht die Seite) ----------
+    let liveTimer = 0, liveSent = '';
+    async function sendPage(force = false) {
+        const pg = pages[st.cur]; if (!pg?.data || !liveActive()) return;
+        const key = pg.id + ':' + (pg.rev || 0); if (!force && key === liveSent) return; liveSent = key;
+        try { const img = await pageImage({ ...pg.data }, { width: 900, quality: 0.6, correction: false }); if (force) sendLiveNote(`(Ich bin auf Seite ${st.cur + 1} von ${pages.length}. Hier ist die Seite.)`); sendLiveImage(img); } catch (_) {}
+    }
+    function toggleLive() {
+        if (liveActive()) { stopLive(); return; }
+        const pg = pages[st.cur];
+        const ok = startStudyLive({
+            compact: true, subject: ctx.subjectName || '', page: `${st.cur + 1} von ${pages.length} im Notizbuch „${doc.title || ''}“`,
+            task: ctx.assignment ? `${ctx.assignment.title}\n${ctx.assignment.desc || ''}` : (pg?.data?.bg ? 'Die Aufgabe steht auf dem Arbeitsblatt, das du gleich als Bild bekommst.' : ''),
+            onReady: () => { liveB.classList.add('on'); liveSent = ''; sendPage(true); clearInterval(liveTimer); liveTimer = setInterval(() => sendPage(false), 4000); },
+            onEnd: () => { clearInterval(liveTimer); liveB.classList.remove('on'); }
+        });
+        if (ok) liveB.classList.add('on');
+    }
 
     // ---------- Coden prüfen ----------
     function overlay(text, sub) {
@@ -817,11 +852,12 @@ export function openInkEditor(ctx) {
         const map = { p: 'pen', h: 'hl', e: 'eraser', l: 'lasso', s: 'shape', t: 'text' }; if (!mod && map[k]) { setTool(map[k]); return; }
         if (k === 'escape') { if (sel) clearSelection(); else close(); }
     };
-    const onWheel = (e) => { if (e.ctrlKey) { e.preventDefault(); setZoom(st.zoom * (e.deltaY < 0 ? 1.08 : 0.93)); } };
+    const onWheel = (e) => { if (e.ctrlKey) { e.preventDefault(); const r = stage.getBoundingClientRect(); zoomAt(st.zoom * Math.exp(-e.deltaY * 0.01), e.clientX - r.left, e.clientY - r.top); } };
     const ro = new ResizeObserver(() => layoutAll());
     document.addEventListener('keydown', onKey); stage.addEventListener('wheel', onWheel, { passive: false }); ro.observe(stage);
     const onHide = () => { if (document.visibilityState === 'hidden') flush(); }; document.addEventListener('visibilitychange', onHide);
     async function close() {
+        if (liveActive()) stopLive(); clearInterval(liveTimer);
         await flush(); io.disconnect(); ro.disconnect();
         document.removeEventListener('keydown', onKey); document.removeEventListener('visibilitychange', onHide);
         root.remove(); document.body.classList.remove('ink-open'); ctx.onClose?.();
@@ -830,7 +866,7 @@ export function openInkEditor(ctx) {
     syncTools();
     (async () => {
         if (!pages.length) { const ids = await createPages(doc, [null], doc.paper || 'liniert', 0).catch(() => []); doc.pages.push(...ids); pages.push(...ids.map(id => ({ id }))); ctx.persist?.(); }
-        rebuild(); stage.scrollTop = 0;
+        rebuild(); stage.scrollTop = 0; stage.scrollLeft = Math.max(0, (world.scrollWidth - stage.clientWidth) / 2);
     })();
     return { close, root };
 }

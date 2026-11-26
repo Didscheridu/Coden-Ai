@@ -33,7 +33,7 @@ import { initGoogleLogin, loginWithEmail, registerWithEmail, logoutUser, onAuthS
 import { ensureDbConnection, retryDbNow, dbState } from './firebase.js';
 import { apiFetch, apiJson } from './backend.js';
 import { checkRateLimit } from './Limit-Spamschutz.js';
-import { MultimodalLivePrototype } from './multimodal-live-prototype.js'; // 🔥 NEU: Der Live Client 🔥
+import { sharedLive } from './multimodal-live-prototype.js'; // 🔥 NEU: Der Live Client 🔥
 import { ChessEngine } from './Chess.js'; // 🔥 NEU HINZUGEFÜGT
 
 // ==========================================
@@ -481,7 +481,7 @@ function forceModelChange(newModel, msg) {
 // ... (ganz viel Code ...) ...
 
 // 🔥 NEU: Wir erstellen eine Instanz des Live-Clients 🔥
-const multimodalLive = new MultimodalLivePrototype();
+const multimodalLive = sharedLive; // dieselbe Verbindung nutzt auch das Lern-Studio (Live über Aufgaben reden)
 
 let appListenersWired = false;
 function initApp() {
