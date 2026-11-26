@@ -34,7 +34,7 @@ export function outsideCode(text, fn) {
 }
 
 import { parsePlanLines, fmtDate } from './study-core.js';
-import { parseHandwriting, cleanHandwritingText, activeProfile, trainedCount } from './handwriting-core.js';
+import { parseHandwriting, cleanHandwritingText, activeProfile, trainedCount, allProfiles } from './handwriting-core.js';
 export { parseHandwriting };
 
 // ---------- Blöcke finden ----------
@@ -525,6 +525,12 @@ function buildHandwriting(w) {
     let selectedProfile = parsed.profile || '';
     let hwMod = null;
     let firstPaint = true;
+    let lastW = 0;
+    // Breite ändert sich (Handy drehen, Seitenleiste): neu umbrechen
+    if (typeof ResizeObserver !== 'undefined') {
+        let t = 0;
+        new ResizeObserver(() => { clearTimeout(t); t = setTimeout(() => { if (box.isConnected && Math.abs(sheetWrap.clientWidth - lastW) > 40) paint(); }, 150); }).observe(sheetWrap);
+    }
 
     const paint = async () => {
         if (!firstPaint && !box.isConnected) return;
@@ -534,12 +540,13 @@ function buildHandwriting(w) {
             const hw = hwMod.getHandwritingState();
             const prof = activeProfile(hw, selectedProfile);
             if (!selectedProfile) selectedProfile = prof.id;
-            if (hw.profiles.length > 1) {
+            const list = allProfiles(hw);
+            if (list.length > 1) {
                 profSel.hidden = false;
-                profSel.replaceChildren(...hw.profiles.map(p => {
+                profSel.replaceChildren(...list.map(p => {
                     const o = document.createElement('option');
                     o.value = p.id;
-                    o.textContent = `${p.name} (${trainedCount(p)})`;
+                    o.textContent = p.master ? `${p.name} (vorgespeichert)` : `${p.name} (${trainedCount(p)})`;
                     if (p.id === prof.id) o.selected = true;
                     return o;
                 }));
@@ -552,10 +559,13 @@ function buildHandwriting(w) {
                 paper: parsed.paper,
                 ink: parsed.ink
             });
+            lastW = sheetWrap.clientWidth;
             untrainedBar.hidden = res.trained > 0;
-            status.textContent = res.trained > 0
-                ? `${prof.name} · ${res.trained} trainierte Zeichen`
-                : `${prof.name} · Vorschau-Handschrift`;
+            status.textContent = prof.master
+                ? `${prof.name} · ${res.trained} Zeichen, echte Striche`
+                : res.trained > 0
+                    ? `${prof.name} · ${res.trained} trainierte Zeichen${res.preview > 0 ? ' · Rest in Vorschau-Schrift' : ''}`
+                    : `${prof.name} · Vorschau-Handschrift`;
         } catch (err) {
             status.textContent = 'Textansicht';
             rawPre.hidden = false;

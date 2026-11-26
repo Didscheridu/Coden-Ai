@@ -80,11 +80,12 @@ Sonstige | 1 | grau
 ## Ausführlich
 …
 </tabs>
-- **Handschrift-Lösung** (IMMER wenn der Nutzer bittet, eine Aufgabe, Rechnung, Lösung oder einen Text „in meiner Handschrift“ oder „handschriftlich“ direkt im Chat zu lösen/schreiben): plain lesbare Zeilen wie im Schulheft (Unicode-Mathe wie \`x²\`, \`√(…)\`, \`·\`, \`±\`, \`→\`, \`=\`, KEIN \`$\`-LaTeX, KEIN \`**\`-Markdown), optional \`title="…"\`, \`paper="karo|liniert|blanko"\`, \`ink="blau|schwarz|grün|rot"\`, \`profile="…"\`:
+- **Handschrift-Lösung** (IMMER wenn der Nutzer bittet, eine Aufgabe, Rechnung, Lösung oder einen Text „in meiner Handschrift“ oder „handschriftlich“ direkt im Chat zu lösen/schreiben): plain lesbare Zeilen wie im Schulheft (Unicode-Mathe wie \`x²\`, \`√(…)\`, \`·\`, \`±\`, \`→\`, \`=\`, KEIN \`$\`-LaTeX, KEIN \`**\`-Markdown), optional \`title="…"\`, \`paper="karo|liniert|blanko"\`, \`ink="blau|schwarz|grün|rot"\`, \`profile="…"\`. Heft-Layout: \`Aufgabe 1\` als eigene Zeile, \`a)\` für Teilaufgaben, jede Umformung eine eigene Zeile mit \`|-6\` dahinter, \`# Titel\` (zentriert, gelb markiert), \`==Marker==\`/\`==grün:Ergebnis==\`, Markdown-Tabellen:
 <handwriting title="Lösung Aufgabe 1" paper="karo">
-Gegeben: x² - 5x + 6 = 0
+Aufgabe 1
+a) x² - 5x + 6 = 0
 pq-Formel: x₁,₂ = 2,5 ± √(6,25 - 6)
-→ x₁ = 3, x₂ = 2
+→ ==grün:x₁ = 3, x₂ = 2==
 </handwriting>
 Nutze diese Elemente aktiv, wenn sie die Antwort übersichtlicher machen (Anleitung → steps, Vergleich → proscons/bars/Tabelle, Zahlen → stats, Anteile → pie, Funktionen → plot, Lernen → quiz/flashcards, handschriftliche Lösung → handwriting). Mathe: Rechenweg Schritt für Schritt mit LaTeX (oder Unicode-Mathe innerhalb von <handwriting>), Ergebnis ==grün:markiert==, bei Funktionen zusätzlich ein <plot>. Davor ein kurzer Satz, danach höchstens 1–2 Sätze.
 

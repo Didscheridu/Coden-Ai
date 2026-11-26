@@ -46,7 +46,8 @@ export function drawPaper(ctx, paper, k) {
         for (let y = 120; y < PAGE_H - 40; y += gap) line(0, y, PAGE_W, y);
         ctx.strokeStyle = '#eaa3a3'; line(92, 0, 92, PAGE_H);
     } else if (paper === 'karo') {
-        ctx.strokeStyle = '#d6e0ef'; ctx.lineWidth = Math.max(1, k * 0.9);
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, PAGE_W * k, PAGE_H * k); // GoodNotes: weißes Blatt, hellgraues Karo
+        ctx.strokeStyle = '#d3d5d6'; ctx.lineWidth = Math.max(0.7, k * 0.8);
         for (let x = 25; x < PAGE_W; x += 25) line(x, 0, x, PAGE_H);
         for (let y = 25; y < PAGE_H; y += 25) line(0, y, PAGE_W, y);
     } else if (paper === 'punkte') {

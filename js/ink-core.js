@@ -3,7 +3,7 @@
 
 export const PAGE_W = 1000, PAGE_H = 1414; // A4 hochkant in Seiten-Einheiten
 export const TEMPLATES = [['blanko', 'Blanko'], ['liniert', 'Liniert'], ['eng', 'Schmal liniert'], ['karo', 'Karo'], ['punkte', 'Punkte'], ['cornell', 'Cornell-Notizen'], ['noten', 'Notenlinien']];
-export const PEN_TYPES = [['fueller', 'Füller'], ['kugel', 'Kugelschreiber'], ['pinsel', 'Pinsel']];
+export const PEN_TYPES = [['fineliner', 'Fineliner'], ['fueller', 'Füller'], ['kugel', 'Kugelschreiber'], ['pinsel', 'Pinsel']];
 export const COVERS = ['#2B3A55', '#1F5F8B', '#2E7D5B', '#8C2F39', '#B5542D', '#C59B3B', '#6B4C9A', '#3D3D3D', '#C8B8A6', '#E8D9C4'];
 export const COVER_STYLES = [['leinen', 'Leinen'], ['glatt', 'Glatt'], ['punkte', 'Punkte'], ['streifen', 'Streifen']];
 
@@ -30,6 +30,7 @@ export function widthAt(s, pressure) {
     if (s.t === 'hl') return s.w;
     const p = Math.max(0.05, Math.min(1, pressure));
     if (s.k === 'kugel') return s.w * 0.85;
+    if (s.k === 'fineliner') return s.w * 0.9;
     if (s.k === 'pinsel') return s.w * (0.15 + 1.7 * p);
     return s.w * (0.35 + 0.95 * p);
 }
@@ -161,7 +162,7 @@ export function transformSelection(page, sel, { dx = 0, dy = 0, f = 1, ax = 0, a
 
 // ---------- Tinte wie GoodNotes: geglättete Linie, Umriss mit Druck, sanfter Anfang, rundes Ende ----------
 // Liefert den Umriss eines Strichs als Punktliste [[x,y], …] in Seiten-Einheiten (zum Füllen).
-const KIND = { fueller: { thin: 0.55, stream: 0.5 }, pinsel: { thin: 0.85, stream: 0.45 }, kugel: { thin: 0.08, stream: 0.55 } };
+const KIND = { fueller: { thin: 0.55, stream: 0.5 }, pinsel: { thin: 0.85, stream: 0.45 }, kugel: { thin: 0.08, stream: 0.55 }, fineliner: { thin: 0, stream: 0.3, even: true } };
 export function strokeOutline(s) {
     const cfg = KIND[s.k] || KIND.fueller; const size = s.w * 1.15; const p = s.p;
     // 1) glätten (Zittern vom Stift raus) und doppelte Punkte überspringen
@@ -180,7 +181,7 @@ export function strokeOutline(s) {
     const total = dist[n - 1]; const taper = Math.min(total / 3, size * 2.2);
     const rad = pts.map((q, i) => {
         let r = size / 2 * (1 - cfg.thin + cfg.thin * Math.max(0.05, Math.min(1, q[2])));
-        if (taper > 0) { r *= 0.55 + 0.45 * Math.min(1, dist[i] / taper); r *= 0.75 + 0.25 * Math.min(1, (total - dist[i]) / taper); }
+        if (taper > 0 && !cfg.even) { r *= 0.55 + 0.45 * Math.min(1, dist[i] / taper); r *= 0.75 + 0.25 * Math.min(1, (total - dist[i]) / taper); }
         return Math.max(0.25, r);
     });
     // 3) linke und rechte Kante entlang der Normalen
