@@ -195,10 +195,21 @@ export function openInkEditor(ctx) {
     };
     try { const s = JSON.parse(localStorage.getItem('coden_ink_tools') || '{}'); ['tool', 'penType', 'color', 'width', 'eraserMode', 'penOnly'].forEach(k => { if (s[k] != null) st[k] = typeof s[k] === 'object' ? { ...st[k], ...s[k] } : s[k]; }); } catch (_) {}
     if (['text', 'laser', 'lasso', 'hand', 'image'].includes(st.tool)) st.tool = 'pen';
-    // Auf iPad/Tablet: von Anfang an nur der Stift malt (die aufliegende Hand nie) – wie in GoodNotes
-    const touchDevice = (navigator.maxTouchPoints || 0) > 1 || matchMedia('(pointer: coarse)').matches;
-    try { if (touchDevice && JSON.parse(localStorage.getItem('coden_ink_tools') || '{}').penOnly === undefined) st.penOnly = true; } catch (_) {}
-    const remember = () => { try { localStorage.setItem('coden_ink_tools', JSON.stringify({ tool: st.tool, penType: st.penType, color: st.color, width: st.width, eraserMode: st.eraserMode, penOnly: st.penOnly })); } catch (_) {} };
+    // Auf iPad/Tablet: nur der Apple Pencil/Stift zeichnet; 1 Finger scrollt, 2 Finger zoomen
+    const touchDevice = (navigator.maxTouchPoints || 0) > 1 || 'ontouchstart' in window || matchMedia('(pointer: coarse)').matches;
+    try {
+        const saved = JSON.parse(localStorage.getItem('coden_ink_tools') || '{}');
+        if (touchDevice && !saved.penOnlyV2) st.penOnly = true;
+    } catch (_) { if (touchDevice) st.penOnly = true; }
+    const remember = (manual = false) => {
+        try {
+            const prev = JSON.parse(localStorage.getItem('coden_ink_tools') || '{}');
+            localStorage.setItem('coden_ink_tools', JSON.stringify({
+                tool: st.tool, penType: st.penType, color: st.color, width: st.width, eraserMode: st.eraserMode,
+                penOnly: st.penOnly, penOnlyV2: manual ? true : (prev.penOnlyV2 || st.penOnly)
+            }));
+        } catch (_) {}
+    };
     // Seiten: { id, data: {paper,strokes[],text[],items[],bg,correction}|null, view, dirty, bgDirty, corrDirty, thumb }
     const pages = doc.pages.map(id => ({ id }));
 
@@ -269,7 +280,7 @@ export function openInkEditor(ctx) {
         if (st.tool === 'shape') opts.append(el('small', 'ink-hint', 'Linie, Kreis, Rechteck, Dreieck – Coden macht sie sauber'));
         if (st.tool === 'lasso') opts.append(el('small', 'ink-hint', 'Einkreisen, dann verschieben, skalieren oder bearbeiten'));
         if (st.clip) opts.append(btn('content_paste', 'Einfügen', () => paste(), 'labeled'));
-        const po = btn('stylus', 'Nur Stift zeichnet (Finger scrollt und zoomt)', () => { st.penOnly = !st.penOnly; remember(); syncTools(); }, 'tool' + (st.penOnly ? ' on' : ''));
+        const po = btn('stylus', 'Nur Stift zeichnet (Finger scrollt und zoomt)', () => { st.penOnly = !st.penOnly; remember(true); syncTools(); }, 'tool' + (st.penOnly ? ' on' : ''));
         opts.append(el('span', 'ink-sep'), po);
         stage.dataset.tool = st.tool;
     }
@@ -461,13 +472,16 @@ export function openInkEditor(ctx) {
     stage.addEventListener('pointerdown', (e) => {
         if (e.target.closest('.ink-sel, .ink-selmenu, .ink-addpage, .ink-mark-x, .ink-mark-t, .ink-grade-x, .ink-textbox[contenteditable="true"]')) return;
         cancelAnimationFrame(inertia);
-        if (e.pointerType === 'pen') { penTakesOver(); if (!st.penOnly) { st.penOnly = true; remember(); syncTools(); } }
+        if (e.pointerType === 'pen') { penTakesOver(); if (!st.penOnly) { st.penOnly = true; remember(true); syncTools(); } }
         if (e.pointerType === 'touch') {
-            const big = Math.max(e.width || 0, e.height || 0) > 44;
+            const nowPerf = performance.now();
+            // Alte verwaiste Touch-Einträge bereinigen (falls Safari ein pointercancel verschluckt hat)
+            for (const [tid, t] of touches) { if (nowPerf - (t.tLast || t.t0) > 8000) touches.delete(tid); }
+            const big = Math.max(e.width || 0, e.height || 0) > 68;
             const whilePen = penDown;
-            const recentPen = !penDown && lastPenAt > 0 && isPalm({ pointerType: 'touch', width: e.width, height: e.height }, lastPenAt) && (Date.now() - lastPenAt < 180);
+            const recentPen = !penDown && lastPenAt > 0 && (Date.now() - lastPenAt < 140);
             const palm = whilePen || big || recentPen;
-            touches.set(e.pointerId, { id: e.pointerId, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, t0: performance.now(), palm, big, whilePen });
+            touches.set(e.pointerId, { id: e.pointerId, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, t0: nowPerf, tLast: nowPerf, palm, big, whilePen });
             if (!whilePen && !big) { try { stage.setPointerCapture(e.pointerId); } catch (_) {} }
             // Sobald 2 echte Finger (nicht während Stift aufliegt) die Fläche berühren: direkt 2-Finger-Zoom & -Verschieben starten
             const candidates = [...touches.values()].filter(t => !t.whilePen && !t.big);
@@ -475,7 +489,7 @@ export function openInkEditor(ctx) {
                 candidates.forEach(t => { t.palm = false; });
                 cancelTouchOp();
                 pan = null;
-                tapGesture = { n: candidates.length, t: performance.now(), moved: false };
+                tapGesture = { n: candidates.length, t: nowPerf, moved: false };
                 startPinchFrom(candidates);
                 e.preventDefault();
                 return;
@@ -487,7 +501,8 @@ export function openInkEditor(ctx) {
         const pg = pageAt(e);
         if (st.tool === 'hand' || (e.pointerType === 'touch' && st.penOnly) || !pg || !pg.data) {
             if (st.tool === 'lasso' && e.pointerType !== 'touch') clearSelection();
-            pan = { id: e.pointerId, touch: e.pointerType === 'touch', x: e.clientX, y: e.clientY, sl: stage.scrollLeft, st: stage.scrollTop, t: performance.now(), vx: 0, vy: 0 }; return;
+            pan = { id: e.pointerId, touch: e.pointerType === 'touch', x: e.clientX, y: e.clientY, sl: stage.scrollLeft, st: stage.scrollTop, t: performance.now(), vx: 0, vy: 0 };
+            return;
         }
         if (e.button > 0) return;
         e.preventDefault(); st.cur = pages.indexOf(pg); updateLabel(); pg.active = true;
@@ -501,10 +516,11 @@ export function openInkEditor(ctx) {
     });
     stage.addEventListener('pointermove', (e) => {
         if (e.pointerType === 'touch') {
-            const tt = touches.get(e.pointerId); if (!tt) return; tt.x = e.clientX; tt.y = e.clientY;
+            const tt = touches.get(e.pointerId); if (!tt) return;
+            tt.x = e.clientX; tt.y = e.clientY; tt.tLast = performance.now();
             if (penDown || tt.whilePen || tt.big) return;
             const movedDist = Math.hypot(tt.x - tt.x0, tt.y - tt.y0);
-            if (tt.palm && movedDist > 10 && liveTouches().length === 0) {
+            if (tt.palm && movedDist > 6 && liveTouches().length === 0) {
                 tt.palm = false;
                 if (st.tool === 'hand' || st.penOnly) {
                     pan = { id: tt.id, touch: true, x: tt.x, y: tt.y, sl: stage.scrollLeft, st: stage.scrollTop, t: performance.now(), vx: 0, vy: 0 };
@@ -512,12 +528,12 @@ export function openInkEditor(ctx) {
                 }
             }
             if (tt.palm) return;
-            if (movedDist > 9 && tapGesture) tapGesture.moved = true;
+            if (movedDist > 8 && tapGesture) tapGesture.moved = true;
         }
         if (pinch) {
             const live = liveTouches(); if (live.length < 2) return; const [a, b] = live; const d = Math.hypot(a.x - b.x, a.y - b.y);
             const r = stage.getBoundingClientRect(); const mx = (a.x + b.x) / 2 - r.left, my = (a.y + b.y) / 2 - r.top;
-            if (tapGesture && !tapGesture.moved && Math.abs(d - pinch.d) < 10 && Math.hypot(mx - pinch.mx, my - pinch.my) < 9) return; // vielleicht nur ein Tipp
+            if (tapGesture && !tapGesture.moved && Math.abs(d - pinch.d) < 8 && Math.hypot(mx - pinch.mx, my - pinch.my) < 8) return; // vielleicht nur ein Tipp
             if (tapGesture) tapGesture.moved = true;
             // zwei Finger: zoomen UND verschieben zugleich – der Punkt unter den Fingern bleibt unter den Fingern
             zoomAt(pinch.z * d / pinch.d, mx, my, pinch.anchor, { quick: true }); return;
@@ -588,10 +604,12 @@ export function openInkEditor(ctx) {
         else if (s.t === 'hl') paintInk(o.pg); else if (o.pg.view) drawStroke(o.pg.view.ink.getContext('2d'), s, kOf());
     };
     stage.addEventListener('pointerup', end); stage.addEventListener('pointercancel', end);
-    stage.addEventListener('lostpointercapture', (e) => { if (touches.has(e.pointerId)) end(e); });
+    stage.addEventListener('lostpointercapture', (e) => {
+        if (touches.has(e.pointerId) || e.pointerType === 'pen' || (op && op.id === e.pointerId) || (pan && pan.id === e.pointerId)) end(e);
+    });
     // iPad: Mehrfinger-Gesten des Systems, Gummi-Scroll und Doppeltipp-Zoom nicht durchlassen
     const isInteractiveTarget = (t) => !!t?.closest?.('.ink-addpage, .ink-mark-x, .ink-mark-t, .ink-grade-x, .ink-selmenu, .ink-textbox[contenteditable="true"]');
-    stage.addEventListener('touchstart', (e) => { if ((e.touches.length > 1 || penDown) && !isInteractiveTarget(e.target)) e.preventDefault(); }, { passive: false });
+    stage.addEventListener('touchstart', (e) => { if ((e.touches.length > 1 || penDown || st.penOnly || st.tool === 'hand') && !isInteractiveTarget(e.target)) e.preventDefault(); }, { passive: false });
     stage.addEventListener('touchmove', (e) => { if ((e.touches.length > 1 || penDown || st.penOnly || st.tool === 'hand') && !isInteractiveTarget(e.target)) e.preventDefault(); }, { passive: false });
     stage.addEventListener('gesturestart', (e) => e.preventDefault());
     stage.addEventListener('gesturechange', (e) => e.preventDefault());

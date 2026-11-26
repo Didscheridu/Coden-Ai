@@ -452,6 +452,7 @@ export function openHandwritingTrainer({ initialChar = '', onSaved } = {}) {
 
     padCanvas.addEventListener('pointerdown', (e) => {
         if (e.button && e.button !== 0) return;
+        if (e.pointerType === 'pen' && !state.penOnly) { state.penOnly = true; penChk.checked = true; }
         if (state.penOnly && e.pointerType === 'touch') return;
         e.preventDefault();
         activePointer = e.pointerId;
