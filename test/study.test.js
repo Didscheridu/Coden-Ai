@@ -136,5 +136,24 @@ const { setup, root } = require('./helpers');
   const missRes = S.deleteSubject(stDel, 'unbekannt');
   chk('Fach löschen: entfernt Fach, Aufträge, Arbeiten, Hefte, Lernplan & Stundenplan', [delRes.deleted, delRes.docIds, missRes.deleted, stDel.subjects.map(s => s.id), stDel.assignments.map(a => a.id), stDel.exams.length, stDel.docs.map(d => d.id), stDel.plan.length, stDel.timetable.mo.map(l => l.subjectId)], [true, ['dcBio'], false, [suPhy.id], ['as2'], 0, ['dcPhy'], 0, [suPhy.id]]);
 
+  // ---------- Kaydens Handschrift: nur der Owner (ADMIN_EMAIL) ----------
+  const admin = await token({ sub: 'uid-admin', email: 'admin@test.de', email_verified: true });
+  const adminUnverified = await token({ sub: 'uid-admin2', email: 'admin@test.de', email_verified: false });
+  const g = {}; for (const c of 'abcdefghijkl') g[c] = [[60, 0, 100, [[0, 0, 30, 100, 60, 0]]]];
+  const hand = { format: 'coden-hand', v: 2, name: 'Kaydens', style: { ink: '#1e1b1b' }, g, w: { und: [[150, 0, 100, [[0, 0, 150, 100]]]] } };
+  chk('Handschrift: ohne Login 401', (await G('/study/hand-master')).s, 401);
+  chk('Handschrift: Owner hat anfangs keine', [(await G('/study/hand-master', admin)).s, (await G('/study/hand-master', admin)).j.profile], [200, null]);
+  chk('Handschrift: normaler Nutzer darf nicht speichern', (await P('/study/hand-master', { profile: hand }, anna)).s, 404);
+  chk('Handschrift: unbestätigte Admin-Mail darf nicht speichern', (await P('/study/hand-master', { profile: hand }, adminUnverified)).s, 404);
+  chk('Handschrift: falsches Format abgelehnt', (await P('/study/hand-master', { profile: { format: 'x', g } }, admin)).s, 400);
+  chk('Handschrift: zu wenige Zeichen abgelehnt', (await P('/study/hand-master', { profile: { ...hand, g: { a: g.a } } }, admin)).s, 400);
+  const put = await P('/study/hand-master', { profile: hand }, admin);
+  chk('Handschrift: Owner speichert Kaydens', [put.s, put.j.glyphs], [200, 12]);
+  const got = await G('/study/hand-master', admin);
+  chk('Handschrift: Owner lädt Kaydens', [got.s, got.j.profile?.name, Object.keys(got.j.profile?.g || {}).length, !!got.j.profile?.w?.und], [200, 'Kaydens', 12, true]);
+  chk('Handschrift: andere Nutzer bekommen sie nie', [(await G('/study/hand-master', anna)).s, (await G('/study/hand-master', ben)).j.profile], [404, undefined]);
+  chk('Handschrift: zu große Datei abgelehnt', (await P('/study/hand-master', { profile: { ...hand, w: { lang: [[1, 0, 1, [Array(1_600_000).fill(1)]]] } } }, admin)).s, 413);
+  chk('Handschrift: Owner kann sie löschen', [(await D('/study/hand-master', anna)).s, (await D('/study/hand-master', admin)).s, (await G('/study/hand-master', admin)).j.profile], [404, 200, null]);
+
   await finish();
 })();

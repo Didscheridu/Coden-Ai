@@ -12,7 +12,7 @@ const { wrapRouter } = require('./util');
 let waitUntil = () => {};
 try { waitUntil = require('@vercel/functions').waitUntil; } catch (_) { /* lokal ohne Vercel */ }
 
-const LIMITS = { strokes: 4_000_000, bg: 3_500_000, item: 1_800_000, items: 30, page: 7_000_000, pagesPerDoc: 300, reminders: 80, text: 160 };
+const LIMITS = { strokes: 4_000_000, bg: 3_500_000, item: 1_800_000, items: 30, page: 7_000_000, pagesPerDoc: 300, reminders: 80, text: 160, hand: 1_500_000 };
 const ID_RE = /^[A-Za-z0-9_-]{4,64}$/;
 const IMG_RE = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
 const PAPERS = ['blanko', 'liniert', 'eng', 'karo', 'punkte', 'cornell', 'noten'];
@@ -52,6 +52,17 @@ function cleanPage(body, id) {
       return { id: str(i.id, 30) || 'im', type: 'img', x: n(i.x, 0), y: n(i.y, 0), w: Math.max(4, n(i.w, 200)), h: Math.max(4, n(i.h, 200)), src: i.src };
     })
   };
+}
+
+// Handschrift-Profil im Format „coden-hand“ (vom Skill meine-handschrift): nur grob prüfen, die App normalisiert
+function cleanHandMaster(p) {
+  if (!p || typeof p !== 'object' || p.format !== 'coden-hand' || !p.g || typeof p.g !== 'object' || Array.isArray(p.g)) throw fail(400, 'Keine gültige Handschrift-Datei (coden-hand).');
+  const chars = Object.keys(p.g);
+  if (chars.length < 10 || chars.length > 400) throw fail(400, 'Die Handschrift-Datei hat zu wenige oder zu viele Zeichen.');
+  if (!chars.every(k => [...k].length === 1 && Array.isArray(p.g[k]))) throw fail(400, 'Die Handschrift-Datei ist beschädigt.');
+  const out = { format: 'coden-hand', v: 2, name: str(p.name, 40) || 'Kaydens', style: p.style && typeof p.style === 'object' && !Array.isArray(p.style) ? p.style : {}, g: p.g, w: p.w && typeof p.w === 'object' && !Array.isArray(p.w) ? p.w : {} };
+  if (JSON.stringify(out).length > LIMITS.hand) throw fail(413, 'Die Handschrift-Datei ist zu groß.');
+  return out;
 }
 
 const meta = (p) => ({ id: p._id || p.id, doc: p.doc, idx: p.idx, paper: p.paper, hasBg: !!p.bg, items: (p.items || []).length, corrected: !!p.correction, score: p.correction?.score ?? null, updatedAt: p.updated_at });
@@ -134,6 +145,27 @@ function studyRouter(requireAuth) {
     res.json({ ok: true });
   });
 
+  // Kaydens Handschrift (Profil „Kaydens“): liegt NUR in der Datenbank, nie im öffentlichen Repo.
+  // Lesen und Speichern darf ausschließlich der Owner (ADMIN_EMAIL, bestätigt) – alle anderen trainieren ihre eigene.
+  const handPath = (req) => `study/${req.user.uid}/hand/master`;
+  const ownerOnly = (req, res) => { res.set('Cache-Control', 'private, no-store'); if (!req.user.isOwner) throw fail(404, 'Nicht gefunden.'); };
+  r.get('/hand-master', async (req, res) => {
+    ownerOnly(req, res);
+    const d = await db.getDoc(handPath(req));
+    res.json({ profile: d?.profile || null, updatedAt: d?.updated_at || null });
+  });
+  r.put('/hand-master', rateLimit('study-hand', 20, 600), async (req, res) => {
+    ownerOnly(req, res);
+    const profile = cleanHandMaster(req.body?.profile);
+    await db.setDoc(handPath(req), { uid: req.user.uid, profile, updated_at: db.nowIso() });
+    res.json({ ok: true, glyphs: Object.keys(profile.g).length });
+  });
+  r.delete('/hand-master', async (req, res) => {
+    ownerOnly(req, res);
+    await db.deleteDoc(handPath(req)).catch(() => {});
+    res.json({ ok: true });
+  });
+
   // Erinnerungen ersetzen (die App rechnet sie aus Arbeiten, Abgaben und dem Lernplan aus)
   r.put('/reminders', rateLimit('study-rem', 30, 60), async (req, res) => {
     const items = cleanReminders(req.body?.items);
@@ -149,4 +181,4 @@ function studyRouter(requireAuth) {
   return r;
 }
 
-module.exports = { studyRouter, dispatchDue, maybeDispatch, cleanPage, cleanCorrection, cleanReminders, LIMITS };
+module.exports = { studyRouter, dispatchDue, maybeDispatch, cleanPage, cleanCorrection, cleanReminders, cleanHandMaster, LIMITS };

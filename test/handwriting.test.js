@@ -108,6 +108,56 @@ const chk = (name, got, want) => {
         H.trainedCount(mergedHw.profiles[0])
     ], ['p1', ['2', 'a', 'e'], 3]);
 
+    // 8. Handschrift-Engine (wie der Skill meine-handschrift)
+    const E = await import(pathToFileURL(path.join(__dirname, '../js/hand-engine.js')).href);
+    chk('normalizeRich: falsches Format und leere Profile abgelehnt', [E.normalizeRich(null), E.normalizeRich({ format: 'x', g: {} }), E.normalizeRich({ format: 'coden-hand', g: { ab: [[1, 0, 1, [[0, 0, 1, 1]]]] } })], [null, null, null]);
+    const stroke = (x0, x1) => [[x0, 0, (x0 + x1) / 2, 100, x1, 0]];
+    const rich = E.normalizeRich({
+        format: 'coden-hand', name: 'Test', style: { ink: '#1E1B1B', sw: 99 },
+        g: { a: [[60, 0, 100, stroke(0, 60)], [62, 0, 100, stroke(5, 62)]], b: [[55, 0, 150, stroke(0, 55)]], A: [[70, 0, 150, stroke(0, 70)]], '-': [[40, 60, 62, [[0, 61, 40, 61]]]], '2': [[50, 0, 150, stroke(0, 50)]] },
+        w: { ab: [[130, 0, 150, [[0, 0, 130, 150]]]], 'x1': [[1, 0, 1, [[0, 0]]]] }
+    });
+    chk('normalizeRich: Stil begrenzt, Farbe klein, ungültige Wörter raus', [rich.style.sw, rich.style.ink, Object.keys(rich.w), E.richVariantCount(rich)], [0.3, '#1e1b1b', ['ab'], 6]);
+
+    const L1 = E.layoutRich('aaaa', rich, { width: 600, grid: 20, seed: 4, wordLib: 0 });
+    const L2 = E.layoutRich('aaaa', rich, { width: 600, grid: 20, seed: 4, wordLib: 0 });
+    const starts = L1.strokes.map(s => Math.round((s.p[0] - L1.strokes[0].p[0]) % 1000));
+    chk('Layout: gleicher Seed = gleiches Bild, 4 Zeichen, Zeile 1 auf Karo-Linie', [JSON.stringify(L1.strokes) === JSON.stringify(L2.strokes), L1.strokes.length, L1.firstBase % 20, starts.length], [true, 4, 0, 4]);
+    // zwei Varianten: Varianten wechseln sich ab (Startpunkt relativ zur Zeichenbreite unterschiedlich)
+    const firstX = L1.strokes.map(s => s.p[0]);
+    chk('Layout: Zeichen stehen nacheinander mit Abstand', firstX.every((x, i) => i === 0 || x > firstX[i - 1] + 10), true);
+    const Lw = E.layoutRich('ab ab', rich, { width: 600, grid: 20, seed: 1, wordLib: 1 });
+    chk('Layout: ganze gelernte Wörter werden genutzt', [Lw.usedWords, Lw.strokes.length], [2, 2]);
+    const Lm = E.layoutRich('# Titel\n==ab== und Ä♫\n| A | b |\n|---|---|\n| 2 | a |', rich, { width: 600, grid: 20, seed: 1, fallback: H.fallbackRich() });
+    chk('Layout: Titel-Marker, ==Marker==, Tabelle mit geraden Linien, Vorschau-Schrift für fehlende Zeichen', [
+        Lm.marks.length >= 2, Lm.strokes.filter(s => s.straight).length >= 3, Lm.usedFallback > 0, Lm.missing.includes('♫')
+    ], [true, true, true, true]);
+    const Lwrap = E.layoutRich(Array(30).fill('ab').join(' '), rich, { width: 300, grid: 20, seed: 2, wordLib: 0 });
+    chk('Layout: Umbruch hält die Breite ein, 3 Kästchen pro Zeile', [Lwrap.lineCount > 3, Math.max(...Lwrap.strokes.flatMap(s => s.p.filter((_, i) => i % 3 === 0))) <= 300, Lwrap.pitch], [true, true, 60]);
+    const Lmath = E.layoutRich('3x+6=21 |-6\n3x=15 |:3\nx=5', rich, { width: 400, grid: 20, fallback: H.fallbackRich() });
+    chk('Layout: reine Rechnung → Mathe-Modus mit 2 Kästchen pro Zeile', [Lmath.mathe, Lmath.pitch], [true, 40]);
+
+    // gezeichnete Glyphe → feste Höhen (kleine Buchstaben 1 Kästchen, große 1,5)
+    const vA = E.variantFromPad([[[20, 30, 0.5], [30, 72, 0.5]], [[30, 30, 0.5], [40, 72, 0.5]]], 'a'); // zu hoch gezeichnet
+    const vT = E.variantFromPad([[[20, 20, 0.5], [20, 70, 0.5]]], 'T'); // leicht über der Grundlinie
+    chk('variantFromPad: Höhe angeglichen (max. ±22 %) und auf die Grundlinie gesetzt', [vA[2] < 140 && vA[2] > 100, vT[1], vT[2] >= 140 && vT[2] <= 160], [true, 0, true]);
+
+    // mehrere Varianten pro Zeichen im eigenen Profil
+    const pv = H.blankProfile('Var');
+    const one = H.encodeGlyphStrokes([[[22, 45, 0.5], [44, 72, 0.5]]]);
+    pv.glyphs.a = Array(7).fill(one).join('#') + '#kaputt';
+    const nv = H.normalizeHandwriting({ profiles: [pv] }).profiles[0];
+    chk('Eigene Profile: bis zu 5 Varianten je Zeichen, kaputte raus, Engine-Profil daraus', [H.glyphVariants(nv, 'a').length, H.variantCount(nv), H.profileRich(nv).g.a.length], [5, 5, 5]);
+
+    // 9. Kaydens: nur wenn der Server sie liefert (Admin-Mail)
+    chk('Ohne Server-Daten gibt es kein Kaydens-Profil', [H.getMasterProfile(), H.allProfiles(H.blankHandwriting()).length], [null, 1]);
+    const master = H.setMasterRich({ ...rich, name: 'Kaydens' });
+    const hwM = H.normalizeHandwriting({ activeId: H.MASTER_ID, profiles: [pv] });
+    const act = H.activeProfile(hwM);
+    chk('Kaydens: wählbar, aktiv, zählt die Zeichen, Prompt nennt sie', [master.name, hwM.activeId, act.id, H.trainedCount(act), H.allProfiles(hwM).length, H.handwritingPrompt(hwM).includes('„Kaydens“')], ['Kaydens', 'kaydens', 'kaydens', 5, 2, true]);
+    H.setMasterRich(null);
+    chk('Kaydens weg (anderer Nutzer): fällt auf eigenes Profil zurück', [H.activeProfile(hwM).id === pv.id, H.allProfiles(hwM).length], [true, 1]);
+
     console.log(fails ? `\n${fails} Fehler` : '\nAlle Handschrift-Tests grün');
     process.exit(fails ? 1 : 0);
 })();

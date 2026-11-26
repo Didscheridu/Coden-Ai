@@ -317,6 +317,8 @@ if (auth) {
                 } catch (e) {
                     console.error('Cloud Load Error:', e);
                 }
+                // Kaydens Handschrift gibt der Server nur der Admin-Mail; alle anderen trainieren ihre eigene
+                import('./hand-master.js').then(m => m.loadMaster(isOwner)).catch(() => {});
 
                 let settings = Storage.getSettings();
                 if (!settings.userName) {
@@ -367,6 +369,7 @@ if (auth) {
                 hideDbLoader();
                 appInitialized = false;
                 isOwner = false;
+                import('./hand-master.js').then(m => m.clearMaster()).catch(() => {});
                 sessions = [];
                 currentSession = null;
                 activeSessionId = null;

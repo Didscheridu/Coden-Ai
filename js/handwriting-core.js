@@ -1,6 +1,8 @@
 // js/handwriting-core.js – Handschrift-Datenmodell, Vektor-Glyphen (kompakt kodiert),
 // Fallback-Handschrift, Zeilenumbruch-Layout auf Karo/Liniert/Blanko und Chat-Prompt (ohne DOM, testbar).
 
+import { HAND_FORMAT, variantFromPad, normalizeRich, richGlyphCount } from './hand-engine.js';
+
 const uid = (p = 'hw') => p + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const str = (v, n = 60) => String(v ?? '').trim().slice(0, n);
@@ -32,6 +34,10 @@ export function resolveInkHex(ink, fallback = '#1b3b8b') {
     return INK_MAP[v] || INK_MAP[alias[v]] || fallback;
 }
 
+export const PEN_IDS = ['fineliner', 'kugel', 'fueller', 'pinsel'];
+export const MAX_VARIANTS = 5;
+export const MASTER_ID = 'kaydens';
+
 export const CHAR_GROUPS = [
     { id: 'quick', label: 'Schnellstart', chars: [...'aeinrstuldhcmogbwfkzpväöüß0123456789+-=.,?'] },
     { id: 'lower', label: 'Kleinbuchstaben', chars: [...'abcdefghijklmnopqrstuvwxyzäöüß'] },
@@ -53,7 +59,7 @@ export function blankProfile(name = 'Meine Handschrift') {
         name: str(name, 40) || 'Meine Handschrift',
         inkColor: '#1b3b8b',
         paper: 'karo',
-        penStyle: 'fueller',
+        penStyle: 'fineliner',
         strokeScale: 1,
         letterSpacing: 1,
         slantDeg: 0,
@@ -82,8 +88,9 @@ export function normalizeHandwriting(raw) {
         if (item.glyphs && typeof item.glyphs === 'object') {
             for (const k of Object.keys(item.glyphs).slice(0, 160)) {
                 const ch = [...String(k)].slice(0, 1).join('');
-                const val = typeof item.glyphs[k] === 'string' ? item.glyphs[k].slice(0, 4000) : '';
-                if (ch && val && decodeGlyphStrokes(val).length) glyphs[ch] = val;
+                const raw = typeof item.glyphs[k] === 'string' ? item.glyphs[k] : '';
+                const vars = raw.split('#').map(v => v.slice(0, 4000)).filter(v => decodeGlyphStrokes(v).length).slice(0, MAX_VARIANTS);
+                if (ch && vars.length) glyphs[ch] = vars.join('#');
             }
         }
         profiles.push({
@@ -91,7 +98,7 @@ export function normalizeHandwriting(raw) {
             name: str(item.name, 40) || 'Handschrift',
             inkColor: resolveInkHex(item.inkColor, '#1b3b8b'),
             paper: ['karo', 'liniert', 'blanko'].includes(item.paper) ? item.paper : 'karo',
-            penStyle: ['fueller', 'kugel', 'fein'].includes(item.penStyle) ? item.penStyle : 'fueller',
+            penStyle: PEN_IDS.includes(item.penStyle) ? item.penStyle : (item.penStyle === 'fein' ? 'fineliner' : 'fueller'),
             strokeScale: clamp(+item.strokeScale || 1, 0.65, 1.6),
             letterSpacing: clamp(+item.letterSpacing || 1, 0.7, 1.5),
             slantDeg: clamp(+item.slantDeg || 0, -14, 18),
@@ -100,23 +107,86 @@ export function normalizeHandwriting(raw) {
             updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt.slice(0, 40) : new Date().toISOString()
         });
     }
-    if (!profiles.length) return blankHandwriting();
-    const activeId = profiles.some(p => p.id === x.activeId) ? x.activeId : profiles[0].id;
+    if (!profiles.length) return { ...blankHandwriting(), ...(x.activeId === MASTER_ID ? { activeId: MASTER_ID } : {}) };
+    const activeId = profiles.some(p => p.id === x.activeId) || x.activeId === MASTER_ID ? x.activeId : profiles[0].id;
     return { v: 1, activeId, profiles };
+}
+
+// ---------- Kaydens Handschrift (kommt nur für die Admin-Mail vom Server, nie aus dem Repo) ----------
+let masterProfile = null;
+const PREF_KEY = 'coden_hand_master_prefs';
+function readMasterPrefs() {
+    try {
+        const p = typeof localStorage !== 'undefined' ? JSON.parse(localStorage.getItem(PREF_KEY) || '{}') : {};
+        return {
+            ...(/^#[0-9a-f]{6}$/i.test(p.inkColor || '') ? { inkColor: p.inkColor } : {}),
+            ...(PEN_IDS.includes(p.penStyle) ? { penStyle: p.penStyle } : {}),
+            ...(['karo', 'liniert', 'blanko'].includes(p.paper) ? { paper: p.paper } : {}),
+            ...(Number.isFinite(+p.strokeScale) && p.strokeScale ? { strokeScale: clamp(+p.strokeScale, 0.6, 1.6) } : {})
+        };
+    } catch (_) { return {}; }
+}
+export function setMasterRich(raw) {
+    const rich = raw ? normalizeRich(raw) : null;
+    masterProfile = rich ? {
+        id: MASTER_ID, name: rich.name || 'Kaydens', master: true, rich,
+        inkColor: rich.style.ink, paper: 'karo', penStyle: 'fineliner', strokeScale: 1, letterSpacing: 1, slantDeg: 0,
+        glyphs: {}, createdAt: '', updatedAt: '', ...readMasterPrefs()
+    } : null;
+    return masterProfile;
+}
+// Stift, Farbe, Dicke und Papier für Kaydens merken (nur auf diesem Gerät)
+export function updateMasterPrefs(patch) {
+    if (!masterProfile) return null;
+    Object.assign(masterProfile, patch);
+    try { localStorage.setItem(PREF_KEY, JSON.stringify({ inkColor: masterProfile.inkColor, penStyle: masterProfile.penStyle, paper: masterProfile.paper, strokeScale: masterProfile.strokeScale })); } catch (_) { /* egal */ }
+    return masterProfile;
+}
+export const getMasterProfile = () => masterProfile;
+
+// Alle wählbaren Profile: eigene + (nur beim Admin) Kaydens
+export function allProfiles(hw) {
+    const h = normalizeHandwriting(hw);
+    return masterProfile ? [masterProfile, ...h.profiles] : h.profiles;
 }
 
 export function activeProfile(hw, requested = '') {
     const h = normalizeHandwriting(hw);
+    const list = allProfiles(h);
     const q = String(requested || '').trim().toLowerCase();
     if (q) {
-        const match = h.profiles.find(p => p.id.toLowerCase() === q || p.name.toLowerCase() === q)
-            || h.profiles.find(p => p.name.toLowerCase().includes(q));
+        const match = list.find(p => p.id.toLowerCase() === q || p.name.toLowerCase() === q)
+            || list.find(p => p.name.toLowerCase().includes(q) || q.includes(p.name.toLowerCase()));
         if (match) return match;
     }
-    return h.profiles.find(p => p.id === h.activeId) || h.profiles[0];
+    return list.find(p => p.id === h.activeId) || h.profiles[0];
 }
 
-export const trainedCount = (profile) => Object.keys(profile?.glyphs || {}).length;
+export const trainedCount = (profile) => (profile?.rich ? richGlyphCount(profile.rich) : Object.keys(profile?.glyphs || {}).length);
+export const glyphVariants = (profile, ch) => String(profile?.glyphs?.[ch] || '').split('#').filter(Boolean);
+export const variantCount = (profile) => Object.keys(profile?.glyphs || {}).reduce((a, ch) => a + glyphVariants(profile, ch).length, 0);
+
+// Eigenes (im Trainer gezeichnetes) Profil → Profil für die Handschrift-Engine (feste Höhen, Varianten)
+const richCache = new Map();
+export function profileRich(profile) {
+    if (!profile) return fallbackRich();
+    if (profile.rich) return profile.rich;
+    const key = profile.id + '|' + profile.updatedAt + '|' + Object.keys(profile.glyphs || {}).length + '|' + profile.inkColor + '|' + profile.strokeScale + '|' + profile.letterSpacing;
+    if (richCache.has(key)) return richCache.get(key);
+    const g = {};
+    for (const ch of Object.keys(profile.glyphs || {})) {
+        const list = glyphVariants(profile, ch).map(enc => variantFromPad(decodeGlyphStrokes(enc), ch)).filter(Boolean);
+        if (list.length) g[ch] = list;
+    }
+    const sp = clamp(+profile.letterSpacing || 1, 0.7, 1.5);
+    const rich = normalizeRich({
+        format: HAND_FORMAT, name: profile.name, g: Object.keys(g).length ? g : { ' ': [[10, 0, 10, [[0, 0, 1, 1]]]] },
+        style: { ink: resolveInkHex(profile.inkColor), sw: 0.085 * clamp(+profile.strokeScale || 1, 0.65, 1.6), gap: 0.07 * sp, wgap: 1.0 * sp, extra: 0.1 * sp, wobble: 0.08, tilt: 0.45, axis: 0.72 }
+    });
+    if (richCache.size > 12) richCache.clear();
+    richCache.set(key, rich);
+    return rich;
+}
 
 export function mergeHandwriting(localHw, remoteHw) {
     const loc = normalizeHandwriting(localHw);
@@ -187,7 +257,7 @@ export function encodeGlyphStrokes(strokes) {
 export function decodeGlyphStrokes(encoded) {
     if (!encoded || typeof encoded !== 'string') return [];
     const out = [];
-    for (const strokeStr of encoded.split('|')) {
+    for (const strokeStr of encoded.split('#')[0].split('|')) {
         if (!strokeStr) continue;
         const pts = [];
         for (const ptStr of strokeStr.split(';')) {
@@ -346,6 +416,16 @@ const RAW_FALLBACK = {
 };
 
 const FALLBACK_PARSED = Object.fromEntries(Object.entries(RAW_FALLBACK).map(([k, v]) => [k, parseDef(v)]));
+
+// Vorschau-Handschrift für Zeichen, die (noch) nicht trainiert sind
+let fallbackCache = null;
+export function fallbackRich() {
+    if (fallbackCache) return fallbackCache;
+    const g = {};
+    for (const [ch, st] of Object.entries(FALLBACK_PARSED)) { const v = variantFromPad(st, ch); if (v) g[ch] = [v]; }
+    fallbackCache = normalizeRich({ format: HAND_FORMAT, name: 'Vorschau', g, style: { ink: '#1b3b8b', sw: 0.09, gap: 0.08, wgap: 1.0, extra: 0.1, wobble: 0.06 } });
+    return fallbackCache;
+}
 
 const SUPERSCRIPTS = { '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9', '⁻': '-', '⁺': '+', 'ⁿ': 'n' };
 const SUBSCRIPTS = { '₀': '0', '₁': '1', '₂': '2', '₃': '3', '₄': '4', '₅': '5', '₆': '6', '₇': '7', '₈': '8', '₉': '9', '₋': '-', '₊': '+' };
@@ -557,12 +637,13 @@ export function handwritingPrompt(hw) {
     const norm = normalizeHandwriting(hw);
     const act = activeProfile(norm);
     const count = trainedCount(act);
-    const allMeta = norm.profiles.map(p => `„${p.name}“ (${trainedCount(p)} Zeichen)`).join(', ');
+    const list = allProfiles(norm);
+    const allMeta = list.map(p => `„${p.name}“ (${trainedCount(p)} Zeichen)`).join(', ');
     if (count > 0) {
-        const sample = Object.keys(act.glyphs).slice(0, 40).join('');
+        const sample = act.rich ? 'alle Buchstaben, Ziffern, Umlaute und Mathe-Zeichen' : Object.keys(act.glyphs).slice(0, 40).join('');
         return `## HANDSCHRIFT DES NUTZERS (trainiert – im Chat direkt nutzen)
-Aktive Handschrift: „${act.name}“ (${count} trainierte Zeichen: ${sample}${count > 40 ? ' …' : ''}; bevorzugtes Papier: ${act.paper}).${norm.profiles.length > 1 ? ` Alle verfügbaren Handschriften: ${allMeta}.` : ''}
-WICHTIG: Wenn der Nutzer dich bittet, eine Aufgabe, Rechnung, Lösung, Zusammenfassung oder einen Text **in seiner Handschrift** (oder einer der trainierten Handschriften) zu schreiben bzw. zu lösen, gib die handschriftliche Lösung direkt im Chat in einem \`<handwriting title="…" paper="${act.paper}">…\`-Block aus. Schreibe darin klare, saubere Zeilen wie in einem Schulheft (Unicode wie \`x²\`, \`√(…)\`, \`·\`, \`±\`, \`→\`, \`=\`, KEIN \`$\`-LaTeX und KEIN \`**\`-Markdown). Danach höchstens 1 kurzer Satz.`;
+Aktive Handschrift: „${act.name}“ (${count} trainierte Zeichen: ${sample}${!act.rich && count > 40 ? ' …' : ''}; bevorzugtes Papier: ${act.paper}).${list.length > 1 ? ` Alle verfügbaren Handschriften: ${allMeta}.` : ''}
+WICHTIG: Wenn der Nutzer dich bittet, eine Aufgabe, Rechnung, Lösung, Zusammenfassung oder einen Text **in seiner Handschrift** (oder einer der trainierten Handschriften) zu schreiben bzw. zu lösen, gib die handschriftliche Lösung direkt im Chat in einem \`<handwriting title="…" paper="${act.paper}">…\`-Block aus. Schreibe darin klare, saubere Zeilen wie in einem Schulheft (Unicode wie \`x²\`, \`√(…)\`, \`·\`, \`±\`, \`→\`, \`=\`, KEIN \`$\`-LaTeX und KEIN \`**\`-Markdown). Heft-Layout wie bei einem Schüler: \`Aufgabe 1\` als eigene Zeile, Teilaufgaben mit \`a)\`, jede Umformung einer Rechnung in eine eigene Zeile (\`3x+6=21 |-6\`), kurze einfache Sätze. Erlaubt: \`# Titel\` (zentriert mit gelbem Marker), \`==wichtig==\` bzw. \`==grün:Ergebnis==\` (Textmarker), Markdown-Tabellen (\`| a | b |\`), \`---\` (Trennlinie). Danach höchstens 1 kurzer Satz.`;
     }
     return `## HANDSCHRIFT IM CHAT (<handwriting>)
 Der Nutzer hat noch keine eigene Handschrift trainiert (Profil „${act.name}“ hat noch 0 Zeichen). Wenn er trotzdem um eine Lösung oder einen Text „in meiner Handschrift“ bittet, gib die Lösung in \`<handwriting title="…" paper="karo">…\` aus (Coden zeigt sie in Vorschau-Handschrift und bietet direkt auf der Karte einen Knopf „Meine Handschrift trainieren“, um seine echte Schrift anzulernen).`;
