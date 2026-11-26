@@ -226,6 +226,11 @@ class Hand {
     constructor(prep, fallback, { seed = 1, jitter = 1, wordLib = 0.35 } = {}) {
         this.p = prep; this.fb = fallback; this.rng = makeRng(seed); this.j = jitter; this.wordLib = wordLib;
         this.queues = new Map(); this.missing = new Set(); this.usedWords = 0; this.usedTrained = 0; this.usedFallback = 0;
+        // Viele echte Varianten (wie bei Kaydens GoodNotes-Strichen): Buchstaben fast unverändert lassen, damit sie genau
+        // so aussehen wie in GoodNotes. Wenige Varianten (selbst trainiert): etwas mehr künstliche Abwechslung.
+        const letters = [...'aeinrstudhlocm'].map(c => prep.g[c]?.length || 0).filter(Boolean);
+        const avg = letters.length ? letters.reduce((a, b) => a + b, 0) / letters.length : 1;
+        this.shape = avg >= 3 ? 0.3 : 1;
     }
     pick(kind, key, list) {
         const id = kind + key;
@@ -295,10 +300,11 @@ class Hand {
         const v = this.pick(spec.own ? 'g' : 'f', spec.key, spec.list);
         const xs = ch === 'x' && mathTok ? 1.1 : 1;
         const s = k * (spec.s || 1) * xs * (1 + r.u(0.015 * j));
-        const sx = (spec.sx || 1) * (1 + r.u(0.05 * j)), sy = 1 + r.u(0.01 * j);
+        const f = spec.own ? this.shape : 1;
+        const sx = (spec.sx || 1) * (1 + r.u(0.05 * j * f)), sy = 1 + r.u(0.01 * j);
         const dy = (spec.dy || 0) * k + r.gauss(this.p.style.wobble * 0.12 * j) * k;
-        const rot = r.u(1.4 * j) * Math.PI / 180;
-        const items = [{ v, x: 0, y: dy, s, sx, sy, rot, warp: this.warp(v, 0.7 * j) }];
+        const rot = r.u(1.4 * j * f) * Math.PI / 180;
+        const items = [{ v, x: 0, y: dy, s, sx, sy, rot, warp: this.warp(v, 0.7 * j * f) }];
         const w = v.w * s * sx;
         for (const m of spec.marks || '') {
             const top = v.y1 * s + dy, cx = w / 2, u = 0.18 * k;
@@ -327,7 +333,7 @@ class Hand {
                 const s = k * (1 + this.rng.gauss(0.01));
                 const sxw = Math.min(1.1, 1 + this.p.style.extra * this.p.avgW * (run.length - 1) / Math.max(v.w, 1e-6));
                 if (prev != null) x += this.gap(prev, run[0], k);
-                items.push({ v, x, y: this.rng.gauss(this.p.style.wobble * 0.4 * this.j) * k, s, sx: sxw, sy: 1, rot: this.rng.gauss(0.4) * Math.PI / 180, warp: this.warp(v, 0.3 * this.j) });
+                items.push({ v, x, y: this.rng.gauss(this.p.style.wobble * 0.4 * this.j) * k, s, sx: sxw, sy: 1, rot: this.rng.gauss(0.4) * Math.PI / 180, warp: this.warp(v, 0.3 * this.j * this.shape) });
                 x += v.w * s * sxw; prev = run[run.length - 1]; prevV = null; this.usedWords++; this.usedTrained += run.length;
                 continue;
             }
@@ -607,7 +613,7 @@ export function layoutRich(rawText, rich, opts = {}) {
 // ---------- Zeichnen wie GoodNotes ----------
 export const PENS = [
     { id: 'fineliner', name: 'Fineliner', f: 1 },
-    { id: 'kugel', name: 'Kugelschreiber', f: 0.78 },
+    { id: 'kugel', name: 'Kugelschreiber', f: 0.9 },
     { id: 'fueller', name: 'Füller', f: 1.05 },
     { id: 'pinsel', name: 'Pinsel', f: 1.6 }
 ];
@@ -679,7 +685,7 @@ export function drawInk(ctx, strokes, { color = '#1b1f2a', pen = 'fineliner', sc
             continue;
         }
         ctx.lineWidth = Math.max(0.6, w * scale);
-        if (pen === 'kugel') ctx.globalAlpha = 0.93;
+        if (pen === 'kugel') ctx.globalAlpha = 0.96;
         ctx.beginPath();
         ctx.moveTo(pts[0][0] * scale, pts[0][1] * scale);
         if (pts.length === 1) ctx.lineTo(pts[0][0] * scale + 0.2, pts[0][1] * scale);

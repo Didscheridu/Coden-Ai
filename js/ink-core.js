@@ -168,13 +168,16 @@ export function transformSelection(page, sel, { dx = 0, dy = 0, f = 1, ax = 0, a
 // Liefert den Umriss eines Strichs als Punktliste [[x,y], …] in Seiten-Einheiten (zum Füllen).
 const KIND = { fueller: { thin: 0.55, stream: 0.5 }, pinsel: { thin: 0.85, stream: 0.45 }, kugel: { thin: 0.08, stream: 0.55 }, fineliner: { thin: 0, stream: 0.3, even: true } };
 export function strokeOutline(s) {
-    const cfg = KIND[s.k] || KIND.fueller; const size = s.w * 1.15; const p = s.p;
+    // Von Coden geschriebene Striche sind schon glatt (echte GoodNotes-Striche): nicht nachglätten, keine Spitzen an den Enden,
+    // sonst werden Ecken rund und kleine Buchstaben verschmiert
+    const exact = s.o === 'coden';
+    const cfg = exact ? { thin: 0, stream: 0, even: true } : (KIND[s.k] || KIND.fueller); const size = s.w * 1.15; const p = s.p;
     // 1) glätten (Zittern vom Stift raus) und doppelte Punkte überspringen
     const pts = []; let px = p[0], py = p[1], pr = p[2] ?? 0.5;
     pts.push([px, py, pr]);
     for (let i = 3; i < p.length; i += 3) {
         const t = 1 - cfg.stream; const nx = px + (p[i] - px) * t, ny = py + (p[i + 1] - py) * t;
-        if (Math.hypot(nx - px, ny - py) < 0.35 && i < p.length - 3) continue;
+        if (Math.hypot(nx - px, ny - py) < (exact ? 0.12 : 0.35) && i < p.length - 3) continue;
         pr = pr + ((p[i + 2] ?? 0.5) - pr) * 0.35; px = nx; py = ny; pts.push([px, py, pr]);
     }
     const lx = p[p.length - 3], ly = p[p.length - 2]; if (Math.hypot(lx - px, ly - py) > 0.5) pts.push([lx, ly, pr]);

@@ -59,7 +59,7 @@ export function blankProfile(name = 'Meine Handschrift') {
         name: str(name, 40) || 'Meine Handschrift',
         inkColor: '#1b3b8b',
         paper: 'karo',
-        penStyle: 'fineliner',
+        penStyle: 'kugel',
         strokeScale: 1,
         letterSpacing: 1,
         slantDeg: 0,
@@ -135,7 +135,7 @@ export function setMasterRich(raw) {
     const rich = raw ? normalizeRich(raw) : null;
     masterProfile = rich ? {
         id: MASTER_ID, name: rich.name || 'Kaydens', master: true, rich,
-        inkColor: rich.style.ink, paper: 'karo', penStyle: 'fineliner', strokeScale: 1, letterSpacing: 1, slantDeg: 0,
+        inkColor: rich.style.ink, paper: 'karo', penStyle: 'kugel', strokeScale: 1, letterSpacing: 1, slantDeg: 0,
         glyphs: {}, createdAt: '', updatedAt: '', ...readMasterPrefs()
     } : null;
     return masterProfile;
