@@ -372,6 +372,91 @@ export function chatContext(st, now = new Date()) {
     return lines.join('\n');
 }
 
+// ---------- Notizbuch-Index & <notebook_read> für Coden-Chats ----------
+const clampInt = (n, lo, hi) => Math.max(lo, Math.min(hi, Math.round(n)));
+export function expandPageSpec(spec, maxPage = 1) {
+    const cap = Math.max(1, Number(maxPage) || 1);
+    const s = String(spec || '').trim();
+    if (!s) return [1];
+    const out = [];
+    for (const part of s.split(/[\s,;]+/)) {
+        if (!part) continue;
+        const m = part.match(/^(\d{1,4})\s*[-–..]+\s*(\d{1,4})$/);
+        if (m) {
+            let a = clampInt(+m[1], 1, cap), b = clampInt(+m[2], 1, cap);
+            if (a > b) [a, b] = [b, a];
+            for (let p = a; p <= b && out.length < 3; p++) if (!out.includes(p)) out.push(p);
+        } else if (/^\d{1,4}$/.test(part)) {
+            const p = clampInt(+part, 1, cap);
+            if (!out.includes(p) && out.length < 3) out.push(p);
+        }
+        if (out.length >= 3) break;
+    }
+    return out.length ? out : [1];
+}
+
+export function notebooksPrompt(st, { currentDocId = null, currentPage = null } = {}) {
+    const docs = Array.isArray(st?.docs) ? st.docs : [];
+    if (!docs.length) return '';
+    const sorted = sortDocs(docs, 'bearbeitet').slice(0, 40);
+    const assignById = new Map((st.assignments || []).map(a => [a.id, a]));
+    const lines = ['## NOTIZBÜCHER DES NUTZERS (Coden Heft – direkter Zugriff für dich)'];
+    lines.push('Der Nutzer besitzt folgende Notizbücher. Wenn der Nutzer ein Notizbuch, Mitschriften, Aufgaben, Zeichnungen, Arbeitsblätter oder Rechnungen daraus erwähnt – oder wenn du nachsehen musst, was auf einer Seite steht – lies dir die passende Seite direkt mit `<notebook_read .../>` an statt zu raten:');
+    for (const d of sorted) {
+        const su = subjectOf(st, d.subjectId)?.name || '';
+        const fp = folderPath(st, d.folderId).map(f => f.name).join('/');
+        const as = d.assignmentId ? assignById.get(d.assignmentId) : null;
+        const nPages = (d.pages || []).length || 1;
+        const bms = (d.bookmarks || []).map(bid => (d.pages || []).indexOf(bid) + 1).filter(n => n > 0).sort((a, b) => a - b);
+        const upd = d.updatedAt ? String(d.updatedAt).slice(0, 10) : '';
+        const meta = [
+            fp ? `Ordner: ${fp}` : null,
+            su ? `Fach: ${su}` : null,
+            as ? `Auftrag: ${as.title}` : null,
+            `${nPages} Seite${nPages === 1 ? '' : 'n'}`,
+            bms.length ? `Lesezeichen: S. ${bms.slice(0, 6).join(', ')}` : null,
+            upd ? `Stand: ${upd}` : null,
+            d.id === currentDocId ? `AKTUELL GEÖFFNET${currentPage ? ` (Seite ${currentPage})` : ''}` : null
+        ].filter(Boolean).join(' · ');
+        lines.push(`- [${d.id}] "${d.title || 'Unbenanntes Notizbuch'}" (${meta})`);
+    }
+    if (docs.length > sorted.length) lines.push(`(… und ${docs.length - sorted.length} weitere Notizbücher)`);
+    lines.push(`So siehst du dir Seiten aus einem Notizbuch an (du bekommst das fertige Seitenbild inkl. Handschrift, Arbeitsblatt-Hintergrund, getipptem Text und Korrekturen):
+- Eine Seite: <notebook_read id="NOTIZBUCH_ID" page="1"/>
+- Mehrere Seiten (höchstens 3 pro Aufruf): <notebook_read id="NOTIZBUCH_ID" pages="1-3"/>
+Schreibe das Tag direkt ohne Codeblock darum. Sobald du die Seiten erhalten hast, beantworte die Frage präzise anhand des Gesehenen.`);
+    return lines.join('\n');
+}
+
+const NB_READ_RE = /<notebook_read\b([^>]*?)\/?>/gi;
+const NB_ATTR_RE = /(\w+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>/]+))/g;
+export function parseNotebookReads(raw, { allowUnclosed = false } = {}) {
+    const s = String(raw || '');
+    const out = [];
+    const parseAttrs = (rawAttrs) => {
+        const attrs = {};
+        let m; NB_ATTR_RE.lastIndex = 0;
+        while ((m = NB_ATTR_RE.exec(rawAttrs))) attrs[m[1].toLowerCase()] = (m[2] ?? m[3] ?? m[4] ?? '').trim();
+        const ref = attrs.id || attrs.doc || attrs.title || '';
+        const pageSpec = attrs.pages || attrs.page || '1';
+        if (ref) out.push({ ref, pageSpec });
+    };
+    let m; NB_READ_RE.lastIndex = 0;
+    while ((m = NB_READ_RE.exec(s))) parseAttrs(m[1]);
+    if (!out.length && allowUnclosed) {
+        const tail = s.match(/<notebook_read\b([^>]*)$/i);
+        if (tail) parseAttrs(tail[1]);
+    }
+    return out;
+}
+
+export function hideNotebookTags(raw) {
+    return String(raw || '')
+        .replace(/<notebook_read\b[^>]*\/?>/gi, '')
+        .replace(/<\/notebook_read>/gi, '')
+        .replace(/<notebook_read\b[^>]*$/i, '');
+}
+
 // ---------- Prompts ----------
 export const TIMETABLE_PROMPT = `Lies den Stundenplan auf dem Bild VOLLSTÄNDIG aus – jede einzelne Karte/Zelle, nichts weglassen. Das kann ein gedruckter Plan, eine Tabelle oder eine Steckwand mit Kärtchen sein.
 So gehst du vor: Spalte für Spalte (Tag für Tag), in jeder Spalte von oben nach unten, jede Karte einzeln. Weiße/leere-wirkende Karten, kleine Karten und Karten mit Handschrift zählen genauso.

@@ -9,6 +9,9 @@ import { runModelTest } from './model-test.js';
 import { Artifacts } from './artifacts.js';
 import { buildChatPrompt } from './system-prompt.js';
 import { StudyStore } from './study-store.js';
+import { parseNotebookReads, hideNotebookTags } from './study-core.js';
+import { readNotebookRequests } from './notebook-ai.js';
+import { loadPage, pageImage } from './ink.js';
 import { runAiResponse, watchRun, listRuns, claimRun, notifyDone } from './runs.js';
 import { renderUsage, refreshUsageBanner, limitMessage } from './usage.js';
 import { pushState, enablePush, disablePush, testPush, refreshPush } from './push.js';
@@ -1589,7 +1592,7 @@ function renderAttachmentPreviews() {
 // ==========================================
 // Bild-Befehl der KI: <generate_image prompt="…"/>
 const IMAGE_TAG = /<generate_image\s+([^>]*?)\/?>/gi;
-const hideImageTags = (t) => WebSearch.strip(Skills.hide(Personal.hide(ChatApps.hide(hideCalls(String(t || '').replace(/<generate_image\s+[^>]*?\/?>/gi, '').replace(/<generate_image[^>]*$/i, ''))))));
+const hideImageTags = (t) => hideNotebookTags(WebSearch.strip(Skills.hide(Personal.hide(ChatApps.hide(hideCalls(String(t || '').replace(/<generate_image\s+[^>]*?\/?>/gi, '').replace(/<generate_image[^>]*$/i, '')))))));
 // ---------- Live-Anzeige je Chat ----------
 // Eine laufende Antwort gehört zu einem Chat, nicht zum Bildschirm: wechselt der Nutzer den Chat und kommt zurück,
 // wird die Anzeige mit dem aktuellen Stand neu aufgebaut. Die Antwort selbst läuft auf dem Server weiter.
@@ -1871,7 +1874,8 @@ async function handleSend() {
       const skillInfo = Skills.forMessage(text); Skills.clearPicked();
       const loadedSkills = [...skillInfo.loaded];
       if (loadedSkills.length) live0Steps(initialLive, loadedSkills);
-      const systemPrompt = buildChatPrompt({ userName, extras: `${sessionAtSend.temp ? '' : StudyStore.context()}\n${MCP.prompt()}${ChatApps.prompt()}${personal}${Assistants.prompt(sessionAtSend.assistantId)}${skillInfo.text}${researchOn ? '' : WebSearch.prompt()}${proj.text}` });
+      const nbExtra = StudyStore.notebooksContext();
+      const systemPrompt = buildChatPrompt({ userName, extras: `${sessionAtSend.temp ? '' : StudyStore.context()}${nbExtra ? '\n' + nbExtra : ''}\n${MCP.prompt()}${ChatApps.prompt()}${personal}${Assistants.prompt(sessionAtSend.assistantId)}${skillInfo.text}${researchOn ? '' : WebSearch.prompt()}${proj.text}` });
       context.unshift({ role: 'system', content: systemPrompt });
 
       Storage.syncNow(); // Frage sofort sichern, damit andere Geräte sie sehen
@@ -1919,6 +1923,19 @@ async function handleSend() {
                 if (skillMsg.names.length) shownPrefix = withPrefix(toolStep({ skill: skillMsg.names.join(', ') }));
                 live.update(shownPrefix);
                 context.push({ role: 'user', content: skillMsg.text });
+                aiResponse = '';
+                continue;
+            }
+            // Das Modell möchte ein Notizbuch ansehen (<notebook_read id="..." page="..."/>)
+            const nbReqs = round < 5 && !parseCall(aiResponse) ? parseNotebookReads(aiResponse) : [];
+            if (nbReqs.length) {
+                context.push({ role: 'assistant', content: aiResponse.trim() });
+                shownPrefix = withPrefix(cite(preText));
+                live.update(withPrefix(toolStep({ tool: 'Notizbuch ansehen', src: nbReqs.map(r => r.ref).join(', '), icon: 'auto_stories', running: true })));
+                const nbRes = await readNotebookRequests(nbReqs, { loadPage, pageImage });
+                shownPrefix = withPrefix(toolStep({ tool: 'Notizbuch ansehen', src: nbRes.srcLabel, note: nbRes.noteLabel, result: nbRes.detailsText, err: nbRes.err, icon: 'auto_stories' }));
+                live.update(shownPrefix);
+                context.push({ role: 'user', content: nbRes.modelPrompt, ...(nbRes.images.length ? { images: nbRes.images } : {}) });
                 aiResponse = '';
                 continue;
             }

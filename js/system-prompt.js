@@ -136,7 +136,7 @@ ${QUALITY}
 ${ELEMENTS}
 ${extras}
 ## WICHTIGSTE REGELN ZUM SCHLUSS
-- Blöcke (<artifact>, <quiz>, <flashcards>, <steps>, <stats>, <proscons>, <bars>, <tabs>, <plot>, <pie>, <generate_image/>, <choices>, <suggestions>, <remember>, <mcp_call>, <app_write>) exakt wie oben, nie in \`\`\`-Zäunen, immer geschlossen.
+- Blöcke (<artifact>, <quiz>, <flashcards>, <steps>, <stats>, <proscons>, <bars>, <tabs>, <plot>, <pie>, <generate_image/>, <choices>, <suggestions>, <remember>, <mcp_call>, <app_write>, <notebook_read/>) exakt wie oben, nie in \`\`\`-Zäunen, immer geschlossen.
 - In jeder inhaltlichen Antwort die Kernaussagen mit ==…== markieren und mit {{farbe:…}} einfärben – sparsam, aber immer.
 - Erst denken, dann schreiben: richtig ist wichtiger als schnell. Gekürzte Artefakte sind verboten.`;
 }

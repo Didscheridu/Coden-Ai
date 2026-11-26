@@ -3,7 +3,7 @@
 // Nimmt außerdem Lernpläne aus dem Chat an (<lernplan>-Block → Ereignis "codenStudyPlan").
 import { Storage } from './storage.js';
 import { apiJson } from './backend.js';
-import { normalize, reminders, chatContext, isoDate } from './study-core.js';
+import { normalize, reminders, chatContext, notebooksPrompt, isoDate } from './study-core.js';
 
 let remTimer = 0, lastSent = '', localTimers = [];
 
@@ -16,6 +16,7 @@ export const StudyStore = {
     },
     update(fn) { const st = StudyStore.get(); const r = fn(st); StudyStore.save(st); return r; },
     context() { try { return chatContext(StudyStore.get()); } catch (_) { return ''; } },
+    notebooksContext(opts) { try { return notebooksPrompt(StudyStore.get(), opts); } catch (_) { return ''; } },
     syncReminders() { scheduleReminders(StudyStore.get(), 0); }
 };
 

@@ -5,8 +5,14 @@
 // Zwei-Finger-Zoom, Vorlagen (liniert, karo, punkte, Cornell, Notenlinien …), Arbeitsblätter als Hintergrund (Foto/PDF),
 // "Coden prüfen" (Korrektur wie ein Lehrer), Export als PDF, bei Aufträgen danach abgeben.
 import { apiJson } from './backend.js';
+import { streamAiResponse } from './api.js';
+import { ownTiers, byokEffort, isByokTier } from './byok.js';
 import { loader } from './rich-elements.js';
-import { correctionPrompt, parseCorrection, fmtDate } from './study-core.js';
+import { renderRichBlock } from './ui.js';
+import { buildChatPrompt } from './system-prompt.js';
+import { StudyStore } from './study-store.js';
+import { correctionPrompt, parseCorrection, fmtDate, parseNotebookReads, hideNotebookTags } from './study-core.js';
+import { captureLivePageSnapshot, readNotebookRequests } from './notebook-ai.js';
 import { startStudyLive, stopLive, liveActive, sendLiveImage, sendLiveNote } from './study-live.js';
 import { PAGE_W, PAGE_H, TEMPLATES, PEN_TYPES, encodeStrokes, decodeStrokes, widthAt, recognizeShape, eraseFrom, eraseWhole, lassoSelect, selectionBox, transformSelection, strokeOutline, rotateSelection, isPalm } from './ink-core.js';
 export { PAGE_W, PAGE_H, encodeStrokes, decodeStrokes } from './ink-core.js';
@@ -185,7 +191,7 @@ export function openInkEditor(ctx) {
     const doc = ctx.doc; doc.pages = doc.pages || []; doc.bookmarks = doc.bookmarks || [];
     const st = {
         tool: 'pen', penType: 'fueller', color: { pen: PEN_COLORS[0], hl: HL_COLORS[0], shape: PEN_COLORS[1] }, width: { pen: 1, hl: 1, eraser: 1, shape: 1 },
-        eraserMode: 'strich', zoom: 1, penOnly: false, sidebar: window.innerWidth > 1000, showCorr: true, undo: [], redo: [], clip: null, cur: 0
+        eraserMode: 'strich', zoom: 1, penOnly: false, sidebar: window.innerWidth > 1000, showCorr: true, panelMode: null, undo: [], redo: [], clip: null, cur: 0
     };
     try { const s = JSON.parse(localStorage.getItem('coden_ink_tools') || '{}'); ['tool', 'penType', 'color', 'width', 'eraserMode', 'penOnly'].forEach(k => { if (s[k] != null) st[k] = typeof s[k] === 'object' ? { ...st[k], ...s[k] } : s[k]; }); } catch (_) {}
     if (['text', 'laser', 'lasso', 'hand', 'image'].includes(st.tool)) st.tool = 'pen';
@@ -209,13 +215,14 @@ export function openInkEditor(ctx) {
     const sideB = btn('view_sidebar', 'Seitenübersicht', () => { st.sidebar = !st.sidebar; side.hidden = !st.sidebar; sideB.classList.toggle('on', st.sidebar); if (st.sidebar) drawSidebar(); requestAnimationFrame(layoutAll); });
     const addB = btn('note_add', 'Seite hinzufügen', (e) => templateMenu(e.currentTarget, (t) => insertPage(st.cur + 1, t)));
     const liveB = btn('graphic_eq', 'Live mit Coden', () => toggleLive(), 'labeled live');
+    const chatB = btn('chat', 'Coden Chat', () => toggleChat(), 'labeled ink-chat-btn');
     const checkB = btn('fact_check', 'Coden prüfen', () => correct(), 'primary labeled');
     const doneB = ctx.assignment ? btn('task_alt', 'Fertig & abgeben', () => finish(), 'labeled') : null;
     const moreB = btn('more_horiz', 'Mehr', (e) => moreMenu(e.currentTarget));
     const left = el('div', 'ink-row ink-left'); left.append(btn('arrow_back', 'Zurück zur Bibliothek', () => close()), sideB, title);
     const mid = el('div', 'ink-row ink-mid'); mid.append(undoB, redoB, pageLbl);
     markB.classList.add('ink-wide'); addB.classList.add('ink-wide'); doneB?.classList.add('ink-wide');
-    const right = el('div', 'ink-row ink-right'); right.append(saveState, markB, addB, liveB, checkB, ...(doneB ? [doneB] : []), moreB);
+    const right = el('div', 'ink-row ink-right'); right.append(saveState, markB, addB, liveB, chatB, checkB, ...(doneB ? [doneB] : []), moreB);
     top.append(left, mid, right);
 
     // Werkzeugleiste (GoodNotes: mittig, Werkzeuge + passende Optionen)
@@ -371,9 +378,10 @@ export function openInkEditor(ctx) {
         const c = pg.data.correction; if (!c) return;
         const next = { ...c, items: (c.items || []).slice() }; fn(next);
         pg.data.correction = (next.items.length || next.grade) ? next : null;
+        if (!pg.data.correction && st.panelMode === 'corr') st.panelMode = null;
         markDirty(pg, { corr: true }); paintMarks(pg); showPanel();
     }
-    function removeCorrection(pg) { if (!pg?.data?.correction) return; pg.data.correction = null; markDirty(pg, { corr: true }); paintMarks(pg); showPanel(); toast2('Korrektur entfernt'); }
+    function removeCorrection(pg) { if (!pg?.data?.correction) return; pg.data.correction = null; if (st.panelMode === 'corr') st.panelMode = null; markDirty(pg, { corr: true }); paintMarks(pg); showPanel(); toast2('Korrektur entfernt'); }
     const repaint = (pg) => { paintInk(pg); paintItems(pg); paintText(pg); };
 
     // ---------- Rückgängig: ein Schnappschuss je Aktion und Seite ----------
@@ -743,6 +751,7 @@ export function openInkEditor(ctx) {
         document.querySelector('.ink-pop')?.remove(); const pop = el('div', 'ink-pop ink-menu');
         const it = (ic, l, fn) => pop.append(btn(ic, l, () => { pop.remove(); fn(); }, 'labeled'));
         if (window.matchMedia('(max-width: 700px)').matches) {
+            it('chat', st.panelMode === 'chat' ? 'Coden Chat schließen' : 'Coden Chat öffnen', () => toggleChat());
             if (doneB) it('task_alt', 'Fertig & abgeben', () => finish());
             it('note_add', 'Seite hinzufügen', () => templateMenu(anchor, (t) => insertPage(st.cur + 1, t)));
             const on = doc.bookmarks.includes(pages[st.cur]?.id); it(on ? 'bookmark_remove' : 'bookmark', on ? 'Lesezeichen entfernen' : 'Lesezeichen setzen', () => toggleBookmark(st.cur));
@@ -788,23 +797,317 @@ export function openInkEditor(ctx) {
         if (ok) liveB.classList.add('on');
     }
 
+    // ---------- Seitenleiste rechts: Korrektur & Coden Chat ----------
+    const CHAT_KEY = 'coden_nb_chat_' + doc.id;
+    const CHAT_TIER_KEY = 'coden_nb_chat_tier';
+    const STARTERS = [
+        'Erkläre mir, was auf dieser Seite steht',
+        'Prüfe meinen Rechenweg und zeig mir Fehler',
+        'Gib mir einen kurzen Tipp für die nächste Aufgabe',
+        'Fasse das Thema dieser Seite als Merksatz zusammen'
+    ];
+    let chatMsgs = [];
+    try { const saved = JSON.parse(localStorage.getItem(CHAT_KEY) || '[]'); if (Array.isArray(saved)) chatMsgs = saved.slice(-40); } catch (_) {}
+    let chatTier = 'flash';
+    try { chatTier = localStorage.getItem(CHAT_TIER_KEY) || 'flash'; } catch (_) {}
+    let chatIncludePage = true, chatBusy = false, chatAc = null, clearArm = 0;
+
+    const saveChatMsgs = () => { try { localStorage.setItem(CHAT_KEY, JSON.stringify(chatMsgs.slice(-40))); } catch (_) {} };
+    const cleanNbReply = (raw) => hideNotebookTags(String(raw || ''))
+        .replace(/<suggestions>[\s\S]*?(<\/suggestions>|$)/gi, '')
+        .replace(/<choices>[\s\S]*?(<\/choices>|$)/gi, '')
+        .replace(/<(suggestions|choices|remember|app_write|mcp_call)[^>]*$/i, '')
+        .trim();
+    const toPlainPageText = (md) => String(md || '')
+        .replace(/==\s*(?:[a-zäöü]+\s*:)?([\s\S]*?)==/gi, '$1')
+        .replace(/\{\{\s*[a-zäöü]+\s*:([\s\S]*?)\}\}/gi, '$1')
+        .replace(/```[\s\S]*?```/g, m => m.replace(/```[^\n]*\n?|```/g, ''))
+        .replace(/^#{1,6}\s+/gm, '')
+        .replace(/\*\*([^*]+)\*\*/g, '$1')
+        .replace(/`([^`]+)`/g, '$1')
+        .trim()
+        .slice(0, 1800);
+
+    async function insertTextOnPage(rawText) {
+        const pg = pages[st.cur]; if (!pg) return;
+        await ensureData(pg);
+        const txt = toPlainPageText(rawText); if (!txt) return;
+        const before = clone(pg.data);
+        const y = Math.max(90, Math.min(PAGE_H - 220, Math.round(visibleY(pg) - 40)));
+        pg.data.text.push({ x: 112, y, s: txt, c: '#1b1f2a', z: 22 });
+        commit(pg, before); paintText(pg);
+        toast2('Auf Seite eingefügt');
+    }
+
+    // Persistentes Chat-UI (bleibt beim Seitenblättern erhalten, damit Fokus & Scroll nicht verloren gehen)
+    const chatBox = el('div', 'ink-chat');
+    const chatHead = el('div', 'ink-chat-head');
+    const chatMeta = el('div', 'ink-chat-meta');
+    const chatTitleEl = el('b', '', 'Coden Chat');
+    const chatSubEl = el('small', '');
+    chatMeta.append(chatTitleEl, chatSubEl);
+    const chatSwitchCorr = el('button', 'ink-chat-tab', 'Korrektur'); chatSwitchCorr.type = 'button';
+    chatSwitchCorr.addEventListener('click', () => { const pg = pages[st.cur]; if (pg) pg._panelClosed = false; st.panelMode = 'corr'; showPanel(); });
+    const chatClearB = btn('delete_sweep', 'Chatverlauf leeren', () => {
+        if (!chatMsgs.length || chatBusy) return;
+        if (!clearArm) {
+            clearArm = setTimeout(() => { clearArm = 0; chatClearB.classList.remove('danger'); chatClearB.title = 'Chatverlauf leeren'; }, 3000);
+            chatClearB.classList.add('danger'); chatClearB.title = 'Nochmal tippen zum Leeren'; toast2('Nochmal tippen zum Leeren'); return;
+        }
+        clearTimeout(clearArm); clearArm = 0; chatClearB.classList.remove('danger'); chatClearB.title = 'Chatverlauf leeren';
+        chatMsgs = []; saveChatMsgs(); renderChatMsgs(); toast2('Chat geleert');
+    });
+    const chatCloseB = btn('close', 'Schließen', () => { st.panelMode = null; showPanel(); });
+    chatHead.append(chatMeta, chatSwitchCorr, chatClearB, chatCloseB);
+
+    const chatMsgsEl = el('div', 'ink-chat-msgs');
+    const chatComp = el('div', 'ink-chat-comp');
+    const chatBar = el('div', 'ink-chat-bar');
+    const chatPageLbl = el('label', 'ink-chat-chk');
+    const chatPageChk = el('input'); chatPageChk.type = 'checkbox'; chatPageChk.checked = chatIncludePage;
+    chatPageChk.addEventListener('change', () => { chatIncludePage = chatPageChk.checked; });
+    const chatPageSpan = el('span', '', 'Seite 1 mitsenden');
+    chatPageLbl.append(chatPageChk, chatPageSpan);
+    const chatTierSel = el('select', 'ink-chat-tier'); chatTierSel.title = 'Modell wählen';
+    chatTierSel.addEventListener('change', () => { chatTier = chatTierSel.value; try { localStorage.setItem(CHAT_TIER_KEY, chatTier); } catch (_) {} });
+    chatBar.append(chatPageLbl, chatTierSel);
+
+    const chatRow = el('div', 'ink-chat-row');
+    const chatIn = el('textarea', 'ink-chat-in'); chatIn.rows = 1; chatIn.placeholder = 'Frage Coden zu deinem Notizbuch …';
+    const chatSendB = btn('arrow_upward', 'Senden', () => { if (chatBusy) chatAc?.abort(); else sendNotebookChat(); }, 'primary ink-chat-send');
+    chatRow.append(chatIn, chatSendB);
+    chatComp.append(chatBar, chatRow);
+    chatBox.append(chatHead, chatMsgsEl, chatComp);
+
+    const autoGrowChatIn = () => { chatIn.style.height = 'auto'; chatIn.style.height = Math.min(120, Math.max(38, chatIn.scrollHeight)) + 'px'; };
+    chatIn.addEventListener('input', autoGrowChatIn);
+    chatIn.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendNotebookChat(); }
+    });
+
+    function syncChatChrome() {
+        chatSubEl.textContent = `${doc.title || 'Notizbuch'} · Seite ${st.cur + 1}/${pages.length}`;
+        chatPageSpan.textContent = `Seite ${st.cur + 1} mitsenden`;
+        chatSwitchCorr.hidden = !pages[st.cur]?.data?.correction;
+        const builtins = [['flash', 'Coden Flash'], ['normal', 'Thinking'], ['pro', 'Coden Pro']];
+        const own = ownTiers().map(t => [t.tier, t.label]);
+        const opts = [...builtins, ...own];
+        if (!opts.some(([v]) => v === chatTier)) chatTier = 'flash';
+        chatTierSel.replaceChildren(...opts.map(([v, l]) => { const o = el('option', '', l); o.value = v; return o; }));
+        chatTierSel.value = chatTier;
+    }
+
+    function renderMsgActions(text) {
+        const acts = el('div', 'ink-chat-acts');
+        const copyB = btn('content_copy', 'Kopieren', async () => {
+            try { await navigator.clipboard.writeText(text); toast2('Kopiert'); } catch (_) {}
+        }, 'labeled');
+        const insB = btn('post_add', 'Auf Seite einfügen', () => insertTextOnPage(text), 'labeled');
+        acts.append(copyB, insB);
+        return acts;
+    }
+
+    function createMsgNode(m) {
+        const item = el('div', 'ink-chat-msg ' + (m.role === 'user' ? 'user' : 'ai') + (m.failed ? ' err' : ''));
+        if (m.role === 'user') {
+            if (m.page) item.append(el('div', 'ink-chat-ctx', `Seite ${m.page} im Blick`));
+            item.append(el('div', 'ink-chat-bubble', m.text));
+            return item;
+        }
+        const metaParts = [m.thinkSecs ? `${m.thinkSecs} s nachgedacht` : '', m.model || ''].filter(Boolean);
+        if (metaParts.length) item.append(el('div', 'ink-chat-meta-line', metaParts.join(' · ')));
+        const body = renderRichBlock(m.text || '');
+        body.classList.add('ink-chat-md');
+        item.append(body);
+        if (m.text && !m.failed) item.append(renderMsgActions(m.text));
+        return item;
+    }
+
+    function renderChatMsgs() {
+        if (!chatMsgs.length) {
+            const empty = el('div', 'ink-chat-empty');
+            empty.append(el('b', '', 'Coden hilft dir direkt im Heft'), el('p', '', 'Stelle Fragen zur aktuellen Seite oder lass dir einen Schritt erklären.'));
+            const list = el('div', 'ink-chat-starters');
+            STARTERS.forEach(s => {
+                const b = el('button', 'ink-chat-starter', s); b.type = 'button';
+                b.addEventListener('click', () => sendNotebookChat(s));
+                list.append(b);
+            });
+            empty.append(list);
+            chatMsgsEl.replaceChildren(empty);
+            return;
+        }
+        chatMsgsEl.replaceChildren(...chatMsgs.map(createMsgNode));
+        chatMsgsEl.scrollTop = chatMsgsEl.scrollHeight;
+    }
+    renderChatMsgs();
+
+    async function sendNotebookChat(preset) {
+        if (chatBusy) return;
+        const text = String(preset ?? chatIn.value).trim();
+        if (!text) return;
+        if (preset == null) { chatIn.value = ''; autoGrowChatIn(); }
+
+        const usedPage = chatIncludePage ? st.cur + 1 : null;
+        const userMsg = { id: 'm' + Date.now().toString(36), role: 'user', text, ...(usedPage ? { page: usedPage } : {}) };
+        chatMsgs.push(userMsg); saveChatMsgs();
+        if (chatMsgs.length === 1) renderChatMsgs();
+        else chatMsgsEl.append(createMsgNode(userMsg));
+
+        chatBusy = true;
+        chatAc = new AbortController();
+        chatSendB.querySelector('.material-symbols-outlined').textContent = 'stop';
+        chatSendB.title = 'Stoppen'; chatSendB.classList.add('stop');
+
+        const aiNode = el('div', 'ink-chat-msg ai');
+        const statusEl = el('div', 'ink-chat-meta-line', usedPage ? `Schaut Seite ${usedPage} an …` : 'Denkt nach …');
+        const bodyEl = el('div', 'md ink-chat-md');
+        aiNode.append(statusEl, bodyEl);
+        chatMsgsEl.append(aiNode);
+        chatMsgsEl.scrollTop = chatMsgsEl.scrollHeight;
+
+        const t0 = Date.now();
+        let finalText = '', modelUsed = '', failed = false;
+        try {
+            let snap = null;
+            if (usedPage) {
+                snap = await captureLivePageSnapshot({ doc, pageIndex: st.cur, pages, ensureData, pageImage }).catch(() => null);
+            }
+            const nbCatalog = StudyStore.notebooksContext({ currentDocId: doc.id, currentPage: st.cur + 1 });
+            const studyCtx = StudyStore.context();
+            const sysExtras = [
+                `## KONTEXT: SEITENLEISTE IM NOTIZBUCH (Coden Heft)`,
+                `Du chattest gerade direkt neben dem Notizbuch „${doc.title || 'Notizbuch'}“ (ID: ${doc.id}, aktuell Seite ${st.cur + 1} von ${pages.length}).`,
+                ctx.subjectName ? `Fach: ${ctx.subjectName}` : '',
+                ctx.assignment ? `Verknüpfter Auftrag: ${ctx.assignment.title}${ctx.assignment.due ? ` (Abgabe ${fmtDate(ctx.assignment.due)})` : ''}${ctx.assignment.desc ? '\n' + ctx.assignment.desc : ''}` : '',
+                `Antworte klar, hilfreich und kompakt (passend für die schmale Seitenleiste). Wenn der Nutzer eine Rechnung, Aufgabe oder Notiz klären will, erkläre Schritt für Schritt, markiere Wichtiges mit ==…== und nutze LaTeX ($…$, $$…$$) für Formeln. Du kannst bei Bedarf auch andere Seiten dieses Notizbuchs oder andere Notizbücher des Nutzers über <notebook_read id="…" page="…"/> nachschlagen.`,
+                nbCatalog,
+                studyCtx
+            ].filter(Boolean).join('\n\n');
+
+            const sysPrompt = buildChatPrompt({ extras: sysExtras });
+            const apiHistory = chatMsgs.slice(-18, -1).map(m => ({ role: m.role, content: m.text }));
+            const curPrompt = snap
+                ? `${text}\n\n[Aktuelle Notizbuch-Seite ${snap.pageNum} von ${pages.length}]\n${snap.text}`
+                : text;
+            const context = [
+                { role: 'system', content: sysPrompt },
+                ...apiHistory,
+                { role: 'user', content: curPrompt, ...(snap?.image ? { images: [snap.image] } : {}) }
+            ];
+
+            let shownPrefix = '', thinkSecs = 0;
+            for (let round = 0; round < 4; round++) {
+                let roundText = '';
+                const reply = await streamAiResponse(context, chatTier, {
+                    signal: chatAc.signal,
+                    effort: isByokTier(chatTier) ? byokEffort(chatTier) : undefined,
+                    onModel: (m) => { modelUsed = m; statusEl.textContent = m; },
+                    onThink: (k) => { if (k?.h) statusEl.textContent = k.h + (modelUsed ? ' · ' + modelUsed : ''); },
+                    onDelta: (full) => {
+                        roundText = full;
+                        const vis = cleanNbReply(full);
+                        const merged = [shownPrefix, vis].filter(Boolean).join('\n\n');
+                        const rendered = renderRichBlock(merged);
+                        bodyEl.replaceChildren(...rendered.childNodes);
+                        chatMsgsEl.scrollTop = chatMsgsEl.scrollHeight;
+                    }
+                });
+                roundText = reply || roundText;
+                const nbReqs = round < 3 ? parseNotebookReads(roundText, { allowUnclosed: true }) : [];
+                if (nbReqs.length) {
+                    const pre = cleanNbReply(roundText);
+                    shownPrefix = [shownPrefix, pre].filter(Boolean).join('\n\n');
+                    statusEl.textContent = `Liest Notizbuch (${nbReqs.map(r => r.ref).join(', ')}) …`;
+                    const res = await readNotebookRequests(nbReqs, { loadPage, pageImage, liveDoc: doc, livePages: pages, ensureLiveData: ensureData });
+                    context.push({ role: 'assistant', content: roundText.trim() });
+                    context.push({ role: 'user', content: res.modelPrompt, ...(res.images.length ? { images: res.images } : {}) });
+                    shownPrefix = [shownPrefix, `> [!NOTE]\n> Angesehen: ${res.srcLabel} (${res.noteLabel})`].filter(Boolean).join('\n\n');
+                    continue;
+                }
+                finalText = [shownPrefix, cleanNbReply(roundText)].filter(Boolean).join('\n\n');
+                thinkSecs = Math.max(0, Math.round((Date.now() - t0) / 1000));
+                break;
+            }
+            if (!finalText.trim() && chatAc.signal.aborted) {
+                finalText = '⏹️ *Generierung gestoppt.*';
+                failed = true;
+            } else if (!finalText.trim()) {
+                finalText = '⚠️ Keine Antwort erhalten. Bitte versuche es noch einmal.';
+                failed = true;
+            }
+            const metaLine = [thinkSecs ? `${thinkSecs} s` : '', modelUsed].filter(Boolean).join(' · ');
+            statusEl.textContent = metaLine || 'Coden';
+            const rendered = renderRichBlock(finalText);
+            bodyEl.replaceChildren(...rendered.childNodes);
+            if (!failed) aiNode.append(renderMsgActions(finalText));
+            if (failed) aiNode.classList.add('err');
+            chatMsgs.push({ id: 'a' + Date.now().toString(36), role: 'assistant', text: finalText, ...(modelUsed ? { model: modelUsed } : {}), ...(thinkSecs ? { thinkSecs } : {}), ...(failed ? { failed: true } : {}) });
+            saveChatMsgs();
+        } catch (err) {
+            if (chatAc?.signal?.aborted) {
+                finalText = cleanNbReply(bodyEl.textContent) ? finalText : '⏹️ *Generierung gestoppt.*';
+            } else {
+                finalText = '❌ ' + (err.message || 'Chat fehlgeschlagen.');
+            }
+            failed = true;
+            aiNode.classList.add('err');
+            statusEl.textContent = 'Hinweis';
+            const rendered = renderRichBlock(finalText);
+            bodyEl.replaceChildren(...rendered.childNodes);
+            chatMsgs.push({ id: 'a' + Date.now().toString(36), role: 'assistant', text: finalText, failed: true });
+            saveChatMsgs();
+        } finally {
+            chatBusy = false; chatAc = null;
+            chatSendB.querySelector('.material-symbols-outlined').textContent = 'arrow_upward';
+            chatSendB.title = 'Senden'; chatSendB.classList.remove('stop');
+            chatMsgsEl.scrollTop = chatMsgsEl.scrollHeight;
+        }
+    }
+
+    function toggleChat(force) {
+        const open = typeof force === 'boolean' ? force : st.panelMode !== 'chat';
+        st.panelMode = open ? 'chat' : null;
+        showPanel();
+        if (open) setTimeout(() => { syncChatChrome(); chatIn.focus(); }, 20);
+    }
+
     // ---------- Coden prüfen ----------
     function overlay(text, sub) {
         const o = el('div', 'ink-busy'); const box = el('div', 'ink-busy-box'); const t = el('div'); t.append(el('b', '', text), el('small', '', sub || '')); box.append(loader({ size: 40 }), t); o.append(box); root.append(o);
         o.setSub = (s) => { t.lastChild.textContent = s; }; return o;
     }
     function showPanel() {
-        const pg = pages[st.cur]; const c = pg?.data?.correction; panel.replaceChildren(); panel.hidden = !c || !!pg._panelClosed; if (panel.hidden) return;
+        const pg = pages[st.cur]; const c = pg?.data?.correction;
+        if (st.panelMode !== 'chat') {
+            st.panelMode = (c && !pg._panelClosed) ? 'corr' : null;
+        }
+        chatB.classList.toggle('on', st.panelMode === 'chat');
+        const wasHidden = panel.hidden;
+        if (st.panelMode === 'chat') {
+            panel.hidden = false;
+            panel.classList.add('ink-chat-mode');
+            syncChatChrome();
+            if (panel.firstElementChild !== chatBox) panel.replaceChildren(chatBox);
+            if (wasHidden) requestAnimationFrame(layoutAll);
+            return;
+        }
+        panel.classList.remove('ink-chat-mode');
+        panel.replaceChildren();
+        panel.hidden = st.panelMode !== 'corr' || !c;
+        if (panel.hidden) { if (!wasHidden) requestAnimationFrame(layoutAll); return; }
         const head = el('div', 'ink-p-head'); const meta = el('div'); meta.append(el('b', '', `Korrektur · Seite ${st.cur + 1}`), el('small', '', [c.points, c.score != null ? c.score + ' %' : ''].filter(Boolean).join(' · ')));
-        head.append(el('div', 'ink-p-grade', c.grade || '–'), meta, btn('close', 'Schließen', () => { pg._panelClosed = true; panel.hidden = true; }));
+        const toChat = btn('chat', 'Im Chat besprechen', () => toggleChat(true), 'labeled');
+        head.append(el('div', 'ink-p-grade', c.grade || '–'), meta, btn('close', 'Schließen', () => { pg._panelClosed = true; st.panelMode = null; panel.hidden = true; requestAnimationFrame(layoutAll); }));
         const list = el('ul', 'ink-p-items'); (c.items || []).forEach(it => { const li = el('li', it.ok ? 'ok' : 'bad'); li.append(el('b', '', it.ok ? '✓' : '✗'), el('span', '', it.text)); if (it.fix) li.append(el('em', '', 'Richtig: ' + it.fix)); list.append(li); });
         const tips = el('div', 'ink-p-tips'); if ((c.tips || []).length) { tips.append(el('b', '', 'So wirst du besser')); const ul = el('ul'); c.tips.forEach(t => ul.append(el('li', '', t))); tips.append(ul); }
-        const acts = el('div', 'ink-p-acts'); acts.append(btn('refresh', 'Nochmal prüfen', () => correct(), 'labeled'), btn(st.showCorr ? 'visibility_off' : 'visibility', st.showCorr ? 'Rot ausblenden' : 'Rot einblenden', () => { st.showCorr = !st.showCorr; pages.forEach(paintMarks); showPanel(); }, 'labeled'), btn('delete', 'Korrektur entfernen', () => removeCorrection(pg), 'labeled danger'));
+        const acts = el('div', 'ink-p-acts'); acts.append(toChat, btn('refresh', 'Nochmal prüfen', () => correct(), 'labeled'), btn(st.showCorr ? 'visibility_off' : 'visibility', st.showCorr ? 'Rot ausblenden' : 'Rot einblenden', () => { st.showCorr = !st.showCorr; pages.forEach(paintMarks); showPanel(); }, 'labeled'), btn('delete', 'Korrektur entfernen', () => removeCorrection(pg), 'labeled danger'));
         panel.append(head, el('p', 'ink-p-sum', c.summary || ''), list, tips, acts);
+        if (wasHidden) requestAnimationFrame(layoutAll);
     }
     async function correct() {
         const pg = pages[st.cur]; if (!pg) return; await ensureData(pg);
-        if (!pg.data.strokes.length && !pg.data.text.length) { alert('Auf dieser Seite steht noch nichts. Schreib zuerst etwas, dann prüft Coden.'); return; }
+        if (!pg.data.strokes.length && !pg.data.text.length) { toast2('Auf dieser Seite steht noch nichts.'); return; }
         await flush(); clearSelection();
         const busy = overlay('Coden korrigiert deine Seite …', 'Liest deine Handschrift');
         const steps = ['Liest deine Handschrift', 'Prüft jeden Rechenschritt', 'Vergleicht mit der Aufgabe', 'Schreibt Anmerkungen an den Rand'];
@@ -814,9 +1117,9 @@ export function openInkEditor(ctx) {
             const task = [ctx.assignment ? `${ctx.assignment.title}\n${ctx.assignment.desc || ''}` : '', pg.data.bg ? '(Die Aufgabe steht auf dem Arbeitsblatt im Hintergrund.)' : ''].filter(Boolean).join('\n');
             const r = await apiJson('/chat', { method: 'POST', body: JSON.stringify({ tier: 'flash', messages: [{ role: 'system', content: correctionPrompt({ subject: ctx.subjectName, task }) }, { role: 'user', content: 'Bitte korrigiere diese Heftseite.', images: [image] }] }) });
             const c = parseCorrection(r.content); if (!c) throw new Error('Coden konnte die Seite nicht sicher lesen. Schreib etwas größer oder prüfe nochmal.');
-            pg.data.correction = c; pg._panelClosed = false; st.showCorr = true; markDirty(pg, { corr: true }); await flush();
+            pg.data.correction = c; pg._panelClosed = false; st.showCorr = true; st.panelMode = 'corr'; markDirty(pg, { corr: true }); await flush();
             paintMarks(pg); showPanel(); ctx.onCorrected?.(doc, { id: pg.id }, c);
-        } catch (e) { alert(e.message || 'Prüfen hat nicht geklappt.'); } finally { clearInterval(tm); busy.remove(); }
+        } catch (e) { toast2(e.message || 'Prüfen hat nicht geklappt.'); } finally { clearInterval(tm); busy.remove(); }
     }
 
     // ---------- PDF & abgeben ----------
@@ -863,6 +1166,7 @@ export function openInkEditor(ctx) {
     document.addEventListener('keydown', onKey); stage.addEventListener('wheel', onWheel, { passive: false }); ro.observe(stage);
     const onHide = () => { if (document.visibilityState === 'hidden') flush(); }; document.addEventListener('visibilitychange', onHide);
     async function close() {
+        chatAc?.abort();
         if (liveActive()) stopLive(); clearInterval(liveTimer);
         await flush(); io.disconnect(); ro.disconnect();
         document.removeEventListener('keydown', onKey); document.removeEventListener('visibilitychange', onHide);

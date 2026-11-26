@@ -82,6 +82,35 @@ const chk = (name, got, want) => { const ok = JSON.stringify(got) === JSON.strin
   const n = S.normalize({ docs: [{ id: 'x', title: 'Alt', folderId: 'gibtsnicht' }] });
   chk('Alte/verwaiste Daten werden repariert', [n.folders, n.docs[0].folderId, n.docs[0].pages, n.docs[0].bookmarks], [[], null, [], []]);
 
+  // ---------- Notizbuch-Zugriff für Coden Chats ----------
+  chk('Leere Notizbücher erzeugen keinen Katalog-Prompt', S.notebooksPrompt(S.normalize({})), '');
+  d1.pages = ['p1', 'p2', 'p3', 'p4']; d1.bookmarks = ['p2'];
+  const nbP = S.notebooksPrompt(st, { currentDocId: d1.id, currentPage: 2 });
+  chk('Notizbuch-Katalog enthält ID, Titel, Ordner, Lesezeichen und aktuellen Status', [
+    nbP.includes(`[${d1.id}] "Parabeln"`),
+    nbP.includes('Ordner: Mathe'),
+    nbP.includes('4 Seiten'),
+    nbP.includes('Lesezeichen: S. 2'),
+    nbP.includes('AKTUELL GEÖFFNET (Seite 2)')
+  ], [true, true, true, true, true]);
+  chk('Seitenbereich wird korrekt geparst und auf max. 3 begrenzt', [
+    S.expandPageSpec('2', 5),
+    S.expandPageSpec('1-4', 5),
+    S.expandPageSpec('5-3', 5),
+    S.expandPageSpec('99', 4),
+    S.expandPageSpec('', 4)
+  ], [[2], [1, 2, 3], [3, 4, 5], [4], [1]]);
+  chk('parseNotebookReads erkennt vollständige und gestreamte Tags', [
+    S.parseNotebookReads('Moment <notebook_read id="dc1" page="2"/> und <notebook_read title="Mathe" pages="1-3"/>'),
+    S.parseNotebookReads('Gleich <notebook_read id="dc2" page="1', { allowUnclosed: true })
+  ], [
+    [{ ref: 'dc1', pageSpec: '2' }, { ref: 'Mathe', pageSpec: '1-3' }],
+    [{ ref: 'dc2', pageSpec: '1' }]
+  ]);
+  chk('hideNotebookTags entfernt fertige und offene Tags sauber',
+    S.hideNotebookTags('Ich schaue rein: <notebook_read id="dc1" page="2"/>Fertig.<notebook_read id="dc2"'),
+    'Ich schaue rein: Fertig.');
+
   console.log(fails ? `\n${fails} Fehler` : '\nAlle Notizbuch-Tests grün');
   process.exit(fails ? 1 : 0);
 })();
