@@ -64,6 +64,17 @@ const chk = (name, got, want) => { const ok = JSON.stringify(got) === JSON.strin
   chk('Drehen: nur Ausgewähltes, 90° um den Mittelpunkt', [rot.strokes[0].p.map(v => Math.round(v * 100) / 100), rot.strokes[1].p], [[0, 10, 0.5], [5, 5, 0.5]]);
   const T = 1e9;
   chk('Handballen: große Fläche oder kurz nach dem Stift = Hand, Stift nie', [I.isPalm({ pointerType: 'touch', width: 70, height: 60 }, 0, T), I.isPalm({ pointerType: 'touch', width: 12 }, T - 400, T), I.isPalm({ pointerType: 'touch', width: 12 }, T - 5000, T), I.isPalm({ pointerType: 'pen', width: 1 }, T, T)], [true, true, false, false]);
+  const m1 = I.stageMetrics({ stageW: 800, stageH: 900, cssW: 768, zoom: 1 });
+  const mOut = I.stageMetrics({ stageW: 800, stageH: 900, cssW: 500, zoom: 0.65 });
+  const mIn = I.stageMetrics({ stageW: 800, stageH: 900, cssW: 1500, zoom: 2 });
+  const mStepA = I.stageMetrics({ stageW: 800, stageH: 900, cssW: 752, zoom: 0.98 });
+  const mStepB = I.stageMetrics({ stageW: 800, stageH: 900, cssW: 760, zoom: 0.99 });
+  chk('Arbeitsfläche-Ränder: weicher Übergang und Platz zum Verschieben bei Rein/Rauszoom', [
+    m1.padx === 16 && m1.padyTop === 22,
+    mOut.padx > 200 && mOut.padyTop > 200,
+    mIn.padx > 150 && mIn.padyTop > 200 && mIn.padyBottom > 300,
+    Math.abs(mStepA.padx - mStepB.padx) < 40 && Math.abs(mStepA.padyTop - mStepB.padyTop) < 30
+  ], [true, true, true, true]);
 
   // ---------- Bibliothek ----------
   const st = S.normalize({});

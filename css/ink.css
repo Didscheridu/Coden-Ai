@@ -45,7 +45,8 @@ body.ink-open { overflow: hidden; }
 .ink-hint { color: var(--text-muted); font-size: 12px; white-space: nowrap; margin-left: 4px; }
 
 /* Arbeitsfläche: Seiten untereinander wie in GoodNotes */
-.ink-stage { flex: 1; overflow: auto; padding: 0; overscroll-behavior: contain; touch-action: none; background: var(--bg-sidebar); }
+.ink-stage { flex: 1; overflow: auto; padding: 0; overscroll-behavior: contain; touch-action: none; -ms-touch-action: none; background: var(--bg-sidebar); }
+.ink-world, .ink-col, .ink-page, .ink-c { touch-action: none; -ms-touch-action: none; }
 .ink-stage[data-tool="hand"] { cursor: grab; }
 .ink-stage[data-tool="text"] .ink-page { cursor: text; }
 .ink-stage[data-tool="eraser"] .ink-page { cursor: cell; }

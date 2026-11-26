@@ -207,3 +207,13 @@ export function isPalm(e, lastPenAt, now = Date.now()) {
     if (now - lastPenAt < 900) return true;
     const big = Math.max(e.width || 0, e.height || 0); return big > 44;
 }
+// Gleichmäßige Seitenränder beim Zoomen (kein plötzlicher Sprung bei 0,98, genug Platz zum Verschieben beim Rein- und Rauszoomen)
+export function stageMetrics({ stageW = 800, stageH = 900, cssW = 768, zoom = 1 } = {}) {
+    const out = zoom < 1 ? Math.min(1, (1 - zoom) / 0.25) : 0;
+    const inn = zoom > 1 ? Math.min(1, (zoom - 1) / 0.5) : 0;
+    const baseX = Math.max(16, Math.round((stageW - cssW) / 2));
+    const padx = baseX + Math.round(out * stageW * 0.45 + inn * stageW * 0.25);
+    const padyTop = Math.round(22 + out * stageH * 0.35 + inn * stageH * 0.25);
+    const padyBottom = Math.max(padyTop, Math.round(120 + out * stageH * 0.25 + inn * stageH * 0.3));
+    return { padx, padyTop, padyBottom };
+}
