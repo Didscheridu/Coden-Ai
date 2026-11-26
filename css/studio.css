@@ -165,3 +165,7 @@ small.warn, .sd-li small.warn { color: var(--c-orange); font-weight: 700; } smal
 .st-live-btn { display: inline-flex; align-items: center; gap: 8px; flex: none; }
 .st-live-btn .material-symbols-outlined { font-size: 20px; }
 @media (max-width: 768px) { .st-live-btn { width: 100%; justify-content: center; } }
+.sd-lesson.free { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--sc) 12%, var(--bg-main)) 0 8px, color-mix(in srgb, var(--sc) 6%, var(--bg-main)) 8px 16px); }
+.sd-lesson .sd-free-l { color: var(--sc) !important; font-weight: 600; }
+.sd-lesson b { overflow-wrap: anywhere; }
+.modal .cd-text, .cd-text { white-space: pre-line; }

@@ -124,24 +124,86 @@ export function submitAssignment(st, id, when = new Date()) {
 }
 
 // ---------- Stundenplan ----------
-// Aus KI-Antwort (Foto eines Stundenplans) oder Eingabe: { mo: [{start,end,subject,room}], … }
+// Freiarbeit (Lernbüro, Selbstlernzeit …): Schulzeit, in der man an dem arbeitet, was man will → zählt als Lernzeit
+export const FREE_RE = /^(freiarbeit|frei\s*arbeit|lernb(ü|ue)ro|lernzeit|selbstlern|studienzeit|eva\b|silentium|fa\b)/i;
+// Termine ohne Fach (keine eigenen Fächer anlegen)
+const NO_SUBJECT_RE = /^(klassenrat|klassenleiter|kl\.?\s*stunde|klassenstunde|ag\b|förder|foerder|vertretung|morgenkreis|tutor)/i;
+const SKIP_RE = /^(pause|frei|freistunde|mittag|mittagspause|hofpause|-+|–)$/i;
+
+// Ohne Uhrzeiten (z. B. Steckkarten-Plan mit Pausen): Blöcke zwischen den Pausen gleichmäßig auf die Karten verteilen
+function blockTimes(days, breaks, dayStart, slot) {
+    const br = (breaks || []).map(b => [toMin(b.start), toMin(b.end)]).filter(([a, b]) => a != null && b != null && b > a).sort((x, y) => x[0] - y[0]);
+    const nBlocks = Math.max(br.length + 1, ...Object.values(days).flat().map(l => +l.block || 1));
+    const maxIn = (k) => Math.max(1, ...Object.values(days).map(arr => arr.filter(l => (+l.block || 1) === k).length));
+    const bounds = []; let cur = toMin(dayStart) ?? 8 * 60;
+    for (let k = 1; k <= nBlocks; k++) {
+        const b = br[k - 1]; const endB = b ? b[0] : cur + maxIn(k) * slot;
+        bounds.push([cur, Math.max(cur + 20, endB)]); cur = b ? b[1] : endB + 15;
+    }
+    return bounds;
+}
+
+// Aus KI-Antwort (Foto eines Stundenplans) oder Eingabe: { mo: [{start,end,subject,room,teacher,group,free}], … }
+// Neues Format: { dayStart, breaks:[{start,end}], days:{mo:[{subject,block,…}]}, events:[…] }
 export function cleanTimetable(raw, st) {
     const out = Object.fromEntries(DAYS.map(d => [d, []]));
-    const src = raw && typeof raw === 'object' ? (raw.days || raw.timetable || raw) : {};
+    const src0 = raw && typeof raw === 'object' ? (raw.days || raw.timetable || raw) : {};
     const alias = { montag: 'mo', dienstag: 'di', mittwoch: 'mi', donnerstag: 'do', freitag: 'fr', samstag: 'sa', sonntag: 'so', monday: 'mo', tuesday: 'di', wednesday: 'mi', thursday: 'do', friday: 'fr', saturday: 'sa', sunday: 'so' };
-    for (const [k, v] of Object.entries(src)) {
-        const d = DAYS.includes(k.toLowerCase().slice(0, 2)) && k.length <= 3 ? k.toLowerCase().slice(0, 2) : alias[k.toLowerCase()];
-        if (!d || !Array.isArray(v)) continue;
+    const src = {};
+    for (const [k, v] of Object.entries(src0)) { const d = DAYS.includes(k.toLowerCase().slice(0, 2)) && k.length <= 3 ? k.toLowerCase().slice(0, 2) : alias[k.toLowerCase()]; if (d && Array.isArray(v)) src[d] = v.filter(l => l && typeof l === 'object'); }
+    // fehlende Uhrzeiten aus Blöcken/Pausen ableiten
+    const slot = Math.max(30, Math.min(90, +raw?.slotMin || 45));
+    const bounds = blockTimes(src, raw?.breaks, raw?.dayStart, slot);
+    for (const [d, arr] of Object.entries(src)) {
+        const byBlock = new Map(); arr.forEach(l => { if (toMin(l.start) != null && toMin(l.end) != null) return; const k = Math.max(1, +l.block || 1); if (!byBlock.has(k)) byBlock.set(k, []); byBlock.get(k).push(l); });
+        for (const [k, ls] of byBlock) {
+            const [a, b] = bounds[k - 1] || bounds[bounds.length - 1]; const w = ls.map(l => Math.max(0.25, Math.min(3, +l.size || 1))); const tot = w.reduce((x, y) => x + y, 0);
+            let t = a; ls.forEach((l, i) => { const len = Math.round((b - a) * w[i] / tot / 5) * 5; l.start = fromMin(t); l.end = fromMin(i === ls.length - 1 ? b : t + len); t += len; });
+        }
+    }
+    for (const [d, v] of Object.entries(src)) {
         for (const l of v) {
-            const s = toMin(l?.start), e = toMin(l?.end); const name = str(l?.subject || l?.fach || l?.name, 40);
-            if (s == null || e == null || e <= s || !name || /^(pause|frei|mittag|freistunde)/i.test(name)) continue;
-            let su = st ? subjectByName(st, name) : null; if (!su && st) su = addSubject(st, name);
-            out[d].push({ start: fromMin(s), end: fromMin(e), subjectId: su?.id || null, name, room: str(l?.room || l?.raum, 20) });
+            const s = toMin(l.start), e = toMin(l.end); let name = str(l.subject || l.fach || l.name, 40);
+            if (s == null || e == null || e <= s || !name || SKIP_RE.test(name)) continue;
+            const free = !!l.free || FREE_RE.test(name); if (free && /^(fa|eva)$/i.test(name)) name = 'Freiarbeit';
+            let su = null;
+            if (!free && !NO_SUBJECT_RE.test(name) && st) { su = subjectByName(st, name); if (!su) su = addSubject(st, name); }
+            out[d].push({ start: fromMin(s), end: fromMin(e), subjectId: su?.id || null, name: free && !l.subject ? 'Freiarbeit' : name, room: str(l.room || l.raum, 20), teacher: str(l.teacher || l.lehrer, 40), group: str(l.group || l.kurs, 20), ...(free ? { free: true } : {}) });
         }
         out[d].sort((a, b) => toMin(a.start) - toMin(b.start));
     }
     return out;
 }
+
+// Termine vom Plan (LSÜ, Arbeiten, Abgaben): Datum ohne Jahr → nächstes passendes Datum
+export function parseDay(v, now = new Date()) {
+    const m = String(v || '').match(/(\d{1,4})[.\-/](\d{1,2})(?:[.\-/](\d{2,4}))?/); if (!m) return null;
+    let [, a, b, c] = m; let y, mo, d;
+    if (a.length === 4) { y = +a; mo = +b; d = +c; } else { d = +a; mo = +b; y = c ? (c.length === 2 ? 2000 + +c : +c) : null; }
+    if (!(mo >= 1 && mo <= 12 && d >= 1 && d <= 31)) return null;
+    if (!y) { y = now.getFullYear(); const t = new Date(y, mo - 1, d); if (t < new Date(now.getFullYear(), now.getMonth(), now.getDate() - 45)) y++; }
+    return isoDate(new Date(y, mo - 1, d));
+}
+export function cleanEvents(raw, now = new Date()) {
+    return (Array.isArray(raw?.events) ? raw.events : []).map(e => ({ type: /abgab|deadline|due/i.test(e?.type || '') || /abgabe/i.test(e?.title || e?.note || '') ? 'abgabe' : 'test', subject: str(e?.subject || e?.fach, 40), title: str(e?.title || e?.kind || '', 60), date: parseDay(e?.date, now) }))
+        .filter(e => e.subject && e.date);
+}
+// Erkannte Termine eintragen (ohne Doppelte); gibt die Zahl neuer Einträge zurück
+export function applyEvents(st, events) {
+    let n = 0;
+    for (const e of events) {
+        const su = subjectByName(st, e.subject) || addSubject(st, e.subject);
+        if (e.type === 'abgabe') {
+            if (st.assignments.some(a => a.subjectId === su.id && a.due === e.date)) continue;
+            st.assignments.push({ id: uid('as'), subjectId: su.id, title: e.title || 'Abgabe', desc: '', due: e.date, status: 'offen', createdAt: new Date().toISOString(), topicIds: [] }); n++;
+        } else {
+            if (st.exams.some(x => x.subjectId === su.id && x.date === e.date)) continue;
+            st.exams.push({ id: uid('ex'), subjectId: su.id, title: e.title || 'Test', date: e.date, topics: [] }); n++;
+        }
+    }
+    return n;
+}
+export const freiarbeitOn = (st, day) => (st.timetable[day] || []).filter(l => l.free);
 export const schoolEnd = (st, day) => { const l = st.timetable[day] || []; return l.length ? Math.max(...l.map(x => toMin(x.end))) : null; };
 export const lessonsOn = (st, date) => (st.timetable[dayKey(date)] || []);
 
@@ -155,6 +217,11 @@ export function freeWindows(st, date) {
     const day = isoDate(date);
     const busy = st.plan.filter(s => s.date === day && !s.skipped).map(s => [toMin(s.start), toMin(s.start) + (+s.min || 30)]).sort((a, b) => a[0] - b[0]);
     const out = []; let cur = from;
+    // Freiarbeit in der Schule: freie Lernzeit (z. B. 09:00–10:00), sofern nicht abgeschaltet
+    if (p.useFreiarbeit !== false) for (const l of (st.timetable[d] || []).filter(l => l.free)) {
+        let [a, b] = [toMin(l.start), toMin(l.end)]; for (const [x, y] of busy) if (x < b && y > a) { if (x - a >= 20) out.push([a, x]); a = Math.max(a, y + 5); }
+        if (b - a >= 20) out.push([a, b]);
+    }
     for (const [a, b] of busy) { if (a - cur >= 20) out.push([cur, Math.min(a, to)]); cur = Math.max(cur, b + 10); }
     if (to - cur >= 20) out.push([cur, to]);
     return out.filter(([a, b]) => b - a >= 20);
@@ -285,8 +352,9 @@ export function chatContext(st, now = new Date()) {
     const name = (id) => subjectOf(st, id)?.name || '?'; const today = isoDate(now);
     const lines = ['## LERN-STUDIO DES NUTZERS (aktueller Stand, nutze das für Lernpläne und Hilfe)'];
     lines.push('Fächer: ' + st.subjects.map(s => { const g = gradeAverage(s.grades); const open = s.topics.filter(t => !t.done).length; return `${s.name}${g ? ` (Ø Note ${String(g).replace('.', ',')})` : ''}${open ? `, ${open} offene Themen` : ''}`; }).join('; '));
-    const tt = DAYS.filter(d => (st.timetable[d] || []).length).map(d => `${DAY_SHORT[d]}: ${(st.timetable[d] || []).map(l => `${l.start} ${l.name}`).join(', ')}`);
+    const tt = DAYS.filter(d => (st.timetable[d] || []).length).map(d => `${DAY_SHORT[d]}: ${(st.timetable[d] || []).map(l => `${l.start}–${l.end} ${l.name}${l.free ? ' (frei wählbar)' : ''}${l.group ? ` ${l.group}` : ''}${l.teacher ? ` bei ${l.teacher}` : ''}`).join(', ')}`);
     if (tt.length) lines.push('Stundenplan: ' + tt.join(' | '));
+    if (DAYS.some(d => (st.timetable[d] || []).some(l => l.free))) lines.push('Freiarbeit = Schulstunde, in der der Nutzer an dem arbeitet, was er will (Aufträge, Lernen für Arbeiten). Schlag konkret vor, was er in seiner nächsten Freiarbeit machen sollte, und nutze Freiarbeit auch für Lernpläne.');
     lines.push(`Lernzeiten: ${st.prefs.learnStart}–${st.prefs.learnEnd}, max. ${st.prefs.maxPerDay} min/Tag, Einheiten à ${st.prefs.sessionMin} min, frei: ${(st.prefs.freeDays || []).map(d => DAY_SHORT[d]).join(', ') || '–'}.`);
     const exams = st.exams.filter(e => e.date >= today).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 8);
     if (exams.length) lines.push('Anstehende Arbeiten: ' + exams.map(e => `${fmtDate(e.date)} ${name(e.subjectId)} – ${e.title || 'Arbeit'}${(e.topics || []).length ? ` (Themen: ${e.topics.join(', ')})` : ''}`).join('; '));
@@ -305,9 +373,30 @@ export function chatContext(st, now = new Date()) {
 }
 
 // ---------- Prompts ----------
-export const TIMETABLE_PROMPT = `Lies den Stundenplan auf dem Bild aus. Antworte NUR mit JSON in genau diesem Format:
-{"mo":[{"start":"08:00","end":"08:45","subject":"Mathe","room":"A12"}],"di":[],"mi":[],"do":[],"fr":[]}
-Regeln: Uhrzeiten als HH:MM (wenn nur Stundennummern da sind: 1.=08:00–08:45, 2.=08:50–09:35, 3.=09:55–10:40, 4.=10:45–11:30, 5.=11:50–12:35, 6.=12:40–13:25, 7.=13:45–14:30, 8.=14:35–15:20), Doppelstunden als zwei Einträge oder einer mit passender Endzeit, Fächernamen ausgeschrieben (z. B. "Deutsch" statt "D"), Pausen weglassen, leere Tage als [].`;
+export const TIMETABLE_PROMPT = `Lies den Stundenplan auf dem Bild VOLLSTÄNDIG aus – jede einzelne Karte/Zelle, nichts weglassen. Das kann ein gedruckter Plan, eine Tabelle oder eine Steckwand mit Kärtchen sein.
+So gehst du vor: Spalte für Spalte (Tag für Tag), in jeder Spalte von oben nach unten, jede Karte einzeln. Weiße/leere-wirkende Karten, kleine Karten und Karten mit Handschrift zählen genauso.
+WICHTIG:
+- "Freiarbeit" (auch Lernbüro, Lernzeit, EVA, Selbstlernzeit) ist eine echte Stunde → immer aufnehmen mit "free":true. Nur echte Pausen und leere Lücken weglassen.
+- "Klassenrat", AGs usw. auch aufnehmen.
+- Pro Karte: Fach (ausgeschrieben, z. B. "Gesellschaftslehre/Ethik" für GW/Ethik, "Hauswirtschaft und Technik" für HWT), Lehrkraft (Name auf der Karte, z. B. "Matthias", mehrere mit "/"), Kurs/Gruppe (z. B. "Diff 1", "9/10C", "NW HS"), Raum (z. B. "Kunstraum").
+- Uhrzeiten: Stehen Zeiten am Plan, nimm sie ("start"/"end" als HH:MM). Stehen nur Stundennummern da: 1.=08:00–08:45, 2.=08:50–09:35, 3.=09:55–10:40, 4.=10:45–11:30, 5.=11:50–12:35, 6.=12:40–13:25, 7.=13:45–14:30, 8.=14:35–15:20.
+- Stehen KEINE Zeiten da, aber Pausen (z. B. "10:00–10:30 Pause"): trage die Pausen in "breaks" ein, setze "dayStart" (Schulbeginn, sonst "08:00") und gib jeder Karte "block": 1 = vor der 1. Pause, 2 = zwischen 1. und 2. Pause usw. – richte dich nach der Höhe der Karte auf der Wand im Vergleich zu den Pausen-Markierungen und den anderen Tagen. Lass dann start/end weg. Ist eine Karte deutlich kleiner (z. B. Klassenrat), gib "size":0.5.
+- Termine, die zusätzlich auf dem Plan stehen (Arbeiten, Tests, LSÜ, Abgaben mit Datum): in "events". Leere Zeilen ohne Datum weglassen.
+Antworte NUR mit JSON in diesem Format:
+{"dayStart":"08:00","breaks":[{"start":"10:00","end":"10:30"}],
+ "days":{"mo":[{"subject":"Klassenrat","block":1,"size":0.5},{"subject":"Freiarbeit","free":true,"teacher":"Sophie","block":1},{"subject":"Französisch","group":"Diff 2","teacher":"Sophie/Kerstin","block":1}],"di":[],"mi":[],"do":[],"fr":[]},
+ "events":[{"type":"test","subject":"Deutsch","title":"LSÜ","date":"07.12."},{"type":"abgabe","subject":"Gesellschaftslehre","title":"Abgabe","date":"17.12."}],
+ "counts":{"mo":8,"di":6,"mi":7,"do":7,"fr":2}}
+"counts" = Anzahl der Karten/Stunden je Tag, die du auf dem Bild zählst (inkl. Freiarbeit).`;
+
+export function timetableCheckPrompt(first) {
+    return `Hier ist dein erstes Ergebnis zum Stundenplan auf dem Bild:
+${JSON.stringify(first).slice(0, 6000)}
+Prüfe es jetzt Karte für Karte gegen das Bild: Spalte für Spalte, von oben nach unten. Fehlt eine Karte (besonders Freiarbeit, weiße Karten, kleine Karten wie Klassenrat, die letzte Karte unten), steht etwas am falschen Tag, im falschen Block oder in falscher Reihenfolge, fehlen Lehrkraft/Kurs/Raum oder ein Termin? Korrigiere alles.
+Antworte NUR mit dem vollständigen, korrigierten JSON im selben Format.`;
+}
+// Wie viele Stunden hat die Antwort? (zum Vergleichen der beiden Durchgänge)
+export const lessonCount = (raw) => { const d = raw?.days || raw || {}; return Object.values(d).reduce((n, v) => n + (Array.isArray(v) ? v.length : 0), 0); };
 
 export function correctionPrompt({ subject = '', task = '', level = '' } = {}) {
     return `Du bist eine erfahrene, freundliche Lehrkraft${subject ? ` für ${subject}` : ''} und korrigierst die handschriftliche Heftseite eines Schülers auf dem Bild${level ? ` (${level})` : ''}.
