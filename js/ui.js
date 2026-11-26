@@ -143,13 +143,13 @@ export const UI = {
         img.loading = 'lazy'; img.addEventListener('click', () => window.open(src(), '_blank', 'noopener'));
     },
 
-    renderRich: (content, text, msgKey) => {
+    renderRich: (content, text, msgKey, { final = true } = {}) => {
         const frag = document.createDocumentFragment(); let n = 0, tn = 0; const items = [];
         for (const seg of splitArtifacts(splitSuggestions(text).text)) {
             if (seg.kind === 'text') {
                 if (!seg.text.trim()) continue;
                 // Interaktive Blöcke (<quiz>, <flashcards>, <steps> …) erst herausnehmen, dann Markdown, dann die Elemente einsetzen
-                const { text: md, widgets } = extractWidgets(seg.text);
+                const { text: md, widgets } = extractWidgets(seg.text, { final });
                 const d = document.createElement('div'); d.className = 'md'; d.innerHTML = safeMarkdown(md); enhance(d);
                 if (widgets.length) hydrateWidgets(d, widgets, richMd, msgKey + ':t' + (tn++));
                 frag.appendChild(d);
@@ -254,7 +254,7 @@ export const UI = {
             if (nextLen !== shownLen || !answer.childNodes.length) {
                 shownLen = nextLen;
                 const follow = stick();
-                autoOpen(UI.renderRich(answer, target.slice(0, shownLen), key));
+                autoOpen(UI.renderRich(answer, target.slice(0, shownLen), key, { final: false }));
                 if (follow) chatContainer.scrollTop = chatContainer.scrollHeight;
             }
             if (shownLen < target.length) {
