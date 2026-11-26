@@ -75,12 +75,13 @@ function main(st) {
     search.addEventListener('input', () => { ui.q = search.value; const pos = search.selectionStart; rerender(); const s2 = document.querySelector('.nb-search'); if (s2) { s2.focus(); s2.setSelectionRange(pos, pos); } });
     const sort = h('select', { class: 'cd-input nb-sort', title: 'Sortieren' }, ...[['bearbeitet', 'Zuletzt bearbeitet'], ['geoeffnet', 'Zuletzt geöffnet'], ['erstellt', 'Erstellt'], ['name', 'Name']].map(([v, l]) => h('option', { value: v, text: l, ...(ui.sort === v ? { selected: true } : {}) })));
     sort.addEventListener('change', () => { ui.sort = sort.value; localStorage.setItem('coden_nb_sort', ui.sort); rerender(); });
+    const hwBtn = h('button', { type: 'button', class: 'cd-btn', title: 'Eigene Handschrift für Coden trainieren', onclick: () => import('./handwriting.js').then(m => m.openHandwritingTrainer()) }, ic('stylus_note'), ' Handschrift');
     const newBtn = h('button', { type: 'button', class: 'cd-primary nb-new', onclick: (e) => newMenu(e.currentTarget, st, folderId) }, ic('add'), ' Neu');
     const crumbs = h('div', { class: 'nb-crumbs' });
     const crumb = (label, view) => h('button', { type: 'button', class: 'nb-crumb', text: label, onclick: () => { ui.view = view; rerender(); } });
     if (folderId) { crumbs.append(crumb('Alle Notizbücher', 'alle')); S.folderPath(st, folderId).forEach(f => crumbs.append(ic('chevron_right'), f.id === folderId ? h('b', { text: f.name }) : crumb(f.name, 'ordner:' + f.id))); }
     else crumbs.append(h('b', { text: { alle: 'Alle Notizbücher', zuletzt: 'Zuletzt geöffnet', favoriten: 'Favoriten' }[ui.view] || (ui.view.startsWith('fach:') ? 'Fach: ' + (S.subjectOf(st, ui.view.slice(5))?.name || '') : 'Notizbücher') }));
-    box.append(h('div', { class: 'nb-head' }, crumbs, h('div', { class: 'nb-tools' }, search, sort, newBtn)));
+    box.append(h('div', { class: 'nb-head' }, crumbs, h('div', { class: 'nb-tools' }, search, sort, hwBtn, newBtn)));
 
     // Inhalt
     let folders = [], docs = [];

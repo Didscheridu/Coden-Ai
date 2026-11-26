@@ -1,6 +1,7 @@
 // js/study-core.js – Datenmodell des Lern-Studios (ohne DOM, damit testbar):
 // Fächer (Themen, Noten), Aufträge (Abgabe, Status, Heft), Arbeiten (Datum, Themen), Stundenplan, Lernzeiten,
 // Lernplan (freie Zeiten aus dem Stundenplan), Statistik, Erinnerungen und der Kontext für den Chat.
+import { normalizeHandwriting } from './handwriting-core.js';
 
 export const DAYS = ['mo', 'di', 'mi', 'do', 'fr', 'sa', 'so'];
 export const DAY_LABEL = { mo: 'Montag', di: 'Dienstag', mi: 'Mittwoch', do: 'Donnerstag', fr: 'Freitag', sa: 'Samstag', so: 'Sonntag' };
@@ -35,6 +36,7 @@ export function normalize(s) {
     out.docs.forEach(d => { d.pages = Array.isArray(d.pages) ? d.pages : []; d.bookmarks = Array.isArray(d.bookmarks) ? d.bookmarks : []; if (d.folderId && !out.folders.some(f => f.id === d.folderId)) d.folderId = null; });
     for (const d of DAYS) out.timetable[d] = Array.isArray(out.timetable[d]) ? out.timetable[d] : [];
     out.subjects.forEach(su => { su.topics = Array.isArray(su.topics) ? su.topics : []; su.grades = Array.isArray(su.grades) ? su.grades : []; });
+    out.handwriting = normalizeHandwriting(x.handwriting);
     return out;
 }
 
@@ -44,6 +46,18 @@ export function addSubject(st, name, color) {
     const ex = st.subjects.find(s => s.name.toLowerCase() === n.toLowerCase()); if (ex) return ex;
     const su = { id: uid('su'), name: n, color: color || SUBJECT_COLORS[st.subjects.length % SUBJECT_COLORS.length], teacher: '', topics: [], grades: [], createdAt: new Date().toISOString() };
     st.subjects.push(su); return su;
+}
+export function deleteSubject(st, id) {
+    const idx = st.subjects.findIndex(s => s.id === id);
+    if (idx < 0) return { deleted: false, docIds: [] };
+    const docIds = st.docs.filter(d => d.subjectId === id).map(d => d.id);
+    st.subjects = st.subjects.filter(s => s.id !== id);
+    st.assignments = st.assignments.filter(a => a.subjectId !== id);
+    st.exams = st.exams.filter(e => e.subjectId !== id);
+    st.docs = st.docs.filter(d => d.subjectId !== id);
+    st.plan = st.plan.filter(p => p.subjectId !== id);
+    for (const d of DAYS) st.timetable[d] = (st.timetable[d] || []).filter(l => l.subjectId !== id);
+    return { deleted: true, docIds };
 }
 export const subjectOf = (st, id) => st.subjects.find(s => s.id === id) || null;
 export const subjectByName = (st, name) => { const n = String(name || '').trim().toLowerCase(); if (!n) return null; return st.subjects.find(s => s.name.toLowerCase() === n) || st.subjects.find(s => s.name.toLowerCase().startsWith(n) || n.startsWith(s.name.toLowerCase())) || null; };

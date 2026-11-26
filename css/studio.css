@@ -44,7 +44,11 @@ small.warn, .sd-li small.warn { color: var(--c-orange); font-weight: 700; } smal
 .sd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
 .sd-subject { display: flex; flex-direction: column; gap: 10px; padding: 16px; border-radius: var(--radius-lg); border: 1px solid var(--border-color); border-top: 4px solid var(--sc); background: var(--bg-surface); color: var(--text-primary); text-align: left; cursor: pointer; font: inherit; transition: transform .15s var(--ease-ui, ease), border-color .15s; }
 .sd-subject:hover { transform: translateY(-2px); border-color: var(--border-strong); border-top-color: var(--sc); }
-.sd-subject-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; } .sd-subject-top b { font-size: 16.5px; }
+.sd-subject:focus-visible { outline: 2px solid var(--accent-brand); outline-offset: 2px; }
+.sd-subject-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; } .sd-subject-top b { font-size: 16.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sd-subject-acts { display: flex; align-items: center; gap: 6px; flex: none; }
+.sd-subject-del { opacity: .65; transition: opacity .15s, color .15s, background .15s; }
+.sd-subject:hover .sd-subject-del, .sd-subject:focus-within .sd-subject-del, .sd-subject-del:focus-visible { opacity: 1; }
 .sd-subject-meta { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-secondary); }
 .sd-subject-meta span { display: flex; align-items: center; gap: 6px; } .sd-subject-meta .material-symbols-outlined { font-size: 16px; color: var(--text-muted); }
 .sd-subject-meta .warn { color: var(--c-orange); font-weight: 600; } .sd-subject-meta .warn .material-symbols-outlined { color: var(--c-orange); }

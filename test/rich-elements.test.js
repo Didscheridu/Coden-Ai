@@ -67,6 +67,12 @@ const chk = (name, got, want) => { const ok = JSON.stringify(got) === JSON.strin
   const mp = M.merkzettelPrompt({ src: 'Stoff', subject: 'Bio' });
   chk('Merkzettel-Prompt verbietet KI-Floskeln und verlangt Stichpunkte', [/VERBOTEN/.test(mp.sys), /Stichpunkte/.test(mp.sys), mp.user.includes('Stoff')], [true, true, true]);
 
+  // ---------- Handschrift-Widget ----------
+  const hwEx = R.extractWidgets('Hier die Lösung:\n<handwriting title="Aufgabe 1" paper="karo">\n2x + 3 = 7\nx = 2\n</handwriting>\nFertig.');
+  const hwParsed = hwEx.widgets[0] ? R.parseHandwriting(hwEx.widgets[0].body, hwEx.widgets[0].attrs) : null;
+  chk('Handschrift-Block: Extraktion, Attribute & Inhalt', [hwEx.widgets.length, hwEx.widgets[0]?.type, hwEx.widgets[0]?.closed, hwParsed?.title, hwParsed?.paper, hwParsed?.text], [1, 'handwriting', true, 'Aufgabe 1', 'karo', '2x + 3 = 7\nx = 2']);
+  chk('Handschrift beim Streamen: Zeilenfortschritt', R.progressOf({ type: 'handwriting', body: 'Zeile 1\nZeile 2\nZeile 3' }), '3 Zeilen');
+
   // ---------- Systemprompt kennt alles ----------
   const P = await import(pathToFileURL(path.join(__dirname, '../js/system-prompt.js')).href);
   const prompt = P.buildChatPrompt();

@@ -34,9 +34,11 @@ export function outsideCode(text, fn) {
 }
 
 import { parsePlanLines, fmtDate } from './study-core.js';
+import { parseHandwriting, cleanHandwritingText, activeProfile, trainedCount } from './handwriting-core.js';
+export { parseHandwriting };
 
 // ---------- Blöcke finden ----------
-export const WIDGETS = ['quiz', 'flashcards', 'steps', 'stats', 'proscons', 'bars', 'tabs', 'plot', 'pie', 'lernplan'];
+export const WIDGETS = ['quiz', 'flashcards', 'steps', 'stats', 'proscons', 'bars', 'tabs', 'plot', 'pie', 'lernplan', 'handwriting'];
 const NAMES = WIDGETS.join('|');
 const OPEN = new RegExp(`<(${NAMES})(\\s[^>]*)?>`, 'i');
 const attrsOf = (s) => { const a = {}; String(s || '').replace(/([a-zA-Z_-]+)\s*=\s*["“„]([^"“”]*)["”“]/g, (m, k, v) => { a[k.toLowerCase()] = v; }); return a; };
@@ -82,6 +84,7 @@ export function progressOf(w) {
         case 'steps': return L.length ? `${L.length} ${L.length === 1 ? 'Schritt' : 'Schritte'}` : '';
         case 'lernplan': { const k = n(/\|/); return k ? `${k} ${k === 1 ? 'Einheit' : 'Einheiten'}` : ''; }
         case 'plot': { const k = n(/=/); return k ? `${k} ${k === 1 ? 'Funktion' : 'Funktionen'}` : ''; }
+        case 'handwriting': return L.length ? `${L.length} ${L.length === 1 ? 'Zeile' : 'Zeilen'}` : '';
         default: return L.length ? `${L.length} ${L.length === 1 ? 'Eintrag' : 'Einträge'}` : '';
     }
 }
@@ -206,8 +209,8 @@ const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls)
 const icon = (name) => mk('span', 'material-symbols-outlined', name);
 const LABEL = { quiz: 'Quiz wird erstellt', flashcards: 'Karteikarten werden erstellt', steps: 'Schritte werden geschrieben', stats: 'Kennzahlen werden berechnet', proscons: 'Vor- und Nachteile werden gesammelt', bars: 'Balken werden gezeichnet', tabs: 'Abschnitte werden geschrieben' };
 
-const VERB = { lernplan: 'Erstellt deinen Lernplan', quiz: 'Erstellt Quiz', flashcards: 'Erstellt Karteikarten', steps: 'Schreibt die Schritte', stats: 'Berechnet Kennzahlen', proscons: 'Sammelt Vor- und Nachteile', bars: 'Zeichnet Balken', tabs: 'Schreibt Abschnitte', plot: 'Zeichnet den Graphen', pie: 'Zeichnet das Kreisdiagramm' };
-const PICON = { lernplan: 'event_note', quiz: 'quiz', flashcards: 'style', steps: 'format_list_numbered', stats: 'monitoring', proscons: 'thumbs_up_down', bars: 'bar_chart', tabs: 'tab', plot: 'show_chart', pie: 'pie_chart' };
+const VERB = { lernplan: 'Erstellt deinen Lernplan', quiz: 'Erstellt Quiz', flashcards: 'Erstellt Karteikarten', steps: 'Schreibt die Schritte', stats: 'Berechnet Kennzahlen', proscons: 'Sammelt Vor- und Nachteile', bars: 'Zeichnet Balken', tabs: 'Schreibt Abschnitte', plot: 'Zeichnet den Graphen', pie: 'Zeichnet das Kreisdiagramm', handwriting: 'Schreibt in deiner Handschrift' };
+const PICON = { lernplan: 'event_note', quiz: 'quiz', flashcards: 'style', steps: 'format_list_numbered', stats: 'monitoring', proscons: 'thumbs_up_down', bars: 'bar_chart', tabs: 'tab', plot: 'show_chart', pie: 'pie_chart', handwriting: 'stylus_note' };
 // Platzhalter, solange ein Block noch geschrieben wird: gleiche Lade-Animation + was entsteht + wie weit
 function pending(type) {
     const box = mk('div', 'cw-card cw-pending cw-new');
@@ -457,7 +460,146 @@ function buildLernplan(w, md) {
     const open = mk('button', 'qz-ghost'); open.type = 'button'; open.append(icon('open_in_new'), document.createTextNode('Lernplan ansehen')); open.addEventListener('click', () => { location.hash = '#/lernen/plan'; });
     actions.append(open, take); box.append(head, list, actions); return box;
 }
-const BUILD = { lernplan: buildLernplan, plot: buildPlot, pie: buildPie, quiz: buildQuiz, flashcards: buildCards, steps: buildSteps, stats: buildStats, proscons: buildProsCons, bars: buildBars, tabs: buildTabs };
+// Handschrift-Block im Chat (<handwriting>): rendert den Text auf Papier in der trainierten Handschrift
+function buildHandwriting(w) {
+    const parsed = parseHandwriting(w.body, w.attrs);
+    if (!parsed.text) return null;
+    const box = mk('div', 'cw-card cw-hw');
+    const head = mk('div', 'hw-card-head');
+    const ttl = mk('div', 'qz-title');
+    ttl.append(icon('stylus_note'), mk('b', '', parsed.title || 'Handschrift'));
+    const meta = mk('div', 'hw-card-meta');
+    const profSel = mk('select', 'hw-prof-pick');
+    profSel.hidden = true;
+    profSel.title = 'Handschrift-Profil wählen';
+    const status = mk('span', 'qz-count', 'Lädt …');
+    meta.append(profSel, status);
+    head.append(ttl, meta);
+
+    const sheetWrap = mk('div', 'hw-sheet-wrap');
+    const canvas = mk('canvas', 'hw-sheet-canvas');
+    sheetWrap.append(canvas);
+
+    const untrainedBar = mk('div', 'hw-untrained-bar');
+    untrainedBar.hidden = true;
+    const uTxt = mk('span');
+    uTxt.append(icon('stylus_note'), document.createTextNode('Noch keine eigene Schrift trainiert – Vorschau-Handschrift aktiv.'));
+    const uBtn = mk('button', 'qz-primary');
+    uBtn.type = 'button';
+    uBtn.append(icon('edit'), document.createTextNode('Meine Handschrift trainieren'));
+    untrainedBar.append(uTxt, uBtn);
+
+    const rawPre = mk('pre', 'hw-raw-text', cleanHandwritingText(parsed.text));
+    rawPre.hidden = true;
+
+    const actions = mk('div', 'qz-actions');
+    const txtBtn = mk('button', 'qz-ghost');
+    txtBtn.type = 'button';
+    txtBtn.append(icon('notes'), document.createTextNode('Text'));
+    txtBtn.addEventListener('click', () => {
+        rawPre.hidden = !rawPre.hidden;
+        txtBtn.replaceChildren(icon('notes'), document.createTextNode(rawPre.hidden ? 'Text' : 'Text ausblenden'));
+    });
+
+    const imgBtn = mk('button', 'qz-ghost');
+    imgBtn.type = 'button';
+    imgBtn.append(icon('download'), document.createTextNode('Als Bild'));
+    imgBtn.addEventListener('click', () => {
+        const a = document.createElement('a');
+        a.href = canvas.toDataURL('image/png');
+        a.download = ((parsed.title || 'handschrift').toLowerCase().replace(/[^a-z0-9äöüß_-]+/gi, '-') || 'handschrift') + '.png';
+        a.click();
+    });
+
+    const nbBtn = mk('button', 'qz-ghost');
+    nbBtn.type = 'button';
+    nbBtn.append(icon('menu_book'), document.createTextNode('Ins Heft'));
+
+    const trainBtn = mk('button', 'qz-primary');
+    trainBtn.type = 'button';
+    trainBtn.append(icon('stylus_note'), document.createTextNode('Handschrift anpassen'));
+
+    actions.append(txtBtn, imgBtn, nbBtn, trainBtn);
+    box.append(head, sheetWrap, untrainedBar, rawPre, actions);
+
+    let selectedProfile = parsed.profile || '';
+    let hwMod = null;
+    let firstPaint = true;
+
+    const paint = async () => {
+        if (!firstPaint && !box.isConnected) return;
+        firstPaint = false;
+        try {
+            if (!hwMod) hwMod = await import('./handwriting.js');
+            const hw = hwMod.getHandwritingState();
+            const prof = activeProfile(hw, selectedProfile);
+            if (!selectedProfile) selectedProfile = prof.id;
+            if (hw.profiles.length > 1) {
+                profSel.hidden = false;
+                profSel.replaceChildren(...hw.profiles.map(p => {
+                    const o = document.createElement('option');
+                    o.value = p.id;
+                    o.textContent = `${p.name} (${trainedCount(p)})`;
+                    if (p.id === prof.id) o.selected = true;
+                    return o;
+                }));
+            } else {
+                profSel.hidden = true;
+            }
+            const res = hwMod.renderHandwritingCanvas(canvas, parsed.text, {
+                hw,
+                profileObj: prof,
+                paper: parsed.paper,
+                ink: parsed.ink
+            });
+            untrainedBar.hidden = res.trained > 0;
+            status.textContent = res.trained > 0
+                ? `${prof.name} · ${res.trained} trainierte Zeichen`
+                : `${prof.name} · Vorschau-Handschrift`;
+        } catch (err) {
+            status.textContent = 'Textansicht';
+            rawPre.hidden = false;
+        }
+    };
+
+    profSel.addEventListener('change', () => {
+        selectedProfile = profSel.value;
+        paint();
+    });
+    const openTrainer = async () => {
+        if (!hwMod) hwMod = await import('./handwriting.js');
+        hwMod.openHandwritingTrainer({ onSaved: () => paint() });
+    };
+    uBtn.addEventListener('click', openTrainer);
+    trainBtn.addEventListener('click', openTrainer);
+    nbBtn.addEventListener('click', async () => {
+        if (!hwMod) hwMod = await import('./handwriting.js');
+        nbBtn.disabled = true;
+        try {
+            await hwMod.saveHandwritingAsNotebook({
+                title: parsed.title || 'Handschrift-Lösung',
+                text: parsed.text,
+                paper: parsed.paper,
+                ink: parsed.ink,
+                profile: selectedProfile
+            });
+        } finally {
+            nbBtn.disabled = false;
+        }
+    });
+
+    const onChanged = () => {
+        if (!box.isConnected) {
+            document.removeEventListener('codenHandwritingChanged', onChanged);
+            return;
+        }
+        paint();
+    };
+    document.addEventListener('codenHandwritingChanged', onChanged);
+    paint();
+    return box;
+}
+const BUILD = { lernplan: buildLernplan, plot: buildPlot, pie: buildPie, quiz: buildQuiz, flashcards: buildCards, steps: buildSteps, stats: buildStats, proscons: buildProsCons, bars: buildBars, tabs: buildTabs, handwriting: buildHandwriting };
 
 // Fertige Elemente merken, damit ein Quiz beim Weiterschreiben der Antwort seinen Stand behält
 const cache = new Map();

@@ -4,6 +4,7 @@
 import { Storage } from './storage.js';
 import { apiJson } from './backend.js';
 import { normalize, reminders, chatContext, notebooksPrompt, isoDate } from './study-core.js';
+import { normalizeHandwriting, handwritingPrompt } from './handwriting-core.js';
 
 let remTimer = 0, lastSent = '', localTimers = [];
 
@@ -15,6 +16,14 @@ export const StudyStore = {
         document.dispatchEvent(new CustomEvent('studyChanged'));
     },
     update(fn) { const st = StudyStore.get(); const r = fn(st); StudyStore.save(st); return r; },
+    handwriting() { return normalizeHandwriting(StudyStore.get().handwriting); },
+    saveHandwriting(hw) {
+        const norm = normalizeHandwriting(hw);
+        StudyStore.update(st => { st.handwriting = norm; });
+        document.dispatchEvent(new CustomEvent('codenHandwritingChanged', { detail: norm }));
+        return norm;
+    },
+    handwritingContext() { try { return handwritingPrompt(StudyStore.handwriting()); } catch (_) { return ''; } },
     context() { try { return chatContext(StudyStore.get()); } catch (_) { return ''; } },
     notebooksContext(opts) { try { return notebooksPrompt(StudyStore.get(), opts); } catch (_) { return ''; } },
     syncReminders() { scheduleReminders(StudyStore.get(), 0); }

@@ -68,12 +68,23 @@ async function ensureDoc(st, { title, subjectId, assignmentId = null, background
     st.docs.push(doc); return doc;
 }
 
+async function confirmDeleteSubject(st, su) {
+    if (!(await confirmBox(`„${su.name}“ mit allen Aufträgen, Arbeiten, Heften, Stundenplan-Einträgen und Noten löschen?`, { ok: 'Löschen', danger: true }))) return;
+    const res = S.deleteSubject(st, su.id);
+    for (const docId of res.docIds) deleteDocPages(docId);
+    if (ui.subject === su.id) ui.subject = null;
+    save(st);
+    toast(`Fach „${su.name}“ gelöscht.`, { type: 'ok' });
+}
+
 // ---------- Fächer-Übersicht ----------
 function renderSubjects(st) {
     const wrap = h('div', { class: 'sd-wrap' });
     wrap.append(renderToday(st));
     const head = h('div', { class: 'sd-sec-head' }, h('h2', { text: 'Deine Fächer' }),
-        h('div', { class: 'sd-row' }, h('button', { type: 'button', class: 'cd-btn', onclick: () => addAssignmentDialog(st) }, ic('upload_file'), ' Auftrag hochladen'),
+        h('div', { class: 'sd-row' },
+            h('button', { type: 'button', class: 'cd-btn', onclick: () => import('./handwriting.js').then(m => m.openHandwritingTrainer()) }, ic('stylus_note'), ' Handschrift'),
+            h('button', { type: 'button', class: 'cd-btn', onclick: () => addAssignmentDialog(st) }, ic('upload_file'), ' Auftrag hochladen'),
             h('button', { type: 'button', class: 'cd-btn', onclick: () => addExamDialog(st) }, ic('event'), ' Arbeit eintragen'),
             h('button', { type: 'button', class: 'cd-primary', onclick: () => addSubjectDialog(st) }, ic('add'), ' Fach')));
     wrap.append(head);
@@ -89,8 +100,26 @@ function renderSubjects(st) {
     for (const su of st.subjects) {
         const x = stats.subjects.find(s => s.id === su.id) || {};
         const next = x.nextExam; const open = x.open + x.overdue;
-        grid.append(h('button', { type: 'button', class: 'sd-subject', style: { '--sc': su.color }, onclick: () => { ui.subject = su.id; rerender(); } },
-            h('div', { class: 'sd-subject-top' }, h('b', { text: su.name }), x.grade != null ? h('span', { class: 'sd-chip', text: 'Ø ' + String(x.grade).replace('.', ',') }) : null),
+        const delBtn = h('button', {
+            type: 'button',
+            class: 'sd-x sd-subject-del',
+            title: `Fach „${su.name}“ löschen`,
+            'aria-label': `Fach ${su.name} löschen`,
+            onclick: (e) => { e.stopPropagation(); confirmDeleteSubject(st, su); }
+        }, ic('delete'));
+        grid.append(h('div', {
+            class: 'sd-subject',
+            role: 'button',
+            tabindex: '0',
+            style: { '--sc': su.color },
+            onclick: () => { ui.subject = su.id; rerender(); },
+            onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ui.subject = su.id; rerender(); } }
+        },
+            h('div', { class: 'sd-subject-top' },
+                h('b', { text: su.name }),
+                h('div', { class: 'sd-subject-acts' },
+                    x.grade != null ? h('span', { class: 'sd-chip', text: 'Ø ' + String(x.grade).replace('.', ',') }) : null,
+                    delBtn)),
             h('div', { class: 'sd-subject-meta' },
                 h('span', {}, ic('assignment'), open ? `${open} offen${x.overdue ? ` · ${x.overdue} überfällig` : ''}` : 'Alles erledigt'),
                 next ? h('span', { class: days(next.date) <= 7 ? 'warn' : '' }, ic('event'), `${next.title || 'Arbeit'} ${inDays(days(next.date))}`) : null,
@@ -148,7 +177,7 @@ function renderSubject(st, su) {
         h('h1', {}, dot(su.color), su.name),
         h('div', { class: 'sd-row' },
             h('button', { type: 'button', class: 'cd-btn', title: 'Umbenennen', onclick: () => addSubjectDialog(st, su) }, ic('edit')),
-            h('button', { type: 'button', class: 'cd-btn', title: 'Fach löschen', onclick: async () => { if (!(await confirmBox(`„${su.name}“ mit allen Aufträgen, Arbeiten, Heften und Noten löschen?`, { ok: 'Löschen', danger: true }))) return; for (const d of st.docs.filter(d => d.subjectId === su.id)) deleteDocPages(d.id); st.subjects = st.subjects.filter(s => s.id !== su.id); st.assignments = st.assignments.filter(a => a.subjectId !== su.id); st.exams = st.exams.filter(e => e.subjectId !== su.id); st.docs = st.docs.filter(d => d.subjectId !== su.id); st.plan = st.plan.filter(p => p.subjectId !== su.id); ui.subject = null; save(st); } }, ic('delete')))));
+            h('button', { type: 'button', class: 'cd-btn', title: 'Fach löschen', onclick: () => confirmDeleteSubject(st, su) }, ic('delete')))));
     wrap.append(h('div', { class: 'sd-kpis' },
         kpi('Ø Note', x.grade != null ? String(x.grade).replace('.', ',') : '–', 'grade'),
         kpi('Coden-Score', x.score != null ? x.score + ' %' : '–', 'fact_check'),

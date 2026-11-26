@@ -122,5 +122,19 @@ const { setup, root } = require('./helpers');
   st3.prefs.useFreiarbeit = false;
   chk('Freiarbeit als Lernzeit abschaltbar', S.freeWindows(st3, new Date('2026-11-30T07:00')).some(w => w[0] === 505), false);
   chk('Chat-Kontext erklärt Freiarbeit', /Freiarbeit = Schulstunde/.test(S.chatContext(st3, new Date('2026-11-26T08:00'))) && /Freiarbeit \(frei wählbar\) bei Sophie/.test(S.chatContext(st3, new Date('2026-11-26T08:00'))), true);
+
+  // ---------- Fach löschen räumt alles auf ----------
+  const stDel = S.normalize({});
+  const suBio = S.addSubject(stDel, 'Biologie');
+  const suPhy = S.addSubject(stDel, 'Physik');
+  stDel.assignments.push({ id: 'as1', subjectId: suBio.id, title: 'Zellen', status: 'offen' }, { id: 'as2', subjectId: suPhy.id, title: 'Optik', status: 'offen' });
+  stDel.exams.push({ id: 'ex1', subjectId: suBio.id, title: 'KA', date: '2026-12-10' });
+  stDel.docs.push({ id: 'dcBio', subjectId: suBio.id, title: 'Bio-Heft', pages: ['p1'] }, { id: 'dcPhy', subjectId: suPhy.id, title: 'Phy-Heft', pages: ['p2'] });
+  stDel.plan.push({ id: 'pl1', subjectId: suBio.id, date: '2026-12-01', start: '16:00', min: 30, title: 'Bio' });
+  stDel.timetable.mo.push({ start: '08:00', end: '08:45', subjectId: suBio.id, name: 'Biologie' }, { start: '09:00', end: '09:45', subjectId: suPhy.id, name: 'Physik' });
+  const delRes = S.deleteSubject(stDel, suBio.id);
+  const missRes = S.deleteSubject(stDel, 'unbekannt');
+  chk('Fach löschen: entfernt Fach, Aufträge, Arbeiten, Hefte, Lernplan & Stundenplan', [delRes.deleted, delRes.docIds, missRes.deleted, stDel.subjects.map(s => s.id), stDel.assignments.map(a => a.id), stDel.exams.length, stDel.docs.map(d => d.id), stDel.plan.length, stDel.timetable.mo.map(l => l.subjectId)], [true, ['dcBio'], false, [suPhy.id], ['as2'], 0, ['dcPhy'], 0, [suPhy.id]]);
+
   await finish();
 })();

@@ -80,7 +80,13 @@ Sonstige | 1 | grau
 ## Ausführlich
 …
 </tabs>
-Nutze diese Elemente aktiv, wenn sie die Antwort übersichtlicher machen (Anleitung → steps, Vergleich → proscons/bars/Tabelle, Zahlen → stats, Anteile → pie, Funktionen → plot, Lernen → quiz/flashcards). Mathe: Rechenweg Schritt für Schritt mit LaTeX, Ergebnis ==grün:markiert==, bei Funktionen zusätzlich ein <plot>. Davor ein kurzer Satz, danach höchstens 1–2 Sätze.
+- **Handschrift-Lösung** (IMMER wenn der Nutzer bittet, eine Aufgabe, Rechnung, Lösung oder einen Text „in meiner Handschrift“ oder „handschriftlich“ direkt im Chat zu lösen/schreiben): plain lesbare Zeilen wie im Schulheft (Unicode-Mathe wie \`x²\`, \`√(…)\`, \`·\`, \`±\`, \`→\`, \`=\`, KEIN \`$\`-LaTeX, KEIN \`**\`-Markdown), optional \`title="…"\`, \`paper="karo|liniert|blanko"\`, \`ink="blau|schwarz|grün|rot"\`, \`profile="…"\`:
+<handwriting title="Lösung Aufgabe 1" paper="karo">
+Gegeben: x² - 5x + 6 = 0
+pq-Formel: x₁,₂ = 2,5 ± √(6,25 - 6)
+→ x₁ = 3, x₂ = 2
+</handwriting>
+Nutze diese Elemente aktiv, wenn sie die Antwort übersichtlicher machen (Anleitung → steps, Vergleich → proscons/bars/Tabelle, Zahlen → stats, Anteile → pie, Funktionen → plot, Lernen → quiz/flashcards, handschriftliche Lösung → handwriting). Mathe: Rechenweg Schritt für Schritt mit LaTeX (oder Unicode-Mathe innerhalb von <handwriting>), Ergebnis ==grün:markiert==, bei Funktionen zusätzlich ein <plot>. Davor ein kurzer Satz, danach höchstens 1–2 Sätze.
 
 ### 2. Artefakte – eigenes Fenster rechts mit Vorschau, Code, Download und Versionen
 Für eigenständige Ergebnisse, die man ansehen, benutzen oder speichern will (Spiel, Webseite, Tool, Diagramm, Folien, langes Dokument, Programm > 40 Zeilen):
@@ -136,7 +142,7 @@ ${QUALITY}
 ${ELEMENTS}
 ${extras}
 ## WICHTIGSTE REGELN ZUM SCHLUSS
-- Blöcke (<artifact>, <quiz>, <flashcards>, <steps>, <stats>, <proscons>, <bars>, <tabs>, <plot>, <pie>, <generate_image/>, <choices>, <suggestions>, <remember>, <mcp_call>, <app_write>, <notebook_read/>) exakt wie oben, nie in \`\`\`-Zäunen, immer geschlossen.
+- Blöcke (<artifact>, <quiz>, <flashcards>, <steps>, <stats>, <proscons>, <bars>, <tabs>, <plot>, <pie>, <handwriting>, <generate_image/>, <choices>, <suggestions>, <remember>, <mcp_call>, <app_write>, <notebook_read/>) exakt wie oben, nie in \`\`\`-Zäunen, immer geschlossen.
 - In jeder inhaltlichen Antwort die Kernaussagen mit ==…== markieren und mit {{farbe:…}} einfärben – sparsam, aber immer.
 - Erst denken, dann schreiben: richtig ist wichtiger als schnell. Gekürzte Artefakte sind verboten.`;
 }

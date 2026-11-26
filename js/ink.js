@@ -759,6 +759,7 @@ export function openInkEditor(ctx) {
         it('picture_as_pdf', 'Als PDF exportieren', () => exportPdf());
         it('upload_file', 'PDF / Fotos importieren', () => bgIn.click());
         it('wallpaper', 'Vorlage dieser Seite', () => templateMenu(anchor, (t) => setPaper(st.cur, t)));
+        it('stylus_note', 'Handschrift trainieren', () => import('./handwriting.js').then(m => m.openHandwritingTrainer()));
         it('zoom_in', 'Größer', () => setZoom(st.zoom * 1.2)); it('zoom_out', 'Kleiner', () => setZoom(st.zoom / 1.2)); it('fit_width', 'Seitenbreite', () => setZoom(1));
         it(st.showCorr ? 'visibility_off' : 'visibility', st.showCorr ? 'Korrekturen ausblenden' : 'Korrekturen einblenden', () => { st.showCorr = !st.showCorr; pages.forEach(paintMarks); });
         if (pages[st.cur]?.data?.correction) it('ink_eraser', 'Korrektur dieser Seite entfernen', () => removeCorrection(pages[st.cur]));
@@ -819,6 +820,7 @@ export function openInkEditor(ctx) {
         .replace(/<(suggestions|choices|remember|app_write|mcp_call)[^>]*$/i, '')
         .trim();
     const toPlainPageText = (md) => String(md || '')
+        .replace(/<\/?handwriting[^>]*>/gi, '')
         .replace(/==\s*(?:[a-zäöü]+\s*:)?([\s\S]*?)==/gi, '$1')
         .replace(/\{\{\s*[a-zäöü]+\s*:([\s\S]*?)\}\}/gi, '$1')
         .replace(/```[\s\S]*?```/g, m => m.replace(/```[^\n]*\n?|```/g, ''))
@@ -975,12 +977,14 @@ export function openInkEditor(ctx) {
             }
             const nbCatalog = StudyStore.notebooksContext({ currentDocId: doc.id, currentPage: st.cur + 1 });
             const studyCtx = StudyStore.context();
+            const hwCtx = StudyStore.handwritingContext();
             const sysExtras = [
                 `## KONTEXT: SEITENLEISTE IM NOTIZBUCH (Coden Heft)`,
                 `Du chattest gerade direkt neben dem Notizbuch „${doc.title || 'Notizbuch'}“ (ID: ${doc.id}, aktuell Seite ${st.cur + 1} von ${pages.length}).`,
                 ctx.subjectName ? `Fach: ${ctx.subjectName}` : '',
                 ctx.assignment ? `Verknüpfter Auftrag: ${ctx.assignment.title}${ctx.assignment.due ? ` (Abgabe ${fmtDate(ctx.assignment.due)})` : ''}${ctx.assignment.desc ? '\n' + ctx.assignment.desc : ''}` : '',
-                `Antworte klar, hilfreich und kompakt (passend für die schmale Seitenleiste). Wenn der Nutzer eine Rechnung, Aufgabe oder Notiz klären will, erkläre Schritt für Schritt, markiere Wichtiges mit ==…== und nutze LaTeX ($…$, $$…$$) für Formeln. Du kannst bei Bedarf auch andere Seiten dieses Notizbuchs oder andere Notizbücher des Nutzers über <notebook_read id="…" page="…"/> nachschlagen.`,
+                `Antworte klar, hilfreich und kompakt (passend für die schmale Seitenleiste). Wenn der Nutzer eine Rechnung, Aufgabe oder Notiz klären will, erkläre Schritt für Schritt, markiere Wichtiges mit ==…== und nutze LaTeX ($…$, $$…$$) für Formeln (oder <handwriting>, falls in seiner Handschrift gewünscht). Du kannst bei Bedarf auch andere Seiten dieses Notizbuchs oder andere Notizbücher des Nutzers über <notebook_read id="…" page="…"/> nachschlagen.`,
+                hwCtx,
                 nbCatalog,
                 studyCtx
             ].filter(Boolean).join('\n\n');

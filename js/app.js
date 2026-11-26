@@ -1198,6 +1198,7 @@ document.getElementById('temp-chat-btn')?.addEventListener('click', () => {
     Menu.bindMenu(document.getElementById('composer-plus-btn'), document.getElementById('composer-tools-menu'));
     document.getElementById('ct-temp')?.addEventListener('click', () => document.getElementById('temp-chat-btn')?.click());
     document.getElementById('ct-export-chat')?.addEventListener('click', () => document.getElementById('export-chat-btn')?.click());
+    document.getElementById('ct-handwriting')?.addEventListener('click', () => import('./handwriting.js').then(m => m.openHandwritingTrainer()));
     document.getElementById('ct-chess')?.addEventListener('click', () => document.getElementById('chess-modal')?.classList.remove('hidden'));
     document.querySelectorAll('#composer-tools-menu [data-ct-prompt]').forEach((b) => b.addEventListener('click', () => {
         const inp = document.getElementById('main-input');
@@ -1875,7 +1876,8 @@ async function handleSend() {
       const loadedSkills = [...skillInfo.loaded];
       if (loadedSkills.length) live0Steps(initialLive, loadedSkills);
       const nbExtra = StudyStore.notebooksContext();
-      const systemPrompt = buildChatPrompt({ userName, extras: `${sessionAtSend.temp ? '' : StudyStore.context()}${nbExtra ? '\n' + nbExtra : ''}\n${MCP.prompt()}${ChatApps.prompt()}${personal}${Assistants.prompt(sessionAtSend.assistantId)}${skillInfo.text}${researchOn ? '' : WebSearch.prompt()}${proj.text}` });
+      const hwExtra = StudyStore.handwritingContext();
+      const systemPrompt = buildChatPrompt({ userName, extras: `${sessionAtSend.temp ? '' : StudyStore.context()}${nbExtra ? '\n' + nbExtra : ''}${hwExtra ? '\n' + hwExtra : ''}\n${MCP.prompt()}${ChatApps.prompt()}${personal}${Assistants.prompt(sessionAtSend.assistantId)}${skillInfo.text}${researchOn ? '' : WebSearch.prompt()}${proj.text}` });
       context.unshift({ role: 'system', content: systemPrompt });
 
       Storage.syncNow(); // Frage sofort sichern, damit andere Geräte sie sehen
