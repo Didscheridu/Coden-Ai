@@ -82,6 +82,12 @@ const PROVIDERS = {
       { id: 'anthropic/claude-3.5-haiku', label: 'Claude 3.5 Haiku' },
       { id: 'deepseek/deepseek-chat', label: 'DeepSeek Chat' }
     ]
+  },
+  // CanTrust AI: OpenAI-kompatibles Gateway (https://api.cantrustai.xyz/v1), Modell-IDs wie "anthropic/claude-haiku-5.5"
+  cantrust: {
+    name: 'CanTrust AI', link: 'https://cantrustai.xyz', keyHint: 'API-Key',
+    levels: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+    suggest: [{ id: 'anthropic/claude-haiku-5.5', label: 'Claude Haiku 5.5' }]
   }
 };
 const MAX_MODELS = 40;
@@ -151,11 +157,11 @@ const keyDocPath = (uid, provider) => `user_provider_keys/${uid}__${provider}`;
 
 // ---------- Key-Speicher: Firestore oder Neon (Postgres) ----------
 // Welche Anbieter-Keys in Neon (Tabelle byok_keys) liegen: NEON_BYOK_PROVIDERS (Komma-Liste oder "all"),
-// Standard nur OrcaRouter. Ohne Neon-URL bleibt alles in Firestore. Die Keys sind in beiden Fällen
+// Standard OrcaRouter und CanTrust AI. Ohne Neon-URL bleibt alles in Firestore. Die Keys sind in beiden Fällen
 // mit AES-256-GCM verschlüsselt, die Datenbank sieht nie den Klartext.
 const NEON_TABLE = 'byok_keys';
 function neonProviders() {
-  const raw = (process.env.NEON_BYOK_PROVIDERS || 'orcarouter').toLowerCase();
+  const raw = (process.env.NEON_BYOK_PROVIDERS || 'orcarouter,cantrust').toLowerCase();
   return raw.split(',').map(s => s.trim()).filter(Boolean);
 }
 const inNeon = (provider) => neon.isConfigured() && (neonProviders().includes('all') || neonProviders().includes(provider));
@@ -408,6 +414,11 @@ async function listProviderModels(provider, key) {
       ? /:free$|\/free$/i.test(m)
       : !!(m.isFree || /:free$|\/free$/i.test(m.id || '') || (m.pricing && Number(m.pricing.prompt) === 0 && Number(m.pricing.completion) === 0)));
     list.sort((a, b) => Number(isFree(b)) - Number(isFree(a)));
+    return list.map(m => (typeof m === 'string' ? { id: m, label: m } : { id: m.id, label: m.name || m.id }));
+  }
+  if (provider === 'cantrust') {
+    const d = await fetchJson('https://api.cantrustai.xyz/v1/models', { Authorization: `Bearer ${key}` });
+    const list = (Array.isArray(d) ? d : (d.data || d.models || [])).filter(m => m && (typeof m === 'string' || m.id));
     return list.map(m => (typeof m === 'string' ? { id: m, label: m } : { id: m.id, label: m.name || m.id }));
   }
   const d = await fetchJson('https://openrouter.ai/api/v1/models', { Authorization: `Bearer ${key}` });

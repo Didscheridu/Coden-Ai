@@ -17,6 +17,7 @@ const { setup } = require('./helpers');
     if (u.startsWith('https://api.anthropic.com/v1/models')) return new Response(JSON.stringify({ data: [{ id: 'claude-x', display_name: 'Claude X' }] }), { status: 200 });
     if (u === 'https://app.kilo.ai/api/gateway/models') return new Response(JSON.stringify({ data: [{ id: 'paid/model', name: 'Paid Model', isFree: false }, { id: 'inclusionai/ling-3.2-flash:free', name: 'inclusionAI: Ling 3.2 Flash (free)', isFree: true }, { id: 'kilo-auto/free', name: 'Auto Free', isFree: true }] }), { status: 200 });
     if (u === 'https://aihubmix.com/v1/models') return new Response(JSON.stringify({ data: [{ id: 'gpt-4o-mini' }, { id: 'deepseek-chat', name: 'DeepSeek Chat' }] }), { status: 200 });
+    if (u === 'https://api.cantrustai.xyz/v1/models') return new Response(JSON.stringify({ object: 'list', data: [{ id: 'anthropic/claude-haiku-5.5' }, { id: 'openai/gpt-5.5-mini' }] }), { status: 200 });
     if (u === 'https://api.orcarouter.ai/v1/models') return new Response(JSON.stringify({ data: [{ id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini' }, { id: 'orcarouter/free', name: 'OrcaRouter Free' }] }), { status: 200 });
     return new Response('{}', { status: 500 });
   };
@@ -32,7 +33,7 @@ const { setup } = require('./helpers');
 
   // 1) Start: vier voreingestellte Anbieter, kein Key
   let o = (await call('/byok', null, anna)).j;
-  chk('Anbieter voreingestellt', o.providers.map(p => p.id), ['google', 'openai', 'anthropic', 'openrouter', 'numes', 'kilo', 'aihubmix', 'orcarouter']);
+  chk('Anbieter voreingestellt', o.providers.map(p => p.id), ['google', 'openai', 'anthropic', 'openrouter', 'numes', 'kilo', 'aihubmix', 'orcarouter', 'cantrust']);
   chk('Google AI Studio heißt so', o.providers[0].name, 'Google AI Studio');
   chk('Anfangs kein Key, keine Modelle', `${o.providers.some(p => p.hasKey)} ${o.models.length}`, 'false 0');
   chk('Ohne Login geht nichts', (await call('/byok')).s, 401);
@@ -183,6 +184,20 @@ const { setup } = require('./helpers');
   reply = () => sse([`data: ${JSON.stringify({ choices: [{ delta: { content: 'Hallo von OrcaRouter' } }] })}\n\n`, 'data: [DONE]\n\n']);
   seen.length = 0; t = await stream(omOrca.tier, anna, { effort: 'high' });
   chk('OrcaRouter: eigener Key, Adresse, Modell und Antwort', [textOf(t), last().url, last().headers.Authorization, last().body.model, last().body.reasoning.effort, omOrca.providerName], ['Hallo von OrcaRouter', 'https://api.orcarouter.ai/v1/chat/completions', 'Bearer sk-orca-test-2222', 'orcarouter/free', 'high', 'OrcaRouter']);
+
+  // CanTrust AI (api.cantrustai.xyz/v1): eigener Key, Modelle laden, Claude Haiku 5.5 nutzen
+  reply = null;
+  // eigener Nutzer, damit Annas Anfragen-Limit für die späteren Prüfungen frei bleibt
+  const cara = await token({ sub: 'uid-cara', email: 'cara@x.de', email_verified: true });
+  const ctProvider = o.providers.find(p => p.id === 'cantrust');
+  chk('CanTrust AI: als Anbieter mit Claude Haiku 5.5 in der Schnellauswahl', [ctProvider.name, ctProvider.suggest[0].id], ['CanTrust AI', 'anthropic/claude-haiku-5.5']);
+  await call('/byok/keys/cantrust', { key: 'ct-test-key-3333' }, cara, 'PUT');
+  const ctList = await call('/byok/providers/cantrust/models', null, cara);
+  chk('CanTrust AI: Modelle geladen', ctList.j.models.map(m => m.id), ['anthropic/claude-haiku-5.5', 'openai/gpt-5.5-mini']);
+  const omCt = (await addModel('cantrust', 'anthropic/claude-haiku-5.5', ['low', 'high'], cara, 'Claude Haiku 5.5')).j.models.find(m => m.provider === 'cantrust');
+  reply = () => sse([`data: ${JSON.stringify({ choices: [{ delta: { content: 'Hallo von Claude' } }] })}\n\n`, 'data: [DONE]\n\n']);
+  seen.length = 0; t = await stream(omCt.tier, cara, { effort: 'high' });
+  chk('CanTrust AI: eigener Key, Adresse, Modell und Antwort', [textOf(t), last().url, last().headers.Authorization, last().body.model, last().body.reasoning.effort, omCt.providerName], ['Hallo von Claude', 'https://api.cantrustai.xyz/v1/chat/completions', 'Bearer ct-test-key-3333', 'anthropic/claude-haiku-5.5', 'high', 'CanTrust AI']);
 
   // 9) Fehler eines eigenen Modells: genaue Ursache, kein Ausweichen auf Coden-Modelle
   reply = () => new Response(JSON.stringify({ error: { message: 'Incorrect API key provided' } }), { status: 401 });
