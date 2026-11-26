@@ -11,6 +11,7 @@ const Push = require('./push');
 const { generate, generateStream } = require('./ai');
 const { Meter } = require('./usage');
 const R = require('../shared/research-core');
+const Free = require('./websearch');
 
 const SEARCH = {
   brave: { name: 'Brave Search', link: 'https://brave.com/search/api/', keyHint: 'BSA…', note: 'Gratis-Plan mit 2000 Suchen im Monat.' },
@@ -42,10 +43,13 @@ async function searchKeyOf(uid, p) {
   if (!r?.key_enc) return null;
   try { return await byok.decrypt(r.key_enc); } catch (e) { console.warn('[research] Key nicht lesbar:', e.message); return null; }
 }
-// Welche Suche hat dieser Nutzer? Reihenfolge: Brave, Tavily. Ohne Key: leer (dann Gratis-Suche).
+// Welche Suche hat dieser Nutzer? Reihenfolge: eigener Brave-/Tavily-Key, dann die Keys des Servers
+// (BRAVE_API_KEY / TAVILY_API_KEY in Vercel, gelten für alle Nutzer). Ohne Key: leer (dann Gratis-Suche).
+const ENV_KEYS = { brave: 'BRAVE_API_KEY', tavily: 'TAVILY_API_KEY' };
 async function keysOf(uid) {
   const out = [];
   for (const id of Object.keys(SEARCH)) { const key = uid ? await searchKeyOf(uid, id) : null; if (key) out.push({ id, key }); }
+  for (const [id, env] of Object.entries(ENV_KEYS)) { const key = process.env[env]; if (key && !out.some(k => k.id === id)) out.push({ id, key, server: true }); }
   return out;
 }
 // eine Suche; Fehler eines Anbieters führen zum nächsten, am Ende zur Gratis-Suche
@@ -54,9 +58,17 @@ async function search(keys, q, n, signal, onWarn) {
     try { return { results: await ENGINES[k.id](k.key, q, n, signal), via: k.id }; }
     catch (e) { if (signal?.aborted) throw e; onWarn?.(`${SEARCH[k.id].name}: ${e.status === 401 || e.status === 403 ? 'Key abgelehnt' : e.status === 429 ? 'Monatslimit erreicht' : e.message}`); }
   }
-  try { return { results: (await Tools.ddgResults(q)).slice(0, n), via: 'ddg' }; }
+  // Gratis: Google (über Gemini), DuckDuckGo, Bing, Google News, Wikipedia – der Reihe nach (server/websearch.js)
+  try { const r = await Free.freeSearch(q, n, signal); return { results: r.results, via: r.via === 'none' ? 'ddg' : r.via }; }
   catch (e) { if (signal?.aborted) throw e; return { results: [], via: 'ddg', error: e.message }; }
 }
+// Die Google-Zusammenfassung (Fakten aus der Google-Suche) hat ihren Text schon – nicht als Seite neu lesen
+const withSummary = (merged, lists) => {
+  const sum = new Map(); for (const l of lists) for (const r of l || []) if (r?.summary && r.text) sum.set(r.url, r.text);
+  for (const s of merged) if (sum.has(s.url)) { s.text = sum.get(s.url); s.summary = true; }
+  merged.sort((a, b) => Number(!!b.summary) - Number(!!a.summary));
+  return merged;
+};
 
 // Seite lesen -> reiner Text (leer, wenn nicht erreichbar)
 async function readPage(url, chars) {
@@ -87,14 +99,14 @@ async function runResearch({ user, tier, question, context = '', depth = 'normal
     const r = await search(keys, query, D.perQuery, signal, (w) => { if (!warned.has(w)) { warned.add(w); onStep({ h: 'Hinweis zur Suche', v: w }); } });
     return r.results;
   });
-  const merged = R.mergeResults(lists, { max: D.pages + 4 });
+  const merged = withSummary(R.mergeResults(lists, { max: D.pages + 4 }), lists);
   if (!merged.length) {
     const hint = keys.length ? '' : ' Mit einem eigenen Such-Key (Einstellungen → Recherche) klappt das zuverlässiger.';
     return `Ich konnte im Web gerade nichts zu **${q.slice(0, 120)}** finden.${hint} Versuch es gleich noch einmal oder formuliere die Frage etwas anders.`;
   }
 
   // die besten Seiten lesen (der Rest bleibt als Ausschnitt dabei)
-  const toRead = merged.slice(0, D.pages); const per = Math.min(D.pageChars, Math.floor(36000 / Math.max(1, toRead.length)));
+  const toRead = merged.filter(s => !s.summary).slice(0, D.pages); const per = Math.min(D.pageChars, Math.floor(36000 / Math.max(1, toRead.length)));
   let done = 0;
   await inGroups(toRead, 3, async (s) => {
     if (signal?.aborted) return;
@@ -138,8 +150,8 @@ async function researchJob(run, state) {
 async function quickSearch(uid, q, { read = true, n = 6, signal } = {}) {
   const keys = await keysOf(uid); const warn = [];
   const r = await search(keys, q, n, signal, (w) => warn.push(w));
-  const list = R.mergeResults([r.results], { max: n });
-  if (read) await inGroups(list.slice(0, 3), 3, async (s) => { try { s.text = await readPage(s.url, 2500); } catch (_) { s.text = ''; } });
+  const list = withSummary(R.mergeResults([r.results], { max: n }), [r.results]);
+  if (read) await inGroups(list.filter(s => !s.summary).slice(0, 3), 3, async (s) => { try { s.text = await readPage(s.url, 2500); } catch (_) { s.text = ''; } });
   return { results: list.map(s => ({ title: s.title, url: s.url, snippet: s.snippet, text: s.text || '' })), via: r.via, warn };
 }
 
@@ -147,7 +159,7 @@ async function quickSearch(uid, q, { read = true, n = 6, signal } = {}) {
 async function overview(uid) {
   const rows = await Promise.all(Object.keys(SEARCH).map(async (p) => [p, await db.getDoc(keyPath(uid, p)).catch(() => null)]));
   const have = new Map(rows.filter(([, d]) => d).map(([p, d]) => [p, d.hint || null]));
-  return { providers: Object.entries(SEARCH).map(([id, p]) => ({ id, name: p.name, link: p.link, keyHint: p.keyHint, note: p.note, hasKey: have.has(id), hint: have.get(id) || null })), engine: Object.keys(SEARCH).find(id => have.has(id)) || 'ddg' };
+  return { providers: Object.entries(SEARCH).map(([id, p]) => ({ id, name: p.name, link: p.link, keyHint: p.keyHint, note: p.note, hasKey: have.has(id), hint: have.get(id) || null })), engine: Object.keys(SEARCH).find(id => have.has(id)) || 'ddg', server: Object.entries(ENV_KEYS).filter(([, env]) => !!process.env[env]).map(([id]) => id), google: !!(process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY) && process.env.CODEN_SEARCH_GOOGLE !== 'off' };
 }
 function researchRouter(requireAuth) {
   const r = wrapRouter(express.Router());
