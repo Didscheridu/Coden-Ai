@@ -93,6 +93,16 @@ export const STUDENT_COMMANDS = [
             : ''
     },
     {
+        name: '/research',
+        icon: 'travel_explore',
+        badge: 'RESEARCH',
+        category: 'tool',
+        placeholder: '<Thema>',
+        desc: 'Bericht mit Quellen anlegen (landet in deiner Research-Bibliothek)',
+        action: 'research',
+        buildPrompt: () => ''
+    },
+    {
         name: '/humanisieren',
         icon: 'auto_fix_high',
         badge: 'WERKZEUG',
@@ -188,6 +198,7 @@ export function resolvePublicSlash(rawText) {
         }
         return { kind: 'prompt', command: found, param, prompt: found.buildPrompt(param), openBrowserQuery: param };
     }
+    if (found.action === 'research') return { kind: 'action', action: 'research', param };
     if (found.action === 'open-heft' && !param) {
         return { kind: 'action', action: 'open-heft', param: '' };
     }

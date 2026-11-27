@@ -137,6 +137,7 @@ async function researchJob(run, state) {
       onStep: (k) => run.thinkStep(k), onThink: (k) => run.thinkStep(k), onDelta: (v) => run.delta(v)
     });
     if (!run.signal.aborted && text !== run.text) run.setText(text); // Quellenliste anhängen, falsche Nummern raus
+    if (!run.signal.aborted && !state.temp) await require('./research-reports').saveFinished(user, { question: lastUser(messages), depth: state.depth, origin: 'chat', text });
   } catch (e) {
     if (run.signal.aborted) return;
     if (e.limit) run.delta(`${run.text.trim() ? '\n\n' : ''}⚠️ ${e.message}`); else throw e;
@@ -184,6 +185,7 @@ function researchRouter(requireAuth) {
     await db.deleteDoc(keyPath(req.user.uid, p));
     res.json(await overview(req.user.uid));
   });
+  require('./research-reports').mountReports(r); // Research-Bibliothek: /api/research/reports …
   r.use((err, req, res, next) => { if (err.status) return res.status(err.status).json({ error: err.message }); console.error('[research]', err); res.status(500).json({ error: 'Serverfehler.' }); });
   return r;
 }

@@ -170,7 +170,7 @@ service cloud.firestore {
         && data.keys().hasOnly(['id', 'uid', 'kind', 'ref', 'status', 'text', 'think', 'agents', 'model', 'error', 'meta', 'stop', 'claimed', 'created_at', 'updated_at'])
         && data.id is int && data.id > 0
         && isStr(data.uid, 1, 128)
-        && data.kind in ['chat', 'app']
+        && data.kind in ['chat', 'app', 'research']
         && isStr(data.ref, 1, 128)
         && data.status in ['running', 'done', 'error', 'stopped']
         && isOptStr(data, 'text', 800000)
@@ -289,6 +289,25 @@ service cloud.firestore {
         && data.ok is bool
         && data.seen is bool
         && (!('created_at' in data) || isIsoOrTs(data.created_at));
+    }
+
+    function isValidResearchReport(data) {
+      return data.keys().hasAll(['id', 'uid', 'title', 'question', 'depth', 'status', 'text'])
+        && data.keys().hasOnly(['id', 'uid', 'title', 'question', 'depth', 'status', 'origin', 'text', 'error', 'run_id', 'projects', 'sources', 'created_at', 'updated_at'])
+        && data.id is int && data.id > 0
+        && isStr(data.uid, 1, 128)
+        && isStr(data.title, 1, 120)
+        && isStr(data.question, 0, 600)
+        && data.depth in ['quick', 'normal', 'deep']
+        && data.status in ['running', 'done', 'error']
+        && (!('origin' in data) || data.origin in ['page', 'chat', 'task'])
+        && isStr(data.text, 0, 80000)
+        && isOptStr(data, 'error', 300)
+        && (!('run_id' in data) || data.run_id == null || data.run_id is int)
+        && (!('projects' in data) || (data.projects is list && data.projects.size() <= 20))
+        && (!('sources' in data) || data.sources is int)
+        && (!('created_at' in data) || isIsoOrTs(data.created_at))
+        && (!('updated_at' in data) || isIsoOrTs(data.updated_at));
     }
 
     function isValidSharedArtifact(data, artId) {
@@ -987,6 +1006,20 @@ service cloud.firestore {
         && incoming().uid == existing().uid && incoming().id == existing().id
         && incoming().diff(existing()).affectedKeys().hasOnly(['seen']);
       allow delete: if isNumId(resId) && (isOwner(existing().uid) || isAdmin());
+    }
+
+    // ---------- Research-Bibliothek ----------
+    match /research_reports/{repId} {
+      allow get: if isNumId(repId) && (resource == null || isOwner(resource.data.uid) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());
+      allow create: if isVerified() && isNumId(repId) && isValidResearchReport(incoming())
+        && incoming().uid == request.auth.uid
+        && string(incoming().id) == repId;
+      allow update: if isVerified() && isNumId(repId) && isValidResearchReport(incoming())
+        && (isOwner(existing().uid) || isAdmin())
+        && incoming().uid == existing().uid && incoming().id == existing().id
+        && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'status', 'text', 'error', 'run_id', 'projects', 'sources', 'updated_at']);
+      allow delete: if isNumId(repId) && (isOwner(existing().uid) || isAdmin());
     }
 
     // ---------- Artefakte wie bei Claude: veröffentlichen, gespeicherte Daten ----------

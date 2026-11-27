@@ -49,6 +49,8 @@ import { parseBrowserCommand, hideBrowserToolTags, formatBrowserForModel, domain
 import { openInBrowser, performBrowserAction, isDomainAlwaysAllowed } from './browser-ui.js';
 import { mountStartpageOverview } from './startpage-overview.js';
 import { Onboarding } from './onboarding.js';
+import { ResearchLib } from './research-lib.js';
+import { parseResearchReads, hideResearchTags, reportForModel, attachmentBlock } from './research-lib-core.js';
 
 // ==========================================
 // 🏗️ 1. ALLE DOM-ELEMENTE
@@ -1393,6 +1395,11 @@ document.getElementById('temp-chat-btn')?.addEventListener('click', () => {
     });
     if (chatInput) Skills.mountPicked(chatInput);
     Research.mount(); WebSearch.mount();
+    // Research-Bibliothek: Bericht an die nächste Nachricht hängen
+    document.getElementById('ct-attach-research')?.addEventListener('click', async () => {
+        const r = await ResearchLib.pick({ title: 'Research-Bericht anhängen' });
+        if (r) document.dispatchEvent(new CustomEvent('coden:attachResearch', { detail: { report: r } }));
+    });
     document.getElementById('open-tasks-btn')?.addEventListener('click', (e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent('coden:settings', { detail: { tab: 'tasks' } })); });
     // „Im Chat öffnen“ bei einem Aufgaben-Ergebnis: als neuer Chat, damit man nachfragen kann
     document.addEventListener('openTaskResult', (e) => {
@@ -1590,6 +1597,28 @@ document.addEventListener('startProjectChat', (e) => {
     if (text && chatInput) { chatInput.value = text; setTimeout(() => handleSend(), 60); } else chatInput?.focus();
 });
 
+// Research-Bericht als Anhang (wie eine Datei): geht mit der nächsten Nachricht an Coden
+const attachResearch = (report) => {
+    if (!report?.id) return;
+    if (pendingAttachments.some(a => a.type === 'research' && a.id === report.id)) return;
+    pendingAttachments.push({ type: 'research', id: report.id, name: report.title, report });
+    renderAttachmentPreviews();
+    chatInput?.focus();
+};
+document.addEventListener('coden:attachResearch', (e) => { if (Router.parse().name !== 'chat') Router.go('chat'); attachResearch(e.detail?.report); });
+document.addEventListener('coden:researchChat', (e) => {
+    const { report, prompt = '', send = false } = e.detail || {};
+    ChatApps.clear(); appPicker?.redraw();
+    currentSession = Storage.createNewSession();
+    // Gehört der Bericht zu genau einem Projekt, läuft der Chat in diesem Projekt
+    if (report?.projects?.length === 1) currentSession.projectId = report.projects[0];
+    sessions.unshift(currentSession); Storage.saveSessions(sessions); activeSessionId = currentSession.id;
+    UI.resetUI(); UI.renderSidebar(sessions, activeSessionId); Router.go('chat'); projNames = null; updateProjectChip();
+    attachResearch(report);
+    if (chatInput) { chatInput.value = prompt || ''; chatInput.dispatchEvent(new Event('input', { bubbles: true })); }
+    if (send && prompt) setTimeout(() => handleSend(), 80); else chatInput?.focus();
+});
+
 let assistantPicker = null;
 document.addEventListener('startAssistantChat', (e) => {
     const { assistantId, text } = e.detail || {};
@@ -1757,7 +1786,8 @@ function renderAttachmentPreviews() {
         } else {
             const docIcon = document.createElement('span');
             docIcon.className = 'material-symbols-outlined';
-            docIcon.innerText = 'description';
+            docIcon.innerText = att.type === 'research' ? 'travel_explore' : 'description';
+            if (att.type === 'research') attDiv.title = 'Research-Bericht: ' + att.name;
             docIcon.style.fontSize = '24px';
             docIcon.style.color = 'var(--accent-blue)';
             docIcon.style.display = 'block';
@@ -1831,7 +1861,7 @@ function renderAttachmentPreviews() {
 // ==========================================
 // Bild-Befehl der KI: <generate_image prompt="…"/>
 const IMAGE_TAG = /<generate_image\s+([^>]*?)\/?>/gi;
-const hideImageTags = (t) => hideBrowserToolTags(hideNotebookTags(WebSearch.strip(Skills.hide(Personal.hide(ChatApps.hide(hideCalls(String(t || '').replace(/<generate_image\s+[^>]*?\/?>/gi, '').replace(/<generate_image[^>]*$/i, ''))))))));
+const hideImageTags = (t) => hideResearchTags(hideBrowserToolTags(hideNotebookTags(WebSearch.strip(Skills.hide(Personal.hide(ChatApps.hide(hideCalls(String(t || '').replace(/<generate_image\s+[^>]*?\/?>/gi, '').replace(/<generate_image[^>]*$/i, '')))))))));
 // ---------- Live-Anzeige je Chat ----------
 // Eine laufende Antwort gehört zu einem Chat, nicht zum Bildschirm: wechselt der Nutzer den Chat und kommt zurück,
 // wird die Anzeige mit dem aktuellen Stand neu aufgebaut. Die Antwort selbst läuft auf dem Server weiter.
@@ -1992,6 +2022,13 @@ async function handleSend() {
                 return UI.appendMessage(`♟️ **SCHACH-MODUS:**\nDas Spielbrett wurde geöffnet! Tritt gegen Coden an.`, false);
             }
             if (pubSlash.action === 'open-humanizer') { Router.go('humanizer'); return; }
+            if (pubSlash.action === 'research') {
+                if (!pubSlash.param) { Router.go('research'); return; }
+                ResearchLib.start({ question: pubSlash.param, depth: Research.depth(), projects: currentSession?.projectId ? [currentSession.projectId] : [] })
+                    .then(r => { toast('Recherche läuft – du kannst weiterarbeiten.', { type: 'ok' }); Router.go('research/' + r.id); })
+                    .catch(err => toast(err.message, { type: 'error' }));
+                return;
+            }
             if (pubSlash.action === 'open-heft') { SplitWorkspace.open('notebook'); return; }
             if (pubSlash.action === 'open-browser') {
                 const targetUrl = pubSlash.param ? (/^https?:\/\//i.test(pubSlash.param) ? pubSlash.param : 'https://' + pubSlash.param) : '';
@@ -2031,6 +2068,9 @@ async function handleSend() {
                     : att.content;
                 displayMessage += `\n\n<div style="display:inline-block; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); padding:4px 10px; border-radius:12px; font-size:12px; margin-top:8px;">📎 <b>Datei angehängt:</b> <code>${escAtt(att.name)}</code></div>`;
                 internalPrompt += `\n\n[Inhalt der angehängten Datei: ${att.name}]\n\`\`\`\n${body}\n\`\`\`\n`;
+            } else if (att.type === 'research') {
+                displayMessage += `\n\n<div style="display:inline-block; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); padding:4px 10px; border-radius:12px; font-size:12px; margin-top:8px;">🔎 <b>Research-Bericht:</b> <a href="#/research/${Number(att.id)}">${escAtt(att.name)}</a></div>`;
+                internalPrompt += attachmentBlock(att.report);
             } else if (att.type === 'image') {
                 displayMessage += `\n\n![${escAtt(att.name)}](${att.data})`;
                 internalPrompt += `\n\n[Der Nutzer hat dir ein Bild hochgeladen. Bitte beachte das Bild in deiner Antwort.]`; 
@@ -2129,6 +2169,8 @@ async function handleSend() {
     try {
       if (!MCP.isLoaded()) await MCP.syncFromCloud().catch(() => {});
       const proj = await Projects.promptFor(sessionAtSend.projectId);
+      await ResearchLib.list().catch(() => {}); // Research-Bibliothek (60 s zwischengespeichert)
+      const researchExtra = ResearchLib.prompt(sessionAtSend.projectId);
       let appNames = [];
       try { appNames = await ChatApps.prepare(text); } catch (_) {}
       const projName = proj.name || '';
@@ -2147,7 +2189,7 @@ async function handleSend() {
           if (localStorage.getItem('coden_hw_mode') === '1' || handwritingRequested(text)) hwExtra += '\n' + forceHandwritingPrompt({ withImage: hasImg });
       } catch (_) { /* ohne Handschrift weiter */ }
       const hzExtra = getAutoHumanizerPrompt('chat');
-      const systemPrompt = buildChatPrompt({ userName, extras: `${sessionAtSend.temp ? '' : StudyStore.context()}${nbExtra ? '\n' + nbExtra : ''}${hwExtra ? '\n' + hwExtra : ''}${hzExtra ? '\n' + hzExtra : ''}\n${MCP.prompt()}${ChatApps.prompt()}${personal}${Assistants.prompt(sessionAtSend.assistantId)}${skillInfo.text}${researchOn ? '' : WebSearch.prompt()}${proj.text}` });
+      const systemPrompt = buildChatPrompt({ userName, extras: `${sessionAtSend.temp ? '' : StudyStore.context()}${nbExtra ? '\n' + nbExtra : ''}${hwExtra ? '\n' + hwExtra : ''}${hzExtra ? '\n' + hzExtra : ''}\n${MCP.prompt()}${ChatApps.prompt()}${personal}${Assistants.prompt(sessionAtSend.assistantId)}${skillInfo.text}${researchOn ? '' : WebSearch.prompt()}${researchExtra}${proj.text}` });
       context.unshift({ role: 'system', content: systemPrompt });
 
       Storage.syncNow(); // Frage sofort sichern, damit andere Geräte sie sehen
@@ -2163,6 +2205,7 @@ async function handleSend() {
         let extra = {};
         try {
             aiResponse = await runAiResponse(context, currentSelectedModel, { research: researchOn && round === 0, depth: Research.depth(), ref: sessionAtSend.id, meta: { title: sessionAtSend.title, userText: text.slice(0, 2000), temp: !!sessionAtSend.temp }, signal: ac.signal, model: pinnedModel?.key, effort: isByokTier(currentSelectedModel) ? byokEffort(currentSelectedModel) : undefined, onExtra: (x) => { extra = { ...extra, ...x }; }, onThink: (k) => live.think(k), onModel: (m) => live.model(m), onDelta: (t) => { aiResponse = t; live.update(withPrefix(cite(hideImageTags(t)))); } });
+            if (researchOn && round === 0) ResearchLib.bust(); // Deep Research landet auch in der Research-Bibliothek
             lastRaw = aiResponse;
             // Websuche (wie bei Claude): <web_search>…</web_search> → suchen, Treffer nummeriert zurückgeben, weiter in derselben Nachricht
             const webQ = round < 5 && !researchOn && WebSearch.enabled() && !parseCall(aiResponse) ? WebSearch.requested(aiResponse) : null;
@@ -2195,6 +2238,20 @@ async function handleSend() {
                 if (skillMsg.names.length) shownPrefix = withPrefix(toolStep({ skill: skillMsg.names.join(', ') }));
                 live.update(shownPrefix);
                 context.push({ role: 'user', content: skillMsg.text });
+                aiResponse = '';
+                continue;
+            }
+            // Das Modell möchte einen Research-Bericht lesen (<research_read id="…"/>)
+            const rsReqs = round < 5 && !parseCall(aiResponse) ? parseResearchReads(aiResponse) : [];
+            if (rsReqs.length) {
+                context.push({ role: 'assistant', content: aiResponse.trim() });
+                shownPrefix = withPrefix(cite(hideResearchTags(preText)));
+                live.update(withPrefix(toolStep({ tool: 'Research-Bericht lesen', src: rsReqs.map(id => '#' + id).join(', '), icon: 'travel_explore', running: true })));
+                const got = await Promise.all(rsReqs.map(id => ResearchLib.get(id).catch(() => null)));
+                const names = got.map((r, i) => (r ? r.title : `#${rsReqs[i]} (nicht gefunden)`));
+                shownPrefix = withPrefix(toolStep({ tool: 'Research-Bericht lesen', src: names.join(', '), note: `${got.filter(Boolean).length} gelesen`, err: !got.some(Boolean), icon: 'travel_explore' }));
+                live.update(shownPrefix);
+                context.push({ role: 'user', content: got.map((r, i) => (r ? reportForModel(r) : `Den Research-Bericht #${rsReqs[i]} gibt es nicht.`)).join('\n\n') + '\n\nBeantworte jetzt die Frage des Nutzers mit diesem Wissen. Fehlt etwas oder ist es veraltet, darfst du zusätzlich im Web suchen.' });
                 aiResponse = '';
                 continue;
             }

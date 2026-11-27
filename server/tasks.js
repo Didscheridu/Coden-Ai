@@ -47,7 +47,10 @@ async function execute(t) {
     if (!c.ok) { ok = false; text = `Diese Aufgabe konnte nicht laufen: ${c.message}`; }
     else {
       const signal = AbortSignal.timeout(RUN_MS);
-      if (t.research) text = await runResearch({ user, tier: t.tier, question: t.prompt, depth: t.depth, signal, meter });
+      if (t.research) {
+        text = await runResearch({ user, tier: t.tier, question: t.prompt, depth: t.depth, signal, meter });
+        await require('./research-reports').saveFinished(user, { question: t.prompt, depth: t.depth, origin: 'task', text }); // auch in die Research-Bibliothek
+      }
       else {
         text = await generate(t.tier, [
           { role: 'system', content: `Du bist Coden und erledigst eine geplante Aufgabe für den Nutzer. Heute ist ${today()}. Antworte auf Deutsch, klar gegliedert und ohne Rückfragen, denn der Nutzer ist gerade nicht da. Du hast hier keinen Zugriff auf das Internet: Brauchst du aktuelle Daten, sag das offen und rate dem Nutzer, die Aufgabe mit „Recherche“ einzustellen.` },

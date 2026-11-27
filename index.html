@@ -54,6 +54,7 @@
     <link rel="stylesheet" href="css/handwriting.css">
     <link rel="stylesheet" href="css/humanizer.css">
     <link rel="stylesheet" href="css/workspace.css">
+    <link rel="stylesheet" href="css/research-lib.css">
     <link rel="stylesheet" href="css/responsive.css">
 
     <style>
@@ -220,6 +221,7 @@
                 <a href="#/buddy" class="sb-item" id="open-buddy-btn" data-route="buddy"><span class="material-symbols-outlined">diversity_3</span><span class="sb-label">Code Buddy</span><span class="bd-nav-badge" style="display:none"></span></a>
                 <button type="button" class="sb-item sb-more-toggle" id="sb-more-toggle" aria-expanded="false" onclick="const g=document.getElementById('sb-more-group');const open=g.classList.toggle('collapsed');this.setAttribute('aria-expanded',String(!open));"><span class="material-symbols-outlined">more_horiz</span><span class="sb-label">Mehr</span></button>
                 <div id="sb-more-group" class="sb-more-group collapsed">
+                    <a href="#/research" class="sb-item" id="open-research-btn" data-route="research"><span class="material-symbols-outlined">travel_explore</span><span class="sb-label">Research</span></a>
                     <a href="#/humanizer" class="sb-item" id="open-humanizer-btn" data-route="humanizer"><span class="material-symbols-outlined">auto_fix_high</span><span class="sb-label">Humanizer</span></a>
                     <a href="#/verbindungen" class="sb-item" id="open-mcp-btn" data-route="verbindungen"><span class="material-symbols-outlined">hub</span><span class="sb-label">Konnektoren</span></a>
                     <a href="#" class="sb-item" id="open-tasks-btn"><span class="material-symbols-outlined">schedule</span><span class="sb-label">Geplante Aufgaben</span><span class="bd-nav-badge" id="tasks-nav-badge" style="display:none"></span></a>
@@ -305,6 +307,7 @@
                         <div class="cm-sep" role="separator"></div>
                         <button type="button" class="cm-item" id="ct-web" role="menuitemcheckbox" aria-checked="true" data-keep="1"><span class="material-symbols-outlined cm-ic">language</span><span class="cm-label">Websuche</span><span class="material-symbols-outlined cm-check off">check</span></button>
                         <button type="button" class="cm-item" id="ct-research" role="menuitemcheckbox" aria-checked="false"><span class="material-symbols-outlined cm-ic">travel_explore</span><span class="cm-label">Recherche</span><span class="material-symbols-outlined cm-check off">check</span></button>
+                        <button type="button" class="cm-item" id="ct-attach-research" role="menuitem"><span class="material-symbols-outlined cm-ic">article</span><span class="cm-label">Research-Bericht anhängen</span></button>
                         <button type="button" class="cm-item" id="ct-temp" role="menuitemcheckbox" aria-checked="false" data-keep="1"><span class="material-symbols-outlined cm-ic">history_toggle_off</span><span class="cm-label">Temporärer Chat</span><span class="material-symbols-outlined cm-check off">check</span></button>
                         <div class="cm-sep" role="separator"></div>
                         <button type="button" class="cm-item" id="ct-export-chat" role="menuitem"><span class="material-symbols-outlined cm-ic">download</span><span class="cm-label">Chat exportieren</span></button>

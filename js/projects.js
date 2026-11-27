@@ -5,6 +5,8 @@ import { Router } from './router.js';
 import { Storage } from './storage.js';
 import { h, icon, timeAgo } from './apps/dom.js';
 import { modal, confirmBox } from './apps/dialogs.js';
+import { ResearchLib } from './research-lib.js';
+import { isResearchFile, researchIdOfFile } from './research-lib-core.js';
 
 const COLORS = ['#8ab4f8', '#f28b82', '#81c995', '#fdd663', '#c58af9', '#ff8bcb', '#78d9ec', '#fcad70'];
 const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|js|mjs|ts|tsx|jsx|py|html|css|java|c|cpp|h|cs|go|rs|rb|php|sh|sql|yml|yaml|xml|toml|ini|log|lua|kt|swift)$/i;
@@ -84,9 +86,27 @@ async function detail(host, idStr) {
     const fileBox = h('div', { class: 'pj-files' });
     const drawFiles = () => {
         const names = Object.keys(files);
-        fileBox.replaceChildren(...(names.length ? names.map(n => h('div', { class: 'pj-file' }, icon('description'), h('span', { class: 'grow', text: n }), h('small', { text: Math.max(1, Math.round(files[n].length / 1000)) + ' KB' }),
+        fileBox.replaceChildren(...(names.length ? names.map(n => isResearchFile(n) ? researchRow(n) : h('div', { class: 'pj-file' }, icon('description'), h('span', { class: 'grow', text: n }), h('small', { text: Math.max(1, Math.round(files[n].length / 1000)) + ' KB' }),
             h('button', { class: 'cd-x', title: 'Ansehen', onclick: () => modal(n, h('pre', { class: 'pj-pre', text: files[n].slice(0, 20000) + (files[n].length > 20000 ? '\n… (gekürzt angezeigt)' : '') }), { wide: true }) }, icon('visibility')),
             h('button', { class: 'cd-x', title: 'Entfernen', onclick: async () => { if (!await confirmBox(`„${n}“ aus dem Projekt entfernen?`, { ok: 'Entfernen', danger: true })) return; try { await apiJson(`/projects/${id}/files`, { method: 'PUT', body: JSON.stringify({ remove: [n] }) }); delete files[n]; Projects.bust(id); drawFiles(); } catch (e) { toast(e.message, { type: 'error' }); } } }, icon('delete')))) : [h('div', { class: 'pj-note', text: 'Noch kein Wissen hinterlegt. Füge Notizen, Skripte oder Textdateien hinzu, die Coden in diesem Projekt kennen soll.' })]));
+    };
+    // Research-Berichte im Projekt: eigenes Symbol, Klick öffnet den Bericht, Entfernen löst die Verknüpfung
+    const researchRow = (n) => {
+        const rid = researchIdOfFile(n);
+        return h('div', { class: 'pj-file pj-research' }, icon('travel_explore'),
+            h('a', { class: 'grow', href: '#/research/' + rid, text: n.replace(/^Research \d+ - /, '').replace(/\.md$/, '') }),
+            h('small', { text: 'Research' }),
+            h('button', { class: 'cd-x', title: 'Aus dem Projekt entfernen', onclick: async () => {
+                if (!await confirmBox('Diesen Research-Bericht aus dem Projekt entfernen? Er bleibt in deiner Research-Bibliothek.', { ok: 'Entfernen', danger: true })) return;
+                try { await ResearchLib.removeFromProject({ id: rid }, id); delete files[n]; drawFiles(); } catch (e) { toast(e.message, { type: 'error' }); }
+            } }, icon('delete')));
+    };
+    const addResearch = async () => {
+        const have = Object.keys(files).map(researchIdOfFile).filter(Boolean);
+        const r = await ResearchLib.pick({ title: 'Research-Bericht hinzufügen', exclude: have });
+        if (!r) return;
+        try { await ResearchLib.addToProject(r, id); const d = await Projects.get(id); files = d.files || {}; drawFiles(); toast(`„${r.title}“ ist jetzt Wissen dieses Projekts`, { type: 'ok' }); }
+        catch (e) { toast(e.message, { type: 'error' }); }
     };
     const addFiles = async (list) => {
         const set = {};
@@ -124,6 +144,7 @@ async function detail(host, idStr) {
                 h('div', { class: 'pj-box' }, h('h3', { text: 'Chats' }), chatList)),
             h('div', { class: 'pj-col' },
                 h('div', { class: 'pj-box' }, h('h3', { text: 'Anweisungen' }), instr, h('div', { class: 'cd-row end' }, saveInstr)),
-                h('div', { class: 'pj-box' }, h('h3', { text: 'Wissen' }), fileBox, h('div', { class: 'cd-row' }, h('button', { class: 'cd-btn', onclick: () => picker.click() }, icon('upload_file'), ' Datei hinzufügen'), pasteBtn, picker), h('small', { class: 'cd-hint', text: 'Nur Text, bis 150 KB pro Datei, 20 Dateien. Coden liest sie in jedem Chat dieses Projekts mit.' }))))));
+                h('div', { class: 'pj-box' }, h('h3', { text: 'Wissen' }), fileBox, h('div', { class: 'cd-row' }, h('button', { class: 'cd-btn', onclick: () => picker.click() }, icon('upload_file'), ' Datei hinzufügen'), pasteBtn, picker),
+                    h('div', { class: 'cd-row' }, h('button', { class: 'cd-btn', onclick: addResearch }, icon('article'), ' Research hinzufügen'), h('a', { class: 'cd-btn', href: '#/research/projekt/' + id }, icon('travel_explore'), ' Neue Recherche')), h('small', { class: 'cd-hint', text: 'Nur Text, bis 150 KB pro Datei, 20 Dateien. Coden liest sie in jedem Chat dieses Projekts mit.' }))))));
     drawFiles(); drawChats();
 }
