@@ -153,3 +153,21 @@ export function domainFromUrl(url) {
     try { return new URL(String(url || '')).hostname.replace(/^www\./i, '').toLowerCase(); }
     catch (_) { return ''; }
 }
+
+/**
+ * Baut aus einer echt geladenen Seite eine <browser>-Vorschaukarte für den Chat
+ * (Daten kommen vom Server, nicht vom Modell – so erscheinen keine erfundenen Preise).
+ */
+export function previewCardFor(page, query = '') {
+    if (!page || !/^https?:\/\//i.test(String(page.url || ''))) return '';
+    const attr = (v) => String(v || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;').slice(0, 200);
+    const products = (Array.isArray(page.products) ? page.products : []).slice(0, 6).map(p => ({
+        title: String(p.title || '').slice(0, 140),
+        price: String(p.price || '').slice(0, 30),
+        url: /^https?:\/\//i.test(String(p.url || '')) ? String(p.url) : ''
+    })).filter(p => p.title);
+    const snippet = String(page.description || page.excerpt || page.textExcerpt || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+    // JSON ohne spitze Klammern, damit nichts aus dem Block ausbrechen kann
+    const body = JSON.stringify(products.length ? { products } : { snippet }).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+    return `<browser url="${attr(page.url)}" title="${attr(page.title || page.domain)}" domain="${attr(page.domain)}"${query ? ` query="${attr(query)}"` : ''}>\n${body}\n</browser>`;
+}

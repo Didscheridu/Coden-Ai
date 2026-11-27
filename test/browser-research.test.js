@@ -65,9 +65,9 @@ const { setup } = require('./helpers');
   const opened = await P('/browser/open', { url: base + '/' }, T);
   chk('Seite geladen mit Titel, Link & Suchformular', [
     opened.s,
-    opened.j.title,
-    opened.j.links?.length >= 1,
-    opened.j.forms?.length >= 1
+    opened.j.page?.title,
+    opened.j.page?.links?.length >= 1,
+    opened.j.page?.forms?.length >= 1
   ], [200, 'Test Shop Startseite', true, true]);
 
   chk('SSRF-Redirect wird nicht verfolgt', (await P('/browser/open', { url: base + '/redir-ssrf' }, T)).s, 400);
@@ -86,6 +86,13 @@ const { setup } = require('./helpers');
     searched.j.page?.products?.length,
     searched.j.page?.products?.[0]?.price
   ], [200, 'Suche: Kopfhörer', 2, '49,99 €']);
+
+  const byId = await P('/browser/action', { url: base + '/', action: 'submit', target: 'form_1', value: 'Kabel' }, T);
+  chk('Formular per ID absenden nutzt action + erstes Feld', [byId.s, byId.j.page?.title, byId.j.page?.products?.length], [200, 'Suche: Kabel', 2]);
+
+  const opened2 = opened.j.page || {};
+  chk('Links haben url, Formulare inputs, Seite excerpt', [opened2.links?.[0]?.url?.endsWith('/dp/B001'), opened2.forms?.[0]?.inputs?.[0]?.name, typeof opened2.excerpt], [true, 'k', 'string']);
+  chk('formatBrowserForModel zeigt Link-Ziel und Formularfeld', [BC.formatBrowserForModel(opened2).includes('/dp/B001'), BC.formatBrowserForModel(opened2).includes('Felder: k')], [true, true]);
 
   // 4. Interaktive Browser-Aktion click
   const clicked = await P('/browser/action', {
@@ -122,6 +129,17 @@ const { setup } = require('./helpers');
     prev.products.length,
     prev.products[0].price
   ], ['amazon.de', 1, '49,99 €']);
+
+  const { isMetadataIp, isEmbeddable } = require('../server/browser');
+  chk('Metadaten-IPs immer gesperrt', [isMetadataIp('169.254.169.254'), isMetadataIp('::ffff:169.254.1.1'), isMetadataIp('8.8.8.8')], [true, true, false]);
+  chk('Einbettbarkeit über Header', [isEmbeddable({}), isEmbeddable({ 'x-frame-options': 'SAMEORIGIN' }), isEmbeddable({ 'content-security-policy': "frame-ancestors 'self'" }), isEmbeddable({ 'content-security-policy': 'frame-ancestors *' })], [true, false, false, true]);
+  chk('Metadaten-Host per Name gesperrt', (await P('/browser/open', { url: 'http://metadata.google.internal/' }, T)).s, 400);
+
+  const card = BC.previewCardFor({ url: 'https://amazon.de/s?k=x', title: 'Amazon "Suche"', domain: 'amazon.de', products: [{ title: 'Rechner <b>X</b>', price: '29,99 €', url: 'javascript:alert(1)' }] }, 'Rechner');
+  const cardM = card.match(/^<browser ([^>]*)>\n([\s\S]*)\n<\/browser>$/);
+  const cardInfo = BC.parseBrowserPreview(cardM?.[2], { url: 'https://amazon.de/s?k=x', title: 'Amazon "Suche"' });
+  chk('previewCardFor baut sichere Karte aus echten Daten', [Boolean(cardM), card.includes('<b>'), cardInfo.products[0]?.title, cardInfo.products[0]?.price, cardInfo.products[0]?.url], [true, false, 'Rechner <b>X</b>', '29,99 €', '']);
+  chk('previewCardFor ohne gültige URL leer', BC.previewCardFor({ url: 'file:///etc' }), '');
 
   delete process.env.MCP_ALLOW_PRIVATE;
   srv.close();

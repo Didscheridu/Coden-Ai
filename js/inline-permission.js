@@ -247,11 +247,17 @@ export function requestInlinePermission(opts = {}) {
             const targetName = opts.toolName || opts.domain || opts.title || '';
 
             const settledRow = mk('div', 'ip-settled');
-            settledRow.append(
-                icon(summaryIcon),
-                mk('strong', '', summaryLabel),
-                targetName ? mk('span', 'ip-settled-target', `· ${targetName}`) : null
-            );
+            settledRow.append(icon(summaryIcon), mk('strong', '', summaryLabel));
+            if (targetName) settledRow.append(mk('span', 'ip-settled-target', `· ${targetName}`));
+            // Dauerhafte Freigaben: kurzer Link zur Verwaltung (Konnektoren bzw. Browser-Domains)
+            if (typeof result === 'string' && result.startsWith('always-')) {
+                const edit = mk('button', 'ip-settled-edit', 'Ändern');
+                edit.type = 'button';
+                edit.addEventListener('click', () => document.dispatchEvent(new CustomEvent('coden:managePermissions', {
+                    detail: { kind: opts.kind, scope: result, serverName: opts.serverName || '', toolName: opts.toolName || '', domain: opts.domain || '' }
+                })));
+                settledRow.append(edit);
+            }
             card.replaceChildren(settledRow);
             resolve(result);
         }

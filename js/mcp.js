@@ -5,6 +5,7 @@ import { toast } from './toast.js';
 import { h, icon } from './apps/dom.js';
 import { modal } from './apps/dialogs.js';
 import * as Menu from './menu.js';
+import { getAllowedBrowserDomains, setDomainAlwaysAllowed } from './browser-ui.js';
 
 const LEGACY_KEY = 'coden_mcp', ASK = 'coden_mcp_ask', ALWAYS_KEY = 'coden_mcp_always', PENDING_OAUTH_KEY = 'coden_mcp_oauth_pending';
 const loadLegacy = () => {
@@ -37,6 +38,19 @@ const readMirrorEntry = (map, k) => {
     return { server: false, tools: {} };
 };
 const connKey = (s) => String(s?.id || s?.url || s?.name || '');
+// Lokaler Spiegel = Offline-Rückfall. Nach jedem Laden aus dem Konto wird er auf den Kontostand gesetzt.
+function syncMirrorFromCloud() {
+    const map = loadAlways();
+    for (const c of cloudConns) {
+        const tools = {};
+        (Array.isArray(c.alwaysAllowedTools) ? c.alwaysAllowedTools : []).forEach(t => { tools[t] = 1; });
+        for (const k of mirrorKeysFor(c)) {
+            if (c.alwaysAllowed || Object.keys(tools).length) map[k] = { server: !!c.alwaysAllowed, tools };
+            else delete map[k];
+        }
+    }
+    saveAlways(map);
+}
 
 let cloudConns = [];
 let cloudLoaded = false;
@@ -172,6 +186,7 @@ export const MCP = {
                     }));
                 }
                 cloudLoaded = true;
+                syncMirrorFromCloud();
                 return mergeAll();
             } catch (_) {
                 return mergeAll();
@@ -192,6 +207,15 @@ export const MCP = {
     askBefore: () => localStorage.getItem(ASK) !== '0',
     setAskBefore: (v) => localStorage.setItem(ASK, v ? '1' : '0'),
     alwaysState: (s) => {
+        // Cloud-Verbindungen: Sobald die Liste vom Server geladen ist, gilt NUR der Stand im Konto
+        // (sonst würde ein Widerruf auf einem anderen Gerät hier durch den lokalen Spiegel wieder aufleben).
+        const live = s?.isCloud && s?.id ? cloudConns.find(c => String(c.id) === String(s.id)) : null;
+        if (live && cloudLoaded) {
+            return {
+                server: Boolean(live.alwaysAllowed),
+                tools: Array.isArray(live.alwaysAllowedTools) ? live.alwaysAllowedTools.map(String) : []
+            };
+        }
         const map = loadAlways();
         let server = Boolean(s?.alwaysAllowed);
         const tools = new Set(Array.isArray(s?.alwaysAllowedTools) ? s.alwaysAllowedTools.map(String) : []);
@@ -320,16 +344,6 @@ export const MCP = {
             body: JSON.stringify({ name, url, token, headerName, authType, catalogId })
         });
         if (r.connection) {
-            const localMirror = MCP.alwaysState(r.connection);
-            if ((localMirror.server && !r.connection.alwaysAllowed) || (localMirror.tools.length && !(r.connection.alwaysAllowedTools || []).length)) {
-                try {
-                    const p = await apiJson(`/mcp/connections/${encodeURIComponent(r.connection.id)}`, {
-                        method: 'PATCH',
-                        body: JSON.stringify({ alwaysAllowed: localMirror.server, alwaysAllowedTools: localMirror.tools })
-                    });
-                    if (p.connection) r.connection = p.connection;
-                } catch (_) {}
-            }
             cloudConns = [r.connection, ...cloudConns.filter(x => String(x.id) !== String(r.connection.id))];
             notifyChange();
         }
@@ -426,17 +440,6 @@ export const MCP = {
                 body: JSON.stringify({ code, state })
             });
             if (done.connection) {
-                const localMirror = MCP.alwaysState(done.connection);
-                if ((localMirror.server && !done.connection.alwaysAllowed) || (localMirror.tools.length > (done.connection.alwaysAllowedTools || []).length)) {
-                    const mergedTools = [...new Set([...(done.connection.alwaysAllowedTools || []), ...localMirror.tools])];
-                    try {
-                        const p = await apiJson(`/mcp/connections/${encodeURIComponent(done.connection.id)}`, {
-                            method: 'PATCH',
-                            body: JSON.stringify({ alwaysAllowed: localMirror.server || !!done.connection.alwaysAllowed, alwaysAllowedTools: mergedTools })
-                        });
-                        if (p.connection) done.connection = p.connection;
-                    } catch (_) {}
-                }
                 cloudConns = [done.connection, ...cloudConns.filter(x => String(x.id) !== String(done.connection.id))];
                 notifyChange();
             }
@@ -929,13 +932,27 @@ export const McpView = {
             MCP.hasAlwaysAllowed()
                 ? h('button', { type: 'button', class: 'cd-btn sm', onclick: () => { MCP.clearAllAlwaysAllowed(); toast('Dauerhafte Werkzeug-Freigaben zurückgesetzt', { type: 'ok' }); } }, 'Freigaben zurücksetzen')
                 : null);
+        // Research-Browser: Domains, auf denen Klicks/Eingaben ohne Nachfrage laufen
+        const domBox = h('div', { class: 'cn-domains' });
+        const drawDomains = () => {
+            const list = getAllowedBrowserDomains();
+            domBox.replaceChildren(
+                h('h3', { class: 'cn-h', text: 'Research-Browser: immer erlaubte Domains' }),
+                list.length
+                    ? h('div', { class: 'cn-dom-list' }, list.map(d => h('div', { class: 'cn-dom-row' },
+                        icon('public'), h('span', { text: d }),
+                        h('button', { type: 'button', class: 'cd-btn sm', onclick: () => { setDomainAlwaysAllowed(d, false); toast(`Freigabe für ${d} entfernt`, { type: 'ok' }); drawDomains(); } }, 'Widerrufen'))))
+                    : h('p', { class: 'cn-empty', text: 'Keine. Lesen läuft immer automatisch – Klicks und Eingaben fragen nach, bis du „Immer erlauben“ wählst.' })
+            );
+        };
+        drawDomains();
         host.append(h('div', { class: 'ap-page cn-page' },
             h('div', { class: 'cn-hero' }, h('div', {}, h('h1', { text: 'Konnektoren' }), h('p', { text: 'Verbinde Coden mit deinen Apps: auf „Verbinden“ tippen, beim Dienst anmelden, fertig. Coden kann sie danach im Chat benutzen.' })),
                 h('button', { class: 'cd-btn', onclick: addCustom }, icon('add'), ' Eigener Konnektor')),
             connectedBox,
             h('div', { class: 'cn-bar' }, h('h3', { class: 'cn-h', text: 'Entdecken' }), search),
             catBar, grid,
-            askRow));
+            askRow, domBox));
         drawCats(); draw();
         unsub = MCP.onChange(() => { draw(); const resetBtn = askRow.querySelector('button'); if (MCP.hasAlwaysAllowed() && !resetBtn) askRow.append(h('button', { type: 'button', class: 'cd-btn sm', onclick: () => { MCP.clearAllAlwaysAllowed(); toast('Dauerhafte Werkzeug-Freigaben zurückgesetzt', { type: 'ok' }); } }, 'Freigaben zurücksetzen')); else if (!MCP.hasAlwaysAllowed() && resetBtn) resetBtn.remove(); });
         loadCatalogStatus().then(drawGrid);

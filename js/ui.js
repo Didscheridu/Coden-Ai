@@ -111,6 +111,7 @@ export const UI = {
             hljs.highlightElement(block);
         });
         content.querySelectorAll('img').forEach((img) => {
+            if (img.closest('.cw-card')) return; // Symbole in Karten (z. B. Favicons) nicht wie Fotos stylen
             img.style.maxWidth = '100%';
             img.style.borderRadius = '8px';
             img.style.marginTop = '12px';
@@ -121,7 +122,7 @@ export const UI = {
     // Baut den Inhalt einer KI-Nachricht: Markdown-Abschnitte und Artefakt-Karten
     // Bilder im Chat: passen immer komplett auf den Bildschirm, mit Herunterladen / Öffnen
     _imageTools: (img) => {
-        if (img.closest('.img-card')) return;
+        if (img.closest('.img-card, .cw-card')) return;
         const card = document.createElement('figure'); card.className = 'img-card';
         const bar = document.createElement('div'); bar.className = 'img-bar';
         const src = () => img.currentSrc || img.src;
