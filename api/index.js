@@ -17,6 +17,7 @@ const { chatJob, continueHandler, makeChatImage } = require('../server/chat-run'
 const { pushRouter } = require('../server/push');
 const { researchJob, researchRouter } = require('../server/research');
 const { startReport } = require('../server/research-reports');
+const { designsRouter } = require('../server/designs');
 const { tasksRouter, cronHandler } = require('../server/tasks');
 const { artifactsRouter, publicArtifactsRouter, sharedPageRouter } = require('../server/artifacts');
 const byok = require('../server/byok');
@@ -75,7 +76,7 @@ function stripSecrets(settings) {
       password: ''
     };
   }
-  const priority = ['study', 'humanizer', 'tourDone', 'browserAllowedDomains', 'dictationMode', 'userName', 'persona', 'customPersona', 'fontSize', 'theme', 'instructions', 'memoryOn', 'memoryItems', 'assistants', 'skills', 'webSearch', 'researchDepth', 'emailConfig'];
+  const priority = ['study', 'humanizer', 'tourDone', 'browserAllowedDomains', 'dictationMode', 'userName', 'persona', 'customPersona', 'fontSize', 'theme', 'instructions', 'memoryOn', 'memoryItems', 'assistants', 'skills', 'webSearch', 'researchDepth', 'designBrand', 'emailConfig'];
   const keys = [...new Set([...priority.filter(k => k in s), ...Object.keys(s)])].slice(0, 40);
   const trimmed = {};
   for (const k of keys) trimmed[k] = s[k];
@@ -448,6 +449,7 @@ api.use('/buddy', buddyRouter(requireAuth));
 api.use('/mcp', mcpRouter(requireAuth));
 api.use('/browser', browserRouter(requireAuth));
 api.use('/projects', projectsRouter(requireAuth));
+api.use('/designs', needsDb, designsRouter(requireAuth, { makeImage: makeChatImage }));
 api.use('/study', needsDb, studyRouter(requireAuth));
 api.use('/servers', serversRouter(requireAuth));
 api.use('/runs', runsRouter(requireAuth));

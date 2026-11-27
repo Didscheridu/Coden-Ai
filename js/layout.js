@@ -11,6 +11,7 @@ import { AppsView } from './apps/apps.js';
 import { StudyView } from './study.js';
 import { HumanizerView } from './humanizer.js';
 import { ResearchView } from './research-lib.js';
+import { DesignView, designCard, listDesigns } from './design.js';
 
 const $ = (id) => document.getElementById(id);
 let getSessions = () => [];
@@ -58,24 +59,33 @@ const ArtifactsView = {
         let filter = 'all', q = '';
         const grid = document.createElement('div'); grid.className = 'ag-grid';
         const page = document.createElement('div'); page.className = 'ap-page';
-        page.innerHTML = `<div class="ap-hero"><div><h1>Artefakte</h1><p>Alles, was Coden in deinen Chats gebaut hat: Webseiten, Spiele, Grafiken, Dokumente und Code.</p></div></div>
+        page.innerHTML = `<div class="ap-hero"><div><h1>Artefakte</h1><p>Alles, was Coden für dich gebaut hat: Webseiten, Spiele, Grafiken, Dokumente, Code und deine Social-Media-Designs.</p></div></div>
           <div class="ap-filters ag-bar"><input class="ag-search" type="search" placeholder="Artefakte durchsuchen …" aria-label="Artefakte durchsuchen"></div>`;
         const bar = page.querySelector('.ag-bar'); const search = page.querySelector('.ag-search');
         const all = collectArtifacts(getSessions());
-        const chips = [['all', 'Alle'], ['html', 'Webseiten'], ['svg', 'Grafiken'], ['markdown', 'Dokumente'], ['code', 'Code']].map(([k, l]) => {
+        let designs = []; // aus „Design“ (Server), werden nachgeladen
+        const chips = [['all', 'Alle'], ['design', 'Designs'], ['html', 'Webseiten'], ['svg', 'Grafiken'], ['markdown', 'Dokumente'], ['code', 'Code']].map(([k, l]) => {
             const b = document.createElement('button'); b.className = 'ap-chip'; b.dataset.k = k; b.textContent = l;
-            const n = document.createElement('span'); n.textContent = String(k === 'all' ? all.length : all.filter(x => x.type === k).length); b.appendChild(n);
+            const n = document.createElement('span'); n.textContent = String(k === 'all' ? all.length : k === 'design' ? 0 : all.filter(x => x.type === k).length); b.appendChild(n);
             b.addEventListener('click', () => { filter = k; draw(); }); return b;
         });
         bar.prepend(...chips);
         const draw = () => {
             chips.forEach(c => c.classList.toggle('active', c.dataset.k === filter));
-            const list = all.filter(x => (filter === 'all' || x.type === filter) && (!q || (x.title + ' ' + (x.chatTitle || '')).toLowerCase().includes(q)));
-            if (!all.length) { grid.innerHTML = '<div class="ap-empty wide"><span class="material-symbols-outlined">deployed_code</span><h2>Noch keine Artefakte</h2><p>Bitte Coden im Chat z. B. um ein Spiel, eine Webseite oder ein Diagramm – es erscheint dann hier.</p></div>'; return; }
-            grid.replaceChildren(...(list.length ? list.map(i => card(i, { actions: true })) : [Object.assign(document.createElement('p'), { className: 'ap-none', textContent: 'Nichts gefunden.' })]));
+            const list = filter === 'design' ? [] : all.filter(x => (filter === 'all' || x.type === filter) && (!q || (x.title + ' ' + (x.chatTitle || '')).toLowerCase().includes(q)));
+            const dl = filter === 'all' || filter === 'design' ? designs.filter(d => !q || d.title.toLowerCase().includes(q)) : [];
+            if (!all.length && !designs.length) { grid.innerHTML = '<div class="ap-empty wide"><span class="material-symbols-outlined">deployed_code</span><h2>Noch keine Artefakte</h2><p>Bitte Coden im Chat z. B. um ein Spiel, eine Webseite oder ein Diagramm – oder gestalte unter „Design“ einen Instagram-Post. Es erscheint dann hier.</p></div>'; return; }
+            const cards = [...dl.map(d => designCard(d)), ...list.map(i => card(i, { actions: true }))];
+            grid.replaceChildren(...(cards.length ? cards : [Object.assign(document.createElement('p'), { className: 'ap-none', textContent: 'Nichts gefunden.' })]));
         };
         search.addEventListener('input', () => { q = search.value.trim().toLowerCase(); draw(); });
         page.appendChild(grid); host.appendChild(page); draw();
+        listDesigns().then((ds) => {
+            designs = ds; if (!page.isConnected) return;
+            const c = chips.find(x => x.dataset.k === 'design'); if (c) c.lastChild.textContent = String(ds.length);
+            const a = chips.find(x => x.dataset.k === 'all'); if (a) a.lastChild.textContent = String(all.length + ds.length);
+            draw();
+        }).catch(() => {});
     }
 };
 
@@ -120,8 +130,9 @@ export const Layout = {
             Router.register('buddy', { mount: (host, params) => Buddy.mount(host, params), unmount: () => Buddy.unmount() });
             Router.register('humanizer', HumanizerView);
             Router.register('research', ResearchView);
+            Router.register('design', DesignView);
             const nav = (id, path) => $(id)?.addEventListener('click', (e) => { e.preventDefault(); Router.go(path); });
-            nav('open-apps-btn', 'apps'); nav('open-study-btn', 'lernen'); nav('open-artifacts-btn', 'artefakte'); nav('open-mcp-btn', 'verbindungen'); nav('open-buddy-btn', 'buddy'); nav('open-projects-btn', 'projekte'); nav('open-humanizer-btn', 'humanizer'); nav('open-research-btn', 'research');
+            nav('open-apps-btn', 'apps'); nav('open-study-btn', 'lernen'); nav('open-artifacts-btn', 'artefakte'); nav('open-mcp-btn', 'verbindungen'); nav('open-buddy-btn', 'buddy'); nav('open-projects-btn', 'projekte'); nav('open-humanizer-btn', 'humanizer'); nav('open-research-btn', 'research'); nav('open-design-btn', 'design');
             $('we-all')?.addEventListener('click', () => Router.go('artefakte'));
             // "Neu" und Chats in der Seitenleiste führen immer zurück in den Chat
             $('sb-new')?.addEventListener('click', () => Router.go('chat'));

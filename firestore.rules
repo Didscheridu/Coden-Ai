@@ -310,6 +310,21 @@ service cloud.firestore {
         && (!('updated_at' in data) || isIsoOrTs(data.updated_at));
     }
 
+    function isValidUserDesign(data) {
+      return data.keys().hasAll(['id', 'uid', 'title', 'format', 'head', 'body'])
+        && data.keys().hasOnly(['id', 'uid', 'title', 'format', 'slides', 'head', 'body', 'messages', 'created_at', 'updated_at'])
+        && data.id is int && data.id > 0
+        && isStr(data.uid, 1, 128)
+        && isStr(data.title, 1, 80)
+        && data.format in ['square', 'portrait', 'story', 'carousel']
+        && (!('slides' in data) || (data.slides is int && data.slides >= 1 && data.slides <= 10))
+        && isStr(data.head, 0, 20000)
+        && isStr(data.body, 0, 300000)
+        && (!('messages' in data) || (data.messages is list && data.messages.size() <= 30))
+        && (!('created_at' in data) || isIsoOrTs(data.created_at))
+        && (!('updated_at' in data) || isIsoOrTs(data.updated_at));
+    }
+
     function isValidSharedArtifact(data, artId) {
       return data.keys().hasAll(['id', 'uid', 'title', 'type', 'html', 'published', 'version'])
         && data.keys().hasOnly(['id', 'uid', 'author', 'title', 'type', 'html', 'body', 'src_key', 'published', 'created_at', 'updated_at', 'version'])
@@ -1006,6 +1021,20 @@ service cloud.firestore {
         && incoming().uid == existing().uid && incoming().id == existing().id
         && incoming().diff(existing()).affectedKeys().hasOnly(['seen']);
       allow delete: if isNumId(resId) && (isOwner(existing().uid) || isAdmin());
+    }
+
+    // ---------- Design (Social-Media-Designs) ----------
+    match /user_designs/{designId} {
+      allow get: if isNumId(designId) && (resource == null || isOwner(resource.data.uid) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());
+      allow create: if isVerified() && isNumId(designId) && isValidUserDesign(incoming())
+        && incoming().uid == request.auth.uid
+        && string(incoming().id) == designId;
+      allow update: if isVerified() && isNumId(designId) && isValidUserDesign(incoming())
+        && (isOwner(existing().uid) || isAdmin())
+        && incoming().uid == existing().uid && incoming().id == existing().id
+        && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'format', 'slides', 'head', 'body', 'messages', 'updated_at']);
+      allow delete: if isNumId(designId) && (isOwner(existing().uid) || isAdmin());
     }
 
     // ---------- Research-Bibliothek ----------
