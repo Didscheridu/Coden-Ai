@@ -767,17 +767,85 @@ async function openChessModal() {
 const modelSelectorBtn = document.getElementById('model-selector-btn');
 const modelDropdownMenu = document.getElementById('model-dropdown-menu');
 
+function positionModelMenu() {
+    if (!modelSelectorBtn || !modelDropdownMenu || modelDropdownMenu.classList.contains('hidden')) return;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const pad = 12;
+    const gap = 8;
+    const topBar = document.querySelector('.top-bar');
+    const tbRect = topBar ? topBar.getBoundingClientRect() : null;
+    const topSafe = (tbRect && tbRect.height > 0 && tbRect.bottom > 0 && tbRect.top < 80)
+        ? Math.max(pad, Math.ceil(tbRect.bottom) + 8)
+        : pad;
+
+    modelDropdownMenu.style.maxHeight = '';
+    modelDropdownMenu.style.left = '0px';
+    modelDropdownMenu.style.top = '0px';
+
+    const btnRect = modelSelectorBtn.getBoundingClientRect();
+    const menuWidth = Math.min(Math.max(modelDropdownMenu.offsetWidth || 280, 264), Math.min(336, vw - pad * 2));
+    const naturalHeight = modelDropdownMenu.scrollHeight || modelDropdownMenu.offsetHeight || 320;
+
+    const spaceAbove = Math.max(0, btnRect.top - topSafe - gap);
+    const spaceBelow = Math.max(0, vh - btnRect.bottom - pad - gap);
+    const openUp = naturalHeight <= spaceAbove || (spaceAbove >= 260 && spaceAbove >= spaceBelow);
+    const availH = Math.max(150, Math.floor(openUp ? spaceAbove : spaceBelow));
+    const finalHeight = Math.min(naturalHeight, availH);
+
+    const left = Math.max(pad, Math.min(vw - menuWidth - pad, btnRect.right - menuWidth));
+    const top = openUp
+        ? Math.max(topSafe, btnRect.top - gap - finalHeight)
+        : Math.min(vh - pad - finalHeight, btnRect.bottom + gap);
+
+    modelDropdownMenu.style.width = `${Math.round(menuWidth)}px`;
+    modelDropdownMenu.style.maxHeight = `${availH}px`;
+    modelDropdownMenu.style.left = `${Math.round(left)}px`;
+    modelDropdownMenu.style.top = `${Math.round(top)}px`;
+    modelDropdownMenu.dataset.dir = openUp ? 'up' : 'down';
+}
+
+function setModelMenuOpen(open) {
+    if (!modelDropdownMenu || !modelSelectorBtn) return;
+    modelDropdownMenu.classList.toggle('hidden', !open);
+    modelSelectorBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    modelSelectorBtn.closest('.input-section')?.classList.toggle('popover-open', open);
+    if (open) {
+        requestAnimationFrame(() => {
+            positionModelMenu();
+            const activeOpt = modelDropdownMenu.querySelector('.model-option.active');
+            if (activeOpt) activeOpt.scrollIntoView({ block: 'nearest' });
+        });
+    }
+}
+
 if (modelSelectorBtn && modelDropdownMenu) {
     modelSelectorBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        modelDropdownMenu.classList.toggle('hidden');
+        const willOpen = modelDropdownMenu.classList.contains('hidden');
+        setModelMenuOpen(willOpen);
     });
 
     document.addEventListener('click', (e) => {
-        if (!modelDropdownMenu.contains(e.target) && e.target !== modelSelectorBtn) {
-            modelDropdownMenu.classList.add('hidden');
+        if (!modelDropdownMenu.contains(e.target) && !modelSelectorBtn.contains(e.target)) {
+            setModelMenuOpen(false);
         }
     });
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !modelDropdownMenu.classList.contains('hidden')) {
+            setModelMenuOpen(false);
+            modelSelectorBtn.focus();
+        }
+    });
+
+    window.addEventListener('resize', () => {
+        if (!modelDropdownMenu.classList.contains('hidden')) positionModelMenu();
+    });
+
+    new MutationObserver(() => {
+        if (!modelDropdownMenu.classList.contains('hidden')) positionModelMenu();
+    }).observe(modelDropdownMenu, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
 
     bindEffortButtons();
     document.querySelectorAll('.model-option').forEach(option => {
@@ -795,14 +863,14 @@ if (modelSelectorBtn && modelDropdownMenu) {
             
             setModelLabel(option.querySelector('.name').textContent);
             currentSelectedModel = option.getAttribute('data-model');
-            modelDropdownMenu.classList.add('hidden');
+            setModelMenuOpen(false);
             syncEffortRow(currentSelectedModel);
         });
     });
     // Eigene Modelle (Bring your own Key) stehen dynamisch im Menü
     const pickByok = (tier, label) => {
         document.querySelectorAll('.model-option').forEach(o => o.classList.toggle('active', o.getAttribute('data-model') === tier));
-        setModelLabel(label); currentSelectedModel = tier; modelDropdownMenu.classList.add('hidden'); syncEffortRow(tier);
+        setModelLabel(label); currentSelectedModel = tier; setModelMenuOpen(false); syncEffortRow(tier);
     };
     initByok({
         getTier: () => currentSelectedModel,

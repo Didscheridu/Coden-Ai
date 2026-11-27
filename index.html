@@ -61,7 +61,6 @@
             .input-section { padding-bottom: calc(15px + env(safe-area-inset-bottom, 20px)) !important; }
             .chat-scroll-area { padding-bottom: 140px !important; }
         }
-        #cookie-banner { position: fixed; bottom: 16px; right: 16px; left: auto; transform: none; background: #1e1e1e; border: 1px solid #333; padding: 12px 16px; border-radius: 12px; display: flex; align-items: center; gap: 12px; z-index: 10000; box-shadow: 0 10px 30px rgba(0,0,0,0.8); max-width: min(440px, calc(100vw - 32px)); color: #ccc; font-size: 13px; flex-wrap: wrap; justify-content: flex-start; }
         #cookie-banner.hidden { display: none; }
 
         /* =========================================================
@@ -321,11 +320,11 @@
                         </div>
                         <div class="right-tools">
                             <div class="model-dropdown-container" style="position: relative;">
-                                <button type="button" class="text-btn" id="model-selector-btn">
+                                <button type="button" class="text-btn" id="model-selector-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="model-dropdown-menu">
                                     <span id="current-model-text">Coden Flash</span> 
                                     <span class="material-symbols-outlined">expand_more</span>
                                 </button>
-                                <div class="model-dropdown-menu hidden" id="model-dropdown-menu">
+                                <div class="model-dropdown-menu hidden" id="model-dropdown-menu" role="menu" aria-label="KI-Modell auswählen">
                                     <div class="model-option active" data-model="flash" id="flash-mode-option">
                                         <span class="material-symbols-outlined">bolt</span> <span class="name">Coden Flash</span>
                                     </div>
@@ -505,11 +504,29 @@
     </div>
 
     <div id="cookie-banner" class="hidden" role="region" aria-label="Speicher- und Datenschutzhinweis">
-        <div class="cookie-copy">
-            <p style="margin: 0;">Coden AI nutzt ausschließlich technisch notwendigen Browser-Speicher (<code>localStorage</code>) für Anmeldung, Design und Chats – <strong>keine Tracking-Cookies</strong> (§ 25 Abs. 2 TDDDG).</p>
-            <div class="cookie-links"><a href="#/datenschutz" data-legal="datenschutz">Datenschutz</a> · <a href="#/impressum" data-legal="impressum">Impressum</a> · <a href="#/kontakt" data-legal="kontakt">Kontakt</a> · <a href="#/ki" data-legal="ki">KI-Hinweis</a></div>
+        <div class="cookie-head">
+            <span class="cookie-icon" aria-hidden="true"><span class="material-symbols-outlined">verified_user</span></span>
+            <div class="cookie-title-wrap">
+                <strong class="cookie-title">Datenschutz &amp; Speicherhinweis</strong>
+                <span class="cookie-sub">Nur technisch notwendig · § 25 Abs. 2 TDDDG</span>
+            </div>
         </div>
-        <button id="accept-cookies-btn" class="btn-save" style="padding: 6px 16px; white-space: nowrap;">Verstanden</button>
+        <p class="cookie-text">Coden AI speichert nur technisch notwendige Daten im Browser (<code>localStorage</code>) für Anmeldung, Design und Chats – <strong>keine Tracking- oder Werbe-Cookies</strong>.</p>
+        <div class="cookie-foot">
+            <nav class="cookie-links" aria-label="Rechtliche Hinweise">
+                <a href="#/datenschutz" data-legal="datenschutz">Datenschutz</a>
+                <span aria-hidden="true">·</span>
+                <a href="#/impressum" data-legal="impressum">Impressum</a>
+                <span aria-hidden="true">·</span>
+                <a href="#/kontakt" data-legal="kontakt">Kontakt</a>
+                <span aria-hidden="true">·</span>
+                <a href="#/ki" data-legal="ki">KI-Hinweis</a>
+            </nav>
+            <div class="cookie-actions">
+                <button type="button" id="cookie-details-btn" class="cookie-btn-sec" data-legal="datenschutz">Details</button>
+                <button type="button" id="accept-cookies-btn" class="btn-save cookie-btn-ok">Verstanden</button>
+            </div>
+        </div>
     </div>
 
     <div id="chess-modal" class="modal-overlay hidden">
