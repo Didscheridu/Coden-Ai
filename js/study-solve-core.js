@@ -6,12 +6,12 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const str = (v, n) => String(v ?? '').replace(/\u0000/g, '').trim().slice(0, n);
 
 // Prompt für das Bild-Modell. pages = Anzahl Arbeitsblatt-Seiten (Bilder in derselben Reihenfolge)
-export function solvePrompt({ subject = '', title = '', desc = '', pages = 0, today = '' } = {}) {
+export function solvePrompt({ subject = '', title = '', desc = '', pages = 0, today = '', humanizeDirective = '' } = {}) {
     const system = `Du löst Hausaufgaben für einen Schüler (Klasse 9/10) und schreibst die Lösung so, wie er sie selbst ins Heft schreiben würde. Antworte NUR mit JSON, ohne Erklärung davor oder danach.
 Regeln für den Inhalt:
 - Fachlich richtig lösen. Keine Aufgabe und keine Teilaufgabe auslassen (auch Rückseiten, Zusatzaufgaben).
 - Sprache wie ein Schüler: kurze, einfache Sätze, keine KI-Floskeln, keine Gedankenstriche, nur so lang wie nötig. Sprache der Aufgabe übernehmen (Englisch-Aufgabe → Englisch).
-- Mathe: jede Umformung in eine eigene Zeile (z. B. "3x+6=21 |-6"), Unicode wie x², √, ·, ≈ statt LaTeX. Kein Markdown außer Tabellen (| a | b |).`;
+- Mathe: jede Umformung in eine eigene Zeile (z. B. "3x+6=21 |-6"), Unicode wie x², √, ·, ≈ statt LaTeX. Kein Markdown außer Tabellen (| a | b |).${humanizeDirective ? '\n\n' + humanizeDirective : ''}`;
     const sheet = pages > 0;
     const user = `${subject ? `Fach: ${subject}\n` : ''}${title ? `Auftrag: ${title}\n` : ''}${desc ? `Aufgabenstellung (vom Schüler/Foto): ${desc}\n` : ''}${today ? `Heute: ${today}\n` : ''}
 ${sheet ? `Die ${pages === 1 ? 'Bild ist das Arbeitsblatt' : `${pages} Bilder sind die Seiten des Arbeitsblatts (Seite 1 zuerst)`}. Lies alle Aufgaben darauf.` : 'Es gibt kein Arbeitsblatt-Bild, nur die Aufgabenstellung oben.'}

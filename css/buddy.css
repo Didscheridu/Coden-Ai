@@ -67,5 +67,6 @@
 .bd-msg.ai { align-self: flex-start; max-width: 88% } .bd-ai-name { display: inline-flex; align-items: center; gap: 4px; color: var(--accent-blue) } .bd-ai-name .material-symbols-outlined { font-size: 14px }
 .bd-bubble.ai { background: linear-gradient(135deg, rgba(138, 180, 248, .14), rgba(197, 138, 249, .14)); border: 1px solid rgba(138, 180, 248, .25); white-space: normal }
 .bd-bubble.ai pre { overflow: auto; max-width: 100% } .bd-msg.typing { opacity: .7; animation: pulse 1.2s ease-in-out infinite }
-.bd-bubble.card { white-space: normal; min-width: 240px } .bd-attach { display: flex; align-items: center; gap: 10px } .bd-attach > .material-symbols-outlined { font-size: 26px; color: var(--accent-blue) }
+.bd-bubble.card { white-space: normal; min-width: min(240px, 100%) } .bd-attach { display: flex; align-items: center; gap: 10px } .bd-attach > .material-symbols-outlined { font-size: 26px; color: var(--accent-blue) }
+@media (max-width: 480px) { .bd-center { padding: 18px 16px } .bd-chat-head, .bd-proj-head { padding: 10px 12px } }
 @keyframes pulse { 50% { opacity: .4 } }

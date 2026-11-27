@@ -13,11 +13,12 @@
     backdrop-filter: blur(5px);
     display: flex;
     justify-content: center;
-    align-items: center;
+    align-items: flex-start;
     z-index: 9999;
 }
 
 .modal-content {
+    margin: auto;
     background: var(--bg-surface);
     border: 1px solid var(--border-color);
     border-radius: 20px;

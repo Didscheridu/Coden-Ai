@@ -9,6 +9,8 @@ import { loadPage, savePage, newPageId, decodeStrokes, encodeStrokes, PAGE_W, PA
 import { activeProfile } from './handwriting-core.js';
 import { strokesInBox, notebookPagesFor } from './handwriting.js';
 import { solvePrompt, parseSolve, boxToPage, extraPagesText } from './study-solve-core.js';
+import { deAiText } from './humanizer-core.js';
+import { isAutoHumanizeOn, getAutoHumanizerPrompt } from './humanizer-prefs.js';
 
 const imgSize = (src) => new Promise((res) => {
     const i = new Image();
@@ -27,13 +29,27 @@ export async function solveAssignment(st, a, { ensureDoc, onStep = () => {} } = 
     const sheets = pages.filter(x => x.p?.bg).slice(0, 3);
     if (!sheets.length && !String(a.desc || '').trim()) throw new Error('Kein Arbeitsblatt und keine Aufgabenstellung. Lade ein Foto hoch oder trag die Aufgabe ein.');
 
-    const { system, user } = solvePrompt({ subject: S.subjectOf(st, a.subjectId)?.name || '', title: a.title, desc: a.desc, pages: sheets.length, today: S.isoDate(new Date()) });
+    const humOn = isAutoHumanizeOn('notebooks');
+    const { system, user } = solvePrompt({
+        subject: S.subjectOf(st, a.subjectId)?.name || '',
+        title: a.title,
+        desc: a.desc,
+        pages: sheets.length,
+        today: S.isoDate(new Date()),
+        humanizeDirective: getAutoHumanizerPrompt('notebooks')
+    });
     const r = await apiJson('/chat', {
         method: 'POST',
         body: JSON.stringify({ tier: sheets.length ? 'flash' : 'normal', messages: [{ role: 'system', content: system }, { role: 'user', content: user, ...(sheets.length ? { images: sheets.map(x => x.p.bg) } : {}) }] })
     });
     const items = parseSolve(r.content, sheets.length);
     if (!items?.length) throw new Error('Coden konnte die Aufgaben nicht lesen. Versuch es noch einmal.');
+    if (humOn) {
+        for (const it of items) {
+            if (it.answer) it.answer = deAiText(it.answer, { forNotebook: true });
+            if (it.work) it.work = deAiText(it.work, { forNotebook: true });
+        }
+    }
 
     onStep('Schreibt in deiner Handschrift …');
     const prof = activeProfile(StudyStore.handwriting());

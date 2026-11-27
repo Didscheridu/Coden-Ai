@@ -18,6 +18,8 @@ import { startStudyLive, stopLive, liveActive, sendLiveImage, sendLiveNote } fro
 import { buildPdfBlob, downloadPdfBlob, safePdfFilename } from './pdf-export.js';
 import { FORMULA_SUBJECTS, filterFormulas, UNIT_CATEGORIES, convertUnit, evaluateMathExpr } from './formula-helper.js';
 import { PAGE_W, PAGE_H, TEMPLATES, PEN_TYPES, encodeStrokes, decodeStrokes, widthAt, recognizeShape, eraseFrom, eraseWhole, lassoSelect, selectionBox, transformSelection, strokeOutline, rotateSelection, isPalm, stageMetrics } from './ink-core.js';
+import { deAiText } from './humanizer-core.js';
+import { isAutoHumanizeOn, updateHumanizerPrefs, getAutoHumanizerPrompt, HUMANIZER_CHANGED_EVENT } from './humanizer-prefs.js';
 export { PAGE_W, PAGE_H, encodeStrokes, decodeStrokes } from './ink-core.js';
 
 const PEN_COLORS = ['#1b1f2a', '#1d4ed8', '#c62828', '#2e7d32', '#7c3aed', '#ea580c'];
@@ -750,7 +752,19 @@ export function openInkEditor(ctx) {
     function placeSel() {
         if (!sel) return; const b = sel.box, pad = 8;
         Object.assign(sel.el.style, { left: `calc(var(--k) * ${b.x - pad}px)`, top: `calc(var(--k) * ${b.y - pad}px)`, width: `calc(var(--k) * ${b.w + pad * 2}px)`, height: `calc(var(--k) * ${b.h + pad * 2}px)` });
-        Object.assign(sel.menu.style, { left: `calc(var(--k) * ${Math.max(0, b.x)}px)`, top: b.y > 90 ? `calc(var(--k) * ${b.y - pad}px - 48px)` : `calc(var(--k) * ${b.y + b.h + pad}px + 8px)` });
+        const mw = sel.menu.offsetWidth || 260;
+        const mh = sel.menu.offsetHeight || 42;
+        const k = parseFloat(getComputedStyle(sel.pg.wrap).getPropertyValue('--k')) || 1;
+        const stageR = stage.getBoundingClientRect();
+        const wrapR = sel.pg.wrap.getBoundingClientRect();
+        const minL = Math.max(0, (Math.max(8, stageR.left + 8) - wrapR.left));
+        const maxL = Math.max(minL, (Math.min(window.innerWidth - 8, stageR.right - 8) - wrapR.left - mw));
+        const rawL = Math.max(0, b.x * k);
+        const clampedL = Math.max(minL, Math.min(maxL, rawL));
+        const rawTop = b.y > 90 ? ((b.y - pad) * k - mh - 8) : ((b.y + b.h + pad) * k + 8);
+        const minT = Math.max(4, (Math.max(8, stageR.top + 8) - wrapR.top));
+        const maxT = Math.max(minT, (Math.min(window.innerHeight - 8, stageR.bottom - 8) - wrapR.top - mh));
+        Object.assign(sel.menu.style, { left: `${Math.round(clampedL)}px`, top: `${Math.round(Math.max(minT, Math.min(maxT, rawTop)))}px` });
     }
     function clearSelection() { if (!sel) return; sel.el?.remove(); sel.menu?.remove(); sel = null; document.querySelector('.ink-pop')?.remove(); }
     function copySel() { if (!sel) return; const d = sel.pg.data; st.clip = { strokes: sel.si.map(i => d.strokes[i]), text: sel.ti.map(i => ({ ...d.text[i] })), items: sel.ii.map(i => ({ ...d.items[i] })) }; syncTools(); }
@@ -768,7 +782,25 @@ export function openInkEditor(ctx) {
     }
     function duplicateSel() { if (!sel) return; const pg = sel.pg; copySel(); pasteInto(pg, st.clip, 28); }
     async function paste() { const pg = pages[st.cur]; if (!pg || !st.clip) return; await ensureData(pg); pasteInto(pg, st.clip, 20); }
-    function popAt(pop, anchor, dx = 0) { root.append(pop); const r = anchor.getBoundingClientRect(); const w = pop.offsetWidth || 240, hgt = pop.offsetHeight || 200; pop.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left + dx)) + 'px'; pop.style.top = (r.bottom + hgt + 8 > window.innerHeight ? Math.max(8, r.top - hgt - 6) : r.bottom + 6) + 'px'; setTimeout(() => document.addEventListener('pointerdown', function off(ev) { if (!pop.contains(ev.target)) { pop.remove(); document.removeEventListener('pointerdown', off); } }), 0); }
+    function popAt(pop, anchor, dx = 0) {
+        root.append(pop);
+        const r = anchor.getBoundingClientRect();
+        const vw = window.innerWidth, vh = window.innerHeight, pad = 8, gap = 6;
+        const maxW = Math.max(160, vw - pad * 2);
+        pop.style.maxWidth = maxW + 'px';
+        pop.style.overflowY = 'auto';
+        const w = Math.min(pop.offsetWidth || 240, maxW);
+        const spaceBelow = Math.max(0, vh - r.bottom - pad - gap);
+        const spaceAbove = Math.max(0, r.top - pad - gap);
+        const openUp = (pop.scrollHeight || 200) > spaceBelow && spaceAbove > spaceBelow;
+        const availH = Math.max(80, Math.floor(openUp ? spaceAbove : spaceBelow));
+        const finalH = Math.min(pop.scrollHeight || 200, availH);
+        const top = openUp ? Math.max(pad, r.top - gap - finalH) : Math.min(vh - pad - finalH, r.bottom + gap);
+        pop.style.left = Math.round(Math.max(pad, Math.min(vw - w - pad, r.left + dx))) + 'px';
+        pop.style.top = Math.round(top) + 'px';
+        pop.style.maxHeight = Math.max(80, Math.min(availH, Math.floor(vh - pad - top))) + 'px';
+        setTimeout(() => document.addEventListener('pointerdown', function off(ev) { if (!pop.contains(ev.target)) { pop.remove(); document.removeEventListener('pointerdown', off); } }), 0);
+    }
     function colorMenu(anchor) {
         document.querySelector('.ink-pop')?.remove(); const pop = el('div', 'ink-pop ink-colors-pop');
         PEN_COLORS.concat(HL_COLORS).forEach(c => { const b = el('button', 'ink-swatch'); b.type = 'button'; b.style.setProperty('--sw', c); b.addEventListener('click', () => {
@@ -1115,9 +1147,18 @@ export function openInkEditor(ctx) {
         try { localStorage.setItem(CHAT_HW_KEY, chatHwMode ? '1' : '0'); } catch (_) {}
     });
     chatHwLbl.append(chatHwChk, el('span', '', 'Handschrift ins Heft'));
+    const chatHumLbl = el('label', 'ink-chat-chk');
+    chatHumLbl.title = 'Formuliert Heft-Antworten und Einträge automatisch natürlich & schülerfreundlich';
+    const chatHumChk = el('input'); chatHumChk.type = 'checkbox'; chatHumChk.checked = isAutoHumanizeOn('notebooks');
+    chatHumChk.addEventListener('change', () => {
+        updateHumanizerPrefs({ notebooks: chatHumChk.checked });
+    });
+    const syncNotebookHum = () => { chatHumChk.checked = isAutoHumanizeOn('notebooks'); };
+    window.addEventListener(HUMANIZER_CHANGED_EVENT, syncNotebookHum);
+    chatHumLbl.append(chatHumChk, el('span', '', 'Schülerfreundlich'));
     const chatTierSel = el('select', 'ink-chat-tier'); chatTierSel.title = 'Modell wählen';
     chatTierSel.addEventListener('change', () => { chatTier = chatTierSel.value; try { localStorage.setItem(CHAT_TIER_KEY, chatTier); } catch (_) {} });
-    chatBar.append(chatPageLbl, chatHwLbl, chatTierSel);
+    chatBar.append(chatPageLbl, chatHwLbl, chatHumLbl, chatTierSel);
 
     const chatRow = el('div', 'ink-chat-row');
     const chatIn = el('textarea', 'ink-chat-in'); chatIn.rows = 1; chatIn.placeholder = 'Frage Coden oder lass ihn in deiner Handschrift schreiben …';
@@ -1148,10 +1189,13 @@ export function openInkEditor(ctx) {
         const acts = el('div', 'ink-chat-acts');
         const hwB = btn('stylus_note', 'In Handschrift ins Heft', () => writeHandwritingToNotebook(text), 'labeled');
         const insB = btn('post_add', 'Als Text einfügen', () => insertTextOnPage(text), 'labeled');
+        const humB = btn('auto_fix_high', 'Humanisieren', () => {
+            close().then(() => import('./humanizer.js').then(m => m.openHumanizerWith(toPlainPageText(text) || text, { autoRun: true })));
+        }, 'labeled');
         const copyB = btn('content_copy', 'Kopieren', async () => {
             try { await navigator.clipboard.writeText(text); toast2('Kopiert'); } catch (_) {}
         }, 'labeled');
-        acts.append(hwB, insB, copyB);
+        acts.append(hwB, insB, humB, copyB);
         return acts;
     }
 
@@ -1246,6 +1290,7 @@ Regeln für \`<notebook_write>\`:
 - Verwende \`page="new"\`, wenn ausdrücklich eine neue Seite gewünscht ist, sonst \`page="current"\`.
 - Schreibe außerhalb von \`<notebook_write>\` höchstens 1–2 kurze Begleitsätze.${wantDirectWrite ? '\nWICHTIG: Antworte AUF JEDEN FALL mit einem vollständigen `<notebook_write>`-Block!' : ''}`,
                 hwCtx,
+                getAutoHumanizerPrompt('notebooks'),
                 nbCatalog,
                 studyCtx
             ].filter(Boolean).join('\n\n');
@@ -1305,10 +1350,12 @@ Regeln für \`<notebook_write>\`:
             }
             let writtenBody = '';
             if (!failed && collectedWrites.length) {
+                const humOn = isAutoHumanizeOn('notebooks');
                 for (const w of collectedWrites) {
-                    await writeHandwritingToNotebook(w.text, { mode: w.mode, paper: w.paper || null, ink: w.ink || null });
+                    const bodyText = humOn ? deAiText(w.text, { forNotebook: true }) : w.text;
+                    await writeHandwritingToNotebook(bodyText, { mode: w.mode, paper: w.paper || null, ink: w.ink || null });
                 }
-                writtenBody = collectedWrites.map(w => w.text).join('\n\n');
+                writtenBody = collectedWrites.map(w => (humOn ? deAiText(w.text, { forNotebook: true }) : w.text)).join('\n\n');
             }
             const metaLine = [thinkSecs ? `${thinkSecs} s` : '', modelUsed].filter(Boolean).join(' · ');
             statusEl.textContent = metaLine || 'Coden';
@@ -1637,6 +1684,7 @@ Regeln für \`<notebook_write>\`:
         chatAc?.abort();
         if (liveActive()) stopLive(); clearInterval(liveTimer);
         await flush(); io.disconnect(); ro.disconnect();
+        window.removeEventListener(HUMANIZER_CHANGED_EVENT, syncNotebookHum);
         document.removeEventListener('keydown', onKey); document.removeEventListener('visibilitychange', onHide);
         root.remove(); document.body.classList.remove('ink-open'); ctx.onClose?.();
     }

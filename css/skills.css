@@ -1,6 +1,6 @@
 /* css/skills.css – Skills in den Einstellungen, Import-Fenster und Auswahl. Ruhig, gleiche Farben wie der Rest. */
 .sk-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0 14px; }
-.sk-count { flex: 1; color: var(--text-muted); font-size: 13px; min-width: 140px; }
+.sk-count { flex: 1; color: var(--text-muted); font-size: 13px; min-width: min(140px, 100%); }
 .sk-list { display: flex; flex-direction: column; gap: 8px; }
 .sk-card { display: flex; align-items: center; gap: 12px; padding: 12px 12px 12px 14px; border: 1px solid var(--border-color); border-radius: 12px; background: rgba(255, 255, 255, 0.02); }
 .sk-card.off { opacity: 0.62; }
@@ -27,7 +27,7 @@
 .sk-mono { font-family: var(--font-mono) !important; font-size: 13px !important; }
 .sk-ins { min-height: 220px; resize: vertical; line-height: 1.5; }
 .sk-chars { color: var(--text-muted); font-size: 12px; }
-.sk-files-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; margin-top: 6px; }
+.sk-files-head { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 .sk-files-head .cd-btn { padding: 6px 10px; font-size: 12.5px; }
 .sk-files { display: flex; flex-direction: column; gap: 4px; }
 .sk-file { display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 10px; border: 1px solid var(--border-color); border-radius: 9px; font-size: 13px; }

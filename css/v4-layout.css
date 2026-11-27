@@ -525,7 +525,7 @@ body.temp-chat .top-bar .brand::after {
 
 /* ---------- Begrüßungsseite (sauber zentriert, kein Überlappen mit Top-Bar) ---------- */
 .main-content:has(#welcome-screen:not(.hidden):not([style*="none"])) {
-  justify-content: center;
+  justify-content: safe center;
   padding-top: var(--topbar-h);
   padding-bottom: 4vh;
   overflow-y: auto;

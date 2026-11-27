@@ -40,7 +40,6 @@
     <link rel="stylesheet" href="css/byok.css">
     <link rel="stylesheet" href="css/settings-v2.css">
     <link rel="stylesheet" href="css/assistants.css">
-    <link rel="stylesheet" href="css/responsive.css">
     <link rel="stylesheet" href="css/v4-layout.css">
     <link rel="stylesheet" href="css/skills.css">
     <link rel="stylesheet" href="css/connectors.css">
@@ -53,6 +52,9 @@
     <link rel="stylesheet" href="css/ink.css">
     <link rel="stylesheet" href="css/notebooks.css">
     <link rel="stylesheet" href="css/handwriting.css">
+    <link rel="stylesheet" href="css/humanizer.css">
+    <link rel="stylesheet" href="css/workspace.css">
+    <link rel="stylesheet" href="css/responsive.css">
 
     <style>
         .sidebar.collapsed { display: none; }
@@ -197,19 +199,19 @@
     </div>
 
     <div id="app" class="app-container hidden">
-        <button class="icon-btn hidden sb-open" id="open-sidebar-btn" title="Menü öffnen" aria-label="Menü öffnen"><span class="material-symbols-outlined">menu</span></button>
+        <button class="icon-btn hidden sb-open" id="open-sidebar-btn" title="Menü öffnen (Strg+B)" aria-label="Menü öffnen"><span class="material-symbols-outlined">menu</span></button>
         
         <aside class="sidebar" id="main-sidebar">
             <div class="sidebar-header">
-                <button class="icon-btn" id="close-sidebar-btn" title="Menü einklappen"><span class="material-symbols-outlined">left_panel_close</span></button>
+                <button class="icon-btn" id="close-sidebar-btn" title="Menü einklappen (Strg+B)" aria-label="Menü einklappen"><span class="material-symbols-outlined">left_panel_close</span></button>
                 <div class="sb-brand">
                     <svg class="brand-mark-svg" viewBox="0 0 32 32" width="22" height="22" aria-hidden="true"><rect x="3" y="3" width="26" height="26" rx="6" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12.5 11.5L8.5 16l4 4.5M19.5 11.5l4 4.5-4 4.5M17.2 10l-2.4 12"/></svg>
                     <span>Coden</span>
                 </div>
             </div>
             <nav class="sb-nav">
-                <a href="#/chat" class="sb-item new-chat-btn" id="sb-new" title="Neuer Chat"><span class="material-symbols-outlined">add</span><span class="sb-label">Neuer Chat</span></a>
-                <a href="#" class="sb-item" id="toggle-search-btn"><span class="material-symbols-outlined">search</span><span class="sb-label">Suchen</span></a>
+                <a href="#/chat" class="sb-item new-chat-btn" id="sb-new" title="Neuer Chat (Strg+N)"><span class="material-symbols-outlined">add</span><span class="sb-label">Neuer Chat</span></a>
+                <a href="#" class="sb-item" id="toggle-search-btn" title="Chats durchsuchen (Strg+K)"><span class="material-symbols-outlined">search</span><span class="sb-label">Suchen</span></a>
                 <div id="search-container" class="sb-search"><input type="text" id="chat-search-input" placeholder="Chats durchsuchen…" autocomplete="off"></div>
                 <a href="#/apps" class="sb-item" id="open-apps-btn" data-route="apps"><span class="material-symbols-outlined">apps</span><span class="sb-label">Apps</span></a>
                 <a href="#/lernen" class="sb-item" id="open-study-btn" data-route="lernen"><span class="material-symbols-outlined">school</span><span class="sb-label">Lernen</span></a>
@@ -218,6 +220,7 @@
                 <a href="#/buddy" class="sb-item" id="open-buddy-btn" data-route="buddy"><span class="material-symbols-outlined">diversity_3</span><span class="sb-label">Code Buddy</span><span class="bd-nav-badge" style="display:none"></span></a>
                 <button type="button" class="sb-item sb-more-toggle" id="sb-more-toggle" aria-expanded="false" onclick="const g=document.getElementById('sb-more-group');const open=g.classList.toggle('collapsed');this.setAttribute('aria-expanded',String(!open));"><span class="material-symbols-outlined">more_horiz</span><span class="sb-label">Mehr</span></button>
                 <div id="sb-more-group" class="sb-more-group collapsed">
+                    <a href="#/humanizer" class="sb-item" id="open-humanizer-btn" data-route="humanizer"><span class="material-symbols-outlined">auto_fix_high</span><span class="sb-label">Humanizer</span></a>
                     <a href="#/verbindungen" class="sb-item" id="open-mcp-btn" data-route="verbindungen"><span class="material-symbols-outlined">hub</span><span class="sb-label">Konnektoren</span></a>
                     <a href="#" class="sb-item" id="open-tasks-btn"><span class="material-symbols-outlined">schedule</span><span class="sb-label">Geplante Aufgaben</span><span class="bd-nav-badge" id="tasks-nav-badge" style="display:none"></span></a>
                 </div>
@@ -226,11 +229,11 @@
             <div class="sidebar-footer">
                 <div class="user-menu cm-panel hidden" id="user-menu" role="menu" aria-label="Konto">
                     <div id="user-email-display" class="cm-head"></div>
-                    <button type="button" class="cm-item" id="open-settings-btn" role="menuitem"><span class="material-symbols-outlined cm-ic">settings</span><span class="cm-label">Einstellungen</span><span class="cm-kbd" data-kbd="Strg+,">Strg+,</span></button>
+                    <button type="button" class="cm-item" id="open-settings-btn" role="menuitem" title="Einstellungen (Strg+,)"><span class="material-symbols-outlined cm-ic">settings</span><span class="cm-label">Einstellungen</span><span class="cm-kbd" data-kbd="Strg+,">Strg+,</span></button>
                     <button type="button" class="cm-item" id="um-usage" role="menuitem"><span class="material-symbols-outlined cm-ic">data_usage</span><span class="cm-label">Nutzung</span></button>
                     <button type="button" class="cm-item" id="um-theme" role="menuitem" data-keep="1"><span class="material-symbols-outlined cm-ic" id="um-theme-icon">light_mode</span><span class="cm-label" id="um-theme-label">Hell-Modus</span></button>
                     <button type="button" class="cm-item" id="um-skills" role="menuitem"><span class="material-symbols-outlined cm-ic">auto_awesome</span><span class="cm-label">Skills</span></button>
-                    <button type="button" class="cm-item" id="um-help" role="menuitem"><span class="material-symbols-outlined cm-ic">help</span><span class="cm-label">Hilfe &amp; Tastenkürzel</span><span class="cm-kbd" data-kbd="Strg+/">Strg+/</span></button>
+                    <button type="button" class="cm-item" id="um-help" role="menuitem" title="Hilfe &amp; Tastenkürzel (Strg+.)"><span class="material-symbols-outlined cm-ic">help</span><span class="cm-label">Hilfe &amp; Tastenkürzel</span><span class="cm-kbd" data-kbd="Strg+.">Strg+.</span></button>
                     <button type="button" class="cm-item" id="um-more" role="menuitem" aria-haspopup="menu"><span class="material-symbols-outlined cm-ic">info</span><span class="cm-label">Mehr erfahren</span><span class="material-symbols-outlined cm-chev">chevron_right</span></button>
                     <div class="cm-sep" role="separator"></div>
                     <button type="button" class="cm-item accent um-owner" id="um-owner" role="menuitem"><span class="material-symbols-outlined cm-ic">terminal</span><span class="cm-label">Owner-Befehle</span></button>
@@ -254,6 +257,9 @@
                     </div>
                 </div>
                 <div class="tb-right">
+                    <button type="button" class="icon-btn" id="toggle-workspace-btn" title="Geteilter Arbeitsbereich (Browser &amp; Lernheft)" aria-label="Geteilter Arbeitsbereich">
+                        <span class="material-symbols-outlined">splitscreen</span>
+                    </button>
                     <button type="button" class="icon-btn" id="theme-toggle-btn" title="Design wechseln (Hell / Dunkel)" aria-label="Design wechseln">
                         <span class="material-symbols-outlined" id="theme-toggle-icon">light_mode</span>
                     </button>
@@ -284,7 +290,7 @@
                     <div id="command-popup" class="command-popup hidden"></div>
                     
                     <div id="composer-tools-menu" class="composer-tools-menu cm-panel hidden" role="menu" aria-label="Hinzufügen">
-                        <button type="button" class="cm-item" id="attachment-btn" role="menuitem"><span class="material-symbols-outlined cm-ic">attach_file</span><span class="cm-label">Dateien hochladen</span><span class="cm-kbd" data-kbd="Strg+U">Strg+U</span></button>
+                        <button type="button" class="cm-item" id="attachment-btn" role="menuitem" title="Dateien hochladen (Strg+U)"><span class="material-symbols-outlined cm-ic">attach_file</span><span class="cm-label">Dateien hochladen</span><span class="cm-kbd" data-kbd="Strg+U">Strg+U</span></button>
                         <button type="button" class="cm-item" id="ct-skill-new" role="menuitem"><span class="material-symbols-outlined cm-ic">auto_awesome</span><span class="cm-label">Einen Skill erstellen</span></button>
                         <div class="cm-sep" role="separator"></div>
                         <button type="button" class="cm-item" id="ct-skills" role="menuitem" aria-haspopup="menu"><span class="material-symbols-outlined cm-ic">category</span><span class="cm-label">Skills</span><span class="material-symbols-outlined cm-chev">chevron_right</span></button>
@@ -302,12 +308,13 @@
                         <button type="button" class="cm-item" id="ct-temp" role="menuitemcheckbox" aria-checked="false" data-keep="1"><span class="material-symbols-outlined cm-ic">history_toggle_off</span><span class="cm-label">Temporärer Chat</span><span class="material-symbols-outlined cm-check off">check</span></button>
                         <div class="cm-sep" role="separator"></div>
                         <button type="button" class="cm-item" id="ct-export-chat" role="menuitem"><span class="material-symbols-outlined cm-ic">download</span><span class="cm-label">Chat exportieren</span></button>
+                        <button type="button" class="cm-item" id="ct-humanize" role="menuitemcheckbox" aria-checked="true" data-keep="1" title="Coden antwortet automatisch natürlich und schülerfreundlich"><span class="material-symbols-outlined cm-ic">auto_fix_high</span><span class="cm-label">Natürlich &amp; schülerfreundlich</span><span class="material-symbols-outlined cm-check off">check</span></button>
                         <button type="button" class="cm-item" id="ct-hw-mode" role="menuitemcheckbox" aria-checked="false" data-keep="1" title="Coden antwortet auf Karopapier in deiner Handschrift"><span class="material-symbols-outlined cm-ic">edit_note</span><span class="cm-label">In meiner Handschrift antworten</span><span class="material-symbols-outlined cm-check off">check</span></button>
                         <button type="button" class="cm-item" id="ct-handwriting" role="menuitem"><span class="material-symbols-outlined cm-ic">stylus_note</span><span class="cm-label">Handschrift trainieren</span></button>
                         <button type="button" class="cm-item" id="ct-chess" role="menuitem"><span class="material-symbols-outlined cm-ic">chess</span><span class="cm-label">Schach vs. Coden</span></button>
                     </div>
                     <input type="file" id="file-upload-input" multiple style="display: none;">
-                    <textarea id="main-input" rows="1" placeholder="Nachricht an Coden … ('/' für Befehle)"></textarea>
+                    <textarea id="main-input" rows="1" placeholder="Nachricht an Coden … ('/' für Befehle)" title="Eingabefeld fokussieren (Strg+/)"></textarea>
                     <div class="input-footer">
                         <div class="left-tools">
                             <button type="button" class="icon-btn" id="composer-plus-btn" title="Anhänge, Apps &amp; Assistent" aria-label="Anhänge, Apps und Assistent" aria-haspopup="true" aria-expanded="false">
@@ -348,6 +355,7 @@
                                     </div>
                                 </div>
                             </div>
+                            <button type="button" class="icon-btn smart-mic-btn on" id="mic-smart-btn" title="Smart-Diktat AN: Sprache automatisch als Aufgaben oder Notizen gliedern" aria-label="Smart-Diktat umschalten" aria-pressed="true"><span class="material-symbols-outlined">auto_awesome</span></button>
                             <button type="button" class="icon-btn" id="mic-btn" title="Diktieren" aria-label="Diktieren"><span class="material-symbols-outlined">mic</span></button>
                             <button type="button" class="icon-btn hidden" id="stop-btn" title="Antwort stoppen" aria-label="Antwort stoppen"><span class="material-symbols-outlined">stop</span></button>
                             <button type="button" class="icon-btn" id="send-btn" title="Senden" aria-label="Senden"><span class="material-symbols-outlined">arrow_upward</span></button>
@@ -410,6 +418,17 @@
                         <h4 style="margin-top: 26px;">Gedächtnis</h4>
                         <label class="st-check"><input type="checkbox" id="memory-on"> Coden darf sich Dinge über mich merken</label>
                         <div id="memory-ui" class="mem-ui"></div>
+                        <h4 style="margin-top: 26px;">Humanizer (Natürlicher Schreibstil)</h4>
+                        <p class="settings-hint">Schreibt Texte von Coden automatisch natürlich, aktiv und schülerfreundlich – ohne steife KI-Floskeln.</p>
+                        <label class="st-check"><input type="checkbox" id="hz-pref-notebooks"> In Lernheften &amp; Handschrift-Lösungen</label>
+                        <label class="st-check"><input type="checkbox" id="hz-pref-study"> Im Lern-Studio (Merkzettel, Leitfäden, Tutor)</label>
+                        <label class="st-check"><input type="checkbox" id="hz-pref-chat"> Bei Chat-Antworten</label>
+                        <label for="hz-pref-strength" style="margin-top: 10px; display: block;">Standard-Stärke</label>
+                        <select id="hz-pref-strength" class="settings-input">
+                            <option value="gentle">Behutsam (nur Floskeln glätten)</option>
+                            <option value="balanced">Ausgewogen (natürlich &amp; schülerfreundlich)</option>
+                            <option value="strong">Stark &amp; locker (freie Alltagssprache)</option>
+                        </select>
                     </section>
                     <section class="st-pane hidden" data-pane="assistants">
                         <h4>Eigene Assistenten</h4>

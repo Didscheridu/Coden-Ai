@@ -1,0 +1,530 @@
+/* css/humanizer.css – Eigener Humanizer unter „Mehr“ (#/humanizer) & Bereichs-Umschalter */
+
+.hz-page {
+  max-width: var(--container-max, 1200px);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  color: var(--ink, var(--text-primary));
+  width: 100%;
+  min-width: 0;
+}
+
+.hz-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.hz-head-title {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  flex: 1 1 320px;
+}
+.hz-title-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.hz-title-row .material-symbols-outlined {
+  font-size: 24px;
+  color: var(--accent-blue, #60a5fa);
+}
+.hz-head-title h1 {
+  margin: 0;
+  font-size: var(--text-h1, 1.85rem);
+  font-weight: 700;
+  color: var(--ink, var(--text-primary));
+}
+.hz-head-title p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--ink-secondary, var(--text-secondary));
+  max-width: 680px;
+}
+.hz-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.hz-tier {
+  width: auto !important;
+  min-width: 145px;
+  max-width: 220px;
+  min-height: 38px;
+}
+
+/* ---------- Automatik-Leiste (Lernhefte, Lern-Studio, Chat) ---------- */
+.hz-auto-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  flex-wrap: wrap;
+  padding: 11px 14px;
+  border-radius: var(--radius, 12px);
+  background: var(--surface, var(--bg-surface));
+  border: 1px solid var(--line-subtle, var(--border-color));
+}
+.hz-auto-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink, var(--text-primary));
+}
+.hz-auto-label .material-symbols-outlined {
+  font-size: 18px;
+  color: var(--ink-secondary, var(--text-secondary));
+}
+.hz-scope-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.hz-scope-chk {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border-radius: var(--radius-sm, 8px);
+  border: 1px solid var(--line-subtle, var(--border-color));
+  background: var(--bg, var(--bg-main));
+  color: var(--ink-secondary, var(--text-secondary));
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+}
+.hz-scope-chk input {
+  accent-color: var(--accent-blue, #3b82f6);
+  cursor: pointer;
+}
+.hz-scope-chk.on {
+  color: var(--ink, var(--text-primary));
+  border-color: var(--line-control, var(--border-strong));
+}
+.hz-scope-chk .material-symbols-outlined {
+  font-size: 16px;
+}
+
+/* ---------- Steuerleiste (Stärke-Regler & Stil-Optionen) ---------- */
+.hz-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 14px;
+}
+.hz-strength-box,
+.hz-options-box {
+  background: var(--surface, var(--bg-surface));
+  border: 1px solid var(--line-subtle, var(--border-color));
+  border-radius: var(--radius, 12px);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+}
+.hz-strength-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.hz-ctrl-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted, var(--text-muted));
+}
+.hz-strength-val {
+  font-size: 13px;
+  color: var(--ink, var(--text-primary));
+}
+.hz-slider {
+  width: 100%;
+  accent-color: var(--accent-blue, #3b82f6);
+  cursor: pointer;
+}
+.hz-step-labels {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.hz-step-btn {
+  appearance: none;
+  background: var(--bg, var(--bg-main));
+  border: 1px solid var(--line-subtle, var(--border-color));
+  color: var(--ink-secondary, var(--text-secondary));
+  border-radius: var(--radius-sm, 8px);
+  padding: 6px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: center;
+}
+.hz-step-btn.active {
+  background: var(--btn-primary-bg, #2563eb);
+  color: var(--btn-primary-fg, #fff);
+  border-color: var(--btn-primary-bg, #2563eb);
+  font-weight: 600;
+}
+.hz-strength-desc {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--ink-secondary, var(--text-secondary));
+}
+.hz-opt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hz-opt-chk {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink, var(--text-primary));
+  cursor: pointer;
+}
+.hz-opt-chk input {
+  accent-color: var(--accent-blue, #3b82f6);
+}
+.hz-run-wrap {
+  margin-top: auto;
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+.hz-run-btn {
+  min-height: 40px;
+  padding: 8px 18px !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+/* ---------- Vorher / Nachher Split-Werkbank ---------- */
+.hz-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: stretch;
+}
+.hz-pane {
+  background: var(--surface, var(--bg-surface));
+  border: 1px solid var(--line-subtle, var(--border-color));
+  border-radius: var(--radius, 12px);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 390px;
+  overflow: hidden;
+}
+.hz-pane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line-subtle, var(--border-color));
+}
+.hz-pane-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.hz-pane-title h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink, var(--text-primary));
+}
+.hz-pane-title small {
+  font-size: 12px;
+  color: var(--ink-muted, var(--text-muted));
+  font-variant-numeric: tabular-nums;
+}
+.hz-pane-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px;
+  min-height: 240px;
+  max-height: 520px;
+  overflow-y: auto;
+}
+.hz-textarea {
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 220px;
+  border: 0;
+  outline: none;
+  resize: vertical;
+  background: transparent;
+  color: var(--ink, var(--text-primary));
+  font: inherit;
+  font-size: 14.5px;
+  line-height: 1.65;
+}
+.hz-output-text,
+.hz-annotated,
+.hz-diff {
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: var(--ink, var(--text-primary));
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.hz-output-text.streaming::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 15px;
+  margin-left: 4px;
+  vertical-align: -2px;
+  border-radius: 2px;
+  background: var(--ink-secondary);
+  animation: x-cursor-blink 900ms ease-in-out infinite;
+}
+.hz-empty-out,
+.hz-empty-note {
+  margin: auto;
+  text-align: center;
+  color: var(--ink-muted, var(--text-muted));
+  font-size: 13.5px;
+  line-height: 1.5;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.hz-empty-out .material-symbols-outlined {
+  font-size: 32px;
+  opacity: 0.7;
+}
+
+/* ---------- KI-Muster-Markierungen (Farbe + Icon + Text) ---------- */
+.hz-hit {
+  display: inline;
+  padding: 1px 4px;
+  border-radius: 5px;
+  cursor: pointer;
+  color: inherit;
+  border-bottom: 2px solid transparent;
+}
+.hz-hit.dimmed {
+  opacity: 0.35;
+}
+.hz-hit.selected {
+  outline: 2px solid var(--ink, #fff);
+  outline-offset: 1px;
+}
+.hz-hit-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 4px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  vertical-align: 1px;
+  letter-spacing: 0.02em;
+}
+.hz-hit-tag .material-symbols-outlined {
+  font-size: 12px;
+}
+.hz-hit-cliche { background: rgba(239, 68, 68, 0.16); border-bottom-color: #ef4444; }
+.hz-hit-cliche .hz-hit-tag { background: rgba(239, 68, 68, 0.25); color: #f87171; }
+.hz-hit-transition { background: rgba(245, 158, 11, 0.16); border-bottom-color: #f59e0b; }
+.hz-hit-transition .hz-hit-tag { background: rgba(245, 158, 11, 0.24); color: #fbbf24; }
+.hz-hit-buzzword { background: rgba(168, 85, 247, 0.16); border-bottom-color: #a855f7; }
+.hz-hit-buzzword .hz-hit-tag { background: rgba(168, 85, 247, 0.24); color: #c084fc; }
+.hz-hit-dash { background: rgba(59, 130, 246, 0.18); border-bottom-color: #3b82f6; }
+.hz-hit-dash .hz-hit-tag { background: rgba(59, 130, 246, 0.26); color: #60a5fa; }
+.hz-hit-structure { background: rgba(20, 184, 166, 0.15); border-bottom-color: #14b8a6; }
+.hz-hit-structure .hz-hit-tag { background: rgba(20, 184, 166, 0.24); color: #2dd4bf; }
+
+:root[data-theme="light"] .hz-hit-cliche .hz-hit-tag { color: #b91c1c; }
+:root[data-theme="light"] .hz-hit-transition .hz-hit-tag { color: #b45309; }
+:root[data-theme="light"] .hz-hit-buzzword .hz-hit-tag { color: #7e22ce; }
+:root[data-theme="light"] .hz-hit-dash .hz-hit-tag { color: #1d4ed8; }
+:root[data-theme="light"] .hz-hit-structure .hz-hit-tag { color: #0f766e; }
+
+.hz-pane-foot {
+  padding: 10px 14px;
+  border-top: 1px solid var(--line-subtle, var(--border-color));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.hz-cat-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.hz-cat-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: var(--radius-sm, 8px);
+  border: 1px solid var(--line-subtle, var(--border-color));
+  background: var(--bg, var(--bg-main));
+  color: var(--ink-secondary, var(--text-secondary));
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.hz-cat-btn .material-symbols-outlined { font-size: 14px; }
+.hz-cat-btn.active {
+  background: var(--surface-hover);
+  border-color: var(--line-control);
+  color: var(--ink);
+  font-weight: 600;
+}
+.hz-hit-detail {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm, 8px);
+  background: var(--bg, var(--bg-main));
+  border: 1px solid var(--line-subtle, var(--border-color));
+  font-size: 12.5px;
+}
+.hz-hit-detail .material-symbols-outlined {
+  font-size: 17px;
+  color: var(--accent-blue, #60a5fa);
+  margin-top: 1px;
+}
+.hz-hit-detail p {
+  margin: 2px 0 0;
+  color: var(--ink-secondary, var(--text-secondary));
+}
+
+/* ---------- Diff ---------- */
+.hz-diff-del {
+  background: rgba(239, 68, 68, 0.16);
+  color: #f87171;
+  text-decoration: line-through;
+  padding: 0 2px;
+  border-radius: 3px;
+}
+.hz-diff-add {
+  background: rgba(34, 197, 94, 0.16);
+  color: #4ade80;
+  text-decoration: none;
+  padding: 0 2px;
+  border-radius: 3px;
+}
+:root[data-theme="light"] .hz-diff-del { color: #b91c1c; }
+:root[data-theme="light"] .hz-diff-add { color: #15803d; }
+
+/* ---------- Ausgabe-Aktionen ---------- */
+.hz-out-actions {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.hz-act-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.hz-act-group button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 36px;
+}
+
+/* ---------- Lernheft-Transfer-Modal ---------- */
+.hz-nb-new-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hz-nb-new-fields[hidden] {
+  display: none;
+}
+.hz-nb-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+/* ---------- Kompakter Humanizer-Schalter im Lern-Studio & Chat ---------- */
+.st-hz-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius, 10px);
+  border: 1px solid var(--border-color);
+  background: var(--bg-sidebar);
+  font-size: 12.5px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.st-hz-toggle-l {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.st-hz-toggle-l .material-symbols-outlined {
+  font-size: 17px;
+  color: var(--accent-blue, #60a5fa);
+}
+.st-hz-toggle input {
+  accent-color: var(--accent-blue, #3b82f6);
+  cursor: pointer;
+}
+
+@media (max-width: 960px) {
+  .hz-controls,
+  .hz-grid {
+    grid-template-columns: 1fr;
+  }
+  .hz-pane {
+    min-height: 300px;
+  }
+}
+
+@media (max-width: 600px) {
+  .hz-nb-grid-2 {
+    grid-template-columns: 1fr;
+  }
+  .hz-out-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .hz-act-group {
+    width: 100%;
+  }
+  .hz-act-group > button {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}

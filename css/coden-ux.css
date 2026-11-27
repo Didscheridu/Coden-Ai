@@ -224,7 +224,7 @@ html[data-theme="light"] {
 .st-tx p { margin: 0; }
 
 /* Kennzahlen */
-.cw-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 14px 0; }
+.cw-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); gap: 10px; margin: 14px 0; }
 .cw-stats .stat { --c: var(--accent-brand); padding: 14px 16px; border-radius: var(--radius-lg); background: var(--bg-surface); border: 1px solid var(--border-color); border-top: 3px solid var(--c); display: flex; flex-direction: column; gap: 2px; }
 .cw-stats .stat b { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; color: var(--c); line-height: 1.2; }
 .cw-stats .stat span { font-size: 13px; color: var(--text-secondary); line-height: 1.4; }
@@ -233,7 +233,7 @@ html[data-theme="light"] {
 .c-pink { --c: var(--c-pink) !important; } .c-cyan { --c: var(--c-cyan) !important; } .c-gray { --c: var(--c-gray) !important; }
 
 /* Vor- und Nachteile */
-.cw-proscons { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 14px 0; }
+.cw-proscons { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 10px; margin: 14px 0; }
 .pc-col { --c: var(--c-green); padding: 14px 16px; border-radius: var(--radius-lg); border: 1px solid color-mix(in srgb, var(--c) 30%, transparent); background: color-mix(in srgb, var(--c) 7%, transparent); }
 .pc-col.con { --c: var(--c-red); }
 .pc-head { display: flex; align-items: center; gap: 6px; color: var(--c); margin-bottom: 6px; }
@@ -294,7 +294,7 @@ html[data-theme="light"] {
 .pie-seg { --c: var(--c-blue); fill: var(--c); stroke: var(--bg-surface); stroke-width: 2.5; }
 .pie-hole { fill: var(--bg-surface); }
 .pie-total { fill: var(--text-primary); font-size: 24px; font-weight: 700; font-family: var(--font-main); }
-.pie-legend { display: grid; gap: 7px; flex: 1; min-width: 180px; font-size: 13.5px; }
+.pie-legend { display: grid; gap: 7px; flex: 1; min-width: min(180px, 100%); font-size: 13.5px; }
 .pie-key { display: grid; grid-template-columns: 12px 1fr auto; gap: 9px; }
 .pie-key i { width: 12px; height: 12px; border-radius: 4px; background: var(--c); }
 .pie-key b { font-variant-numeric: tabular-nums; }

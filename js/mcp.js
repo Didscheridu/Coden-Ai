@@ -16,6 +16,26 @@ const loadLegacy = () => {
 const saveLegacy = (list) => localStorage.setItem(LEGACY_KEY, JSON.stringify(list.filter(s => s.isLegacy)));
 const loadAlways = () => { try { const o = JSON.parse(localStorage.getItem(ALWAYS_KEY) || '{}'); return o && typeof o === 'object' ? o : {}; } catch (_) { return {}; } };
 const saveAlways = (o) => { try { localStorage.setItem(ALWAYS_KEY, JSON.stringify(o || {})); } catch (_) {} };
+const normUrl = (u) => {
+    try { const p = new URL(String(u || '').trim()); return `${p.origin}${p.pathname.replace(/\/+$/, '')}`.toLowerCase(); }
+    catch (_) { return String(u || '').trim().toLowerCase(); }
+};
+const mirrorKeysFor = (s) => {
+    const keys = [];
+    if (s?.id) keys.push(`id:${s.id}`);
+    if (s?.url) keys.push(`url:${normUrl(s.url)}`);
+    if (s?.catalogId) keys.push(`cat:${String(s.catalogId).toLowerCase()}`);
+    const legacy = String(s?.id || s?.url || s?.name || '');
+    if (legacy) keys.push(legacy);
+    return [...new Set(keys)];
+};
+const readMirrorEntry = (map, k) => {
+    const v = map?.[k];
+    if (!v) return { server: false, tools: {} };
+    if (typeof v === 'number' || v === true) return { server: true, tools: {} }; // altes Format abwärtskompatibel
+    if (typeof v === 'object') return { server: !!v.server, tools: (v.tools && typeof v.tools === 'object') ? v.tools : {} };
+    return { server: false, tools: {} };
+};
 const connKey = (s) => String(s?.id || s?.url || s?.name || '');
 
 let cloudConns = [];
@@ -171,16 +191,98 @@ export const MCP = {
 
     askBefore: () => localStorage.getItem(ASK) !== '0',
     setAskBefore: (v) => localStorage.setItem(ASK, v ? '1' : '0'),
-    isAlwaysAllowed: (s) => { const k = connKey(s); return Boolean(k && loadAlways()[k]); },
-    setAlwaysAllowed: (s, allow = true) => {
-        const k = connKey(s); if (!k) return;
+    alwaysState: (s) => {
         const map = loadAlways();
-        if (allow) map[k] = Date.now(); else delete map[k];
-        saveAlways(map); notifyChange();
+        let server = Boolean(s?.alwaysAllowed);
+        const tools = new Set(Array.isArray(s?.alwaysAllowedTools) ? s.alwaysAllowedTools.map(String) : []);
+        for (const k of mirrorKeysFor(s)) {
+            const e = readMirrorEntry(map, k);
+            if (e.server) server = true;
+            Object.keys(e.tools).forEach(t => { if (e.tools[t]) tools.add(t); });
+        }
+        return { server, tools: [...tools] };
     },
-    hasAlwaysAllowed: () => Object.keys(loadAlways()).length > 0,
-    clearAllAlwaysAllowed: () => { saveAlways({}); notifyChange(); },
-    shouldAskFor: (s) => MCP.askBefore() && !MCP.isAlwaysAllowed(s),
+    isAlwaysAllowed: (s, toolName = '') => {
+        if (!s) return false;
+        const st = MCP.alwaysState(s);
+        if (st.server) return true;
+        if (toolName && st.tools.includes(String(toolName))) return true;
+        return false;
+    },
+    setAlwaysAllowed: (s, opt = true) => {
+        if (!s) return;
+        const cfg = typeof opt === 'boolean'
+            ? { scope: 'server', allow: opt }
+            : (opt && typeof opt === 'object' ? { scope: opt.scope || (opt.tool ? 'tool' : 'server'), tool: opt.tool || '', allow: opt.allow !== false } : { scope: 'server', allow: true });
+
+        // 1) Lokaler Multi-Key-Spiegel (sofort aktiv, überlebt Reconnect/Reload auch offline)
+        const map = loadAlways();
+        for (const k of mirrorKeysFor(s)) {
+            const cur = readMirrorEntry(map, k);
+            if (cfg.scope === 'tool' && cfg.tool) {
+                if (cfg.allow) cur.tools[cfg.tool] = Date.now();
+                else delete cur.tools[cfg.tool];
+            } else {
+                cur.server = !!cfg.allow;
+                if (!cfg.allow && cfg.clearTools) cur.tools = {};
+            }
+            if (cur.server || Object.keys(cur.tools).length > 0) map[k] = cur;
+            else delete map[k];
+        }
+        saveAlways(map);
+
+        // 2) In-Memory cloudConns sofort aktualisieren
+        const patchLocalConn = (c) => {
+            if (!c) return;
+            if (cfg.scope === 'tool' && cfg.tool) {
+                const list = new Set(Array.isArray(c.alwaysAllowedTools) ? c.alwaysAllowedTools : []);
+                if (cfg.allow) list.add(cfg.tool); else list.delete(cfg.tool);
+                c.alwaysAllowedTools = [...list];
+            } else {
+                c.alwaysAllowed = !!cfg.allow;
+                if (!cfg.allow && cfg.clearTools) c.alwaysAllowedTools = [];
+            }
+        };
+        cloudConns.forEach(c => {
+            if (String(c.id) === String(s.id)) patchLocalConn(c);
+        });
+        patchLocalConn(s);
+        notifyChange();
+
+        // 3) Dauerhaft in Firestore über Server-API speichern
+        if (s.isCloud && s.id) {
+            const body = cfg.scope === 'tool' && cfg.tool
+                ? (cfg.allow ? { addAlwaysTool: cfg.tool } : { revokeAlwaysTool: cfg.tool })
+                : (cfg.allow ? { alwaysAllowed: true } : { alwaysAllowed: false, ...(cfg.clearTools ? { alwaysAllowedTools: [] } : {}) });
+            apiJson(`/mcp/connections/${encodeURIComponent(s.id)}`, {
+                method: 'PATCH',
+                body: JSON.stringify(body)
+            }).then(r => {
+                if (r?.connection) {
+                    const idx = cloudConns.findIndex(x => String(x.id) === String(r.connection.id));
+                    if (idx >= 0) cloudConns[idx] = r.connection;
+                    notifyChange();
+                }
+            }).catch(() => {});
+        }
+    },
+    hasAlwaysAllowed: () => {
+        if (Object.keys(loadAlways()).length > 0) return true;
+        return mergeAll().some(c => c.alwaysAllowed || (Array.isArray(c.alwaysAllowedTools) && c.alwaysAllowedTools.length > 0));
+    },
+    clearAllAlwaysAllowed: async () => {
+        saveAlways({});
+        const touched = cloudConns.filter(c => c.alwaysAllowed || (Array.isArray(c.alwaysAllowedTools) && c.alwaysAllowedTools.length > 0));
+        cloudConns.forEach(c => { c.alwaysAllowed = false; c.alwaysAllowedTools = []; });
+        notifyChange();
+        await Promise.allSettled(touched.map(c =>
+            apiJson(`/mcp/connections/${encodeURIComponent(c.id)}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ alwaysAllowed: false, alwaysAllowedTools: [] })
+            })
+        ));
+    },
+    shouldAskFor: (s, toolName = '') => MCP.askBefore() && !MCP.isAlwaysAllowed(s, toolName),
     headersOf: (s) => s.token ? { [s.header || 'Authorization']: (s.header && s.header !== 'Authorization') ? s.token : (/^bearer\s/i.test(s.token) ? s.token : 'Bearer ' + s.token) } : {},
 
     async fetchTools(s) {
@@ -218,6 +320,16 @@ export const MCP = {
             body: JSON.stringify({ name, url, token, headerName, authType, catalogId })
         });
         if (r.connection) {
+            const localMirror = MCP.alwaysState(r.connection);
+            if ((localMirror.server && !r.connection.alwaysAllowed) || (localMirror.tools.length && !(r.connection.alwaysAllowedTools || []).length)) {
+                try {
+                    const p = await apiJson(`/mcp/connections/${encodeURIComponent(r.connection.id)}`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ alwaysAllowed: localMirror.server, alwaysAllowedTools: localMirror.tools })
+                    });
+                    if (p.connection) r.connection = p.connection;
+                } catch (_) {}
+            }
             cloudConns = [r.connection, ...cloudConns.filter(x => String(x.id) !== String(r.connection.id))];
             notifyChange();
         }
@@ -314,6 +426,17 @@ export const MCP = {
                 body: JSON.stringify({ code, state })
             });
             if (done.connection) {
+                const localMirror = MCP.alwaysState(done.connection);
+                if ((localMirror.server && !done.connection.alwaysAllowed) || (localMirror.tools.length > (done.connection.alwaysAllowedTools || []).length)) {
+                    const mergedTools = [...new Set([...(done.connection.alwaysAllowedTools || []), ...localMirror.tools])];
+                    try {
+                        const p = await apiJson(`/mcp/connections/${encodeURIComponent(done.connection.id)}`, {
+                            method: 'PATCH',
+                            body: JSON.stringify({ alwaysAllowed: localMirror.server || !!done.connection.alwaysAllowed, alwaysAllowedTools: mergedTools })
+                        });
+                        if (p.connection) done.connection = p.connection;
+                    } catch (_) {}
+                }
                 cloudConns = [done.connection, ...cloudConns.filter(x => String(x.id) !== String(done.connection.id))];
                 notifyChange();
             }
@@ -697,12 +820,67 @@ export const McpView = {
                 .catch(e => { loaded = true; list.replaceChildren(); err.textContent = e.message; drawList(); });
         };
 
+        const openAlwaysModal = (s) => {
+            const box = h('div', { class: 'cn-perm-box' });
+            let m = null;
+            const drawModal = () => {
+                const live = MCP.list().find(x => String(x.id) === String(s.id) && x.url === s.url) || s;
+                const st = MCP.alwaysState(live);
+                const serverChk = h('input', {
+                    type: 'checkbox',
+                    checked: st.server,
+                    onchange: () => {
+                        MCP.setAlwaysAllowed(live, { scope: 'server', allow: serverChk.checked });
+                        toast(serverChk.checked ? `„${live.name}“ komplett immer erlaubt` : `Server-Freigabe für „${live.name}“ entfernt`, { type: 'ok' });
+                        drawModal();
+                    }
+                });
+                const toolItems = st.tools.length
+                    ? st.tools.map(tName => h('div', { class: 'cn-perm-tool' },
+                        h('code', { text: tName }),
+                        h('button', {
+                            type: 'button',
+                            class: 'cd-btn sm',
+                            onclick: () => {
+                                MCP.setAlwaysAllowed(live, { scope: 'tool', tool: tName, allow: false });
+                                drawModal();
+                            }
+                        }, icon('close'), ' Widerrufen')))
+                    : [h('small', { class: 'cd-hint', text: 'Keine einzelnen Werkzeuge dauerhaft freigegeben.' })];
+                box.replaceChildren(
+                    h('label', { class: 'cd-check cn-perm-srv' }, serverChk, ` Gesamten Server „${live.name}“ immer ohne Nachfrage erlauben`),
+                    h('div', { class: 'cn-perm-tools-h', text: 'Einzeln freigegebene Werkzeuge:' }),
+                    h('div', { class: 'cn-perm-tools' }, ...toolItems),
+                    h('div', { class: 'cd-row end' },
+                        (st.server || st.tools.length) ? h('button', {
+                            type: 'button',
+                            class: 'cd-btn sm',
+                            onclick: () => {
+                                MCP.setAlwaysAllowed(live, { scope: 'server', allow: false, clearTools: true });
+                                drawModal();
+                            }
+                        }, 'Alle widerrufen') : null,
+                        h('button', { type: 'button', class: 'cd-primary sm', text: 'Fertig', onclick: () => m?.close() })
+                    )
+                );
+            };
+            drawModal();
+            m = modal(`${liveName(s)} – Dauerhafte Freigaben`, box);
+        };
+        const liveName = (s) => s?.name || 'Konnektor';
+
         const reauth = async (s) => { const item = CAT().byId(s.catalogId) || { id: s.catalogId, name: s.name, url: s.url, auth: 'oauth' }; await connectItem(item); };
         const row = (s) => {
             const item = CAT().byId(s.catalogId) || { id: '', name: s.name, url: s.url, icon: 'hub' };
             const tools = Array.isArray(s.tools) ? s.tools : [];
             const warn = s.status === 'needs_reauth';
             const gh = isGithub(s);
+            const permState = MCP.alwaysState(s);
+            const permSub = permState.server
+                ? ' · Immer erlaubt'
+                : permState.tools.length
+                    ? ` · ${permState.tools.length} Tool${permState.tools.length === 1 ? '' : 's'} immer erlaubt`
+                    : '';
             const scopeSub = gh && Array.isArray(s.allowedRepos)
                 ? ` · Nur ${s.allowedRepos.length} Repo${s.allowedRepos.length === 1 ? '' : 's'}`
                 : '';
@@ -710,6 +888,7 @@ export const McpView = {
             const more = h('button', { class: 'cd-x', title: 'Mehr', 'aria-label': `Optionen für ${s.name}` }, icon('more_horiz'));
             const menu = h('div', { class: 'cm-panel cn-row-menu hidden', role: 'menu' },
                 gh ? Menu.item({ icon: 'verified_user', label: 'Repo-Zugriff einschränken', onClick: () => openGithubScope(s) }) : null,
+                Menu.item({ icon: 'shield', label: 'Dauerhafte Freigaben', onClick: () => openAlwaysModal(s) }),
                 Menu.item({ icon: 'build', label: `Werkzeuge (${tools.length})`, onClick: () => modal(`${s.name} – Werkzeuge`, h('div', { class: 'cn-tools' }, tools.length ? tools.map(t => h('div', { class: 'cn-tool' }, h('b', { text: t.name }), h('small', { text: t.description || '' }))) : h('p', { class: 'cd-text', text: 'Keine Werkzeuge geladen.' }))) }),
                 Menu.item({ icon: 'refresh', label: 'Aktualisieren', onClick: async () => { try { await MCP.fetchTools(s); toast('Aktualisiert', { type: 'ok' }); } catch (x) { toast(x.message, { type: 'error' }); } } }),
                 s.isCloud && (s.authType === 'oauth' || warn) ? Menu.item({ icon: 'login', label: 'Erneut anmelden', onClick: () => reauth(s) }) : null,
@@ -717,8 +896,9 @@ export const McpView = {
                 Menu.item({ icon: 'link_off', label: 'Trennen', danger: true, onClick: async () => { try { await MCP.remove(s); toast(`${s.name} getrennt`, { type: 'ok' }); } catch (x) { toast(x.message, { type: 'error' }); } } }));
             const wrap = h('div', { class: 'cn-row' + (s.enabled ? '' : ' off') + (warn ? ' warn' : '') },
                 logoOf(item),
-                h('div', { class: 'cn-row-t' }, h('b', { text: s.name }), h('small', { text: warn ? 'Anmeldung abgelaufen' : s.status === 'error' ? (s.lastError || 'Fehler') : `${tools.length} Werkzeug${tools.length === 1 ? "" : "e"}${scopeSub}` })),
+                h('div', { class: 'cn-row-t' }, h('b', { text: s.name }), h('small', { text: warn ? 'Anmeldung abgelaufen' : s.status === 'error' ? (s.lastError || 'Fehler') : `${tools.length} Werkzeug${tools.length === 1 ? "" : "e"}${scopeSub}${permSub}` })),
                 gh ? h('button', { type: 'button', class: 'cd-btn sm' + (Array.isArray(s.allowedRepos) ? ' accent' : ''), onclick: () => openGithubScope(s) }, icon('verified_user'), Array.isArray(s.allowedRepos) ? `${s.allowedRepos.length} Repos` : 'Repo-Zugriff') : null,
+                (permState.server || permState.tools.length) ? h('button', { type: 'button', class: 'cd-btn sm accent', title: 'Dauerhafte Freigaben verwalten', onclick: () => openAlwaysModal(s) }, icon('shield'), permState.server ? 'Immer erlaubt' : `${permState.tools.length} Tools`) : null,
                 warn ? h('button', { class: 'cd-btn sm accent', onclick: () => reauth(s) }, 'Erneut anmelden') : null,
                 h('div', { class: 'cn-more' }, more, menu), sw);
             Menu.bindMenu(more, menu);

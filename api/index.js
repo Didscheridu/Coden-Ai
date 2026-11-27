@@ -8,6 +8,7 @@ const { generate, generateStream, listModels, probe, TEST_PROMPT } = require('..
 const { buddyRouter } = require('../server/buddy');
 const { appsRouter, publicApiRouter, hostedRouter, baseUrl } = require('../server/apps');
 const { mcpRouter } = require('../server/mcp');
+const { browserRouter } = require('../server/browser');
 const CodenUpload = require('../shared/upload-check');
 const { wrapRouter } = require('../server/util');
 const { startRun, serveRun, runsRouter } = require('../server/runs');
@@ -72,7 +73,7 @@ function stripSecrets(settings) {
       password: ''
     };
   }
-  const priority = ['study', 'userName', 'persona', 'customPersona', 'fontSize', 'theme', 'instructions', 'memoryOn', 'memoryItems', 'assistants', 'skills', 'webSearch', 'researchDepth', 'emailConfig'];
+  const priority = ['study', 'humanizer', 'tourDone', 'browserAllowedDomains', 'dictationMode', 'userName', 'persona', 'customPersona', 'fontSize', 'theme', 'instructions', 'memoryOn', 'memoryItems', 'assistants', 'skills', 'webSearch', 'researchDepth', 'emailConfig'];
   const keys = [...new Set([...priority.filter(k => k in s), ...Object.keys(s)])].slice(0, 40);
   const trimmed = {};
   for (const k of keys) trimmed[k] = s[k];
@@ -443,6 +444,7 @@ api.use('/contact', contactRouter({ requireAuth, requireOwner }));
 api.use('/byok', byok.byokRouter(requireAuth));
 api.use('/buddy', buddyRouter(requireAuth));
 api.use('/mcp', mcpRouter(requireAuth));
+api.use('/browser', browserRouter(requireAuth));
 api.use('/projects', projectsRouter(requireAuth));
 api.use('/study', needsDb, studyRouter(requireAuth));
 api.use('/servers', serversRouter(requireAuth));

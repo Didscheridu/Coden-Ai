@@ -3,6 +3,11 @@
 // persönliche Anweisungen und ein Gedächtnis, das Coden selbst füllen darf.
 import { Storage } from './storage.js';
 import { stripMarks } from './rich-elements.js';
+import { createSpeechController, toSpeakableText } from './speech.js';
+import { smartStructureDictation } from './dictation-smart.js';
+import { exportAsPdfReport, exportAsDocx, markdownToSlides, extractCitations, formatBibliography } from './doc-export.js';
+import { Artifacts } from './artifacts.js';
+import { SplitWorkspace } from './split-workspace.js';
 
 // ---------- Persönliche Anweisungen + Gedächtnis ----------
 // Die Logik (Einträge, Projekt-Trennung, Doppelte, Grenzen) steckt in shared/assist-core.js und ist dort getestet.
@@ -58,21 +63,65 @@ export function exportChat(session) {
     document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); return true;
 }
 
-// ---------- Diktieren ----------
-export function mountDictation(btn, input, toast) {
+// ---------- Diktieren (Standard & Smart-Gliederung) ----------
+export function mountDictation(btn, input, toast, toggleBtn = document.getElementById('mic-smart-btn')) {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!btn) return;
-    if (!SR) { btn.addEventListener('click', () => toast?.('Diktieren geht in diesem Browser nicht. Chrome, Edge oder Safari probieren.', { type: 'warn' })); return; }
-    let rec = null, base = '';
+    const isSmart = () => Storage.getSettings().dictationMode !== 'normal';
+    const syncToggle = () => {
+        if (!toggleBtn) return;
+        const on = isSmart();
+        toggleBtn.classList.toggle('on', on);
+        toggleBtn.setAttribute('aria-pressed', String(on));
+        toggleBtn.title = on
+            ? 'Smart-Diktat AN: Sprache automatisch als Aufgaben oder Notizen gliedern'
+            : 'Smart-Diktat AUS: Gesprochenen Text 1:1 übernehmen';
+    };
+    syncToggle();
+    toggleBtn?.addEventListener('click', () => {
+        const s = Storage.getSettings();
+        s.dictationMode = isSmart() ? 'normal' : 'smart';
+        Storage.saveSettings(s);
+        syncToggle();
+        toast?.(s.dictationMode === 'smart'
+            ? 'Smart-Diktat aktiv: Aufgaben & Notizen werden automatisch gegliedert.'
+            : 'Normales Diktat aktiv.', { type: 'info' });
+    });
+
+    if (!SR) {
+        btn.addEventListener('click', () => toast?.('Diktieren geht in diesem Browser nicht. Chrome, Edge oder Safari probieren.', { type: 'warn' }));
+        return;
+    }
+    let rec = null, base = '', captured = '';
     const stop = () => { try { rec?.stop(); } catch (_) {} };
     btn.addEventListener('click', () => {
         if (rec) { stop(); return; }
         rec = new SR(); rec.lang = 'de-DE'; rec.interimResults = true; rec.continuous = true;
         base = input.value ? input.value.replace(/\s*$/, ' ') : '';
+        captured = '';
         btn.classList.add('recording'); btn.setAttribute('aria-pressed', 'true');
-        rec.onresult = (e) => { let t = ''; for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript; input.value = base + t; input.dispatchEvent(new Event('input', { bubbles: true })); };
+        rec.onresult = (e) => {
+            let t = '';
+            for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
+            captured = t;
+            input.value = base + t;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        };
         rec.onerror = (e) => { if (e.error === 'not-allowed') toast?.('Mikrofon ist blockiert. Erlaube es in der Adressleiste.', { type: 'warn' }); };
-        rec.onend = () => { rec = null; btn.classList.remove('recording'); btn.setAttribute('aria-pressed', 'false'); input.focus(); };
+        rec.onend = () => {
+            rec = null;
+            btn.classList.remove('recording');
+            btn.setAttribute('aria-pressed', 'false');
+            if (isSmart() && captured.trim()) {
+                const formatted = smartStructureDictation(captured, 'smart');
+                if (formatted) {
+                    const sep = base.trim() ? base.trimEnd() + '\n\n' : '';
+                    input.value = sep + formatted;
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            }
+            input.focus();
+        };
         try { rec.start(); } catch (_) { rec = null; btn.classList.remove('recording'); }
     });
 }
@@ -83,26 +132,203 @@ export function mountMessageActions(ctx, toast) {
     const host = document.getElementById('chat-container'); if (!host) return;
     const rowsOf = () => [...host.querySelectorAll(':scope > .message-row')];
     const synced = () => rowsOf().length === (ctx.session()?.messages?.length ?? -1); // nur dann ist die Zuordnung sicher
-    const btn = (icon, label, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'ma-btn'; b.title = label; b.setAttribute('aria-label', label); const s = document.createElement('span'); s.className = 'material-symbols-outlined'; s.textContent = icon; b.append(s); b.addEventListener('click', (e) => { e.stopPropagation(); fn(b); }); return b; };
-    const textOf = (row) => { const i = rowsOf().indexOf(row); const m = synced() ? ctx.session().messages[i] : null; return m ? m.text : (row.querySelector('.content')?.innerText || ''); };
-    const plain = (t) => stripMarks(String(t || '')).replace(/<(suggestions|choices)>[\s\S]*?<\/(suggestions|choices)>/gi, '').replace(/```[\s\S]*?```/g, ' Codeblock. ').replace(/<[^>]+>/g, '').replace(/[*_`#>|]/g, '').replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
-    let speakingRow = null;
-    const speak = (row, b) => {
-        if (!('speechSynthesis' in window)) { toast?.('Vorlesen geht in diesem Browser nicht.', { type: 'warn' }); return; }
-        const was = speakingRow === row; speechSynthesis.cancel(); document.querySelectorAll('.ma-btn.on').forEach(x => x.classList.remove('on')); speakingRow = null;
-        if (was) return;
-        const u = new SpeechSynthesisUtterance(plain(textOf(row)).slice(0, 8000)); u.lang = 'de-DE';
-        u.onend = u.onerror = () => { b.classList.remove('on'); if (speakingRow === row) speakingRow = null; };
-        speakingRow = row; b.classList.add('on'); speechSynthesis.speak(u);
+    const btn = (icon, label, fn, extraCls = '') => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = extraCls ? `ma-btn ${extraCls}` : 'ma-btn';
+        b.title = label;
+        b.setAttribute('aria-label', label);
+        const s = document.createElement('span');
+        s.className = 'material-symbols-outlined';
+        s.textContent = icon;
+        b.append(s);
+        b.addEventListener('click', (e) => { e.stopPropagation(); fn(b); });
+        return b;
     };
+    const textOf = (row) => {
+        const i = rowsOf().indexOf(row);
+        const m = synced() ? ctx.session().messages[i] : null;
+        if (m?.text) return m.text;
+        const answer = row.querySelector('.answer');
+        if (answer) return answer.innerText || answer.textContent || '';
+        return row.querySelector('.content')?.innerText || '';
+    };
+    const copyTextOf = (t) => stripMarks(String(t || ''))
+        .replace(/<(suggestions|choices|remember|think)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
+        .trim();
+
+    const speech = createSpeechController();
+    let speakingRow = null;
+
+    const setSpeakButtonState = (b, active) => {
+        if (!b) return;
+        b.classList.toggle('on', active);
+        b.setAttribute('aria-pressed', active ? 'true' : 'false');
+        const label = active ? 'Vorlesen stoppen' : 'Vorlesen (Erklärung & Code anhören)';
+        b.title = label;
+        b.setAttribute('aria-label', label);
+        const ic = b.querySelector('.material-symbols-outlined');
+        if (ic) ic.textContent = active ? 'stop_circle' : 'volume_up';
+    };
+
+    const resetSpeakButtons = () => {
+        host.querySelectorAll('.ma-speak-btn.on').forEach((x) => setSpeakButtonState(x, false));
+        speakingRow = null;
+    };
+
+    const toggleSpeakRow = (row, b) => {
+        const raw = textOf(row);
+        const speakable = toSpeakableText(raw);
+        speech.speak(speakable || raw, {
+            key: row,
+            raw: true,
+            onStart: () => {
+                resetSpeakButtons();
+                speakingRow = row;
+                setSpeakButtonState(b, true);
+            },
+            onEnd: () => {
+                setSpeakButtonState(b, false);
+                if (speakingRow === row) speakingRow = null;
+            },
+            onError: (reason) => {
+                setSpeakButtonState(b, false);
+                if (speakingRow === row) speakingRow = null;
+                if (reason === 'unsupported') {
+                    toast?.('Vorlesen geht in diesem Browser nicht.', { type: 'warn' });
+                } else if (reason === 'empty') {
+                    toast?.('Kein vorlesbarer Text in dieser Nachricht.', { type: 'info' });
+                } else {
+                    toast?.('Vorlesen konnte nicht gestartet werden.', { type: 'warn' });
+                }
+            }
+        });
+    };
+
+    window.addEventListener('pagehide', () => speech.stop());
+    window.addEventListener('hashchange', () => {
+        if (speech.isSpeaking() && location.hash && !location.hash.startsWith('#/chat')) speech.stop();
+    });
+
     const decorate = (row) => {
         if (row.dataset.act || row.classList.contains('streaming')) return;
         const content = row.querySelector('.content'); if (!content || !content.textContent.trim()) return;
         row.dataset.act = '1';
         const bar = document.createElement('div'); bar.className = 'ma-bar';
         const isUser = row.classList.contains('user-message');
-        bar.append(btn('content_copy', 'Kopieren', async (b) => { try { await navigator.clipboard.writeText(plain(textOf(row)).trim() || textOf(row)); const ic = b.firstChild; ic.textContent = 'check'; setTimeout(() => ic.textContent = 'content_copy', 1200); } catch (_) { toast?.('Kopieren nicht möglich.', { type: 'warn' }); } }));
-        if (!isUser) bar.append(btn('volume_up', 'Vorlesen', (b) => speak(row, b)));
+        bar.append(btn('content_copy', 'Kopieren', async (b) => {
+            try {
+                const raw = textOf(row);
+                await navigator.clipboard.writeText(copyTextOf(raw) || raw);
+                const ic = b.firstChild;
+                ic.textContent = 'check';
+                setTimeout(() => { ic.textContent = 'content_copy'; }, 1200);
+            } catch (_) { toast?.('Kopieren nicht möglich.', { type: 'warn' }); }
+        }));
+        if (!isUser) {
+            const speakBtn = btn('volume_up', 'Vorlesen (Erklärung & Code anhören)', (b) => toggleSpeakRow(row, b), 'ma-speak-btn');
+            speakBtn.dataset.act = 'read-aloud';
+            speakBtn.setAttribute('aria-pressed', 'false');
+            bar.append(speakBtn);
+
+            const humBtn = btn('auto_fix_high', 'Im Humanizer natürlich umformulieren', () => {
+                const raw = textOf(row);
+                const clean = copyTextOf(raw) || raw;
+                if (!clean.trim()) return toast?.('Kein Text zum Humanisieren vorhanden.', { type: 'info' });
+                import('./humanizer.js').then(m => m.openHumanizerWith(clean, { autoRun: true })).catch(() => {
+                    toast?.('Humanizer konnte nicht geöffnet werden.', { type: 'warn' });
+                });
+            }, 'ma-humanize-btn');
+            humBtn.dataset.act = 'humanize';
+            bar.append(humBtn);
+
+            // Export- & Zitate-Menü (PDF, Word .docx, Präsentation, Quellenverzeichnis, Lernheft)
+            const expWrap = document.createElement('div');
+            expWrap.className = 'ma-export-wrap';
+            const expBtn = btn('ios_share', 'Exportieren, Folien & Quellenverzeichnis', () => {
+                const wasOpen = !expMenu.classList.contains('hidden');
+                host.querySelectorAll('.ma-export-menu').forEach(m => m.classList.add('hidden'));
+                if (!wasOpen) {
+                    expMenu.classList.remove('hidden');
+                    const rect = expMenu.getBoundingClientRect();
+                    if (rect.right > window.innerWidth - 12) expMenu.classList.add('align-right');
+                    else expMenu.classList.remove('align-right');
+                }
+            }, 'ma-export-btn');
+            expBtn.setAttribute('aria-haspopup', 'menu');
+
+            const expMenu = document.createElement('div');
+            expMenu.className = 'ma-export-menu cm-panel hidden';
+            expMenu.setAttribute('role', 'menu');
+
+            const inferTitle = (clean) => {
+                const heading = clean.match(/^#{1,3}\s+(.+)$/m)?.[1];
+                if (heading) return heading.slice(0, 60);
+                const sTitle = ctx.session()?.title;
+                if (sTitle && sTitle !== 'Neuer Chat') return sTitle.slice(0, 60);
+                return 'Coden-Ergebnis';
+            };
+            const addExpItem = (iconName, label, fn) => {
+                const it = document.createElement('button');
+                it.type = 'button';
+                it.className = 'cm-item';
+                it.setAttribute('role', 'menuitem');
+                const icEl = document.createElement('span');
+                icEl.className = 'material-symbols-outlined cm-ic';
+                icEl.textContent = iconName;
+                const lbEl = document.createElement('span');
+                lbEl.className = 'cm-label';
+                lbEl.textContent = label;
+                it.append(icEl, lbEl);
+                it.addEventListener('click', async (ev) => {
+                    ev.stopPropagation();
+                    expMenu.classList.add('hidden');
+                    const raw = textOf(row);
+                    const clean = copyTextOf(raw) || raw;
+                    if (!clean.trim()) return toast?.('Kein Text vorhanden.', { type: 'info' });
+                    await fn({ raw, clean, title: inferTitle(clean) });
+                });
+                expMenu.append(it);
+            };
+
+            addExpItem('picture_as_pdf', 'Als PDF speichern', ({ clean, title }) => {
+                const res = exportAsPdfReport(title, clean);
+                toast?.(`PDF gespeichert (${res.pages} Seite${res.pages === 1 ? '' : 'n'}).`, { type: 'ok' });
+            });
+            addExpItem('description', 'Als Word (.docx) speichern', ({ clean, title }) => {
+                const fname = exportAsDocx(title, clean);
+                toast?.(`Word-Dokument „${fname}“ gespeichert.`, { type: 'ok' });
+            });
+            addExpItem('slideshow', 'Als Präsentation öffnen', ({ clean, title }) => {
+                const slidesBody = markdownToSlides(title, clean);
+                Artifacts.open({ kind: 'artifact', type: 'slides', title, body: slidesBody, closed: true });
+            });
+            addExpItem('format_quote', 'Quellenverzeichnis (Schule)', async ({ raw }) => {
+                const bib = formatBibliography(raw, 'schule');
+                if (!bib) return toast?.('Keine Links oder Webquellen in dieser Nachricht gefunden.', { type: 'info' });
+                try { await navigator.clipboard.writeText(bib); toast?.(`Quellenverzeichnis (Schule, ${extractCitations(raw).length} Quelle(n)) kopiert.`, { type: 'ok' }); }
+                catch (_) { toast?.('Konnte nicht in die Zwischenablage kopieren.', { type: 'warn' }); }
+            });
+            addExpItem('school', 'Quellenverzeichnis (APA / Harvard)', async ({ raw }) => {
+                const apa = formatBibliography(raw, 'apa');
+                const harvard = formatBibliography(raw, 'harvard');
+                if (!apa) return toast?.('Keine Links oder Webquellen in dieser Nachricht gefunden.', { type: 'info' });
+                try { await navigator.clipboard.writeText(`${apa}\n\n${harvard}`); toast?.('APA- & Harvard-Quellenverzeichnis kopiert.', { type: 'ok' }); }
+                catch (_) { toast?.('Konnte nicht in die Zwischenablage kopieren.', { type: 'warn' }); }
+            });
+            addExpItem('auto_stories', 'Ins Lernheft übernehmen', async ({ clean, title }) => {
+                try {
+                    await SplitWorkspace.appendNoteToNotebook(clean.slice(0, 1800), { title });
+                    SplitWorkspace.open('notebook');
+                    toast?.('Text ins Lernheft übernommen.', { type: 'ok' });
+                } catch (err) {
+                    toast?.(err?.message || 'Konnte nicht ins Lernheft schreiben.', { type: 'error' });
+                }
+            });
+
+            expWrap.append(expBtn, expMenu);
+            bar.append(expWrap);
+        }
         const idx = () => rowsOf().indexOf(row);
         if (isUser) bar.append(btn('edit', 'Bearbeiten und neu senden', () => {
             if (!synced()) return toast?.('Bitte erst den Chat neu laden, dann geht es.', { type: 'warn' });
@@ -126,7 +352,15 @@ export function mountMessageActions(ctx, toast) {
         }));
         content.after(bar);
     };
-    const scan = () => rowsOf().forEach(decorate);
+    const scan = () => {
+        if (speakingRow && !speakingRow.isConnected) speech.stop();
+        rowsOf().forEach(decorate);
+    };
+    document.addEventListener('click', (e) => {
+        if (!e.target?.closest?.('.ma-export-wrap')) {
+            host.querySelectorAll('.ma-export-menu').forEach(m => m.classList.add('hidden'));
+        }
+    });
     new MutationObserver(() => requestAnimationFrame(scan)).observe(host, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
     scan();
 }

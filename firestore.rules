@@ -222,7 +222,7 @@ service cloud.firestore {
 
     function isValidMcpConnection(data) {
       return data.keys().hasAll(['id', 'uid', 'name', 'url', 'auth_type', 'enabled'])
-        && data.keys().hasOnly(['id', 'uid', 'name', 'url', 'catalog_id', 'auth_type', 'enabled', 'header_name', 'token_enc', 'oauth_enc', 'token_expires_at', 'scopes', 'server_name', 'tools', 'status', 'last_error', 'allowed_repos', 'created_at', 'updated_at'])
+        && data.keys().hasOnly(['id', 'uid', 'name', 'url', 'catalog_id', 'auth_type', 'enabled', 'header_name', 'token_enc', 'oauth_enc', 'token_expires_at', 'scopes', 'server_name', 'tools', 'status', 'last_error', 'allowed_repos', 'always_allowed', 'always_allowed_tools', 'created_at', 'updated_at'])
         && data.id is int && data.id > 0
         && isStr(data.uid, 1, 128)
         && isStr(data.name, 1, 40)
@@ -240,6 +240,8 @@ service cloud.firestore {
         && (!('status' in data) || data.status in ['connected', 'needs_reauth', 'error'])
         && isOptStr(data, 'last_error', 500)
         && (!('allowed_repos' in data) || data.allowed_repos == null || (data.allowed_repos is list && data.allowed_repos.size() <= 100))
+        && (!('always_allowed' in data) || data.always_allowed is bool)
+        && (!('always_allowed_tools' in data) || (data.always_allowed_tools is list && data.always_allowed_tools.size() <= 100 && (data.always_allowed_tools.size() == 0 || data.always_allowed_tools[0] is string)))
         && (!('created_at' in data) || isIsoOrTs(data.created_at))
         && (!('updated_at' in data) || isIsoOrTs(data.updated_at));
     }
@@ -1048,7 +1050,7 @@ service cloud.firestore {
         && (isOwner(existing().uid) || isAdmin())
         && incoming().id == existing().id && incoming().uid == existing().uid
         && incoming().url == existing().url
-        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'auth_type', 'enabled', 'header_name', 'token_enc', 'oauth_enc', 'token_expires_at', 'scopes', 'server_name', 'tools', 'status', 'last_error', 'allowed_repos', 'updated_at']);
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'auth_type', 'enabled', 'header_name', 'token_enc', 'oauth_enc', 'token_expires_at', 'scopes', 'server_name', 'tools', 'status', 'last_error', 'allowed_repos', 'always_allowed', 'always_allowed_tools', 'updated_at']);
       allow delete: if isNumId(connId) && (isOwner(existing().uid) || isAdmin());
     }
 

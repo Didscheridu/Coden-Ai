@@ -9,6 +9,7 @@ import { Buddy } from './buddy.js';
 import { Router } from './router.js';
 import { AppsView } from './apps/apps.js';
 import { StudyView } from './study.js';
+import { HumanizerView } from './humanizer.js';
 
 const $ = (id) => document.getElementById(id);
 let getSessions = () => [];
@@ -116,8 +117,9 @@ export const Layout = {
             Router.register('s', SharedView);
             Router.register('projekte', ProjectsView);
             Router.register('buddy', { mount: (host, params) => Buddy.mount(host, params), unmount: () => Buddy.unmount() });
+            Router.register('humanizer', HumanizerView);
             const nav = (id, path) => $(id)?.addEventListener('click', (e) => { e.preventDefault(); Router.go(path); });
-            nav('open-apps-btn', 'apps'); nav('open-study-btn', 'lernen'); nav('open-artifacts-btn', 'artefakte'); nav('open-mcp-btn', 'verbindungen'); nav('open-buddy-btn', 'buddy'); nav('open-projects-btn', 'projekte');
+            nav('open-apps-btn', 'apps'); nav('open-study-btn', 'lernen'); nav('open-artifacts-btn', 'artefakte'); nav('open-mcp-btn', 'verbindungen'); nav('open-buddy-btn', 'buddy'); nav('open-projects-btn', 'projekte'); nav('open-humanizer-btn', 'humanizer');
             $('we-all')?.addEventListener('click', () => Router.go('artefakte'));
             // "Neu" und Chats in der Seitenleiste führen immer zurück in den Chat
             $('sb-new')?.addEventListener('click', () => Router.go('chat'));

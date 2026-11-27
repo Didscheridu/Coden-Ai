@@ -1,25 +1,37 @@
-// js/account-menu.js – Konto-Menü unten in der Seitenleiste (Aufbau wie bei Claude) und globale Tastenkürzel.
+// js/account-menu.js – Konto-Menü unten in der Seitenleiste (Aufbau wie bei Claude) und Hilfe-Dialog für Tastenkürzel.
 import * as M from './menu.js';
 import { h } from './apps/dom.js';
 import { modal } from './apps/dialogs.js';
+import { shortcuts } from './shortcuts.js';
 
 const $ = (id) => document.getElementById(id);
 const settings = (tab) => window.dispatchEvent(new CustomEvent('coden:settings', { detail: { tab } }));
 
-const SHORTCUTS = [
-    ['Neuer Chat', 'Strg+Umschalt+O'],
-    ['Dateien oder Bilder hinzufügen', 'Strg+U'],
-    ['Einstellungen', 'Strg+,'],
-    ['Hilfe & Tastenkürzel', 'Strg+/'],
+const EXTRA_HINTS = [
     ['Nachricht senden', 'Enter'],
     ['Neue Zeile', 'Umschalt+Enter'],
-    ['Menü schließen', 'Esc'],
     ['Skill gezielt nutzen', '/name']
 ];
+
 export function openHelp() {
+    const rows = [
+        ...shortcuts.list().filter(s => s.showInHelp).map(s => [s.label, s.displayKey]),
+        ...EXTRA_HINTS.map(([t, k]) => [t, M.kbd(k)])
+    ];
     modal('Hilfe & Tastenkürzel', h('div', { class: 'help-box' },
-        h('div', { class: 'kb-list' }, SHORTCUTS.flatMap(([t, k]) => [h('span', { text: t }), h('kbd', { text: M.kbd(k) })])),
-        h('p', { class: 'cd-text', style: { marginTop: '16px' }, text: 'Fragen zu Coden? Schreib sie einfach in den Chat. Über das + am Eingabefeld erreichst du Dateien, Skills, Assistenten, deine Apps und Verbindungen.' })));
+        h('div', { class: 'kb-list' }, rows.flatMap(([t, k]) => [h('span', { text: t }), h('kbd', { text: k })])),
+        h('p', { class: 'cd-text', style: { marginTop: '16px' }, text: 'Fragen zu Coden? Schreib sie einfach in den Chat. Über das + am Eingabefeld erreichst du Dateien, Skills, Assistenten, deine Apps und Verbindungen.' }),
+        h('div', { style: { marginTop: '14px', display: 'flex', justifyContent: 'flex-end' } },
+            h('button', {
+                type: 'button',
+                class: 'cd-btn',
+                text: 'Einführungstour starten',
+                onClick: () => {
+                    document.querySelector('.cd-back')?.remove();
+                    import('./onboarding.js').then(m => m.Onboarding.start(true)).catch(() => {});
+                }
+            })
+        )));
 }
 
 let installEvt = null;
@@ -30,9 +42,10 @@ export function mountAccountMenu() {
     const chip = $('user-chip'), menu = $('user-menu');
     if (!chip || !menu) return;
     M.bindMenu(chip, menu);
-    // Kurzbefehle für die Anzeige an Mac/Windows anpassen
+    // Kurzbefehle und Tooltips für Mac/Windows synchronisieren
     menu.querySelectorAll('.cm-kbd[data-kbd]').forEach((k) => { k.textContent = M.kbd(k.dataset.kbd); });
     document.querySelectorAll('#composer-tools-menu .cm-kbd[data-kbd]').forEach((k) => { k.textContent = M.kbd(k.dataset.kbd); });
+    shortcuts.syncTooltips();
     const on = (id, fn) => $(id)?.addEventListener('click', (e) => { e.preventDefault(); fn(); });
     on('um-usage', () => { settings('general'); setTimeout(() => $('usage-box')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 120); });
     on('um-skills', () => settings('skills'));
@@ -53,19 +66,6 @@ export function mountAccountMenu() {
             legal('description', 'Nutzungsbedingungen', 'open-agb-btn'),
             legal('smart_toy', 'KI-Transparenz (AI Act)', 'open-ki-btn'),
             M.sep(),
-            M.item({ icon: 'keyboard', label: 'Tastenkürzel', kbd: 'Strg+/', onClick: openHelp }));
+            M.item({ icon: 'keyboard', label: 'Tastenkürzel', kbd: shortcuts.get('open-help')?.combo ? shortcuts.formatCombo(shortcuts.get('open-help').combo) : 'Strg+.', onClick: openHelp }));
     });
 }
-
-// ---------- Tastenkürzel ----------
-document.addEventListener('keydown', (e) => {
-    const mod = e.ctrlKey || e.metaKey;
-    if (!mod || e.altKey) return;
-    if ($('app')?.classList.contains('hidden')) return; // nicht auf dem Login-Bildschirm
-    const k = e.key.toLowerCase();
-    if (k === ',' && !e.shiftKey) { e.preventDefault(); M.closeAll(); $('open-settings-btn')?.click(); }
-    else if (k === '/' || (k === '7' && e.shiftKey)) { e.preventDefault(); M.closeAll(); openHelp(); }
-    else if (k === 'u' && !e.shiftKey) {
-        if (!location.hash || location.hash.startsWith('#/chat') || location.hash === '#') { e.preventDefault(); M.closeAll(); $('file-upload-input')?.click(); }
-    } else if (k === 'o' && e.shiftKey) { e.preventDefault(); M.closeAll(); $('sb-new')?.click(); }
-});

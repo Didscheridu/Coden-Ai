@@ -12,7 +12,7 @@
 .byok-step { width: 18px; height: 18px; border-radius: 50%; background: rgba(255, 255, 255, .1); font-size: 11px; display: inline-grid; place-items: center; }
 .byok-tabs .active .byok-step { background: var(--accent-blue); color: #0b1020; }
 
-.byok-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.byok-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 12px; }
 .byok-stack { display: flex; flex-direction: column; gap: 12px; }
 .byok-card, .byok-model { border: 1px solid var(--border-color); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; background: rgba(255, 255, 255, .02); }
 .byok-card.on { border-color: rgba(109, 213, 140, .45); }
@@ -51,7 +51,7 @@
 
 /* Ketten */
 .byok-chain { display: flex; flex-direction: column; gap: 4px; }
-.byok-chain-i { display: flex; align-items: center; gap: 6px; background: var(--bg-sidebar); border: 1px solid var(--border-color); border-radius: 10px; padding: 4px 6px 4px 10px; }
+.byok-chain-i { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; background: var(--bg-sidebar); border: 1px solid var(--border-color); border-radius: 10px; padding: 4px 6px 4px 10px; }
 .byok-chain-i .icon-btn { width: 30px; height: 30px; }
 .byok-chain-i .icon-btn[disabled] { opacity: .3; pointer-events: none; }
 .byok-n { width: 20px; height: 20px; border-radius: 50%; background: rgba(138, 180, 248, .2); font-size: 11px; display: inline-grid; place-items: center; flex: none; }

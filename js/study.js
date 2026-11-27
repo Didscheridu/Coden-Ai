@@ -13,6 +13,8 @@ import { renderNotebooksTab } from './notebooks.js';
 import { startStudyLive } from './study-live.js';
 import { StudyStore } from './study-store.js';
 import { openFlashcardsImportModal, openTextbookScanModal } from './study-scan.js';
+import { deAiText } from './humanizer-core.js';
+import { isAutoHumanizeOn, updateHumanizerPrefs, getAutoHumanizerPrompt } from './humanizer-prefs.js';
 
 const h = (tag, attrs = {}, ...kids) => {
     const el = document.createElement(tag);
@@ -128,6 +130,9 @@ async function generateTool(type) {
         user = `Erstelle eine übersichtliche Mindmap (max. 3 Ebenen tief) aus diesen Lerninhalten.${focus}\nFormat: {"title":"Hauptthema","children":[{"title":"Unterthema","children":[{"title":"Detail oder Begriff"}]}]}\n\nLERNINHALTE:\n${src}`;
     }
 
+    const humDir = getAutoHumanizerPrompt('study');
+    if (humDir) sys = `${sys}\n\n${humDir}`;
+
     state.generating = type;
     render();
     try {
@@ -136,9 +141,11 @@ async function generateTool(type) {
             { role: 'user', content: user }
         ], 'flash');
 
+        const humOn = isAutoHumanizeOn('study');
         let item = null;
         if (type === 'sheet') {
-            const markdown = cleanMerkzettel(reply);
+            const cleaned = cleanMerkzettel(reply);
+            const markdown = humOn ? deAiText(cleaned) : cleaned;
             if (markdown.replace(/^#.*$/m, '').trim().length < 40) throw new Error('Der Merkzettel ist leer geblieben.');
             item = { id: uid(), type: 'sheet', title: titleOf(markdown), markdown, paper: defaultPaper(nb.subject), createdAt: new Date().toISOString() };
         } else if (type === 'flashcards') {
@@ -154,7 +161,8 @@ async function generateTool(type) {
             if (!questions.length) throw new Error('Keine Quizfragen erkannt.');
             item = { id: uid(), type: 'quiz', title: parsed.title || `Quiz (${questions.length} Fragen)`, questions, createdAt: new Date().toISOString() };
         } else if (type === 'guide') {
-            item = { id: uid(), type: 'guide', title: `Lernleitfaden (${state.difficulty})`, markdown: String(reply || '').trim(), createdAt: new Date().toISOString() };
+            const guideText = humOn ? deAiText(reply) : String(reply || '').trim();
+            item = { id: uid(), type: 'guide', title: `Lernleitfaden (${state.difficulty})`, markdown: guideText, createdAt: new Date().toISOString() };
         } else if (type === 'mindmap') {
             const parsed = extractJson(reply);
             item = { id: uid(), type: 'mindmap', title: parsed.title || 'Mindmap', tree: parsed, createdAt: new Date().toISOString() };
@@ -191,12 +199,13 @@ async function sendTutorMessage(text) {
     render();
     try {
         const updated = currentNb();
+        const humDir = getAutoHumanizerPrompt('study');
         const sys = `Du bist der „Geführtes Lernen“-Tutor in Coden AI (wie Gemini Guided Learning).
 Regeln:
 - Antworte auf Deutsch, ermutigend, klar und strukturiert.
 - Gib bei komplexen Fragen nicht sofort alles vor, sondern führe den Schüler Schritt für Schritt mit kurzen Erklärungen und einer gezielten Rückfrage zum echten Verständnis.
 - Nutze die Lerninhalte des Schülers als Hauptquelle, wenn vorhanden.
-${src ? `\nAKTIVE LERNINHALTE DES SCHÜLERS:\n${src}` : '\n(Noch keine eigenen Quellen hochgeladen – erkläre das Thema allgemein verständlich.)'}`;
+${src ? `\nAKTIVE LERNINHALTE DES SCHÜLERS:\n${src}` : '\n(Noch keine eigenen Quellen hochgeladen – erkläre das Thema allgemein verständlich.)'}${humDir ? '\n\n' + humDir : ''}`;
         const history = (updated.chat || []).slice(-12).map(m => ({ role: m.role, content: m.content }));
         const reply = await generateAiResponse([{ role: 'system', content: sys }, ...history], 'flash');
         updateNb((n) => { n.chat.push({ role: 'assistant', content: String(reply || '').trim() }); });
@@ -466,8 +475,9 @@ function renderFlashcards(tool) {
                     onclick: async () => {
                         state.fcExplain = 'Erklärung wird erstellt …'; render();
                         try {
+                            const humDir = getAutoHumanizerPrompt('study');
                             state.fcExplain = await generateAiResponse([
-                                { role: 'system', content: 'Erkläre diese Lern-Karteikarte einem Schüler kurz, anschaulich und mit einem Beispiel auf Deutsch.' },
+                                { role: 'system', content: 'Erkläre diese Lern-Karteikarte einem Schüler kurz, anschaulich und mit einem Beispiel auf Deutsch.' + (humDir ? '\n\n' + humDir : '') },
                                 { role: 'user', content: `Frage: ${card.front}\nAntwort: ${card.back}` }
                             ], 'flash');
                         } catch (e) { state.fcExplain = 'Fehler: ' + e.message; }
@@ -739,6 +749,14 @@ function renderWorkspace(nb) {
             h('div', { class: 'st-seg' },
                 ...[['weniger', 'Kurz'], ['standard', 'Standard'], ['mehr', 'Ausführlich']].map(([k, lbl]) => h('button', { type: 'button', class: state.amount === k ? 'active' : '', onclick: () => { state.amount = k; render(); } }, lbl))
             )
+        ),
+        h('label', { class: 'st-hz-toggle', title: 'Formuliert Lernhilfen und Tutor-Antworten automatisch natürlich & schülerfreundlich' },
+            h('span', { class: 'st-hz-toggle-l' }, ic('auto_fix_high'), h('span', { text: 'Schülerfreundlich (Humanizer)' })),
+            h('input', {
+                type: 'checkbox',
+                checked: isAutoHumanizeOn('study'),
+                onchange: (e) => { updateHumanizerPrefs({ study: e.target.checked }); render(); }
+            })
         ),
         h('div', { class: 'st-studio-grid' },
             ...[

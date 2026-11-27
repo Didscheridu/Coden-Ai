@@ -10,6 +10,7 @@ import { openInkEditor, createPages, filesToBackgrounds, deleteDocPages } from '
 import { loader } from './rich-elements.js';
 import { enablePush, pushState } from './push.js';
 import * as Menu from './menu.js';
+import { isAutoHumanizeOn, updateHumanizerPrefs, getAutoHumanizerPrompt } from './humanizer-prefs.js';
 
 const h = (tag, attrs = {}, ...kids) => {
     const el = document.createElement(tag);
@@ -84,6 +85,14 @@ function renderSubjects(st) {
     wrap.append(renderToday(st));
     const head = h('div', { class: 'sd-sec-head' }, h('h2', { text: 'Deine Fächer' }),
         h('div', { class: 'sd-row' },
+            h('label', { class: 'st-hz-toggle', title: 'Coden schreibt Heft-Lösungen und Aufschriebe automatisch natürlich & schülerfreundlich' },
+                h('span', { class: 'st-hz-toggle-l' }, ic('auto_fix_high'), h('span', { text: 'Heft-Stil: Schülerfreundlich' })),
+                h('input', {
+                    type: 'checkbox',
+                    checked: isAutoHumanizeOn('notebooks'),
+                    onchange: (e) => { updateHumanizerPrefs({ notebooks: e.target.checked }); toast(e.target.checked ? 'Humanizer für Lernhefte aktiviert.' : 'Humanizer für Lernhefte deaktiviert.', { type: 'ok' }); }
+                })
+            ),
             h('button', { type: 'button', class: 'cd-btn', onclick: () => import('./handwriting.js').then(m => m.openHandwritingTrainer()) }, ic('stylus_note'), ' Handschrift'),
             h('button', { type: 'button', class: 'cd-btn', onclick: () => addAssignmentDialog(st) }, ic('upload_file'), ' Auftrag hochladen'),
             h('button', { type: 'button', class: 'cd-btn', onclick: () => addExamDialog(st) }, ic('event'), ' Arbeit eintragen'),
@@ -285,7 +294,8 @@ async function makePlan(st, exam, button) {
     const sessions = S.buildPlan(st, { subjectId: exam.subjectId, examId: exam.id, until: exam.date, topics });
     if (!sessions.length) { toast('Keine freie Lernzeit bis zur Arbeit gefunden. Prüfe Stundenplan und Lernzeiten (Tab „Stundenplan“).', { type: 'warn', ms: 7000 }); return; }
     const run = async () => {
-        try { const what = json(await ask('Du bist ein Lerncoach für Schüler. Antworte nur mit JSON.', S.planWhatPrompt({ subject: su?.name || '', exam: exam.title, topics, sessions }))); if (Array.isArray(what)) sessions.forEach((s, i) => { if (what[i]) s.what = String(what[i]).slice(0, 200); }); } catch (_) { /* ohne KI-Details geht der Plan trotzdem */ }
+        const humDir = getAutoHumanizerPrompt('study');
+        try { const what = json(await ask('Du bist ein Lerncoach für Schüler. Antworte nur mit JSON.' + (humDir ? '\n\n' + humDir : ''), S.planWhatPrompt({ subject: su?.name || '', exam: exam.title, topics, sessions }))); if (Array.isArray(what)) sessions.forEach((s, i) => { if (what[i]) s.what = String(what[i]).slice(0, 200); }); } catch (_) { /* ohne KI-Details geht der Plan trotzdem */ }
     };
     if (button) await busyBtn(button, 'Coden plant …', run); else await run();
     st.plan.push(...sessions); st.plan.sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));

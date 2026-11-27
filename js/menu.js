@@ -72,17 +72,36 @@ export async function openSub(b, build) {
     document.body.append(panel);
     const place = () => {
         const pr = parent.getBoundingClientRect(), ir = b.getBoundingClientRect();
-        const w = Math.max(panel.offsetWidth, 220), vh = window.innerHeight, vw = window.innerWidth;
+        const vh = window.innerHeight, vw = window.innerWidth, pad = 8;
+        const maxW = Math.max(180, vw - pad * 2);
+        panel.style.maxWidth = maxW + 'px';
+        const w = Math.min(Math.max(panel.offsetWidth, 220), maxW);
         let left = pr.right + 4, overlay = false;
-        if (left + w > vw - 8) left = pr.left - w - 4;
-        if (left < 8) { overlay = true; left = Math.max(8, Math.min(pr.left, vw - w - 8)); }
+        if (left + w > vw - pad) left = pr.left - w - 4;
+        if (left < pad) { overlay = true; left = Math.max(pad, Math.min(pr.left, vw - w - pad)); }
         panel.classList.toggle('overlay', overlay);
-        const hgt = panel.offsetHeight;
+        if (overlay) {
+            panel.style.width = Math.min(Math.max(pr.width, 220), maxW) + 'px';
+            panel.style.minWidth = '0px';
+        } else {
+            panel.style.width = '';
+            panel.style.minWidth = '';
+        }
+        const actualW = Math.min(panel.offsetWidth || w, maxW);
+        left = Math.max(pad, Math.min(vw - actualW - pad, left));
+        const topSafe = (!b.closest('.top-bar') && (() => {
+            const tb = document.querySelector('.top-bar')?.getBoundingClientRect();
+            return tb && tb.height > 0 && tb.bottom > 0 && tb.top < 80 ? Math.max(pad, Math.ceil(tb.bottom) + 6) : pad;
+        })()) || pad;
+        const maxAvailH = Math.max(96, vh - pad - topSafe);
+        panel.style.maxHeight = maxAvailH + 'px';
+        const hgt = Math.min(panel.scrollHeight || panel.offsetHeight || 120, maxAvailH);
         let top = overlay ? pr.top : ir.top - 6;
-        if (top + hgt > vh - 8) top = Math.max(8, vh - 8 - hgt);
-        panel.style.left = left + 'px'; panel.style.top = Math.max(8, top) + 'px';
-        panel.style.maxHeight = (vh - 16) + 'px';
-        if (overlay) panel.style.minWidth = Math.min(pr.width, vw - 16) + 'px';
+        if (top + hgt > vh - pad) top = vh - pad - hgt;
+        top = Math.max(topSafe, top);
+        panel.style.left = Math.round(left) + 'px';
+        panel.style.top = Math.round(top) + 'px';
+        panel.style.maxHeight = Math.max(80, Math.floor(vh - pad - top)) + 'px';
     };
     const back = h('button', { type: 'button', class: 'cm-item cm-back', onclick: (e) => { e.stopPropagation(); closeSubs(lv); b.focus(); } }, icon('chevron_left', 'cm-ic'), h('span', { class: 'cm-label', text: b.querySelector('.cm-label')?.textContent || 'Zurück' }));
     const render = async () => {
@@ -107,37 +126,112 @@ export function closeAll() {
     closeSubs(0);
     for (const r of roots) r.close();
 }
+function topSafeFor(anchor) {
+    const pad = 8;
+    if (!anchor || anchor.closest('.top-bar')) return pad;
+    const tb = document.querySelector('.top-bar')?.getBoundingClientRect();
+    return (tb && tb.height > 0 && tb.bottom > 0 && tb.top < 80) ? Math.max(pad, Math.ceil(tb.bottom) + 6) : pad;
+}
 // Verbindet einen Knopf mit einem Menü (Element mit Klasse cm-panel): auf/zu, außerhalb klicken, Esc, Pfeiltasten.
-function clampPanel(menu) {
-    if (!menu) return;
-    menu.style.maxWidth = 'calc(100vw - 16px)';
-    menu.style.maxHeight = 'min(72dvh, calc(100dvh - 16px))';
-    menu.style.overflowY = 'auto';
+function clampPanel(menu, anchor) {
+    if (!menu || !menu.isConnected || menu.classList.contains('hidden')) return;
+    const vw = window.innerWidth, vh = window.innerHeight, pad = 8, gap = 6;
+    const maxW = Math.max(180, vw - pad * 2);
+    const topSafe = topSafeFor(anchor);
+
+    menu.style.position = 'fixed';
+    menu.style.right = 'auto';
+    menu.style.bottom = 'auto';
+    menu.style.margin = '0';
     menu.style.transform = '';
-    requestAnimationFrame(() => {
-        if (!menu.isConnected || menu.classList.contains('hidden')) return;
+    menu.style.maxWidth = maxW + 'px';
+    menu.style.maxHeight = '';
+    menu.style.overflowY = 'auto';
+
+    if (anchor && anchor.isConnected) {
+        const br = anchor.getBoundingClientRect();
+        // Breite erst normal messen und auf Bildschirmbreite deckeln
+        const naturalW = Math.min(Math.max(menu.offsetWidth || 220, anchor.closest('#user-chip, .sidebar-footer') ? br.width : 0), maxW);
+        if (naturalW > 0 && menu.offsetWidth > maxW) menu.style.width = maxW + 'px';
+        const mw = Math.min(menu.offsetWidth || naturalW || 240, maxW);
+
+        // Horizontal: Sidebar-Konto links ausrichten, rechte Buttons (z. B. top-bar ...) rechtsbündig am Button
+        const alignRight = br.left + mw > vw - pad || br.right > vw * 0.55;
+        let left = alignRight ? (br.right - mw) : br.left;
+        left = Math.max(pad, Math.min(vw - mw - pad, left));
+
+        const spaceBelow = Math.max(0, vh - br.bottom - pad - gap);
+        const spaceAbove = Math.max(0, br.top - topSafe - gap);
+        const naturalH = menu.scrollHeight || menu.offsetHeight || 220;
+        const preferUp = menu.classList.contains('user-menu') || menu.classList.contains('composer-tools-menu');
+        const openUp = preferUp
+            ? (naturalH <= spaceAbove || spaceAbove >= spaceBelow)
+            : (naturalH > spaceBelow && spaceAbove > spaceBelow);
+
+        const availH = Math.max(80, Math.floor(openUp ? spaceAbove : spaceBelow));
+        const finalH = Math.min(naturalH, availH);
+        let top = openUp
+            ? Math.max(topSafe, br.top - gap - finalH)
+            : Math.min(vh - pad - finalH, br.bottom + gap);
+        top = Math.max(topSafe, Math.min(vh - pad - 80, top));
+        const maxH = Math.max(80, Math.min(availH, Math.floor(vh - pad - top)));
+
+        menu.style.left = Math.round(left) + 'px';
+        menu.style.top = Math.round(top) + 'px';
+        menu.style.maxHeight = maxH + 'px';
+        menu.style.transformOrigin = `${openUp ? 'bottom' : 'top'} ${alignRight ? 'right' : 'left'}`;
+    } else {
+        menu.style.maxHeight = Math.max(80, vh - topSafe - pad) + 'px';
         const r = menu.getBoundingClientRect();
-        const vw = window.innerWidth, vh = window.innerHeight;
-        let dx = 0, dy = 0;
-        if (r.right > vw - 8) dx = (vw - 8) - r.right;
-        if (r.left + dx < 8) dx = 8 - r.left;
-        if (r.bottom > vh - 8) dy = (vh - 8) - r.bottom;
-        if (r.top + dy < 8) dy = 8 - r.top;
-        if (dx || dy) menu.style.transform = `translate3d(${Math.round(dx)}px, ${Math.round(dy)}px, 0)`;
-    });
+        if (r.right > vw - pad) menu.style.left = Math.max(pad, vw - pad - r.width) + 'px';
+        if (r.left < pad) menu.style.left = pad + 'px';
+        if (r.bottom > vh - pad) menu.style.top = Math.max(topSafe, vh - pad - r.height) + 'px';
+        if (r.top < topSafe) menu.style.top = topSafe + 'px';
+    }
 }
 export function bindMenu(btn, menu, { onOpen, onClose } = {}) {
     if (!btn || !menu) return null;
+    const home = document.createComment('cm-home');
+    const portal = () => {
+        if (menu.parentElement === document.body) return;
+        if (menu.parentElement) menu.parentElement.insertBefore(home, menu);
+        document.body.appendChild(menu);
+    };
+    const restore = () => {
+        if (home.isConnected && home.parentElement) {
+            home.parentElement.insertBefore(menu, home);
+            home.remove();
+        } else if (!home.isConnected && menu.parentElement === document.body && !document.body.contains(btn)) {
+            menu.remove();
+        }
+    };
     const ctl = {
         get open() { return !menu.classList.contains('hidden'); },
-        show() { closeAll(); onOpen?.(menu); menu.classList.remove('hidden'); btn.setAttribute('aria-expanded', 'true'); btn.classList.add('open'); clampPanel(menu); },
-        close() { if (!ctl.open) return; menu.classList.add('hidden'); btn.setAttribute('aria-expanded', 'false'); btn.classList.remove('open'); closeSubs(0); onClose?.(); },
+        show() {
+            closeAll();
+            portal();
+            onOpen?.(menu);
+            menu.classList.remove('hidden');
+            btn.setAttribute('aria-expanded', 'true');
+            btn.classList.add('open');
+            clampPanel(menu, btn);
+            requestAnimationFrame(() => clampPanel(menu, btn));
+        },
+        close() {
+            if (!ctl.open) { restore(); return; }
+            menu.classList.add('hidden');
+            btn.setAttribute('aria-expanded', 'false');
+            btn.classList.remove('open');
+            closeSubs(0);
+            restore();
+            onClose?.();
+        },
         toggle() { ctl.open ? ctl.close() : ctl.show(); }
     };
     roots.add(ctl);
     btn.setAttribute('aria-haspopup', 'menu'); btn.setAttribute('aria-expanded', 'false');
     btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); ctl.toggle(); });
-    window.addEventListener('resize', () => { if (ctl.open) clampPanel(menu); }, { passive: true });
+    window.addEventListener('resize', () => { if (ctl.open) clampPanel(menu, btn); }, { passive: true });
     // Einträge ohne eigenes Untermenü schließen das Menü nach dem Klick
     menu.addEventListener('click', (e) => { const it = e.target.closest('.cm-item'); if (it && it.getAttribute('aria-haspopup') !== 'menu' && !it.dataset.keep) setTimeout(() => closeAll(), 0); });
     return ctl;

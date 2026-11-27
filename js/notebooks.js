@@ -143,8 +143,20 @@ function popMenu(anchor, items) {
     document.querySelector('.nb-pop')?.remove();
     const pop = h('div', { class: 'nb-pop' }, ...items.filter(Boolean).map(([icon, label, fn, danger]) => h('button', { type: 'button', class: 'nb-pop-i' + (danger ? ' danger' : ''), onclick: () => { pop.remove(); fn(); } }, ic(icon), h('span', { text: label }))));
     document.body.append(pop); const r = anchor.getBoundingClientRect();
-    pop.style.left = Math.max(8, Math.min(window.innerWidth - pop.offsetWidth - 8, r.right - pop.offsetWidth)) + 'px';
-    pop.style.top = (r.bottom + pop.offsetHeight + 8 > window.innerHeight ? Math.max(8, r.top - pop.offsetHeight - 6) : r.bottom + 6) + 'px';
+    const vw = window.innerWidth, vh = window.innerHeight, pad = 8, gap = 6;
+    const maxW = Math.max(160, vw - pad * 2);
+    pop.style.maxWidth = maxW + 'px';
+    pop.style.overflowY = 'auto';
+    const mw = Math.min(pop.offsetWidth || 220, maxW);
+    const spaceBelow = Math.max(0, vh - r.bottom - pad - gap);
+    const spaceAbove = Math.max(0, r.top - pad - gap);
+    const openUp = pop.scrollHeight > spaceBelow && spaceAbove > spaceBelow;
+    const availH = Math.max(80, Math.floor(openUp ? spaceAbove : spaceBelow));
+    const finalH = Math.min(pop.scrollHeight || 200, availH);
+    const top = openUp ? Math.max(pad, r.top - gap - finalH) : Math.min(vh - pad - finalH, r.bottom + gap);
+    pop.style.left = Math.round(Math.max(pad, Math.min(vw - mw - pad, r.right - mw))) + 'px';
+    pop.style.top = Math.round(top) + 'px';
+    pop.style.maxHeight = Math.max(80, Math.min(availH, Math.floor(vh - pad - top))) + 'px';
     setTimeout(() => document.addEventListener('pointerdown', function off(e) { if (!pop.contains(e.target)) { pop.remove(); document.removeEventListener('pointerdown', off); } }), 0);
 }
 function newMenu(anchor, st, folderId) {

@@ -29,7 +29,7 @@
 .nb-new .material-symbols-outlined { font-size: 19px; }
 
 /* Raster mit Covern und Ordnern */
-.nb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 26px 20px; align-items: start; }
+.nb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); gap: 26px 20px; align-items: start; }
 .nb-tile { position: relative; display: flex; flex-direction: column; gap: 9px; cursor: pointer; border: 0; background: transparent; color: var(--text-primary); text-align: left; font: inherit; padding: 0; border-radius: 12px; outline: none; }
 .nb-tile:focus-visible { outline: 2px solid var(--accent-brand); outline-offset: 4px; }
 .nb-tile.dragging { opacity: .4; }
@@ -72,7 +72,7 @@
 .nb-add b { font-size: 14px; color: var(--text-secondary); }
 
 /* Menüs & Dialoge */
-.nb-pop { position: fixed; z-index: 2100; min-width: 220px; display: flex; flex-direction: column; gap: 2px; padding: 6px; border-radius: 14px; background: var(--bg-surface); border: 1px solid var(--border-color); box-shadow: var(--shadow-float); }
+.nb-pop { position: fixed; z-index: 2100; min-width: min(220px, calc(100vw - 16px)); max-width: calc(100vw - 16px); display: flex; flex-direction: column; gap: 2px; padding: 6px; border-radius: 14px; background: var(--bg-surface); border: 1px solid var(--border-color); box-shadow: var(--shadow-float); }
 .nb-pop-i { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 9px; border: 0; background: transparent; color: var(--text-primary); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
 .nb-pop-i:hover { background: var(--bg-surface-hover); }
 .nb-pop-i .material-symbols-outlined { font-size: 19px; color: var(--text-secondary); }
@@ -104,7 +104,7 @@
   .nb-nav-i small, .nb-nav-h span, .nb-pad { display: none; }
   .nb-nav-h { padding: 0 4px; }
   .nb-nav-i.folder { padding-left: 11px !important; }
-  .nb-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 20px 14px; }
+  .nb-grid { grid-template-columns: repeat(auto-fill, minmax(min(120px, 100%), 1fr)); gap: 20px 14px; }
   .nb-search { width: 100%; }
   .nb-tools { width: 100%; }
   .nb-two { grid-template-columns: 1fr; }

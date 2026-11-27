@@ -355,6 +355,28 @@ const { setup } = require('./helpers');
   const ghUnrestrict = await call(`/mcp/connections/${ghId}`, { allowedRepos: null }, T, 'PATCH');
   chk('allowedRepos: null hebt Einschränkung auf', [ghUnrestrict.s, ghUnrestrict.j.connection.allowedRepos, (await P('/mcp/call', { connectionId: ghId, tool: 'get_file_contents', args: { owner: 'anna', repo: 'secret-app' } }, T)).s], [200, null, 200]);
 
+  // --- Dauerhafte MCP-Berechtigungen (Server-weit & pro Werkzeug, inklusive OAuth Reconnect) ---
+  const permAdd = await call(`/mcp/connections/${connId}`, { addAlwaysTool: 'echo' }, T, 'PATCH');
+  chk('Immer erlauben pro Werkzeug gespeichert', [permAdd.s, permAdd.j.connection.alwaysAllowed, permAdd.j.connection.alwaysAllowedTools], [200, false, ['echo']]);
+
+  const permSrv = await call(`/mcp/connections/${connId}`, { alwaysAllowed: true }, T, 'PATCH');
+  chk('Immer erlauben Server-weit gespeichert', [permSrv.s, permSrv.j.connection.alwaysAllowed], [200, true]);
+
+  const listAfterPerm = await call('/mcp/connections', undefined, T, 'GET');
+  const listedPerm = listAfterPerm.j.connections.find(c => c.id === connId);
+  chk('Dauerhafte Berechtigungen bleiben nach GET /mcp/connections erhalten', [listedPerm?.alwaysAllowed, listedPerm?.alwaysAllowedTools], [true, ['echo']]);
+
+  // OAuth Reconnect (gleiche URL) übernimmt alwaysAllowed & alwaysAllowedTools
+  const reStart = await P('/mcp/oauth/start', { url: `${base}/oauth-mcp`, name: 'TestApp', redirectUri }, T);
+  lastChallenge = new URL(reStart.j.authUrl).searchParams.get('code_challenge');
+  const reState = new URL(reStart.j.authUrl).searchParams.get('state');
+  pendingCode = 'auth-code-reconnect';
+  const reDone = await P('/mcp/oauth/complete', { code: pendingCode, state: reState }, T);
+  chk('OAuth Reconnect behält alwaysAllowed & Werkzeug-Liste', [reDone.s, reDone.j.connection?.id, reDone.j.connection?.alwaysAllowed, reDone.j.connection?.alwaysAllowedTools], [200, connId, true, ['echo']]);
+
+  const permRevoke = await call(`/mcp/connections/${connId}`, { alwaysAllowed: false, revokeAlwaysTool: 'echo' }, T, 'PATCH');
+  chk('Dauerhafte Berechtigung sauber widerrufbar', [permRevoke.s, permRevoke.j.connection.alwaysAllowed, permRevoke.j.connection.alwaysAllowedTools], [200, false, []]);
+
   delete process.env.MCP_ALLOW_PRIVATE;
   chk('danach wieder gesperrt', (await P('/mcp/tools', { url: base + '/json' }, T)).s, 400);
   srv.close(); await finish();

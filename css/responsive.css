@@ -88,3 +88,20 @@ html, body { max-width: 100%; overflow-x: hidden }
   .toast { max-width: none; width: 100%; box-sizing: border-box }
   .toast > span:not(.material-symbols-outlined) { flex: 1; min-width: 0 }
 }
+
+/* ---------- Globale Überlauf-Sicherung für Formeln, Tabellen, Bilder und schmale Displays ---------- */
+.katex-display { max-width: 100%; overflow-x: auto; overflow-y: hidden; padding-bottom: 2px }
+.table-wrap { max-width: 100%; overflow-x: auto }
+.img-bar { flex-wrap: wrap; max-width: 100% }
+.mz-paper { overflow-x: hidden }
+
+@media (max-width: 480px) {
+  .cd-overlay { padding: max(8px, env(safe-area-inset-top)) 8px max(8px, env(safe-area-inset-bottom)) }
+  .cd-head { padding: 14px 12px 6px 16px }
+  .cd-body { padding: 8px 16px 18px }
+  .ap-page { padding: 18px 12px 48px }
+  .sidebar.collapsed ~ .view-host .ap-page { padding-top: 58px }
+  .gemini-live-overlay .live-top-bar { padding: 12px; gap: 8px }
+  .gemini-live-overlay .live-board { padding: 4px 12px 0 }
+}
+

@@ -519,6 +519,20 @@ function filterGithubResult(doc, toolName, result) {
   return out;
 }
 
+function normalizeAlwaysTools(list) {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const raw of list) {
+    const t = String(raw || '').trim().slice(0, 80);
+    if (!t || !/^[\w.\-:/]{1,80}$/.test(t) || seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+    if (out.length >= 100) break;
+  }
+  return out;
+}
+
 // ---------- Verschlüsselte Speicherung in Firestore (mcp_connections) ----------
 function sanitizeConn(doc) {
   if (!doc) return null;
@@ -536,6 +550,8 @@ function sanitizeConn(doc) {
     serverName: doc.server_name || '',
     tools: Array.isArray(doc.tools) ? doc.tools : [],
     allowedRepos: Array.isArray(doc.allowed_repos) ? doc.allowed_repos : null,
+    alwaysAllowed: Boolean(doc.always_allowed),
+    alwaysAllowedTools: normalizeAlwaysTools(doc.always_allowed_tools),
     status: doc.status || 'connected',
     lastError: doc.last_error || null,
     createdAt: doc.created_at || null,
@@ -823,6 +839,8 @@ function mcpRouter(requireAuth) {
       scopes: '',
       server_name: String(server?.name || '').slice(0, 120),
       tools,
+      always_allowed: Boolean(b.alwaysAllowed),
+      always_allowed_tools: normalizeAlwaysTools(b.alwaysAllowedTools),
       status: 'connected',
       last_error: null,
       created_at: now,
@@ -839,6 +857,19 @@ function mcpRouter(requireAuth) {
     const patch = { updated_at: db.nowIso() };
     if (typeof req.body?.enabled === 'boolean') patch.enabled = req.body.enabled;
     if (typeof req.body?.name === 'string' && req.body.name.trim()) patch.name = req.body.name.trim().slice(0, 40);
+    if (typeof req.body?.alwaysAllowed === 'boolean') patch.always_allowed = req.body.alwaysAllowed;
+    if (Array.isArray(req.body?.alwaysAllowedTools)) {
+      patch.always_allowed_tools = normalizeAlwaysTools(req.body.alwaysAllowedTools);
+    }
+    if (typeof req.body?.addAlwaysTool === 'string' && req.body.addAlwaysTool.trim()) {
+      const cur = normalizeAlwaysTools(doc.always_allowed_tools);
+      patch.always_allowed_tools = normalizeAlwaysTools([...cur, req.body.addAlwaysTool.trim()]);
+    }
+    if (typeof req.body?.revokeAlwaysTool === 'string' && req.body.revokeAlwaysTool.trim()) {
+      const rem = req.body.revokeAlwaysTool.trim();
+      const cur = Array.isArray(patch.always_allowed_tools) ? patch.always_allowed_tools : normalizeAlwaysTools(doc.always_allowed_tools);
+      patch.always_allowed_tools = cur.filter(t => t !== rem);
+    }
     if (Object.prototype.hasOwnProperty.call(req.body || {}, 'allowedRepos')) {
       if (!isGithubConn(doc)) throw httpErr(400, 'Repository-Einschränkung wird nur für GitHub-Verbindungen unterstützt.');
       patch.allowed_repos = normalizeAllowedRepos(req.body.allowedRepos);
@@ -1109,6 +1140,8 @@ function mcpRouter(requireAuth) {
     } else {
       const mine = await db.runQuery('mcp_connections', { where: [['uid', '==', req.user.uid]] });
       if (mine.length >= MAX_CONNS) throw httpErr(400, `Höchstens ${MAX_CONNS} Verbindungen möglich.`);
+      const normU = (x) => String(x || '').replace(/\/+$/, '').toLowerCase();
+      const prevMatch = mine.find(x => (st.catalogId && x.catalog_id === st.catalogId) || normU(x.url) === normU(st.serverUrl));
       let finalName = st.name;
       if (mine.some(x => x.name.toLowerCase() === finalName.toLowerCase())) {
         finalName = `${finalName.slice(0, 34)} (${mine.length + 1})`;
@@ -1128,6 +1161,8 @@ function mcpRouter(requireAuth) {
         scopes: oauthPayload.scope,
         server_name: serverName,
         tools,
+        always_allowed: Boolean(prevMatch?.always_allowed),
+        always_allowed_tools: normalizeAlwaysTools(prevMatch?.always_allowed_tools),
         status,
         last_error: lastError,
         created_at: now,

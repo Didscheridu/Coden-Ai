@@ -31,7 +31,7 @@
 
 .st-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
   gap: 16px;
 }
 
@@ -360,6 +360,11 @@
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
+@media (max-width: 360px) {
+  .st-studio-grid {
+    grid-template-columns: 1fr;
+  }
+}
 .st-tool-btn {
   background: var(--bg-sidebar);
   border: 1px solid var(--border-color);
@@ -604,7 +609,8 @@
 }
 .sc-toolbar select.cd-input {
   width: auto;
-  min-width: 210px;
+  min-width: min(210px, 100%);
+  max-width: 100%;
   flex: 1;
 }
 .sc-textarea {

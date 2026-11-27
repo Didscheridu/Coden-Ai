@@ -229,7 +229,8 @@ export const UI = {
         const key = 'm' + (++UI._msgCounter);
         row.classList.add('streaming');
         const panel = createThinkPanel({ startedAt }); const answer = document.createElement('div'); answer.className = 'answer';
-        content.replaceChildren(panel.el, answer);
+        const permSlot = document.createElement('div'); permSlot.className = 'inline-perm-slot';
+        content.replaceChildren(panel.el, answer, permSlot);
         let target = '', shownLen = 0, raf = 0, lastFrame = 0, started = false, info = null; const opened = new Set();
         const stick = () => chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 140;
         // Neues Artefakt im Text? -> Fenster sofort öffnen und live mitschreiben lassen (wie bei Claude); auf dem Handy nur die Karte
@@ -272,7 +273,7 @@ export const UI = {
         };
         const end = (minSecs = 2) => { if (!info) { info = panel.done(); if (!(info.secs >= minSecs || info.steps.length || info.text)) panel.remove(); } return info; };
         return {
-            row, attached: () => row.isConnected,
+            row, permSlot, attached: () => row.isConnected,
             think: (k) => panel.think(k), model: (n) => panel.model(n),
             update(text) {
                 target = text;
@@ -377,11 +378,15 @@ export const UI = {
             );
             document.body.append(menu);
             const r = btn.getBoundingClientRect();
+            const vw = window.innerWidth, vh = window.innerHeight, pad = 8, gap = 4;
+            menu.style.maxWidth = Math.max(160, vw - pad * 2) + 'px';
+            menu.style.maxHeight = Math.max(80, vh - pad * 2) + 'px';
+            menu.style.overflowY = 'auto';
             const mw = menu.offsetWidth || 168, mh = menu.offsetHeight || 86;
-            const left = Math.max(8, Math.min(r.right - mw, window.innerWidth - mw - 8));
-            const top = r.bottom + 4 + mh > window.innerHeight - 8 ? Math.max(8, r.top - mh - 4) : r.bottom + 4;
-            menu.style.left = left + 'px';
-            menu.style.top = top + 'px';
+            const left = Math.max(pad, Math.min(r.right - mw, vw - mw - pad));
+            const top = r.bottom + gap + mh > vh - pad ? Math.max(pad, r.top - mh - gap) : r.bottom + gap;
+            menu.style.left = Math.round(left) + 'px';
+            menu.style.top = Math.round(top) + 'px';
         };
         if (!UI._sbCtxBound) {
             UI._sbCtxBound = true;

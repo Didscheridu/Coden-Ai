@@ -204,7 +204,18 @@ function build() {
                 e.stopPropagation();
                 const open = apMenu.classList.toggle('hidden') === false;
                 apMoreBtn?.setAttribute('aria-expanded', String(open));
-                if (open) refreshPublishItems();
+                if (open) {
+                    refreshPublishItems();
+                    const vw = window.innerWidth, vh = window.innerHeight, pad = 8;
+                    const br = apMoreBtn.getBoundingClientRect();
+                    apMenu.style.maxWidth = Math.max(160, vw - pad * 2) + 'px';
+                    apMenu.style.maxHeight = Math.max(100, Math.floor(vh - br.bottom - 14)) + 'px';
+                    apMenu.style.overflowY = 'auto';
+                    apMenu.style.right = '0px';
+                    apMenu.style.left = 'auto';
+                    const mr = apMenu.getBoundingClientRect();
+                    if (mr.left < pad) apMenu.style.right = Math.round(mr.left - pad) + 'px';
+                }
                 return;
             }
             if (a === 'close') { closeMenu(); Artifacts.close(); }

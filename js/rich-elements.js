@@ -35,10 +35,11 @@ export function outsideCode(text, fn) {
 
 import { parsePlanLines, fmtDate } from './study-core.js';
 import { parseHandwriting, cleanHandwritingText, activeProfile, trainedCount, allProfiles } from './handwriting-core.js';
+import { parseBrowserPreview } from './browser-core.js';
 export { parseHandwriting };
 
 // ---------- Blöcke finden ----------
-export const WIDGETS = ['quiz', 'flashcards', 'steps', 'stats', 'proscons', 'bars', 'tabs', 'plot', 'pie', 'lernplan', 'handwriting'];
+export const WIDGETS = ['quiz', 'flashcards', 'steps', 'stats', 'proscons', 'bars', 'tabs', 'plot', 'pie', 'lernplan', 'handwriting', 'browser'];
 const NAMES = WIDGETS.join('|');
 const OPEN = new RegExp(`<(${NAMES})(\\s[^>]*)?>`, 'i');
 const attrsOf = (s) => { const a = {}; String(s || '').replace(/([a-zA-Z_-]+)\s*=\s*["“„]([^"“”]*)["”“]/g, (m, k, v) => { a[k.toLowerCase()] = v; }); return a; };
@@ -212,8 +213,8 @@ const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls)
 const icon = (name) => mk('span', 'material-symbols-outlined', name);
 const LABEL = { quiz: 'Quiz wird erstellt', flashcards: 'Karteikarten werden erstellt', steps: 'Schritte werden geschrieben', stats: 'Kennzahlen werden berechnet', proscons: 'Vor- und Nachteile werden gesammelt', bars: 'Balken werden gezeichnet', tabs: 'Abschnitte werden geschrieben' };
 
-const VERB = { lernplan: 'Erstellt deinen Lernplan', quiz: 'Erstellt Quiz', flashcards: 'Erstellt Karteikarten', steps: 'Schreibt die Schritte', stats: 'Berechnet Kennzahlen', proscons: 'Sammelt Vor- und Nachteile', bars: 'Zeichnet Balken', tabs: 'Schreibt Abschnitte', plot: 'Zeichnet den Graphen', pie: 'Zeichnet das Kreisdiagramm', handwriting: 'Schreibt in deiner Handschrift' };
-const PICON = { lernplan: 'event_note', quiz: 'quiz', flashcards: 'style', steps: 'format_list_numbered', stats: 'monitoring', proscons: 'thumbs_up_down', bars: 'bar_chart', tabs: 'tab', plot: 'show_chart', pie: 'pie_chart', handwriting: 'stylus_note' };
+const VERB = { lernplan: 'Erstellt deinen Lernplan', quiz: 'Erstellt Quiz', flashcards: 'Erstellt Karteikarten', steps: 'Schreibt die Schritte', stats: 'Berechnet Kennzahlen', proscons: 'Sammelt Vor- und Nachteile', bars: 'Zeichnet Balken', tabs: 'Schreibt Abschnitte', plot: 'Zeichnet den Graphen', pie: 'Zeichnet das Kreisdiagramm', handwriting: 'Schreibt in deiner Handschrift', browser: 'Erstellt Web-Vorschau' };
+const PICON = { lernplan: 'event_note', quiz: 'quiz', flashcards: 'style', steps: 'format_list_numbered', stats: 'monitoring', proscons: 'thumbs_up_down', bars: 'bar_chart', tabs: 'tab', plot: 'show_chart', pie: 'pie_chart', handwriting: 'stylus_note', browser: 'public' };
 // Platzhalter, solange ein Block noch geschrieben wird: gleiche Lade-Animation + was entsteht + wie weit
 function pending(type) {
     const box = mk('div', 'cw-card cw-pending cw-new');
@@ -612,7 +613,70 @@ function buildHandwriting(w) {
     paint();
     return box;
 }
-const BUILD = { lernplan: buildLernplan, plot: buildPlot, pie: buildPie, quiz: buildQuiz, flashcards: buildCards, steps: buildSteps, stats: buildStats, proscons: buildProsCons, bars: buildBars, tabs: buildTabs, handwriting: buildHandwriting };
+function buildBrowserCard(w) {
+    const info = parseBrowserPreview(w.body, w.attrs);
+    if (!info.url && !info.title && !info.products.length && !info.snippet) return null;
+
+    const box = mk('div', 'cw-card cw-browser-card');
+    const head = mk('div', 'bw-head');
+    const favWrap = mk('span', 'bw-fav');
+    if (info.domain) {
+        const img = document.createElement('img');
+        img.src = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(info.domain)}&sz=32`;
+        img.alt = '';
+        img.referrerPolicy = 'no-referrer';
+        img.onerror = () => img.replaceWith(icon('public'));
+        favWrap.append(img);
+    } else {
+        favWrap.append(icon('public'));
+    }
+
+    const headText = mk('div', 'bw-head-t');
+    headText.append(mk('strong', '', info.title || info.domain || 'Webseite'));
+    headText.append(mk('small', '', info.domain || info.url || 'Research-Browser'));
+    head.append(favWrap, headText);
+    if (info.query) head.append(mk('span', 'bw-q-badge', info.query));
+    box.append(head);
+
+    if (info.products.length) {
+        const prods = mk('div', 'bw-prods');
+        info.products.slice(0, 4).forEach(p => {
+            const row = mk('div', 'bw-prod');
+            const name = mk('span', 'bw-prod-name', p.title || '');
+            const price = p.price ? mk('span', 'bw-prod-price', p.price) : null;
+            row.append(name);
+            if (price) row.append(price);
+            prods.append(row);
+        });
+        box.append(prods);
+    } else if (info.snippet) {
+        box.append(mk('p', 'bw-snippet', info.snippet));
+    }
+
+    const foot = mk('div', 'bw-foot');
+    const openSplitBtn = mk('button', 'qz-primary');
+    openSplitBtn.type = 'button';
+    openSplitBtn.append(icon('splitscreen'), document.createTextNode('Im Split-Browser öffnen'));
+    openSplitBtn.addEventListener('click', () => {
+        document.dispatchEvent(new CustomEvent('coden:openBrowser', {
+            detail: { url: info.url, query: info.query }
+        }));
+    });
+    foot.append(openSplitBtn);
+
+    if (info.url && /^https?:\/\//i.test(info.url)) {
+        const ext = document.createElement('a');
+        ext.className = 'qz-ghost bw-ext';
+        ext.href = info.url;
+        ext.target = '_blank';
+        ext.rel = 'noopener noreferrer';
+        ext.append(icon('open_in_new'), document.createTextNode('Extern öffnen'));
+        foot.append(ext);
+    }
+    box.append(foot);
+    return box;
+}
+const BUILD = { lernplan: buildLernplan, plot: buildPlot, pie: buildPie, quiz: buildQuiz, flashcards: buildCards, steps: buildSteps, stats: buildStats, proscons: buildProsCons, bars: buildBars, tabs: buildTabs, handwriting: buildHandwriting, browser: buildBrowserCard };
 
 // Fertige Elemente merken, damit ein Quiz beim Weiterschreiben der Antwort seinen Stand behält
 const cache = new Map();

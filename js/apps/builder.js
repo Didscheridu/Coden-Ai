@@ -923,7 +923,23 @@ export function mountBuilder(host, appId) {
             owner ? item('delete_forever', 'App löschen', async () => { if (!(await confirmBox(`„${st.app.name}“ mit allen Dateien endgültig löschen? Die Coden-Adresse wird frei.`, { ok: 'Endgültig löschen', danger: true }))) return; try { await apiJson('/apps/' + appId, { method: 'DELETE' }); toast('App gelöscht'); Router.go('apps'); } catch (e) { toast(e.message, { type: 'error' }); } }, true)
                 : item('logout', 'App verlassen', async () => { const me = st.members.find(x => x.me); if (!me?.handle || !(await confirmBox('Diese App verlassen? Du kannst danach nicht mehr mitbauen.', { ok: 'Verlassen', danger: true }))) return; try { await apiJson(`/apps/${appId}/members/${me.handle}`, { method: 'DELETE' }); Router.go('apps'); } catch (e) { toast(e.message, { type: 'error' }); } }, true));
         document.body.appendChild(menu);
-        const r = anchor.getBoundingClientRect(); menu.style.top = r.bottom + 6 + 'px'; menu.style.right = Math.max(8, window.innerWidth - r.right) + 'px';
+        const r = anchor.getBoundingClientRect();
+        const vw = window.innerWidth, vh = window.innerHeight, pad = 8, gap = 6;
+        const maxW = Math.max(180, vw - pad * 2);
+        menu.style.maxWidth = maxW + 'px';
+        menu.style.overflowY = 'auto';
+        const mw = Math.min(menu.offsetWidth || 250, maxW);
+        const left = Math.max(pad, Math.min(vw - mw - pad, r.right - mw));
+        const spaceBelow = Math.max(0, vh - r.bottom - pad - gap);
+        const spaceAbove = Math.max(0, r.top - pad - gap);
+        const openUp = menu.scrollHeight > spaceBelow && spaceAbove > spaceBelow;
+        const availH = Math.max(80, Math.floor(openUp ? spaceAbove : spaceBelow));
+        const finalH = Math.min(menu.scrollHeight || 220, availH);
+        const top = openUp ? Math.max(pad, r.top - gap - finalH) : Math.min(vh - pad - finalH, r.bottom + gap);
+        menu.style.right = 'auto';
+        menu.style.left = Math.round(left) + 'px';
+        menu.style.top = Math.round(top) + 'px';
+        menu.style.maxHeight = Math.max(80, Math.min(availH, Math.floor(vh - pad - top))) + 'px';
         setTimeout(() => document.addEventListener('pointerdown', out, true), 0);
     }
     async function changeKind() {
