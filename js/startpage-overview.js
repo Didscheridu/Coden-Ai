@@ -145,7 +145,7 @@ export function mountStartpageOverview({ getSessions, getActiveId } = {}) {
             sessions.length
                 ? h('div', { class: 'sp-list' }, ...sessions.map(s => {
                     const lastMsg = [...s.messages].reverse().find(m => m?.text);
-                    const preview = String(lastMsg?.text || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, 56);
+                    const preview = String(lastMsg?.text || '').replace(/<(browser|quiz|flashcards|steps|stats|proscons|bars|tabs|plot|pie|lernplan|handwriting|artifact|suggestions|choices)\b[\s\S]*?<\/\1>/gi, '').replace(/\[Angehängt vom Nutzer\][\s\S]*$/, '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, 56);
                     return h('button', {
                         type: 'button',
                         class: 'sp-row',

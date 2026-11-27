@@ -16,6 +16,7 @@ const { ensureSchema } = require('../server/schema');
 const { chatJob, continueHandler, makeChatImage } = require('../server/chat-run');
 const { pushRouter } = require('../server/push');
 const { researchJob, researchRouter } = require('../server/research');
+const { startReport } = require('../server/research-reports');
 const { tasksRouter, cronHandler } = require('../server/tasks');
 const { artifactsRouter, publicArtifactsRouter, sharedPageRouter } = require('../server/artifacts');
 const byok = require('../server/byok');
@@ -371,7 +372,7 @@ api.post('/runs/chat', requireAuth, rateLimit('chat', 20, 60), researchLimit, en
   const state = {
     user: { uid: req.user.uid, email: req.user.email, isOwner: req.user.isOwner }, tier: req.body.tier, messages: squeeze(req.body.messages), title: meta.title,
     opts: { maxTokens: maxTokensOf(req.body), effort: effortOf(req.body), pin: pinOf(req) },
-    base: baseUrl(req), self: selfUrl(req), leg: 1, ...(research ? { depth: ['quick', 'normal', 'deep'].includes(req.body.depth) ? req.body.depth : 'normal' } : {})
+    base: baseUrl(req), self: selfUrl(req), leg: 1, ...(meta.temp ? { temp: true } : {}), ...(research ? { depth: ['quick', 'normal', 'deep'].includes(req.body.depth) ? req.body.depth : 'normal' } : {})
   };
   const { run, done } = await startRun({ uid: req.user.uid, isOwner: req.user.isOwner, kind: 'chat', ref, meta }, (run) => (research ? researchJob(run, state) : chatJob(run, state)));
   await serveRun(res, run, done);
@@ -451,6 +452,10 @@ api.use('/servers', serversRouter(requireAuth));
 api.use('/runs', runsRouter(requireAuth));
 api.use('/usage', usageRouter(requireAuth, requireOwner));
 api.use('/push', pushRouter(requireAuth));
+// Research-Seite: Bericht als eigener Hintergrund-Lauf (zählt gegen das Nutzungslimit, höchstens 6 Recherchen pro 10 Minuten)
+api.post('/research/reports', requireAuth, rateLimit('research', 6, 600), enforceSystemState, gate, (req, res) => ensureSchema()
+  .then(() => startReport(req, res))
+  .catch((e) => { if (e.status) return res.status(e.status).json({ error: e.message }); console.error('[research/reports]', e); res.status(500).json({ error: 'Die Recherche konnte nicht starten.' }); }));
 api.use('/research', researchRouter(requireAuth));
 // Zeitpläne auslösen (Pinger wie cron-job.org, mit CRON_SECRET statt Login)
 api.get('/cron/tasks', needsDb, cronHandler); api.post('/cron/tasks', needsDb, cronHandler);
