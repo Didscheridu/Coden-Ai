@@ -3,7 +3,7 @@ const { setup } = require('./helpers');
 (async () => {
   process.env.GROQ_API_KEY = 'test'; process.env.OPENROUTER_API_KEY = 'test'; process.env.GOOGLE_API_KEY = 'test';
   const realFetch = global.fetch; const enc = new TextEncoder();
-  const seen = { brave: [], tavily: [], plans: 0, reports: [], tasks: [], reportUser: '' }; let braveOk = true, braveEmpty = false;
+  const seen = { brave: [], tavily: [], plans: 0, planText: [], notes: [], reports: [], tasks: [], reportUser: '', models: [] }; let braveOk = true, braveEmpty = false, manyHits = false;
   const sse = (text) => new Response(new ReadableStream({ start(c) { for (const v of text.match(/[\s\S]{1,40}/g) || []) c.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: v } }] })}\n\n`)); c.enqueue(enc.encode('data: [DONE]\n\n')); c.close(); } }), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
   const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'Content-Type': 'application/json' } });
   global.fetch = async (url, o = {}) => {
@@ -11,12 +11,16 @@ const { setup } = require('./helpers');
     if (u.startsWith('https://api.search.brave.com/')) {
       seen.brave.push({ q: new URL(u).searchParams.get('q'), token: o.headers['X-Subscription-Token'] });
       if (!braveOk || o.headers['X-Subscription-Token'] === 'BSA-schlecht-1234') return json({}, 401);
+      const q = new URL(u).searchParams.get('q');
+      if (manyHits) return json({ web: { results: Array.from({ length: 10 }, (_, i) => ({ title: `Seite ${i} zu ${q}`, url: `https://s${i}-${encodeURIComponent(q).replace(/%/g, '')}.de/x`, description: 'viel' })) } });
       return json({ web: { results: braveEmpty ? [] : [{ title: 'Brave Treffer', url: 'https://brave-treffer.de/a', description: 'Beschreibung <b>eins</b>' }, { title: 'Zweiter', url: 'https://zweiter.org/b', description: 'zwei' }] } });
     }
     if (u.startsWith('https://api.tavily.com/')) { seen.tavily.push(JSON.parse(o.body).query); return json({ results: [{ title: 'Tavily Treffer', url: 'https://tavily-treffer.com/x', content: 'Inhalt' }] }); }
     const body = JSON.parse(o.body || '{}'); const sys = body.messages?.[0]?.content || '';
-    if (/Du planst eine Web-Recherche/.test(sys)) { seen.plans++; return json({ choices: [{ message: { content: '{"queries":["erste suche","zweite suche"]}' } }] }); }
-    if (/schreibst einen Recherche-Bericht/.test(sys)) { seen.reports.push(body.messages[1].content); return sse('## Ergebnis\n\nEs gibt Neuigkeiten [1], die sich bestätigen [2]. Erfunden ist [9].'); }
+    if (/Du planst eine Web-Recherche|Recherche-Agent|schreibst einen Recherche-Bericht/.test(sys)) seen.models.push(body.model);
+    if (/Du planst eine Web-Recherche/.test(sys)) { seen.plans++; seen.planText.push(body.messages[1].content); return json({ choices: [{ message: { content: '{"agents":[{"focus":"Grundlagen","queries":["erste suche","zweite suche"]},{"focus":"Aktuelles","queries":["dritte suche"]}]}' } }] }); }
+    if (/Recherche-Agent/.test(sys)) { seen.notes.push(body.messages[1].content); return json({ choices: [{ message: { content: '- Fakt eins [1]\n- Fakt zwei [2]' } }] }); }
+    if (/schreibst einen Recherche-Bericht/.test(sys)) { seen.reports.push(body.messages[1].content); return sse('## Ergebnis\n\nEs gibt Neuigkeiten [1], die sich bestätigen [2]. Erfunden ist [999].'); }
     if (/geplante Aufgabe/.test(sys)) { seen.tasks.push(body.messages[1].content); return body.stream ? sse('Erledigt: ' + body.messages[1].content) : json({ choices: [{ message: { content: 'Erledigt: ' + body.messages[1].content } }] }); }
     return body.stream ? sse('?') : json({ choices: [{ message: { content: '?' } }] });
   };
@@ -24,11 +28,14 @@ const { setup } = require('./helpers');
   // Gratis-Suche und Seiten-Lesen nachbilden (laufen nicht über fetch)
   const Tools = require('../server/agent-tools'); let ddgCalls = 0;
   Tools.ddgResults = async (q) => { ddgCalls++; return [{ title: 'DDG ' + q, url: 'https://ddg-treffer.de/' + encodeURIComponent(q), snippet: 'ddg' }]; };
-  Tools.fetchUrl = async (url) => (/faulenzer/.test(url) ? { ok: false, text: 'Fehler' } : { ok: true, text: `Inhalt von ${url} – Seite:\nSeitentext von ${url}` });
+  const LONG = ' Solarstrom und Wetter: Fakten, Zahlen und Hintergründe aus dem Jahr 2026 werden hier ausführlich erklärt.'.repeat(4);
+  Tools.fetchUrl = async (url) => (/faulenzer/.test(url) ? { ok: false, text: 'Fehler' } : { ok: true, text: `Inhalt von ${url} – Seite:\nSeitentext von ${url}.${LONG}` });
   const Push = require('../server/push'); const pushes = []; Push._setSender(async (sub, body) => { pushes.push(JSON.parse(body)); });
 
   const anna = await token({ sub: 'uid-anna', email: 'anna@x.de', email_verified: true });
   const ben = await token({ sub: 'uid-ben', email: 'ben@x.de', email_verified: true });
+  const cara = await token({ sub: 'uid-cara', email: 'cara@x.de', email_verified: true }); // eigene Nutzer für die Stufen (Limit: 6 Recherchen / 10 Min.)
+  const dora = await token({ sub: 'uid-dora', email: 'dora@x.de', email_verified: true });
   const past = () => new Date(Date.now() - 60000).toISOString();
   const due = (id, extra = {}) => db.updateDoc('scheduled_tasks/' + id, { next_run: past(), ...extra });
   const P = (p, b, t) => call(p, b, t, 'POST'), G = (p, t) => call(p, null, t), D = (p, t) => call(p, null, t, 'DELETE'), U = (p, b, t) => call(p, b, t, 'PUT');
@@ -58,13 +65,15 @@ const { setup } = require('./helpers');
   const t1 = finalText(r1.evs);
   chk('Recherche: läuft durch', [r1.s, r1.evs[r1.evs.length - 1].t], [200, 'done']);
   const searches = seen.brave.filter(b => b.q !== 'Test'); // „Test“ = Prüfung beim Speichern des Keys
-  chk('Recherche: Plan + beide Suchen über Brave mit Token', [seen.plans, searches.map(b => b.token).every(t => t === 'BSA-gut-abcd1234'), searches.map(b => b.q).sort()], [1, true, ['Was gibt es Neues zu Solarstrom?', 'erste suche', 'zweite suche']]);
+  chk('Recherche: ein Plan für 2 Agenten, alle Suchen über Brave mit Token', [seen.plans, /2 Agenten/.test(seen.planText[0]), searches.map(b => b.token).every(t => t === 'BSA-gut-abcd1234'), ['erste suche', 'zweite suche', 'dritte suche'].every(q => searches.some(b => b.q === q))], [1, true, true, true]);
+  chk('Recherche: läuft komplett über Coden Ultra (auch ohne Owner, gewählt war Pro)', [seen.models.length >= 3, seen.models.every(m => m === 'nvidia/nemotron-3.5-super-vl:free')], [true, true]);
   const steps = (await G('/runs/' + r1.evs[0].id, anna)).j.think.steps || [];
-  chk('Recherche: Denk-Schritte sichtbar (Planen, Suchen, Lesen, Schreiben)', ['Plane die Recherche …', 'Suche im Web …'].every(h => steps.includes(h)) && steps.some(h => /^Lese Quellen/.test(h)) && r1.evs.some(e => e.t === 'k' && e.h === 'Schreibe den Bericht …'), true);
-  chk('Recherche: Bericht bekommt nummerierte Quellen mit Seitentext', /\[1\] Brave Treffer[\s\S]*Seitentext von https:\/\/brave-treffer\.de\/a/.test(seen.reports[0]), true);
-  chk('Recherche: Beschreibung ohne HTML', /Beschreibung eins/.test(seen.reports[0]) === false && !/<b>/.test(seen.reports[0]), true);
-  chk('Recherche: erfundene Nummer [9] entfernt', /\[9\]/.test(t1), false);
-  chk('Recherche: Quellenliste vom Server angehängt', /\*\*Quellen\*\*\n\n1\. \[Brave Treffer\]\(https:\/\/brave-treffer\.de\/a\)/.test(t1), true);
+  const kh = r1.evs.filter(e => e.t === 'k').map(e => e.h);
+  chk('Recherche: Schritte sichtbar (Planen, Agenten, Prüfen, Schreiben)', [steps.some(h => /^Plane die Recherche \(2 Agenten, Ziel: 50 Webseiten\)/.test(h)), kh.some(h => /^Agent 1: Grundlagen/.test(h)), kh.some(h => /^Prüfe Webseiten/.test(h)), kh.includes('Schreibe den Bericht mit Coden Ultra …')], [true, true, true, true]);
+  chk('Recherche: Agenten schreiben Notizen aus geprüften Seiten (nur 2 Treffer → nur Agent 1 hat Seiten)', [seen.notes.length, /\[1\] (Brave Treffer|Zweiter)[\s\S]*Solarstrom/.test(seen.notes.join('\n')), /<b>/.test(seen.notes.join(''))], [1, true, false]);
+  chk('Recherche: Bericht entsteht aus den Notizen', [/Fakt eins \[1\]/.test(seen.reports[0]), /Quellen \(nur zur Orientierung\)/.test(seen.reports[0])], [true, true]);
+  chk('Recherche: erfundene Nummer entfernt', /\[999\]/.test(t1), false);
+  chk('Recherche: Quellenliste mit Statistik vom Server', /\*\*Quellen\*\*\n\n\*2 Webseiten geprüft · 2 Agenten · Coden Ultra\*\n\n1\. \[/.test(t1), true);
   chk('Recherche: Text bleibt gespeichert', (await G('/runs/' + r1.evs[0].id, anna)).j.text, t1);
   chk('Recherche: Meta-Markierung', (await G('/runs/' + r1.evs[0].id, anna)).j.meta.research, true);
 
@@ -77,7 +86,7 @@ const { setup } = require('./helpers');
   // Gar nichts gefunden
   braveEmpty = true; Tools.ddgResults = async () => [];
   const r3 = await research(anna, 'Eine Frage ohne Treffer');
-  chk('Keine Treffer: ehrliche Antwort statt Erfindung', [/nichts zu \*\*Eine Frage ohne Treffer\*\* finden/.test(finalText(r3.evs)), r3.evs[r3.evs.length - 1].t], [true, 'done']);
+  chk('Keine Treffer: ehrliche Antwort statt Erfindung', [/keine passenden Webseiten zu \*\*Eine Frage ohne Treffer\*\* prüfen/.test(finalText(r3.evs)), r3.evs[r3.evs.length - 1].t], [true, 'done']);
   braveEmpty = false; Tools.ddgResults = async (q) => [{ title: 'DDG ' + q, url: 'https://ddg-treffer.de/' + encodeURIComponent(q), snippet: 'ddg' }];
 
   // Ohne Key, Tavily als zweite Wahl
@@ -92,9 +101,30 @@ const { setup } = require('./helpers');
   // Leere/zu kurze Frage
   const r5 = await research(anna, '  ');
   chk('Leere Frage: Fehler statt Lauf', r5.s === 400 || r5.evs.some(e => e.t === 'e'), true);
-  // Recherche-Tiefe wird übernommen (schnell = weniger Seiten)
-  const lines0 = seen.reports.length; await research(anna, 'Kurze Frage', { depth: 'quick' });
-  chk('Tiefe schnell: höchstens 3 Seiten gelesen', (seen.reports[lines0].match(/Auszug:/g) || []).length <= 3, true);
+  // Stufen: Schnell 1 Agent / 25 Webseiten, Normal 2 / 50, Gründlich 2 / 100
+  manyHits = true;
+  for (const t of [cara, dora]) await U('/research/keys/brave', { key: 'BSA-gut-abcd1234' }, t);
+  const stufe = async (depth) => {
+    const n0 = seen.notes.length, p0 = seen.planText.length;
+    const r = await research(cara, 'Wie sieht die Zukunft von Solarstrom aus?', { depth });
+    const t = finalText(r.evs);
+    return [(t.match(/\*(\d+) Webseiten geprüft · (\d) Agent/) || []).slice(1).map(Number), seen.notes.length - n0, /(\d) Agent/.exec(seen.planText[p0] || '')?.[1] || '1'];
+  };
+  chk('Stufe Schnell: 1 Agent, 25 Webseiten', await stufe('quick'), [[25, 1], 1, '1']);
+  chk('Stufe Normal: 2 Agenten, 50 Webseiten', await stufe('normal'), [[50, 2], 2, '2']);
+  chk('Stufe Gründlich: 2 Agenten, 100 Webseiten', await stufe('deep'), [[100, 2], 2, '2']);
+  const longT = finalText((await research(dora, 'Noch einmal Solarstrom gründlich', { depth: 'deep' })).evs);
+  chk('Viele Quellen: Liste bleibt kurz (Rest als Zusammenfassung)', [/Außerdem geprüft: 98 weitere Webseiten/.test(longT), (longT.match(/^\d+\. \[/gm) || []).length], [true, 2]);
+
+  // Zweite Etappe: dauert das Prüfen lange, schreibt ein neuer Server-Aufruf den Bericht
+  process.env.CODEN_RESEARCH_SPLIT_MS = '0';
+  const rl = await research(dora, 'Solarstrom in zwei Etappen', { depth: 'quick' });
+  delete process.env.CODEN_RESEARCH_SPLIT_MS;
+  const contId = rl.evs.find(e => e.t === 'run')?.id;
+  let legDone = null;
+  for (let i = 0; i < 100 && !legDone; i++) { const r = (await G('/runs/' + contId, dora)).j; if (r.status !== 'running' && r.status !== 'paused') legDone = r; else await new Promise(x => setTimeout(x, 50)); }
+  chk('Etappe: erster Aufruf meldet Fortsetzung, zweiter schreibt den Bericht', [rl.evs.some(e => e.t === 'cont'), legDone?.status, /\*25 Webseiten geprüft · 1 Agent/.test(legDone?.text || '')], [true, 'done', true]);
+  manyHits = false;
 
   // ---------- Websuche für den Chat ----------
   chk('Websuche: ohne Login nicht erreichbar', (await call('/research/search', { q: 'x y' })).s, 401);

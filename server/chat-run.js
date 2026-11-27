@@ -110,7 +110,7 @@ async function continueHandler(req, res) {
   const id = parseInt(req.params.id, 10); const key = String(req.headers['x-coden-leg'] || '');
   if (!Number.isFinite(id) || key.length !== 48) return res.status(400).json({ error: 'Ungültig.' });
   const row = await db.getDoc(`ai_runs/${id}`, { preferAdmin: true });
-  const cont = row?.status === 'running' && row?.kind === 'chat' ? row?.meta?.cont : null;
+  const cont = row?.status === 'running' && ['chat', 'research'].includes(row?.kind) ? row?.meta?.cont : null;
   if (!cont || typeof cont.key !== 'string' || cont.key.length !== key.length || !crypto.timingSafeEqual(Buffer.from(cont.key), Buffer.from(key))) {
     return res.status(403).json({ error: 'Nicht erlaubt.' });
   }
@@ -129,9 +129,11 @@ async function continueHandler(req, res) {
   const { authTokenEnc: _a, ...cleanState } = st;
   void _a;
   const dbCtx = { token, uid: st.user?.uid, isOwner: !!st.user?.isOwner, email: st.user?.email };
-  const started = await db.runWithDbContext(dbCtx, () => resumeRun(id, { isOwner: !!st.user?.isOwner }, (run) => chatJob(run, cleanState)));
+  // Welche Arbeit geht weiter? Normaler Chat, Deep Research im Chat oder ein Bericht der Research-Seite
+  const job = cleanState.job === 'research' ? require('./research').researchJob : cleanState.job === 'report' ? require('./research-reports').reportJob : chatJob;
+  const started = await db.runWithDbContext(dbCtx, () => resumeRun(id, { isOwner: !!st.user?.isOwner }, (run) => job(run, cleanState)));
   if (!started) return res.status(409).json({ error: 'Der Lauf ist nicht mehr aktiv.' });
   res.status(202).json({ ok: true });
 }
 
-module.exports = { chatJob, continueHandler, makeChatImage, selfInvoke, IMAGE_TAG };
+module.exports = { chatJob, continueHandler, continueLeg, makeChatImage, selfInvoke, IMAGE_TAG };

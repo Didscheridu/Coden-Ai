@@ -19,7 +19,7 @@ const { setup } = require('./helpers');
   const { call, chk, finish, token, base, db } = await setup();
   const Tools = require('../server/agent-tools');
   Tools.ddgResults = async (q) => [{ title: 'Quelle A ' + q, url: 'https://quelle-a.de/x', snippet: 'a' }, { title: 'Quelle B', url: 'https://quelle-b.org/y', snippet: 'b' }];
-  Tools.fetchUrl = async (url) => ({ ok: true, text: 'Seitentext von ' + url });
+  Tools.fetchUrl = async (url) => ({ ok: true, text: 'Seitentext von ' + url + '. ' + 'Photosynthese in Pflanzen: Licht, Wasser und Kohlendioxid werden zu Zucker. '.repeat(4) });
   const Push = require('../server/push'); const pushes = []; Push._setSender(async (sub, body) => { pushes.push(JSON.parse(body)); });
   const RR = require('../server/research-reports');
 
@@ -108,6 +108,13 @@ const { setup } = require('./helpers');
   chk('Chat-Recherche gespeichert (Herkunft chat)', [after.length, after.some(r => r.origin === 'chat' && r.question === 'Was machen Mitochondrien?')], [2, true]);
   await chatRun({ temp: true });
   chk('Temporärer Chat speichert nichts', (await G('/research/reports', anna)).j.reports.length, 2);
+
+  // ---------- Immer Coden Ultra, auch für Nicht-Owner ----------
+  const eva = await token({ sub: 'uid-eva', email: 'eva@x.de', email_verified: true }); // eigenes Limit (6 Recherchen / 10 Min.)
+  const ultra = await P('/research/reports', { question: 'Ultra auch ohne Owner?', tier: 'ultra', depth: 'quick' }, eva);
+  chk('Nicht-Owner mit tier ultra wird nicht gesperrt', ultra.s, 200);
+  await waitDone(ultra.j.report?.id, eva);
+  chk('Bericht trotz gesperrtem Ultra fertig (Modell-Prüfung: research.test.js)', (await G('/research/reports/' + ultra.j.report?.id, eva)).j.report.status, 'done');
 
   // ---------- Grenzen ----------
   chk('saveFinished ignoriert Text ohne Quellen', await RR.saveFinished({ uid: 'uid-anna' }, { question: 'q', text: 'kurz' }), null);

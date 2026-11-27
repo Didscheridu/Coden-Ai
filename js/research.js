@@ -5,7 +5,8 @@ import { Storage } from './storage.js';
 import { toast } from './toast.js';
 import { h, icon } from './apps/dom.js';
 
-const DEPTHS = [['quick', 'Schnell', 'drei Suchen, ein paar Quellen – dauert etwa eine Minute'], ['normal', 'Normal', 'vier Suchen, sechs gelesene Seiten – gut für die meisten Fragen'], ['deep', 'Gründlich', 'sechs Suchen, neun gelesene Seiten – dauert länger, findet mehr']];
+// Recherchen laufen immer über Coden Ultra (Server), die Stufen bestimmen Agenten und geprüfte Webseiten
+const DEPTHS = [['quick', 'Schnell', '1 Agent prüft 25 Webseiten – dauert etwa 2 Minuten'], ['normal', 'Normal', '2 Agenten prüfen 50 Webseiten – gut für die meisten Fragen'], ['deep', 'Gründlich', '2 Agenten prüfen mindestens 100 Webseiten – dauert etwa 5 Minuten']];
 let on = false, ph = null;
 const input = () => document.getElementById('main-input');
 
@@ -66,7 +67,8 @@ export const Research = {
                 h('h5', { class: 'rs-h', text: 'Wie gründlich?' }),
                 h('div', { class: 'rs-depth' }, DEPTHS.map(([id, name, d]) => h('label', { class: 'rs-opt' + (id === depth ? ' on' : '') },
                     h('input', { type: 'radio', name: 'rs-depth', value: id, checked: id === depth, onchange: () => { const s = Storage.getSettings(); s.researchDepth = id; Storage.saveSettings(s); draw(o); } }),
-                    h('span', {}, h('b', { text: name }), h('small', { text: d }))))));
+                    h('span', {}, h('b', { text: name }), h('small', { text: d }))))),
+                h('p', { class: 'settings-hint', text: 'Recherchen laufen immer mit Coden Ultra – auch wenn du im Chat ein anderes Modell gewählt hast. Sie zählen deshalb etwas mehr für dein Nutzungslimit.' }));
         };
         draw(o);
     }

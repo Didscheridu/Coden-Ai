@@ -26,9 +26,10 @@ const { contactRouter } = require('../server/contact');
 const { Meter, limitGate, usageRouter } = require('../server/usage');
 const meterFor = (req) => new Meter(req.user, req.body?.tier);
 
-// Eigene Modelle (Bring your own Key) laufen über den Key des Nutzers und zählen nicht gegen die Coden-Limits
-const gate = (req, res, next) => (byok.isByok(req.body?.tier) ? next() : ensureSchema()
-  .then(() => (byok.isChain(req.body?.tier) ? byok.freeOfQuota(req.user.uid, req.body.tier) : false))
+// Eigene Modelle (Bring your own Key) laufen über den Key des Nutzers und zählen nicht gegen die Coden-Limits.
+// Recherchen laufen immer über Coden Ultra (Coden-Keys) und zählen deshalb immer.
+const gate = (req, res, next) => (byok.isByok(req.body?.tier) && req.body?.research !== true ? next() : ensureSchema()
+  .then(() => (byok.isChain(req.body?.tier) && req.body?.research !== true ? byok.freeOfQuota(req.user.uid, req.body.tier) : false))
   .then((free) => (free ? next() : limitGate(req, res, next)), next));
 
 process.on('unhandledRejection', (e) => console.error('[unhandledRejection]', e?.stack || e));
@@ -453,7 +454,9 @@ api.use('/runs', runsRouter(requireAuth));
 api.use('/usage', usageRouter(requireAuth, requireOwner));
 api.use('/push', pushRouter(requireAuth));
 // Research-Seite: Bericht als eigener Hintergrund-Lauf (zählt gegen das Nutzungslimit, höchstens 6 Recherchen pro 10 Minuten)
-api.post('/research/reports', requireAuth, rateLimit('research', 6, 600), enforceSystemState, gate, (req, res) => ensureSchema()
+// Das Modell wählt der Server (immer Coden Ultra) – ein mitgeschicktes tier wird vorher entfernt, damit die Ultra-Sperre des Chats nicht greift.
+const researchBody = (req, res, next) => { req.body = { ...(req.body || {}), research: true }; delete req.body.tier; next(); };
+api.post('/research/reports', requireAuth, rateLimit('research', 6, 600), researchBody, enforceSystemState, gate, (req, res) => ensureSchema()
   .then(() => startReport(req, res))
   .catch((e) => { if (e.status) return res.status(e.status).json({ error: e.message }); console.error('[research/reports]', e); res.status(500).json({ error: 'Die Recherche konnte nicht starten.' }); }));
 api.use('/research', researchRouter(requireAuth));

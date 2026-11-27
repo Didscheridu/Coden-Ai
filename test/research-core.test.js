@@ -34,7 +34,24 @@ const list = R.sourceList(src, 'Satz [1] und [2].');
 chk('Quellenliste: zitierte zuerst mit Link', /\*\*Quellen\*\*\n\n1\. \[Eins\]\(https:\/\/eins\.de\/a\) · eins\.de\n2\. \[Zwei x\]\(https:\/\/www\.zwei\.de\/b\) · zwei\.de/.test(list), true);
 chk('Quellenliste: ungenutzte als „Auch gesichtet“', /Auch gesichtet[\s\S]*3\. \[Drei\]/.test(list), true);
 chk('Quellenliste ohne Zitate: alle', /1\. .*\n2\. .*\n3\. /.test(R.sourceList(src, 'ohne Belege')) && !/Auch gesichtet/.test(R.sourceList(src, 'ohne Belege')), true);
-chk('Tiefe: unbekannt → normal', R.depthOf('quatsch').queries, 4);
+chk('Tiefe: unbekannt → normal', R.depthOf('quatsch'), R.DEPTH.normal);
+chk('Stufen: Agenten und Webseiten (Wunsch Kayden)', ['quick', 'normal', 'deep'].map(d => [R.DEPTH[d].agents, R.DEPTH[d].pages]), [[1, 25], [2, 50], [2, 100]]);
+const plan = R.parseAgentPlan('{"agents":[{"focus":"A","queries":["eins zwei","drei vier"]},{"focus":"B","queries":["fünf sechs"]},{"focus":"C","queries":["x"]}]}', 'Frage', 2, 6);
+chk('Agenten-Plan: höchstens so viele Agenten wie die Stufe hat, Frage beim ersten', [plan.length, plan[0].queries[0], plan[1].focus], [2, 'Frage', 'B']);
+const plan2 = R.parseAgentPlan('Kein JSON\n- alpha suche\n- beta suche', 'Die Frage', 2, 3);
+chk('Agenten-Plan: ohne JSON reihum verteilt', plan2.map(a => a.queries.length > 0), [true, true]);
+chk('Agenten-Plan: leer → Varianten der Frage', R.parseAgentPlan('', 'Solar', 1, 3)[0].queries.length > 0, true);
+chk('Varianten je Runde verschieden', [R.queryVariants('Solar', 1)[0], R.queryVariants('Solar', 2)[0], R.VARIANT_ROUNDS], ['Solar Erklärung', 'Solar aktuell', 5]);
+chk('Suchwörter ohne Füllwörter', R.termsOf('Wie funktioniert die Photosynthese in Pflanzen?'), ['funktioniert', 'photosynthese', 'pflanzen']);
+const bp = R.bestPassages('Kaufen Sie jetzt unsere tollen Produkte günstig online.\nDie Photosynthese in Pflanzen braucht Licht und Wasser.\nImpressum und Datenschutz finden Sie unten auf der Seite.', ['photosynthese', 'pflanzen'], 300);
+chk('Beste Absätze: relevanter Satz, Werbung raus', [bp.text, bp.score > 0], ['Die Photosynthese in Pflanzen braucht Licht und Wasser.', true]);
+chk('Ersatz-Notizen mit Nummern', R.fallbackNotes([{ n: 3, excerpt: 'Ein Fakt.' }]), '- Ein Fakt. [3]');
+const fp = R.finalReportPrompt('F?', [{ focus: 'A', notes: '- x [1]' }, { focus: 'B', notes: '- y [2]' }], [{ n: 1, title: 'T1', url: 'https://a.de' }, { n: 2, title: 'T2', url: 'https://b.de' }], 'heute', { checked: 100 });
+chk('Bericht-Prompt nennt Agenten und geprüfte Seiten', [/2 Agenten, die zusammen 100 Webseiten geprüft haben/.test(fp[0].content), /### Agent 2 – B\n- y \[2\]/.test(fp[1].content)], [true, true]);
+const many = Array.from({ length: 40 }, (_, i) => ({ n: i + 1, title: 'S' + i, url: `https://s${i}.de/x` }));
+const sl = R.sourceList(many, 'Text [1] und [3].', { checked: 40, agents: 2 });
+chk('Quellenliste: Statistik, zitierte voll, Rest kurz', [/\*40 Webseiten geprüft · 2 Agenten · Coden Ultra\*/.test(sl), (sl.match(/^\d+\. \[/gm) || []).length, /Außerdem geprüft: 38 weitere Webseiten, u\. a\. s1\.de/.test(sl)], [true, 2, true]);
+chk('Zitate über 99 werden erkannt', R.citedNumbers('a [100] b [7]', 120), [7, 100]);
 
 // --- Zeitpläne ---
 const iso = (s) => new Date(s).toISOString();

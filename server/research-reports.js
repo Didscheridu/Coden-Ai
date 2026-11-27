@@ -6,7 +6,6 @@ const db = require('./db');
 const { rateLimit } = require('./rateLimit');
 const { wrapRouter } = require('./util');
 const Push = require('./push');
-const { Meter } = require('./usage');
 const { startRun } = require('./runs');
 const PROJ = require('./projects').LIMITS;
 
@@ -118,13 +117,12 @@ async function saveFinished(user, { question, depth, origin, text }) {
 
 // ---------- Lauf für die Research-Seite ----------
 async function reportJob(run, state) {
-  const { runResearch } = require('./research'); // spät laden (research.js lädt diese Datei ebenfalls)
-  const { user, tier, question, depth, effort, reportId } = state; const meter = new Meter(user, tier);
+  const { phasedResearch } = require('./research'); // spät laden (research.js lädt diese Datei ebenfalls)
+  const { user, question, reportId } = state;
   try {
-    const text = await runResearch({
-      user, tier, question, depth, effort, signal: run.signal, meter,
-      onStep: (k) => run.thinkStep(k), onThink: (k) => run.thinkStep(k), onDelta: (v) => run.delta(v)
-    });
+    const r = await phasedResearch(run, { ...state, job: 'report' }, { question });
+    if (r.continued) return r; // die nächste Etappe schreibt den Bericht
+    const text = r.text;
     if (!run.signal.aborted && text !== run.text) run.setText(text);
     const done = await finishReport(reportId, run.signal.aborted ? { text: run.text, error: 'Abgebrochen.' } : { text, question });
     if (done?.status === 'done') {
@@ -133,7 +131,7 @@ async function reportJob(run, state) {
   } catch (e) {
     await finishReport(reportId, { text: run.text, error: run.signal.aborted ? 'Abgebrochen.' : (e.message || 'Fehler') }).catch(() => {});
     if (!run.signal.aborted && !e.limit) throw e;
-  } finally { await meter.close(); }
+  }
   if (!run.signal.aborted && run.subs.size === 0) {
     await Push.notify(user.uid, { title: 'Dein Research-Bericht ist fertig', body: titleFrom(question, run.text), url: `/#/research/${reportId}`, tag: 'research-' + reportId }).catch(() => {});
   }
@@ -144,7 +142,6 @@ async function startReport(req, res) {
   const q = str(req.body?.question, LIMITS.question).replace(/\s+/g, ' ').trim();
   if (q.length < 3) throw fail(400, 'Gib ein Thema ein, das Coden recherchieren soll.');
   const depth = DEPTHS.includes(req.body?.depth) ? req.body.depth : 'normal';
-  const tier = typeof req.body?.tier === 'string' ? req.body.tier : 'normal';
   const projects = Array.isArray(req.body?.projects) ? req.body.projects.map(toInt).filter(Boolean).slice(0, LIMITS.projects) : [];
   const user = { uid: req.user.uid, email: req.user.email, isOwner: req.user.isOwner };
   const mine = await mineList(user.uid);
@@ -152,7 +149,8 @@ async function startReport(req, res) {
   if (mine.filter(r => r.status === 'running' && Date.now() - new Date(iso(r.updated_at)).getTime() < 10 * 60_000).length >= 3) throw fail(429, 'Es laufen schon drei Recherchen. Warte kurz, bis eine fertig ist.');
   for (const pid of projects) await projectOf(user.uid, pid); // nur eigene Projekte
   const report = await createReport(user, { question: q, depth, origin: 'page', projects });
-  const state = { user, tier, question: q, depth, effort: req.body?.effort, reportId: Number(report.id) };
+  const self = `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.headers.host}`.replace(/\/$/, '');
+  const state = { user, question: q, depth, reportId: Number(report.id), self, leg: 1 }; // Modell: immer Coden Ultra (server/research.js)
   const { run } = await startRun({ uid: user.uid, isOwner: user.isOwner, kind: 'research', ref: 'report-' + report.id, meta: { title: report.title, research: true, report: Number(report.id) } }, (r) => reportJob(r, state));
   const saved = await db.updateDoc(`research_reports/${report.id}`, { run_id: Number(run.id) }).catch(() => null);
   res.json({ report: shape(saved || { ...report, run_id: run.id }, true) });
@@ -204,4 +202,4 @@ function mountReports(r) {
   });
 }
 
-module.exports = { startReport, mountReports, saveFinished, createReport, finishReport, titleFrom, sourceCount, summaryOf, projectFileName, LIMITS };
+module.exports = { startReport, reportJob, mountReports, saveFinished, createReport, finishReport, titleFrom, sourceCount, summaryOf, projectFileName, LIMITS };

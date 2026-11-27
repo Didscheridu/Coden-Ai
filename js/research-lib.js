@@ -12,12 +12,12 @@ import { Projects } from './projects.js';
 import { exportAsPdfReport, exportAsDocx } from './doc-export.js';
 import { libraryPrompt, lernzettel, sourcesFromText } from './research-lib-core.js';
 
-const DEPTHS = [['quick', 'Schnell', 'ca. 1 Min.'], ['normal', 'Normal', 'ca. 2 Min.'], ['deep', 'Gründlich', 'ca. 4 Min.']];
+// Stufen wie auf dem Server (shared/research-core.js): immer Coden Ultra
+const DEPTHS = [['quick', 'Schnell', '1 Agent prüft 25 Webseiten · ca. 2 Min.'], ['normal', 'Normal', '2 Agenten prüfen 50 Webseiten · ca. 3 Min.'], ['deep', 'Gründlich', '2 Agenten prüfen 100 Webseiten · ca. 5 Min.']];
 const ORIGIN = { page: 'Research', chat: 'aus dem Chat', task: 'geplante Aufgabe' };
 let cache = null, cacheAt = 0, loading = null;
 const full = new Map(); // id -> kompletter Bericht (nur fertige)
 
-const tierNow = () => document.querySelector('.model-option.active')?.getAttribute('data-model') || 'flash';
 const fmtDate = (iso) => { try { return new Date(iso).toLocaleDateString('de-DE', { day: '2-digit', month: 'long', year: 'numeric' }); } catch (_) { return ''; } };
 
 export const ResearchLib = {
@@ -37,7 +37,7 @@ export const ResearchLib = {
         return report;
     },
     async start({ question, depth = 'normal', projects = [] }) {
-        const { report } = await apiJson('/research/reports', { method: 'POST', body: JSON.stringify({ question, depth, projects, tier: tierNow() }) });
+        const { report } = await apiJson('/research/reports', { method: 'POST', body: JSON.stringify({ question, depth, projects }) }); // Modell: immer Coden Ultra (Server)
         ResearchLib.bust();
         return report;
     },
@@ -135,7 +135,11 @@ async function overview(host, presetProject) {
     let depth = 'normal';
     const q = h('textarea', { class: 'rl-q', rows: 2, maxlength: 600, placeholder: 'Worüber soll Coden recherchieren? Zum Beispiel: „Wie funktioniert die Photosynthese?“ oder „Vergleich der besten Schulrechner 2026“' });
     const depthBar = h('div', { class: 'rl-depth', role: 'radiogroup', 'aria-label': 'Gründlichkeit' });
-    const drawDepth = () => depthBar.replaceChildren(...DEPTHS.map(([id, name, t]) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(id === depth), class: id === depth ? 'on' : '', title: t, onclick: () => { depth = id; drawDepth(); } }, name)));
+    const depthHint = h('div', { class: 'rl-hint' });
+    const drawDepth = () => {
+        depthBar.replaceChildren(...DEPTHS.map(([id, name, t]) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(id === depth), class: id === depth ? 'on' : '', title: t, onclick: () => { depth = id; drawDepth(); } }, name)));
+        depthHint.replaceChildren(icon('bolt'), h('span', { text: `${DEPTHS.find(d => d[0] === depth)[2]} · läuft immer mit Coden Ultra` }));
+    };
     drawDepth();
     const projSel = h('select', { class: 'cd-input rl-proj', 'aria-label': 'Projekt' }, h('option', { value: '' }, 'Kein Projekt'));
     Projects.list().then(ps => { for (const p of ps) projSel.append(h('option', { value: String(p.id) }, p.name)); if (presetProject) projSel.value = String(presetProject); }).catch(() => {});
@@ -156,7 +160,7 @@ async function overview(host, presetProject) {
     const listBox = h('div', { class: 'rl-list' }, h('p', { class: 'cd-text', text: 'Lade …' }));
     host.append(h('div', { class: 'ap-page rl-page' },
         h('div', { class: 'rl-hero' }, h('h1', { text: 'Research' }), h('p', { text: 'Gib Coden ein Thema. Coden sucht im Web, liest die besten Quellen und schreibt dir einen Bericht. Deine Berichte kennt Coden danach im Chat und in deinen Projekten.' })),
-        h('div', { class: 'rl-composer' }, q, h('div', { class: 'rl-bar' }, depthBar, projSel, h('span', { class: 'grow' }), go), err),
+        h('div', { class: 'rl-composer' }, q, h('div', { class: 'rl-bar' }, depthBar, projSel, h('span', { class: 'grow' }), go), depthHint, err),
         h('div', { class: 'rl-listhead' }, h('h3', { text: 'Deine Berichte' }), search),
         listBox));
     setTimeout(() => q.focus(), 30);

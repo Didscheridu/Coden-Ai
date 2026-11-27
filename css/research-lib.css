@@ -117,3 +117,5 @@
   .rl-actions .cd-btn.danger { margin-left: 0; }
 }
 .rl-composer .rl-q, .rl-composer .rl-q:focus { border: 0 !important; box-shadow: none !important; outline: 0 !important; padding: 2px 2px 0; background: transparent !important; }
+.rl-hint { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); padding: 0 2px; }
+.rl-hint .material-symbols-outlined { font-size: 15px; color: var(--accent-blue); }
