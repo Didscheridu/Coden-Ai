@@ -640,6 +640,24 @@
         "updated_at": { "type": "string", "format": "date-time", "maxLength": 64 }
       },
       "required": ["aid", "uid", "key", "value", "scope"]
+    },
+    "ContactMessage": {
+      "title": "ContactMessage",
+      "description": "Contact form inquiry submitted via the legal/contact modal",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "uid": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 200 },
+        "topic": { "type": "string", "enum": ["allgemein", "datenschutz", "dsa", "bug", "sonstiges"], "maxLength": 24 },
+        "subject": { "type": "string", "maxLength": 140 },
+        "message": { "type": "string", "maxLength": 4000 },
+        "status": { "type": "string", "enum": ["open", "done"], "maxLength": 16 },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "updated_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["id", "uid", "name", "email", "topic", "subject", "message", "status"]
     }
   },
   "firestore": {
@@ -810,6 +828,10 @@
     "/artifact_shared/{docId}": {
       "schema": { "$ref": "#/entities/ArtifactShared" },
       "description": "Shared key-value storage for published artifacts"
+    },
+    "/contact_messages/{msgId}": {
+      "schema": { "$ref": "#/entities/ContactMessage" },
+      "description": "User and visitor contact form inquiries"
     }
   }
 }

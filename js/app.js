@@ -38,6 +38,7 @@ import { apiFetch, apiJson } from './backend.js';
 import { checkRateLimit } from './Limit-Spamschutz.js';
 import { sharedLive } from './multimodal-live-prototype.js'; // 🔥 NEU: Der Live Client 🔥
 import { ChessEngine } from './Chess.js'; // 🔥 NEU HINZUGEFÜGT
+import { initLegal } from './legal.js';
 
 // ==========================================
 // 🏗️ 1. ALLE DOM-ELEMENTE
@@ -521,9 +522,7 @@ function initApp() {
             document.addEventListener('deleteChatSession', (e) => deleteSession(e.detail));
             document.addEventListener('togglePinSession', (e) => { const t = sessions.find(x => x.id === e.detail); if (!t) return; t.pinned = !t.pinned; Storage.saveSessions(sessions); UI.renderSidebar(sessions, activeSessionId); });
 
-            // ♟️ Schach initialisieren
-            window.codenChess = new ChessEngine();
-            window.codenChess.init();
+            // ♟️ Schach wird erst bei Bedarf (lazy) initialisiert, um Dritt-Skripte beim Start zu vermeiden
 
             // Live Call Button
             const liveCallBtn = document.getElementById('live-call-btn');
@@ -665,7 +664,7 @@ async function handleCommand(text) {
     
     // ♟️ JEDER darf Schach spielen (Deshalb prüfen wir das VOR dem Admin-Check!)
     if (cmd === '/chess') {
-        document.getElementById('chess-modal').classList.remove('hidden');
+        await openChessModal();
         return UI.appendMessage(`♟️ **SCHACH-MODUS:**\nDas Spielbrett wurde geöffnet! Tritt gegen Coden an.`, false);
     }
 
@@ -749,79 +748,17 @@ async function handleCommand(text) {
     }
 }
 // ==========================================
-// ⚖️ 7. RECHTLICHES (Impressum, Datenschutz, AGB)
+// ⚖️ 7. RECHTLICHES (ausgelagert in js/legal.js)
 // ==========================================
-const legalModal = document.getElementById('legal-modal');
-const legalTitle = document.getElementById('legal-title');
-const legalContent = document.getElementById('legal-content');
-
-if (document.getElementById('close-legal-btn')) {
-    document.getElementById('close-legal-btn').addEventListener('click', () => {
-        legalModal.classList.add('hidden');
-    });
-}
-
-// ACHTUNG KAYDEN: HIER DEINE ECHTEN DATEN EINTRAGEN!
-const legalTexts = {
-    impressum: `
-        <h4 style="color: white; margin-bottom: 10px;">Impressum</h4>
-        <p>Angaben gemäß § 5 TMG</p>
-        <p style="color: white; font-weight: bold;">
-        Kayden Schunack<br>
-        Lerchesflurweg<br>
-        66199 Saarbrücken</p>
-        <p style="margin-top:10px;"><strong>Kontakt:</strong><br>
-        E-Mail: kayden.schunack@gmail.com</p>
-    `,
-    datenschutz: `
-        <h4 style="color: white; margin-bottom: 10px;">Datenschutzerklärung</h4>
-        <p>Der Schutz deiner Daten ist uns wichtig. Hier ist zusammengefasst, wie wir Daten verarbeiten:</p>
-        <ul style="margin-left: 20px; margin-top: 10px; margin-bottom: 20px;">
-            <li style="margin-bottom: 8px;"><strong>Accounts & Login:</strong> Für die Anmeldung nutzen wir Firebase Authentication (Google). Deine Chats, Projekte und Einstellungen speichern wir in Google Firebase (Firestore).</li>
-            <li style="margin-bottom: 8px;"><strong>Chats:</strong> Deine Nachrichten werden lokal in deinem Browser gespeichert (LocalStorage) und in unserer Datenbank gesichert.</li>
-            <li style="margin-bottom: 8px;"><strong>KI-Verarbeitung:</strong> Nachrichten werden verschlüsselt an unsere Backend-Server (Vercel) und KI-Partner gesendet. Sende niemals sensible Daten (z.B. Passwörter) im Chat.</li>
-            <li style="margin-bottom: 8px;"><strong>Hosting:</strong> Diese Webseite wird bei Vercel gehostet. Vercel verarbeitet zur Bereitstellung der Webseite kurzfristig IP-Adressen.</li>
-        </ul>
-    `,
-    agb: `
-        <h4 style="color: white; margin-bottom: 10px;">Nutzungsbedingungen (AGB) & Haftungsausschluss</h4>
-        <p>Mit der Nutzung von Coden AI stimmst du diesen Bedingungen zu:</p>
-        <ul style="margin-left: 20px; margin-top: 10px;">
-            <li style="margin-bottom: 8px;"><strong>Keine Garantie auf Richtigkeit:</strong> Coden AI nutzt generative KI. Die generierten Antworten (speziell Code) können Fehler oder "Halluzinationen" enthalten. Die Nutzung geschieht auf eigene Gefahr.</li>
-            <li style="margin-bottom: 8px;"><strong>Verfügbarkeit:</strong> Dies ist ein Projekt im Aufbau. Es besteht kein Anspruch auf Erreichbarkeit. Accounts können bei Missbrauch jederzeit gesperrt werden.</li>
-            <li style="margin-bottom: 8px;"><strong>Missbrauch:</strong> Die Nutzung zur Erstellung von Malware, Spam oder illegalen Inhalten ist verboten.</li>
-        </ul>
-    `
-};
-
-function openLegalModal(type) {
-    if (!legalModal || !legalTitle || !legalContent) return;
-    
-    if (type === 'impressum') legalTitle.textContent = 'Impressum';
-    else if (type === 'datenschutz') legalTitle.textContent = 'Datenschutzerklärung';
-    else legalTitle.textContent = 'Nutzungsbedingungen';
-    
-    legalContent.innerHTML = legalTexts[type];
-    legalModal.classList.remove('hidden');
-}
-
-if (document.getElementById('open-impressum-btn')) {
-    document.getElementById('open-impressum-btn').addEventListener('click', (e) => { 
-        e.preventDefault(); 
-        openLegalModal('impressum'); 
-    });
-}
-if (document.getElementById('open-datenschutz-btn')) {
-    document.getElementById('open-datenschutz-btn').addEventListener('click', (e) => { 
-        e.preventDefault(); 
-        openLegalModal('datenschutz'); 
-    });
-}
-if (document.getElementById('open-agb-btn')) {
-    document.getElementById('open-agb-btn').addEventListener('click', (e) => { 
-        e.preventDefault(); 
-        openLegalModal('agb'); 
-    });
+async function openChessModal() {
+    const modal = document.getElementById('chess-modal');
+    if (modal) modal.classList.remove('hidden');
+    if (!window.codenChess) window.codenChess = new ChessEngine();
+    try {
+        await window.codenChess.init();
+    } catch (e) {
+        toast('Schachbrett konnte nicht geladen werden: ' + (e.message || 'Fehler'), { type: 'error' });
+    }
 }
 
 // ==========================================
@@ -1029,21 +966,7 @@ function showCustomConfirm(input) {
             const cat = opts.kind === 'mcp'
                 ? (window.CodenMcpCatalog?.byId?.(opts.catalogId) || { name: opts.serverName, url: opts.serverUrl, icon: opts.icon || 'hub' })
                 : null;
-            const domain = cat ? window.CodenMcpCatalog?.domainOf?.(cat) : null;
-            if (domain) {
-                iconEl.classList.add('cc-icon-brand');
-                const img = document.createElement('img');
-                img.src = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`;
-                img.alt = '';
-                img.referrerPolicy = 'no-referrer';
-                img.addEventListener('error', () => {
-                    iconEl.classList.remove('cc-icon-brand');
-                    iconEl.replaceChildren(mkMat(cat?.icon || opts.icon || 'hub'));
-                });
-                iconEl.replaceChildren(img);
-            } else {
-                iconEl.replaceChildren(mkMat(cat?.icon || opts.icon || (opts.danger ? 'delete' : 'shield')));
-            }
+            iconEl.replaceChildren(mkMat(cat?.icon || opts.icon || (opts.danger ? 'delete' : 'shield')));
         }
 
         if (titleEl) titleEl.textContent = opts.title || 'Aktion bestätigen';
@@ -1159,6 +1082,8 @@ function showCustomConfirm(input) {
     });
 }
 
+initLegal({ showCustomConfirm });
+
 // 🕶️ Temporärer Chat: wird nicht gespeichert, taucht nicht im Verlauf auf, Coden merkt sich nichts daraus
 const dropTemp = (keepId) => { sessions = sessions.filter(s => !s.temp || s.id === keepId); };
 function markTemp() {
@@ -1213,7 +1138,7 @@ document.getElementById('temp-chat-btn')?.addEventListener('click', () => {
         });
     }
     document.getElementById('ct-handwriting')?.addEventListener('click', () => import('./handwriting.js').then(m => m.openHandwritingTrainer()));
-    document.getElementById('ct-chess')?.addEventListener('click', () => document.getElementById('chess-modal')?.classList.remove('hidden'));
+    document.getElementById('ct-chess')?.addEventListener('click', () => openChessModal());
     document.querySelectorAll('#composer-tools-menu [data-ct-prompt]').forEach((b) => b.addEventListener('click', () => {
         const inp = document.getElementById('main-input');
         if (!inp) return;
@@ -1971,7 +1896,7 @@ async function handleSend() {
                 const closeArts = (rawTrim.match(/<\/artifact>/gi) || []).length;
                 const unclosedFence = ((rawTrim.match(/```/g) || []).length % 2) === 1;
                 const wantsBuild = /\b(bau|baue|erstell|schreib|programmier|spiel|app|webseite|code|rechner|tool|diagramm|präsentation)\b/i.test(text);
-                const isTeaserOnly = wantsBuild && rawTrim.length > 0 && rawTrim.length < 110 && !/[<>`{};]/.test(rawTrim);
+                const isTeaserOnly = !shownPrefix && wantsBuild && rawTrim.length > 0 && rawTrim.length < 110 && !/[<>`{};]/.test(rawTrim);
                 if (round < 4 && (openArts > closeArts || unclosedFence || isTeaserOnly)) {
                     context.push({ role: 'assistant', content: rawTrim });
                     shownPrefix = withPrefix(cite(done.text));

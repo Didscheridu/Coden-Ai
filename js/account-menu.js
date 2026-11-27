@@ -47,9 +47,11 @@ export function mountAccountMenu() {
     M.attachSub($('um-more'), (panel) => {
         const legal = (icon, label, id) => M.item({ icon, label, onClick: () => $(id)?.click() });
         panel.append(
+            legal('badge', 'Impressum (§ 5 DDG)', 'open-impressum-btn'),
+            legal('mail', 'Kontaktformular', 'open-kontakt-btn'),
             legal('policy', 'Datenschutz', 'open-datenschutz-btn'),
             legal('description', 'Nutzungsbedingungen', 'open-agb-btn'),
-            legal('badge', 'Impressum', 'open-impressum-btn'),
+            legal('smart_toy', 'KI-Transparenz (AI Act)', 'open-ki-btn'),
             M.sep(),
             M.item({ icon: 'keyboard', label: 'Tastenkürzel', kbd: 'Strg+/', onClick: openHelp }));
     });

@@ -35,7 +35,7 @@ async function makeChatImage(user, prompt, base) {
     data_b64: Buffer.from(img.data).toString('base64'),
     created_at: db.nowIso()
   });
-  return { key, url: `${base}/api/public/img/${key}` };
+  return { key, url: `${base}/api/public/img/${key}`, aiGenerated: true };
 }
 
 // Selbstaufruf für die nächste Etappe (eigene Adresse, Einmal-Schlüssel)

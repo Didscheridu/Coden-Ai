@@ -176,10 +176,13 @@ function wrapperPage(a) {
 <style nonce="${nonce}">*{box-sizing:border-box}html,body{margin:0;height:100%;background:#0f1115;color:#eceff4;font:14px/1.4 Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
 .bar{height:48px;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.08)}
 .bar b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}.bar small{color:#8a93a3;white-space:nowrap}
-.bar a{color:#0f1115;background:#eceff4;text-decoration:none;border-radius:999px;padding:6px 12px;font-weight:600;font-size:13px;white-space:nowrap}
-.bar a.pulse{animation:p 1s ease 3}@keyframes p{50%{background:#7cb3ff}}
-iframe{display:block;width:100%;height:calc(100% - 48px);border:0;background:#fff}@media(max-width:520px){.bar small{display:none}}</style></head>
-<body><div class="bar"><b>${esc(a.title)}</b><small>Mit Coden erstellt${a.author ? ' von ' + esc(a.author) : ''}</small><a id="open" href="/#/s/${a.id}">In Coden öffnen</a></div>
+.bar .legal-links{display:flex;align-items:center;gap:8px;font-size:12px;color:#8a93a3;white-space:nowrap}
+.bar .legal-links a{color:#8a93a3;background:none;padding:0;border-radius:0;font-weight:500;font-size:12px}
+.bar .legal-links a:hover{color:#eceff4;text-decoration:underline}
+.bar a.cta{color:#0f1115;background:#eceff4;text-decoration:none;border-radius:999px;padding:6px 12px;font-weight:600;font-size:13px;white-space:nowrap}
+.bar a.cta.pulse{animation:p 1s ease 3}@keyframes p{50%{background:#7cb3ff}}
+iframe{display:block;width:100%;height:calc(100% - 48px);border:0;background:#fff}@media(max-width:680px){.bar small,.bar .legal-links .hide-sm{display:none}}</style></head>
+<body><div class="bar"><b>${esc(a.title)}</b><small>Mit Coden (KI) erstellt${a.author ? ' von ' + esc(a.author) : ''}</small><nav class="legal-links" aria-label="Rechtliches"><a href="/?legal=impressum" target="_blank" rel="noopener">Impressum</a><a class="hide-sm" href="/?legal=datenschutz" target="_blank" rel="noopener">Datenschutz</a><a href="mailto:kayden.schunack@gmail.com?subject=${encodeURIComponent('Inhalt melden (Artefakt: ' + a.id + ')')}">Melden</a></nav><a id="open" class="cta" href="/#/s/${a.id}">In Coden öffnen</a></div>
 <iframe id="art" data-id="${a.id}" src="/s/${a.id}/frame" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-pointer-lock" allow="fullscreen; autoplay" referrerpolicy="no-referrer" title="${esc(a.title)}"></iframe>
 <script nonce="${nonce}">${BRIDGE_PUBLIC}</script></body></html>`;
   return { html, csp: `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; img-src 'self' data:; frame-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'` };

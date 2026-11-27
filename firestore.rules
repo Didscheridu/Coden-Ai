@@ -317,6 +317,21 @@ service cloud.firestore {
         && (!('updated_at' in data) || isIsoOrTs(data.updated_at));
     }
 
+    function isValidContactMessage(data) {
+      return data.keys().hasAll(['id', 'uid', 'name', 'email', 'topic', 'subject', 'message', 'status'])
+        && data.keys().hasOnly(['id', 'uid', 'name', 'email', 'topic', 'subject', 'message', 'status', 'created_at', 'updated_at'])
+        && data.id is int && data.id > 0
+        && isStr(data.uid, 1, 128)
+        && isStr(data.name, 2, 100)
+        && isStr(data.email, 5, 200)
+        && data.topic in ['allgemein', 'datenschutz', 'dsa', 'bug', 'sonstiges']
+        && isStr(data.subject, 3, 140)
+        && isStr(data.message, 10, 4000)
+        && data.status in ['open', 'done']
+        && (!('created_at' in data) || isIsoOrTs(data.created_at))
+        && (!('updated_at' in data) || isIsoOrTs(data.updated_at));
+    }
+
     // ---------- Connectivity Probe ----------
     match /test/connection {
       allow get: if true;
@@ -1035,6 +1050,25 @@ service cloud.firestore {
         && incoming().url == existing().url
         && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'auth_type', 'enabled', 'header_name', 'token_enc', 'oauth_enc', 'token_expires_at', 'scopes', 'server_name', 'tools', 'status', 'last_error', 'allowed_repos', 'updated_at']);
       allow delete: if isNumId(connId) && (isOwner(existing().uid) || isAdmin());
+    }
+
+    // ---------- Contact Form Messages (§ 5 DDG / DSA) ----------
+    match /contact_messages/{msgId} {
+      allow get: if isNumId(msgId) && (resource == null || isOwner(existing().uid) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());
+      allow create: if isVerified() && isNumId(msgId) && isValidContactMessage(incoming())
+        && string(incoming().id) == msgId
+        && incoming().uid == request.auth.uid
+        && incoming().status == 'open';
+      allow update: if isVerified() && isNumId(msgId) && isValidContactMessage(incoming())
+        && isAdmin()
+        && incoming().id == existing().id && incoming().uid == existing().uid
+        && incoming().name == existing().name && incoming().email == existing().email
+        && incoming().topic == existing().topic && incoming().subject == existing().subject
+        && incoming().message == existing().message
+        && (!('created_at' in existing()) || incoming().created_at == existing().created_at)
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updated_at']);
+      allow delete: if isNumId(msgId) && (isOwner(existing().uid) || isAdmin());
     }
   }
 }

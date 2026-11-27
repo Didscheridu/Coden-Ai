@@ -1,38 +1,87 @@
 // js/Chess.js
 import { generateAiResponse } from './api.js';
 
+const loadCss = (href) => {
+    if (document.querySelector(`link[href="${href}"]`)) return;
+    const l = document.createElement('link');
+    l.rel = 'stylesheet';
+    l.href = href;
+    document.head.appendChild(l);
+};
+const loadScript = (src) => new Promise((res, rej) => {
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if (existing) {
+        if (existing.dataset.loaded === '1') return res();
+        existing.addEventListener('load', res, { once: true });
+        existing.addEventListener('error', rej, { once: true });
+        return;
+    }
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = () => { s.dataset.loaded = '1'; res(); };
+    s.onerror = () => rej(new Error(`Konnte ${src} nicht laden.`));
+    document.head.appendChild(s);
+});
+
+let chessDepsPromise = null;
+function ensureChessAssets() {
+    if (window.Chess && window.Chessboard && window.jQuery) return Promise.resolve();
+    if (!chessDepsPromise) {
+        loadCss('css/vendor/chess/chessboard-1.0.0.min.css');
+        chessDepsPromise = loadScript('js/vendor/chess/jquery-3.6.0.min.js')
+            .then(() => Promise.all([
+                loadScript('js/vendor/chess/chessboard-1.0.0.min.js'),
+                loadScript('js/vendor/chess/chess.min.js')
+            ]))
+            .catch((err) => { chessDepsPromise = null; throw err; });
+    }
+    return chessDepsPromise;
+}
+
 export class ChessEngine {
     constructor() {
         this.board = null;
-        this.game = new Chess();
+        this.game = null;
         this.isAiThinking = false;
         this.currentSelectedModel = 'normal'; // Standardmäßig nutzen wir ein starkes Modell
+        this._wired = false;
+        this._initPromise = null;
     }
 
-    init() {
-        const config = {
-            draggable: true,
-            position: 'start',
-            onDragStart: this.onDragStart.bind(this),
-            onDrop: this.onDrop.bind(this),
-            onSnapEnd: this.onSnapEnd.bind(this),
-            
-            // 🔥 DER FIX: Wir laden die Figuren direkt aus dem Web!
-            pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
-        };
-        
-        // Initialisiert das Board aus der chessboard.js Library
-        this.board = Chessboard('myBoard', config);
-        
-        document.getElementById('reset-chess-btn').addEventListener('click', () => {
-            this.game.reset();
-            this.board.start();
-            this.updateStatus("Du bist dran! (Weiß)", "Mache deinen ersten Zug.");
-        });
-
-        document.getElementById('close-chess-btn').addEventListener('click', () => {
-            document.getElementById('chess-modal').classList.add('hidden');
-        });
+    async init() {
+        if (this.board && this.game) return;
+        if (this._initPromise) return this._initPromise;
+        this._initPromise = (async () => {
+            await ensureChessAssets();
+            if (!this.game) this.game = new window.Chess();
+            if (!this.board) {
+                const config = {
+                    draggable: true,
+                    position: 'start',
+                    onDragStart: this.onDragStart.bind(this),
+                    onDrop: this.onDrop.bind(this),
+                    onSnapEnd: this.onSnapEnd.bind(this),
+                    pieceTheme: 'js/vendor/chess/pieces/{piece}.png'
+                };
+                this.board = window.Chessboard('myBoard', config);
+            }
+            if (!this._wired) {
+                this._wired = true;
+                document.getElementById('reset-chess-btn')?.addEventListener('click', () => {
+                    this.game.reset();
+                    this.board.start();
+                    this.updateStatus("Du bist dran! (Weiß)", "Mache deinen ersten Zug.");
+                });
+                document.getElementById('close-chess-btn')?.addEventListener('click', () => {
+                    document.getElementById('chess-modal')?.classList.add('hidden');
+                });
+            }
+        })();
+        try {
+            await this._initPromise;
+        } finally {
+            this._initPromise = null;
+        }
     }
 
     onDragStart(source, piece, position, orientation) {

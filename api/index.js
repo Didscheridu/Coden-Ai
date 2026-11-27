@@ -19,6 +19,8 @@ const { tasksRouter, cronHandler } = require('../server/tasks');
 const { artifactsRouter, publicArtifactsRouter, sharedPageRouter } = require('../server/artifacts');
 const byok = require('../server/byok');
 const neon = require('../server/neon');
+const { accountRouter } = require('../server/account');
+const { contactRouter } = require('../server/contact');
 const { Meter, limitGate, usageRouter } = require('../server/usage');
 const meterFor = (req) => new Meter(req.user, req.body?.tier);
 
@@ -427,7 +429,7 @@ const { projectsRouter } = require('../server/projects');
 const { studyRouter } = require('../server/study');
 const { serversRouter } = require('../server/servers');
 const needsDb = (req, res, next) => { ensureSchema().then(() => next(), next); };
-api.use('/byok', needsDb); api.use('/buddy', needsDb); api.use('/mcp', needsDb); api.use('/servers', needsDb); api.use('/projects', needsDb); api.use('/apps', needsDb); api.use('/data', needsDb); api.use('/runs', needsDb); api.use('/usage', needsDb); api.use('/push', needsDb); api.use('/research', needsDb); api.use('/tasks', needsDb); api.use('/artifacts', needsDb);
+api.use('/account', needsDb); api.use('/contact', needsDb); api.use('/byok', needsDb); api.use('/buddy', needsDb); api.use('/mcp', needsDb); api.use('/servers', needsDb); api.use('/projects', needsDb); api.use('/apps', needsDb); api.use('/data', needsDb); api.use('/runs', needsDb); api.use('/usage', needsDb); api.use('/push', needsDb); api.use('/research', needsDb); api.use('/tasks', needsDb); api.use('/artifacts', needsDb);
 app.use('/a', needsDb); app.use('/s', needsDb);
 
 // ---------- KI-Bilder für den normalen Chat (Cloudflare Flux) ----------
@@ -436,6 +438,8 @@ api.post('/image', requireAuth, rateLimit('image', 10, 300), async (req, res) =>
   catch (e) { res.status(e.status || 502).json({ error: e.message }); }
 });
 
+api.use('/account', accountRouter(requireAuth));
+api.use('/contact', contactRouter({ requireAuth, requireOwner }));
 api.use('/byok', byok.byokRouter(requireAuth));
 api.use('/buddy', buddyRouter(requireAuth));
 api.use('/mcp', mcpRouter(requireAuth));

@@ -9,6 +9,7 @@ import {
   createUserWithEmailAndPassword,
   sendEmailVerification,
   signOut,
+  deleteUser,
   onAuthStateChanged as fbOnAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
 import { fbAuth } from "./firebase.js";
@@ -134,4 +135,20 @@ export async function connectGithub() {
   const cred = GithubAuthProvider.credentialFromResult(result);
   if (!cred?.accessToken) throw new Error('GitHub hat keinen Zugriff geliefert.');
   return { token: cred.accessToken };
+}
+
+export async function deleteAccount() {
+  const user = fbAuth.currentUser;
+  if (!user) throw new Error('Nicht angemeldet.');
+  try {
+    await deleteUser(user);
+    return true;
+  } catch (e) {
+    if (e.code === 'auth/requires-recent-login') {
+      const err = new Error('Bitte melde dich kurz ab und erneut an, bevor du dein Login-Konto endgültig löschst.');
+      err.code = e.code;
+      throw err;
+    }
+    throw friendly(e);
+  }
 }

@@ -903,6 +903,7 @@ function publicApiRouter() {
     const im = await db.getDoc(`app_images/${req.params.key}`).catch(() => null);
     if (!im) return res.status(404).end();
     const buf = im.data_b64 ? Buffer.from(im.data_b64, 'base64') : Buffer.from(im.data || '');
+    if (im.prompt) res.setHeader('X-AI-Generated', 'true');
     res.setHeader('Content-Type', im.mime); res.set('Cache-Control', 'public, max-age=31536000, immutable').set('Access-Control-Allow-Origin', '*').end(buf);
   });
   r.get('/apps/:slug/version', rateLimit('pub-ver', 120, 60, byIp), async (req, res) => {
@@ -927,12 +928,15 @@ ${preview ? '<meta name="robots" content="noindex">' : ''}
 #ld{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}#ld i{width:34px;height:34px;border-radius:50%;border:3px solid rgba(128,128,128,.25);border-top-color:${escHtml(a.theme_color)};animation:s 1s linear infinite}@keyframes s{to{transform:rotate(360deg)}}
 #cb{position:fixed;right:10px;bottom:calc(10px + env(safe-area-inset-bottom));z-index:5;display:flex;align-items:center;gap:6px;padding:5px 10px 5px 6px;border-radius:999px;background:rgba(20,20,24,.72);color:#fff;font:600 11px system-ui,sans-serif;text-decoration:none;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);opacity:.85}
 #cb.fade{opacity:0;pointer-events:none;transition:opacity .6s}#cb b{width:16px;height:16px;border-radius:5px;background:linear-gradient(135deg,#8ab4f8,#c58af9,#f28b82);display:inline-block}#cb button{all:unset;cursor:pointer;margin-left:2px;opacity:.7}
+#cl{position:fixed;left:10px;bottom:calc(10px + env(safe-area-inset-bottom));z-index:5;display:flex;align-items:center;gap:8px;padding:5px 10px;border-radius:999px;background:rgba(20,20,24,.72);color:#e4e7ec;font:500 11px system-ui,sans-serif;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);opacity:.88}
+#cl a{color:#e4e7ec;text-decoration:none}#cl a:hover{text-decoration:underline}#cl span{opacity:.45}
 #lv{position:fixed;left:50%;top:calc(8px + env(safe-area-inset-top));transform:translateX(-50%);z-index:6;padding:6px 12px;border-radius:999px;background:rgba(20,20,24,.8);color:#fff;font:600 12px system-ui,sans-serif;display:none}
 #er{position:fixed;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;gap:8px;font:15px system-ui,sans-serif;color:#555;text-align:center;padding:24px}
-@media (display-mode: standalone){#cb{display:none}}</style>
+@media (display-mode: standalone){#cb,#cl{display:none}}</style>
 </head><body><div id="ld"><i></i></div><div id="er"></div><div id="lv"></div>
 <iframe id="f" title="${escHtml(a.name)}" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-downloads allow-pointer-lock" allow="geolocation; camera; microphone; clipboard-write; fullscreen; autoplay; web-share"></iframe>
-<a id="cb" href="/" target="_blank" rel="noopener"><b></b>Mit Coden gebaut<button type="button" aria-label="Ausblenden" onclick="event.preventDefault();this.parentNode.remove()">✕</button></a>
+<div id="cl"><a href="/?legal=impressum" target="_blank" rel="noopener">Impressum</a><span>·</span><a href="/?legal=datenschutz" target="_blank" rel="noopener">Datenschutz</a><span>·</span><a href="mailto:kayden.schunack@gmail.com?subject=${encodeURIComponent('Inhalt melden (App: ' + slug + ')')}">Melden</a></div>
+<a id="cb" href="/" target="_blank" rel="noopener"><b></b>Mit Coden (KI) gebaut<button type="button" aria-label="Ausblenden" onclick="event.preventDefault();this.parentNode.remove()">✕</button></a>
 <script>window.__CODEN_APP__=${JSON.stringify(cfg).replace(/</g, '\\u003c')};</script>
 <script>${HOST_SCRIPT}</script>
 </body></html>`;

@@ -12,23 +12,15 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Coden">
     
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Kalam:wght@300;400;700&family=Caveat:wght@500;700&display=swap" rel="stylesheet">
-    
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
-    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/atom-one-dark.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+    <link rel="stylesheet" href="css/vendor/fonts.css">
 
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
-    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
-    
+    <script src="js/vendor/marked.min.js"></script>
+    <script src="js/vendor/purify.min.js"></script>
+    <link rel="stylesheet" href="css/vendor/katex/katex.min.css">
+    <script defer src="js/vendor/katex.min.js"></script>
+    <link rel="stylesheet" href="css/vendor/atom-one-dark.min.css">
+    <script src="js/vendor/highlight.min.js"></script>
+
     <link rel="stylesheet" href="css/Chess.css">
 
     <link rel="stylesheet" href="css/variables.css">
@@ -180,7 +172,18 @@
                     </div>
                 </div>
                 <div id="auth-error-msg" class="auth-error">Fehler aufgetreten.</div>
-                <p class="x-login-legal">Mit der Anmeldung stimmst du den Nutzungsbedingungen und Datenschutzhinweisen von Coden AI zu.</p>
+                <p class="x-login-legal">Mit der Anmeldung bestätigst du unsere <a href="#/agb" data-legal="agb">Nutzungsbedingungen</a>, hast die <a href="#/datenschutz" data-legal="datenschutz">Datenschutzhinweise</a> zur Kenntnis genommen und nutzt ein <a href="#/ki" data-legal="ki">KI-System</a> (ab 16 J. oder mit Einwilligung der Erziehungsberechtigten). Standardmäßig laufen kostenlose KI-Modelle, bei denen Drittanbieter Eingaben ggf. für Training &amp; Produktverbesserung nutzen – gib keine vertraulichen Daten ein.</p>
+                <nav class="x-login-footer" aria-label="Rechtliche Pflichtangaben">
+                    <a href="#/impressum" data-legal="impressum">Impressum</a>
+                    <span>·</span>
+                    <a href="#/kontakt" data-legal="kontakt">Kontakt</a>
+                    <span>·</span>
+                    <a href="#/datenschutz" data-legal="datenschutz">Datenschutz</a>
+                    <span>·</span>
+                    <a href="#/agb" data-legal="agb">Nutzungsbedingungen</a>
+                    <span>·</span>
+                    <a href="#/ki" data-legal="ki">KI-Hinweis</a>
+                </nav>
             </div>
             <div class="x-login-brand">
                 <figure class="studio-photo-slot" aria-label="Bildplatzhalter für Studio-Fotografie">
@@ -352,6 +355,7 @@
                         </div>
                     </div>
                 </div>
+                <p class="ai-disclosure-note">Coden nutzt kostenlose KI-Modelle (<a href="#/ki" data-legal="ki">Art. 50 KI-VO</a> · <a href="#/agb" data-legal="agb">AGB</a>): Anbieter können Eingaben &amp; Dateien ggf. für KI-Training nutzen – keine Geheimnisse senden &amp; Antworten prüfen.</p>
             </div>
             <section class="welcome-extra hidden" id="welcome-extra">
                 <div class="chips x-starter-grid" id="welcome-chips">
@@ -500,8 +504,11 @@
         </div>
     </div>
 
-    <div id="cookie-banner" class="hidden">
-        <p style="margin: 0;">🍪 Wir nutzen lokale Speicherung (LocalStorage) für deine Sicherheit, um Chats auf deinem Gerät zu behalten.</p>
+    <div id="cookie-banner" class="hidden" role="region" aria-label="Speicher- und Datenschutzhinweis">
+        <div class="cookie-copy">
+            <p style="margin: 0;">Coden AI nutzt ausschließlich technisch notwendigen Browser-Speicher (<code>localStorage</code>) für Anmeldung, Design und Chats – <strong>keine Tracking-Cookies</strong> (§ 25 Abs. 2 TDDDG).</p>
+            <div class="cookie-links"><a href="#/datenschutz" data-legal="datenschutz">Datenschutz</a> · <a href="#/impressum" data-legal="impressum">Impressum</a> · <a href="#/kontakt" data-legal="kontakt">Kontakt</a> · <a href="#/ki" data-legal="ki">KI-Hinweis</a></div>
+        </div>
         <button id="accept-cookies-btn" class="btn-save" style="padding: 6px 16px; white-space: nowrap;">Verstanden</button>
     </div>
 

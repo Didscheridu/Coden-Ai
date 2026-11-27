@@ -124,8 +124,15 @@ export const UI = {
         if (img.closest('.img-card')) return;
         const card = document.createElement('figure'); card.className = 'img-card';
         const bar = document.createElement('div'); bar.className = 'img-bar';
-        const mk = (icon, label, fn) => { const b = document.createElement('button'); b.type = 'button'; b.title = label; b.className = 'img-btn'; b.innerHTML = '<span class="material-symbols-outlined"></span><span></span>'; b.children[0].textContent = icon; b.children[1].textContent = label; b.addEventListener('click', fn); return b; };
         const src = () => img.currentSrc || img.src;
+        if (/\/api\/public\/img\//.test(img.getAttribute('src') || '')) {
+            const badge = document.createElement('span');
+            badge.className = 'img-ai-badge';
+            badge.title = 'Dieses Bild wurde mit künstlicher Intelligenz erstellt (Art. 50 EU AI Act).';
+            badge.textContent = 'KI-generiert';
+            bar.append(badge);
+        }
+        const mk = (icon, label, fn) => { const b = document.createElement('button'); b.type = 'button'; b.title = label; b.className = 'img-btn'; b.innerHTML = '<span class="material-symbols-outlined"></span><span></span>'; b.children[0].textContent = icon; b.children[1].textContent = label; b.addEventListener('click', fn); return b; };
         bar.append(
             mk('download', 'Herunterladen', async (e) => {
                 const btn = e.currentTarget; btn.disabled = true;

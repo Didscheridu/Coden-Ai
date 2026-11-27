@@ -510,38 +510,29 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
           finally { if (got) mt?.add(charsOf(msgs), { input: true }); } // Eingabe nur zählen, wenn das Modell wirklich gearbeitet hat
         };
         const stripThink = (s) => String(s || '').replace(/<think>[\s\S]*?<\/think>\s*/gi, '').replace(/<think>[\s\S]*$/i, '');
-        const isCutOff = (s) => {
+        const lastUser = String([...messages].reverse().find(x => x.role === 'user')?.content || '');
+        const isContTurn = /^(Deine letzte (Antwort|Ausgabe) wurde|Du hast bisher nur eine kurze Einleitung|Deine bisherigen Überlegungen wurden beendet)/i.test(lastUser.trim());
+        const wantsBuild = !isContTurn && /\b(bau|baue|erstell|programmier|spiel|app|webseite|html|code|skript|rechner|tool|diagramm|präsentation)\b/i.test(lastUser);
+        const cutReason = (s, allowTeaser = false) => {
           const t = stripThink(s).trim();
-          if (!t) return false;
+          if (!t) return null;
           // Unvollständiges <artifact ...> ohne </artifact>
           const opens = (t.match(/<artifact\b/gi) || []).length;
           const closes = (t.match(/<\/artifact>/gi) || []).length;
-          if (opens > closes) return true;
+          if (opens > closes) return 'block';
           // Unvollständiger ```-Codeblock
-          if (((t.match(/```/g) || []).length % 2) === 1) return true;
-          // „Teaser“-Abbruch: Modell sagt nur „Sehr gerne“, „Natürlich:“ o. ä. (< 90 Zeichen) bei einer Bau-/Code-Anfrage
-          const lastUser = String([...messages].reverse().find(x => x.role === 'user')?.content || '');
-          const wantsBuild = /\b(bau|baue|erstell|schreib|programmier|spiel|app|webseite|code|rechner|tool|diagramm|präsentation)\b/i.test(lastUser);
-          if (wantsBuild && t.length < 110 && !/[<>`{};]/.test(t)) return true;
-          return false;
+          if (((t.match(/```/g) || []).length % 2) === 1) return 'block';
+          // „Teaser“-Abbruch: Modell sagt nur „Sehr gerne“, „Natürlich:“ o. ä. (< 110 Zeichen) bei einer Bau-/Code-Anfrage
+          if (allowTeaser && wantsBuild && t.length < 110 && !/[<>`{};]/.test(t)) return 'teaser';
+          return null;
         };
-        let full = '';
-        try {
-          full = await call(messages);
-        } catch (streamErr) {
-          // Ist der Stream mitten in der Antwort abgerissen (Netzwerk/Anbieter-Reset), nahtlos ab dem bisherigen Stand fortsetzen!
-          if (streamErr.partial && sent && !outer?.aborted && !streamErr.limit) {
-            info.truncated = true;
-          } else {
-            throw streamErr;
-          }
-        }
+        let full = await call(messages);
         if (!stream) {
           const inlineThink = full.match(/<think>([\s\S]*?)(?:<\/think>|$)/i);
           if (inlineThink?.[1]) thinkBuf = (thinkBuf + inlineThink[1]).slice(-4000);
         }
         const restFirst = stream ? filter.flush() : '';
-        if (restFirst) { if (!sent) { sent = true; onModel(m); } onDelta(restFirst); full += ''; }
+        if (restFirst) { if (!sent) { sent = true; onModel(m); } onDelta(restFirst); }
         // Hat das Modell sein Token-Limit (oder seinen Denk-Lauf) nur im Denken verbraucht:
         // einmal mit niedrigem Denkaufwand direkt die fertige Antwort schreiben lassen statt „Leere Antwort“.
         if (!stripThink(full).trim() && !sent && (info.truncated || thinkBuf.trim().length >= 80)) {
@@ -556,30 +547,20 @@ async function run(tier, messages, { isOwner = false, stream = false, onDelta = 
           const restWrap = stream ? filter.flush() : '';
           if (restWrap) { if (!sent) { sent = true; onModel(m); } onDelta(restWrap); }
         }
-        // Antwort wurde abgeschnitten, Stream riss ab, <artifact>/Codeblock blieb offen oder nur 2-Wort-Einleitung geliefert -> nahtlos weiterschreiben!
-        for (let n = 0; (info.truncated || isCutOff(full)) && n < 4 && (stripThink(full).trim() || sent); n++) {
+        // Antwort wurde abgeschnitten, <artifact>/Codeblock blieb offen oder nur 2-Wort-Einleitung geliefert -> nahtlos weiterschreiben!
+        for (let n = 0; n < 4 && stripThink(full).trim(); n++) {
+          const reason = info.truncated ? 'truncated' : cutReason(full, n === 0);
+          if (!reason) break;
           info.truncated = false;
           const soFar = stripThink(full);
-          if (!soFar.trim()) break;
-          const isTeaser = soFar.trim().length < 110 && !/<artifact|```/.test(soFar);
+          const isTeaser = reason === 'teaser';
           const contPrompt = isTeaser
             ? 'Du hast bisher nur eine kurze Einleitung geschrieben, aber die eigentliche Lösung bzw. das Artefakt fehlt noch komplett. Schreibe jetzt sofort nahtlos den vollständigen Inhalt bzw. das komplette <artifact …>…</artifact> ohne deine Einleitung zu wiederholen.'
             : CONTINUE;
-          // Falls dasselbe Modell beim Fortsetzen ausfällt, das nächste Modell aus der Kaskade übernehmen lassen
-          let chunk = '';
-          const fallbackPool = [tryModel, ...cascade.filter(x => keyOf(x) !== keyOf(m))];
-          for (const nextMdl of fallbackPool.slice(0, 3)) {
-            try {
-              if (soFar && !/\s$/.test(soFar) && isTeaser) { onDelta('\n\n'); full += '\n\n'; }
-              chunk = await call([...messages, { role: 'assistant', content: stripThink(full) }, { role: 'user', content: contPrompt }], { mdl: nextMdl });
-              const restCont = stream ? filter.flush() : '';
-              if (restCont) { onDelta(restCont); }
-              break;
-            } catch (contErr) {
-              if (outer?.aborted || contErr.limit) throw contErr;
-              console.warn(`[ai] Fortsetzung mit ${nextMdl.provider}/${nextMdl.id} fehlgeschlagen:`, contErr.message);
-            }
-          }
+          if (isTeaser && soFar && !/\s$/.test(soFar)) { onDelta('\n\n'); full += '\n\n'; }
+          const chunk = await call([...messages, { role: 'assistant', content: stripThink(full) }, { role: 'user', content: contPrompt }]);
+          const restCont = stream ? filter.flush() : '';
+          if (restCont) { onDelta(restCont); }
           if (!chunk) break;
           full += chunk;
         }
