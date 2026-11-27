@@ -942,7 +942,14 @@ function mcpRouter(requireAuth) {
     if (!name) throw httpErr(400, 'Bitte gib einen Namen ein.');
 
     const existing = await db.runQuery('mcp_connections', { where: [['uid', '==', req.user.uid]] });
-    const connId = b.connectionId ? parseInt(b.connectionId, 10) : null;
+    let connId = b.connectionId ? parseInt(b.connectionId, 10) : null;
+    // Neu-Anmeldung bei einem Dienst, der schon verbunden ist (gleiche Adresse):
+    // bestehende Verbindung erneuern statt eine zweite anzulegen – so bleiben ID und „Immer erlauben“ erhalten.
+    if (!connId) {
+      const normU = (x) => String(x || '').replace(/\/+$/, '').toLowerCase();
+      const same = existing.find(x => normU(x.url) === normU(u.toString()));
+      if (same) connId = Number(same.id);
+    }
     if (!connId && existing.length >= MAX_CONNS) throw httpErr(400, `Höchstens ${MAX_CONNS} Verbindungen möglich.`);
     if (!connId && existing.some(x => x.name.toLowerCase() === name.toLowerCase())) throw httpErr(409, 'Diesen Verbindungsnamen gibt es schon.');
     if (connId) {

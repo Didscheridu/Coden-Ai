@@ -616,10 +616,11 @@ function buildHandwriting(w) {
 function buildBrowserCard(w) {
     const info = parseBrowserPreview(w.body, w.attrs);
     if (!info.url && !info.title && !info.products.length && !info.snippet) return null;
+    const openSplit = (url, query) => document.dispatchEvent(new CustomEvent('coden:openBrowser', { detail: { url, query } }));
 
     const box = mk('div', 'cw-card cw-browser-card');
-    const head = mk('div', 'bw-head');
-    const favWrap = mk('span', 'bw-fav');
+    const head = mk('div', 'cw-br-head');
+    const favWrap = mk('span', 'cw-br-fav');
     if (info.domain) {
         const img = document.createElement('img');
         img.src = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(info.domain)}&sz=32`;
@@ -630,47 +631,44 @@ function buildBrowserCard(w) {
     } else {
         favWrap.append(icon('public'));
     }
-
-    const headText = mk('div', 'bw-head-t');
+    const headText = mk('div', 'cw-br-meta');
     headText.append(mk('strong', '', info.title || info.domain || 'Webseite'));
-    headText.append(mk('small', '', info.domain || info.url || 'Research-Browser'));
+    headText.append(mk('small', '', [info.domain || info.url || 'Research-Browser', info.query].filter(Boolean).join(' · ')));
     head.append(favWrap, headText);
-    if (info.query) head.append(mk('span', 'bw-q-badge', info.query));
     box.append(head);
 
     if (info.products.length) {
-        const prods = mk('div', 'bw-prods');
+        const prods = mk('div', 'cw-br-prods');
         info.products.slice(0, 4).forEach(p => {
-            const row = mk('div', 'bw-prod');
-            const name = mk('span', 'bw-prod-name', p.title || '');
-            const price = p.price ? mk('span', 'bw-prod-price', p.price) : null;
-            row.append(name);
-            if (price) row.append(price);
+            const url = /^https?:\/\//i.test(String(p.url || '')) ? p.url : '';
+            const row = mk(url ? 'button' : 'div', 'cw-br-prod');
+            if (url) {
+                row.type = 'button';
+                row.title = 'Im Split-Browser öffnen';
+                row.addEventListener('click', () => openSplit(url, ''));
+            }
+            row.append(mk('span', 'cw-br-prod-t', p.title || ''));
+            if (p.price) row.append(mk('span', 'cw-br-price', p.price));
             prods.append(row);
         });
         box.append(prods);
     } else if (info.snippet) {
-        box.append(mk('p', 'bw-snippet', info.snippet));
+        box.append(mk('p', 'cw-br-snippet', info.snippet));
     }
 
-    const foot = mk('div', 'bw-foot');
+    const foot = mk('div', 'cw-br-actions');
     const openSplitBtn = mk('button', 'qz-primary');
     openSplitBtn.type = 'button';
-    openSplitBtn.append(icon('splitscreen'), document.createTextNode('Im Split-Browser öffnen'));
-    openSplitBtn.addEventListener('click', () => {
-        document.dispatchEvent(new CustomEvent('coden:openBrowser', {
-            detail: { url: info.url, query: info.query }
-        }));
-    });
+    openSplitBtn.append(icon('splitscreen'), document.createTextNode(' Im Split-Browser öffnen'));
+    openSplitBtn.addEventListener('click', () => openSplit(info.url, info.query));
     foot.append(openSplitBtn);
-
     if (info.url && /^https?:\/\//i.test(info.url)) {
         const ext = document.createElement('a');
-        ext.className = 'qz-ghost bw-ext';
+        ext.className = 'qz-ghost';
         ext.href = info.url;
         ext.target = '_blank';
         ext.rel = 'noopener noreferrer';
-        ext.append(icon('open_in_new'), document.createTextNode('Extern öffnen'));
+        ext.append(icon('open_in_new'), document.createTextNode(' Extern öffnen'));
         foot.append(ext);
     }
     box.append(foot);

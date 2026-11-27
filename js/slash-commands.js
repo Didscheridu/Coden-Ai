@@ -89,7 +89,7 @@ export const STUDENT_COMMANDS = [
         desc: 'Research-Browser rechts öffnen oder Webseite direkt abrufen',
         action: 'open-browser',
         buildPrompt: (param) => param
-            ? `Öffne und untersuche im Research-Browser (<browser_open>): ${param}. Zeige danach eine übersichtliche Webseiten-Vorschau (<browser>) mit den wichtigsten Fakten, Preisen oder Links.`
+            ? `Öffne und untersuche im Research-Browser (<browser_open>): ${param}. Fasse danach die wichtigsten Fakten, Preise oder Links aus dem Ergebnis zusammen (die Vorschaukarte zeigt Coden selbst).`
             : ''
     },
     {

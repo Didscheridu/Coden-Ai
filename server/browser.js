@@ -17,11 +17,21 @@ const MAX_REDIRECTS = 4;
 
 const httpErr = (status, message, extra = {}) => Object.assign(new Error(message), { status, ...extra });
 
+// Cloud-Metadaten (169.254.x.x, fd00:ec2::254, metadata.google.internal …) sind IMMER gesperrt –
+// auch wenn Tests private Adressen erlauben.
+const METADATA_HOSTS = new Set(['metadata.google.internal', 'metadata', 'metadata.azure.internal', 'instance-data', 'instance-data.ec2.internal']);
+function isMetadataIp(ip) {
+  const l = String(ip || '').toLowerCase().replace(/^\[|\]$/g, '');
+  const v4 = l.match(/^(?:::ffff:)?(\d+)\.(\d+)\.\d+\.\d+$/);
+  if (v4) return Number(v4[1]) === 169 && Number(v4[2]) === 254;
+  return /^fe[89ab]/.test(l) || l === 'fd00:ec2::254';
+}
+
 function guardedLookup(hostname, opts, cb) {
   if (typeof opts === 'function') { cb = opts; opts = {}; }
   dns.lookup(hostname, { ...opts, all: true }, (err, addrs) => {
     if (err) return cb(err);
-    if (!ALLOW_PRIVATE() && addrs.some(a => isPrivateIp(a.address))) {
+    if (addrs.some(a => isMetadataIp(a.address)) || (!ALLOW_PRIVATE() && addrs.some(a => isPrivateIp(a.address)))) {
       return cb(Object.assign(new Error('Interne oder private Adressen sind aus Sicherheitsgründen blockiert.'), { code: 'EBLOCKED' }));
     }
     if (opts.all) return cb(null, addrs);
@@ -41,6 +51,9 @@ function validateBrowserUrl(raw) {
   if (u.username || u.password) throw httpErr(400, 'Zugangsdaten in der URL sind nicht erlaubt.');
   if (u.protocol !== 'https:' && u.protocol !== 'http:') throw httpErr(400, 'Nur http- und https-Adressen werden unterstützt.');
   const host = u.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (METADATA_HOSTS.has(host) || (net.isIP(host) && isMetadataIp(host))) {
+    throw httpErr(400, 'Interne Cloud-Adressen sind im Research-Browser blockiert.');
+  }
   if (!ALLOW_PRIVATE()) {
     if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal') || (!host.includes('.') && !net.isIP(host))) {
       throw httpErr(400, 'Lokale oder interne Adressen sind im Research-Browser blockiert.');
@@ -201,7 +214,17 @@ function extractProducts(html, baseUrl) {
   return products.slice(0, 12);
 }
 
-function parseHtmlPage(rawHtml, finalUrl, status = 200) {
+// Darf die Seite in einem iframe gezeigt werden? (X-Frame-Options / CSP frame-ancestors)
+function isEmbeddable(headers = {}) {
+  const xfo = String(headers['x-frame-options'] || '').toLowerCase();
+  if (xfo.includes('deny') || xfo.includes('sameorigin')) return false;
+  const csp = String(headers['content-security-policy'] || '').toLowerCase();
+  const fa = csp.match(/frame-ancestors([^;]*)/);
+  if (fa && !/(^|\s)\*(\s|$)/.test(fa[1])) return false;
+  return true;
+}
+
+function parseHtmlPage(rawHtml, finalUrl, status = 200, headers = {}) {
   const html = String(rawHtml || '');
   const u = new URL(finalUrl);
   const domain = u.hostname.replace(/^www\./i, '');
@@ -237,7 +260,7 @@ function parseHtmlPage(rawHtml, finalUrl, status = 200) {
     const text = stripTags(m[2]).slice(0, 110);
     if (!href || !text || text.length < 2 || seenHref.has(href)) continue;
     seenHref.add(href);
-    links.push({ id: `link_${links.length + 1}`, text, href });
+    links.push({ id: `link_${links.length + 1}`, text, url: href, href });
     if (links.length >= 24) break;
   }
 
@@ -258,7 +281,7 @@ function parseHtmlPage(rawHtml, finalUrl, status = 200) {
       });
       if (fields.length >= 6) break;
     }
-    if (fields.length) forms.push({ id: `form_${forms.length + 1}`, action, method, fields });
+    if (fields.length) forms.push({ id: `form_${forms.length + 1}`, action, method, inputs: fields, fields });
     if (forms.length >= 5) break;
   }
 
@@ -277,12 +300,15 @@ function parseHtmlPage(rawHtml, finalUrl, status = 200) {
     title,
     description,
     headings,
+    excerpt: textExcerpt,
     textExcerpt,
     products,
     links,
     forms,
     interactiveCount: links.length + forms.length,
     blocked,
+    embeddable: !blocked && isEmbeddable(headers),
+    fetchedAt: new Date().toISOString(),
     favicon: `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`
   };
 }
@@ -301,7 +327,7 @@ function buildSearchUrl(query, site = '') {
 async function openTarget({ url, query, site }) {
   const targetUrl = url ? String(url).trim() : buildSearchUrl(query, site);
   const rawRes = await fetchWithRedirects(targetUrl);
-  const page = parseHtmlPage(rawRes.text, rawRes.finalUrl, rawRes.status);
+  const page = parseHtmlPage(rawRes.text, rawRes.finalUrl, rawRes.status, rawRes.headers);
 
   if (page.blocked && (query || page.domain.includes('amazon'))) {
     const qText = query || new URL(page.finalUrl).searchParams.get('k') || page.title;
@@ -313,6 +339,8 @@ async function openTarget({ url, query, site }) {
         page.products = fbPage.products.length ? fbPage.products : fbPage.links.slice(0, 8).map(l => ({ title: l.text, price: '', rating: '', url: l.href, image: '' }));
         page.links = fbPage.links.slice(0, 12);
         page.textExcerpt = fbPage.textExcerpt || page.textExcerpt;
+        page.excerpt = page.textExcerpt;
+        page.embeddable = false;
         page.fallbackNote = `${page.domain} blockiert automatisches Laden – Treffer wurden über die Web-Suche geladen. „Extern öffnen“ zeigt die Live-Shopseite.`;
         page.blocked = false;
       }
@@ -358,13 +386,28 @@ function browserRouter(requireAuth) {
       return res.json({ ok: true, action: act, page });
     }
 
-    // type / fill / submit über Formular-Ziel oder Query-Parameter
-    const targetUrl = target ? validateBrowserUrl(safeResolveHref(target, cur.toString()) || cur.toString()) : new URL(cur.toString());
+    // type / fill / submit über Formular-ID der aktuellen Seite, Formular-Ziel oder Query-Parameter
+    let targetUrl;
+    const formRef = String(target || '').match(/^form[_-](\d{1,2})$/i);
+    if (formRef) {
+      const curRes = await fetchWithRedirects(cur.toString());
+      const curPage = parseHtmlPage(curRes.text, curRes.finalUrl, curRes.status, curRes.headers);
+      const form = curPage.forms.find(f => f.id === `form_${formRef[1]}`);
+      if (!form) throw httpErr(404, 'Dieses Formular gibt es auf der Seite nicht (mehr).');
+      if (form.method !== 'GET') throw httpErr(400, 'Formulare, die Daten absenden (POST, z. B. Anmeldungen), schickt Coden aus Sicherheitsgründen nicht ab. Öffne die Seite dafür extern.');
+      targetUrl = validateBrowserUrl(form.action);
+      if (!formData || typeof formData !== 'object' || !Object.keys(formData).length) {
+        const first = form.inputs[0];
+        if (first && value != null) targetUrl.searchParams.set(first.name, String(value).slice(0, 300));
+      }
+    } else {
+      targetUrl = target ? validateBrowserUrl(safeResolveHref(target, cur.toString()) || cur.toString()) : new URL(cur.toString());
+    }
     if (formData && typeof formData === 'object' && !Array.isArray(formData)) {
       for (const [k, v] of Object.entries(formData).slice(0, 12)) {
         if (typeof k === 'string' && k) targetUrl.searchParams.set(k, String(v ?? '').slice(0, 300));
       }
-    } else if (value != null) {
+    } else if (value != null && !formRef) {
       const qKey = targetUrl.hostname.includes('amazon') ? 'k' : 'q';
       targetUrl.searchParams.set(qKey, String(value).slice(0, 300));
     }
@@ -377,6 +420,8 @@ function browserRouter(requireAuth) {
 
 module.exports = {
   browserRouter,
+  isMetadataIp,
+  isEmbeddable,
   validateBrowserUrl,
   parseHtmlPage,
   buildSearchUrl,

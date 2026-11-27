@@ -60,10 +60,33 @@ const state = {
     history: [],
     histIdx: -1,
     page: null,
-    subTab: 'overview', // overview | reader | interact
+    subTab: 'overview', // overview | live | reader | interact
     loading: false,
-    error: ''
+    error: '',
+    log: [] // Aktionsprotokoll: { at, kind, text, ok }
 };
+
+// Server antwortet { ok, page } – ältere Antworten waren die Seite selbst. Feldnamen vereinheitlichen.
+function normalizePage(res) {
+    const p = res && typeof res === 'object' ? (res.page && typeof res.page === 'object' ? res.page : res) : null;
+    if (!p || !p.url) return null;
+    return {
+        ...p,
+        excerpt: p.excerpt || p.textExcerpt || '',
+        links: (Array.isArray(p.links) ? p.links : []).map(l => ({ ...l, url: l.url || l.href || '' })).filter(l => l.url),
+        forms: (Array.isArray(p.forms) ? p.forms : []).map(f => ({ ...f, inputs: f.inputs || f.fields || [] })),
+        products: Array.isArray(p.products) ? p.products : []
+    };
+}
+
+function logAction(kind, text, ok = true) {
+    state.log.unshift({ at: Date.now(), kind, text: String(text || '').slice(0, 140), ok });
+    if (state.log.length > 30) state.log.length = 30;
+}
+
+export function browserLog() {
+    return state.log.slice();
+}
 
 export function currentBrowserPage() {
     return state.page;
@@ -86,16 +109,20 @@ export async function openInBrowser({ url = '', site = '', query = '' } = {}) {
     state.error = '';
     render();
     try {
-        const page = await apiJson('/browser/open', {
+        const res = await apiJson('/browser/open', {
             method: 'POST',
             body: JSON.stringify({ url, site, query })
         });
+        const page = normalizePage(res);
+        if (!page) throw new Error('Die Seite hat keine lesbaren Inhalte geliefert.');
         state.page = page;
         state.subTab = 'overview';
         pushHistory(page);
+        logAction('read', `Gelesen: ${page.title || page.domain || page.url}`);
         return page;
     } catch (err) {
         state.error = err?.message || 'Seite konnte nicht geladen werden.';
+        logAction('read', `Fehler: ${state.error}`, false);
         throw err;
     } finally {
         state.loading = false;
@@ -125,7 +152,11 @@ export async function performBrowserAction({ url, action = 'click', target = '',
             confirmLabel: 'Einmal erlauben',
             cancelLabel: 'Ablehnen'
         });
-        if (!perm) return { denied: true };
+        if (!perm) {
+            logAction(action, `Abgelehnt: ${action}${target ? ' → ' + target : ''}`, false);
+            render();
+            return { denied: true };
+        }
         if (perm === 'always-domain') setDomainAlwaysAllowed(domain, true);
     }
 
@@ -137,13 +168,18 @@ export async function performBrowserAction({ url, action = 'click', target = '',
             method: 'POST',
             body: JSON.stringify({ url: targetUrl, action, target, value, formData })
         });
-        if (res.page) {
-            state.page = res.page;
-            pushHistory(res.page);
+        const page = normalizePage(res);
+        if (page) {
+            state.page = page;
+            state.subTab = 'overview';
+            pushHistory(page);
         }
-        return res;
+        const what = action === 'click' ? 'Geklickt' : action === 'search' ? 'Gesucht' : 'Abgeschickt';
+        logAction(action, `${what}: ${value || target || ''} → ${page?.title || page?.domain || 'fertig'}`);
+        return { ...res, page };
     } catch (err) {
         state.error = err?.message || 'Browser-Aktion fehlgeschlagen.';
+        logAction(action, `Fehler: ${state.error}`, false);
         throw err;
     } finally {
         state.loading = false;
@@ -185,7 +221,8 @@ function renderOverviewPane(page) {
                 h('small', { text: page.url })
             ),
             page.description ? h('p', { class: 'br-meta-desc', text: page.description }) : null
-        )
+        ),
+        page.fallbackNote ? h('p', { class: 'br-note', text: page.fallbackNote }) : null
     );
 
     if (Array.isArray(page.products) && page.products.length) {
@@ -294,6 +331,55 @@ function renderInteractPane(page) {
     return wrap;
 }
 
+// Live-Ansicht: echte Seite im abgeschotteten iframe – nur wenn die Seite Einbetten erlaubt.
+// Sonst ehrlicher Hinweis + Lese-Ansicht, damit das Panel nie leer bleibt.
+function renderLivePane(page) {
+    const wrap = h('div', { class: 'br-pane br-live' });
+    if (page.embeddable) {
+        wrap.append(
+            h('iframe', {
+                class: 'br-live-frame',
+                src: page.url,
+                title: page.title || page.domain || 'Webseite',
+                sandbox: 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox',
+                referrerpolicy: 'no-referrer',
+                loading: 'lazy'
+            }),
+            h('p', { class: 'br-live-note', text: 'Live-Ansicht: Was du hier anklickst, passiert direkt auf der Seite – Coden liest dabei nicht mit.' })
+        );
+    } else {
+        wrap.append(h('div', { class: 'br-live-blocked' },
+            ic('shield'),
+            h('p', { text: `${page.domain || 'Diese Seite'} erlaubt keine Einbettung in andere Apps. Coden zeigt dir deshalb die gelesene Fassung – oder öffne die Seite extern.` }),
+            h('div', { class: 'br-live-actions' },
+                h('button', { type: 'button', class: 'cd-btn sm', onclick: () => { state.subTab = 'reader'; render(); } }, ic('article'), ' Lesetext'),
+                h('a', { class: 'cd-btn sm', href: page.url, target: '_blank', rel: 'noopener noreferrer' }, ic('open_in_new'), ' Extern öffnen')
+            )
+        ));
+    }
+    return wrap;
+}
+
+function renderLogPane() {
+    const wrap = h('div', { class: 'br-pane' });
+    wrap.append(h('h4', { class: 'br-sec-h', text: 'Aktionsprotokoll' }));
+    if (!state.log.length) {
+        wrap.append(h('p', { class: 'cd-text', text: 'Noch keine Aktionen. Lesen läuft automatisch, Klicks und Eingaben fragen dich vorher.' }));
+        return wrap;
+    }
+    const list = h('div', { class: 'br-log' });
+    for (const e of state.log) {
+        const t = new Date(e.at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+        list.append(h('div', { class: 'br-log-row' + (e.ok ? '' : ' bad') },
+            ic(e.ok ? (e.kind === 'read' ? 'visibility' : 'touch_app') : 'block'),
+            h('span', { class: 'br-log-txt', text: e.text }),
+            h('small', { text: t })
+        ));
+    }
+    wrap.append(list);
+    return wrap;
+}
+
 function render() {
     if (!state.host) return;
     const page = state.page;
@@ -368,7 +454,7 @@ function render() {
 
     const toolbar = page ? h('div', { class: 'br-subbar' },
         h('div', { class: 'br-tabs' },
-            ...[['overview', 'Übersicht'], ['reader', 'Lesetext'], ['interact', 'Links & Formulare']].map(([id, lbl]) =>
+            ...[['overview', 'Übersicht'], ['live', 'Live'], ['reader', 'Lesetext'], ['interact', 'Links & Formulare'], ['log', 'Protokoll']].map(([id, lbl]) =>
                 h('button', {
                     type: 'button',
                     class: state.subTab === id ? 'active' : '',
@@ -408,6 +494,10 @@ function render() {
         body.append(h('div', { class: 'br-error' }, ic('error'), h('p', { text: state.error })));
     } else if (!page) {
         renderQuickLaunch(body);
+    } else if (state.subTab === 'live') {
+        body.append(renderLivePane(page));
+    } else if (state.subTab === 'log') {
+        body.append(renderLogPane());
     } else if (state.subTab === 'reader') {
         body.append(h('div', { class: 'br-pane' }, h('h3', { text: page.title || page.domain }), h('pre', { class: 'br-reader-txt', text: page.excerpt || '(Kein Lesetext)' })));
     } else if (state.subTab === 'interact') {

@@ -525,3 +525,36 @@ body.sw-resizing { user-select: none; cursor: col-resize; }
   .ip-foot-right { margin-left: 0; justify-content: flex-end; }
   .br-quick-grid { grid-template-columns: 1fr; }
 }
+
+/* Research-Browser: Live-Ansicht, Hinweise, Aktionsprotokoll */
+.br-tabs { overflow-x: auto; scrollbar-width: none; }
+.br-tabs::-webkit-scrollbar { display: none; }
+.br-tabs button { white-space: nowrap; }
+.br-live { display: flex; flex-direction: column; gap: 6px; height: 100%; padding: 0; }
+.br-body:has(.br-live) { padding: 0; }
+.br-live-frame { flex: 1; min-height: 420px; width: 100%; border: 0; background: #fff; }
+.br-live-note { margin: 0; padding: 6px 12px 8px; font-size: 11.5px; color: var(--text-muted); }
+.br-live-blocked { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding: 32px 18px; color: var(--text-secondary); }
+.br-live-blocked .material-symbols-outlined { font-size: 30px; color: var(--text-muted); }
+.br-live-blocked p { margin: 0; font-size: 13px; line-height: 1.5; max-width: 360px; }
+.br-live-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.br-note { margin: 8px 0 0; padding: 8px 10px; font-size: 12px; line-height: 1.45; color: var(--text-secondary); border-left: 2px solid var(--accent-blue); background: rgba(138, 180, 248, 0.06); border-radius: 0 8px 8px 0; }
+.br-log { display: flex; flex-direction: column; }
+.br-log-row { display: flex; align-items: center; gap: 8px; padding: 7px 2px; border-bottom: 1px solid var(--border-color); font-size: 12.5px; color: var(--text-secondary); }
+.br-log-row .material-symbols-outlined { font-size: 16px; color: var(--text-muted); flex: none; }
+.br-log-row.bad .material-symbols-outlined { color: var(--accent-red, #f28b82); }
+.br-log-txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.br-log-row small { color: var(--text-muted); flex: none; font-variant-numeric: tabular-nums; }
+
+/* Inline-Karte: Ändern-Link; Konnektoren-Seite: Browser-Domains */
+.ip-settled-edit { margin-left: auto; border: 0; background: none; color: var(--accent-blue); font: 500 12px var(--font-main); cursor: pointer; padding: 2px 4px; border-radius: 6px; }
+.ip-settled-edit:hover { text-decoration: underline; }
+.cn-domains { margin-top: 18px; }
+.cn-dom-list { display: flex; flex-direction: column; border-top: 1px solid var(--border-color); }
+.cn-dom-row { display: flex; align-items: center; gap: 10px; padding: 9px 2px; border-bottom: 1px solid var(--border-color); font-size: 13.5px; color: var(--text-primary); }
+.cn-dom-row span:not(.material-symbols-outlined) { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.cn-dom-row .material-symbols-outlined { font-size: 18px; color: var(--text-muted); }
+.sw-mob-chat-btn { white-space: nowrap; }
+button.cw-br-prod { width: 100%; text-align: left; cursor: pointer; font: inherit; font-size: 13px; color: inherit; }
+button.cw-br-prod:hover { border-color: var(--accent-blue); }
+.cw-br-actions .qz-ghost { text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }

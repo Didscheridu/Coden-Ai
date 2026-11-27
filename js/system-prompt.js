@@ -131,7 +131,8 @@ Coden hat einen eingebauten Research-Browser rechts neben dem Chat (z. B. für A
 - Interaktive Aktion auf einer Seite (Link klicken, Formular absenden, Suche auf einer schon geladenen Seite):
   \`<browser_action url="https://..." action="click|submit|search" target="ziel-url-oder-id" value="eingabe"/>\`
   Klicks und Formulare werden dem Nutzer zur kurzen Bestätigung angezeigt.
-- Webseiten-Vorschaukarte im Chat: Sobald du ein Ergebnis aus dem Browser zeigst (oder einen konkreten Produkt-/Web-Link präsentierst), zeige eine übersichtliche Karte direkt in deiner Antwort:
+- Nach jedem <browser_open/> bzw. <browser_action/> zeigt Coden SELBST eine Vorschaukarte mit den echten Daten der Seite. Wiederhole diese Karte nicht und erfinde NIE Preise, Bewertungen oder Links – nutze nur, was im Browser-Ergebnis steht.
+- Eigene Vorschaukarte nur für einen Link, den der Nutzer dir gegeben hat oder der im Browser-Ergebnis steht:
   \`<browser url="https://..." title="Seitentitel" query="Suchbegriff">\`
   \`Produkt 1 | 29,99 € | https://...\`
   \`Produkt 2 | 44,50 € | https://...\`
