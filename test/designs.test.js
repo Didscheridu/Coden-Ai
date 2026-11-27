@@ -47,11 +47,23 @@ const { setup } = require('./helpers');
   chk('Upload: Inhalt passt nicht zum Typ', (await P('/designs/upload', { dataUrl: 'data:image/png;base64,' + Buffer.alloc(200, 7).toString('base64') }, A)).s, 400);
   chk('Upload: zu groß', (await P('/designs/upload', { dataUrl: 'data:image/jpeg;base64,' + Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(700_001)]).toString('base64') }, A)).s, 400);
 
+  // ---------- Neue Formate & eigene Größe ----------
+  const yt = await P('/designs', { title: 'Video Cover', format: 'youtube', slides: 1, body: '<section data-slide>YT</section>' }, A);
+  chk('YouTube Format anlegen', [yt.s, yt.j.design.format], [200, 'youtube']);
+  const cust = await P('/designs', { title: 'Banner', format: 'custom', width: 1600, height: 400, body: '<section data-slide>B</section>' }, A);
+  chk('Eigene Größe speichern', [cust.s, cust.j.design.format, cust.j.design.width, cust.j.design.height], [200, 'custom', 1600, 400]);
+  const clamp = await P('/designs', { title: 'Clamped', format: 'custom', width: 99999, height: 50, body: '<section data-slide>C</section>' }, A);
+  chk('Eigene Größe begrenzt (200–4000)', [clamp.j.design.width, clamp.j.design.height], [4000, 200]);
+
   chk('Löschen', [(await D('/designs/' + id, A)).s, (await G('/designs/' + id, A)).s], [200, 404]);
 
   // ---------- Logik (js/design-core.js) ----------
   const DC = await import(pathToFileURL(path.join(__dirname, '../js/design-core.js')).href);
-  chk('Formate', Object.values(DC.FORMATS).map(f => `${f.w}x${f.h}`), ['1080x1080', '1080x1350', '1080x1920', '1080x1350']);
+  chk('Formate komplett', Object.keys(DC.FORMATS), ['square', 'portrait', 'story', 'carousel', 'youtube', 'presentation', 'linkedin', 'poster', 'custom']);
+  chk('Custom formatOf Maße & Grenzen', [DC.formatOf('custom', 1500, 500).w, DC.formatOf('custom', 1500, 500).h, DC.formatOf('custom', 50, 9000).w, DC.formatOf('custom', 50, 9000).h], [1500, 500, 200, 4000]);
+  chk('Vorlagen, Formen, Text-Presets, Hintergründe vorhanden', [DC.TEMPLATES.length >= 6, DC.SHAPES.length >= 10, DC.TEXT_PRESETS.length >= 6, DC.BACKGROUNDS.gradients.length >= 8], [true, true, true, true]);
+  chk('Jede Vorlage enthält gültige Slides', DC.TEMPLATES.every(t => /<section data-slide/.test(t.body) && !!DC.FORMATS[t.format]), true);
+  chk('blankSlideHtml & fontLinkFor', [/width:1280px;height:720px/.test(DC.blankSlideHtml(1280, 720, '#111111')), DC.safeFontLink(DC.fontLinkFor('Playfair Display'))], [true, true]);
   const sp = DC.designSystemPrompt({ format: 'story', slides: 1, brand: { primary: '#ff0055', secondary: '#111111', font: 'Montserrat', logo: 'https://x.de/logo.png' } });
   chk('System-Prompt: Maße, Platzhalter, Brand Kit', [/1080 × 1920/.test(sp), /data-ai-image-prompt/.test(sp), /#ff0055/.test(sp), /Montserrat/.test(sp), /https:\/\/x\.de\/logo\.png/.test(sp), /keine? JavaScript|KEIN JavaScript/i.test(sp)], [true, true, true, true, true, true]);
   chk('System-Prompt Karussell: genau N Slides', /genau 4 <section data-slide>/.test(DC.designSystemPrompt({ format: 'carousel', slides: 4 })), true);
@@ -61,9 +73,9 @@ const { setup } = require('./helpers');
   chk('splitDoc', DC.splitDoc('<html><head><link href="x"></head><body class="a"><p>Hi</p></body></html>'), { head: '<link href="x">', body: '<p>Hi</p>' });
   chk('safeFontLink nur Google Fonts', [DC.safeFontLink('https://fonts.googleapis.com/css2?family=Inter'), DC.safeFontLink('https://evil.com/x.css'), DC.safeFontLink('javascript:alert(1)')], [true, false, false]);
   const doc = DC.frameDoc({ head: '<style>h1{}</style>', body: '<section data-slide>X</section>', format: 'square', lib: 'LIB', mode: 'edit' });
-  chk('Frame: CSP, Tailwind, Größe, Brücke', [/Content-Security-Policy/.test(doc), /cdn\.tailwindcss\.com/.test(doc), /"w":1080,"h":1080/.test(doc), /codenDesign/.test(doc), doc.includes('LIB')], [true, true, true, true, true]);
+  chk('Frame: CSP, Tailwind, Größe, Canva-Brücke', [/Content-Security-Policy/.test(doc), /cdn\.tailwindcss\.com/.test(doc), /"w":1080,"h":1080/.test(doc), /codenDesign/.test(doc), /cd-rot/.test(doc), /cd-gx/.test(doc), doc.includes('LIB')], [true, true, true, true, true, true, true]);
   chk('Frame: CSP erlaubt keine fremden Skripte außer Tailwind', /script-src 'unsafe-inline' https:\/\/cdn\.tailwindcss\.com;/.test(doc), true);
-  chk('Dateinamen für Export', [DC.exportName('Sommer: Sale!', 2, 5), DC.exportName('', 1, 1)], ['Sommer-Sale-2-von-5.png', 'Coden-Design.png']);
+  chk('Dateinamen für Export (PNG & JPG)', [DC.exportName('Sommer: Sale!', 2, 5), DC.exportName('', 1, 1), DC.exportName('Banner', 1, 1, 'jpg')], ['Sommer-Sale-2-von-5.png', 'Coden-Design.png', 'Banner.jpg']);
   chk('Bild-Prompt kürzen/säubern', DC.cleanImagePrompt('  "a cat"\n\nwith <b>tags</b> '), 'a cat with tags');
 
   global.fetch = realFetch;
