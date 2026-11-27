@@ -6,11 +6,12 @@ const db = require('./db');
 const { rateLimit } = require('./rateLimit');
 const { wrapRouter } = require('./util');
 
-const LIMITS = { designs: 100, title: 80, head: 20_000, body: 300_000, messages: 30, message: 2000, slides: 10, upload: 700_000, images: 300 };
-const FORMATS = ['square', 'portrait', 'story', 'carousel'];
+const LIMITS = { designs: 100, title: 80, head: 20_000, body: 300_000, messages: 30, message: 2000, slides: 10, upload: 700_000, images: 300, minDim: 200, maxDim: 4000 };
+const FORMATS = ['square', 'portrait', 'story', 'carousel', 'youtube', 'presentation', 'linkedin', 'poster', 'custom'];
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const str = (v, n) => String(v ?? '').replace(/\u0000/g, '').slice(0, n);
 const toInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) && n > 0 ? n : 0; };
+const clampDim = (v) => { const n = toInt(v); return n ? Math.max(LIMITS.minDim, Math.min(LIMITS.maxDim, n)) : 0; };
 const iso = (d) => (d instanceof Date ? d.toISOString() : d || null);
 // data:-Adressen gehören nicht ins Dokument (1-MB-Grenze von Firestore) – Bilder laufen über /upload
 const noDataUrls = (s) => (/(?:src|href)\s*=\s*["']?\s*data:/i.test(s) ? fail(400, 'Bilder bitte hochladen statt einbetten.') : null);
@@ -19,6 +20,8 @@ function clean(b, prev = {}) {
   const out = {};
   if ('title' in b) out.title = str(b.title, LIMITS.title).trim() || 'Neues Design';
   if ('format' in b) { if (!FORMATS.includes(b.format)) throw fail(400, 'Unbekanntes Format.'); out.format = b.format; }
+  if ('width' in b) { const w = clampDim(b.width); if (w) out.width = w; }
+  if ('height' in b) { const h = clampDim(b.height); if (h) out.height = h; }
   if ('slides' in b) out.slides = Math.max(1, Math.min(LIMITS.slides, toInt(b.slides) || 1));
   if ('head' in b) { if (String(b.head || '').length > LIMITS.head) throw fail(400, 'Der Kopf des Designs ist zu groß.'); out.head = str(b.head, LIMITS.head); }
   if ('body' in b) { if (String(b.body || '').length > LIMITS.body) throw fail(400, 'Das Design ist zu groß.'); out.body = str(b.body, LIMITS.body); const e = noDataUrls(out.body); if (e) throw e; }
@@ -29,7 +32,11 @@ function clean(b, prev = {}) {
   if (!out.title && !prev.title) out.title = 'Neues Design';
   return out;
 }
-const meta = (d) => ({ id: Number(d.id), title: d.title, format: d.format, slides: d.slides || 1, updatedAt: iso(d.updated_at), createdAt: iso(d.created_at) });
+const meta = (d) => ({
+  id: Number(d.id), title: d.title, format: d.format, slides: d.slides || 1,
+  ...(d.width ? { width: Number(d.width) } : {}), ...(d.height ? { height: Number(d.height) } : {}),
+  updatedAt: iso(d.updated_at), createdAt: iso(d.created_at)
+});
 const full = (d) => ({ ...meta(d), head: d.head || '', body: d.body || '', messages: Array.isArray(d.messages) ? d.messages : [] });
 
 async function countImages(uid) { return (await db.runQuery('app_images', { where: [['uid', '==', uid]] }).catch(() => [])).length; }
@@ -71,6 +78,7 @@ function designsRouter(requireAuth, { makeImage }) {
     const id = db.nextId(); const now = db.nowIso();
     const d = await db.createDoc(`user_designs/${id}`, {
       id, uid: req.user.uid, title: b.title, format: b.format || 'square', slides: b.slides || 1,
+      ...(b.width ? { width: b.width } : {}), ...(b.height ? { height: b.height } : {}),
       head: b.head || '', body: b.body || '', messages: b.messages || [], created_at: now, updated_at: now
     });
     res.json({ design: full(d) });
