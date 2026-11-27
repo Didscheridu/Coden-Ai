@@ -150,9 +150,11 @@ const ORDER = ['google', 'ddg', 'bing', 'news', 'wikipedia'];
 const NEWSY = /aktuell|heute|gestern|morgen|news|nachricht|neueste|spielplan|ergebnis|tabelle|spiel|liga|wahl|wetter|kurs|preis|202\d|live|termin/i;
 
 // Gratis-Suche: Quellen der Reihe nach, bis genug Treffer da sind. Rückgabe { results, via, tried }
-async function freeSearch(q, n = 8, signal, onWarn) {
+// opts.min: so viele Treffer sammeln, bevor aufgehört wird (Deep Research will viele verschiedene Webseiten)
+async function freeSearch(q, n = 8, signal, onWarn, { min = 4 } = {}) {
   const all = []; const seen = new Set(); const via = []; const tried = [];
-  const enough = () => all.length >= Math.min(n, 4) || (all[0]?.summary && all.length >= 3);
+  const want = Math.min(n, Math.max(1, min));
+  const enough = () => all.length >= want || (want <= 4 && all[0]?.summary && all.length >= 3);
   const order = NEWSY.test(q) ? ORDER : ORDER.filter(e => e !== 'news').concat('news');
   for (const id of order) {
     if (enough()) break;
