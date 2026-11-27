@@ -11,9 +11,12 @@ import { loader } from './rich-elements.js';
 import { renderRichBlock } from './ui.js';
 import { buildChatPrompt } from './system-prompt.js';
 import { StudyStore } from './study-store.js';
-import { correctionPrompt, parseCorrection, fmtDate, parseNotebookReads, hideNotebookTags } from './study-core.js';
+import { correctionPrompt, parseCorrection, fmtDate, parseNotebookReads, hideNotebookTags, parseNotebookWrites, stripNotebookWriteTags } from './study-core.js';
+import { activeProfile, handwritingRequested } from './handwriting-core.js';
 import { captureLivePageSnapshot, readNotebookRequests } from './notebook-ai.js';
 import { startStudyLive, stopLive, liveActive, sendLiveImage, sendLiveNote } from './study-live.js';
+import { buildPdfBlob, downloadPdfBlob, safePdfFilename } from './pdf-export.js';
+import { FORMULA_SUBJECTS, filterFormulas, UNIT_CATEGORIES, convertUnit, evaluateMathExpr } from './formula-helper.js';
 import { PAGE_W, PAGE_H, TEMPLATES, PEN_TYPES, encodeStrokes, decodeStrokes, widthAt, recognizeShape, eraseFrom, eraseWhole, lassoSelect, selectionBox, transformSelection, strokeOutline, rotateSelection, isPalm, stageMetrics } from './ink-core.js';
 export { PAGE_W, PAGE_H, encodeStrokes, decodeStrokes } from './ink-core.js';
 
@@ -186,6 +189,21 @@ export async function copyPage(id, docId) {
 }
 export async function deleteDocPages(docId) { try { await apiJson('/study/docs/' + docId, { method: 'DELETE' }); } catch (_) {} }
 
+export async function exportDocPdf(doc, { subjectName = '', withCorrection = true, onProgress = () => {} } = {}) {
+    const ids = Array.isArray(doc?.pages) ? doc.pages : [];
+    if (!ids.length) throw new Error('Dieses Notizbuch hat keine Seiten.');
+    const imgs = [];
+    for (let i = 0; i < ids.length; i++) {
+        onProgress(i + 1, ids.length);
+        const pg = (await loadPage(ids[i]).catch(() => null)) || { paper: doc.paper || 'liniert', strokes: '[]', text: [], items: [], bg: null };
+        imgs.push(await pageImage(pg, { width: 1654, quality: 0.9, correction: withCorrection }));
+    }
+    const blob = buildPdfBlob(imgs);
+    const filename = safePdfFilename([subjectName, doc.title].filter(Boolean).join(' – '));
+    downloadPdfBlob(blob, filename);
+    return { pages: imgs.length, filename };
+}
+
 // ---------- Editor ----------
 // ctx: { doc, persist(), subjectName, assignment, onCorrected(doc,page,c), onSubmit(a), onClose() }
 export function openInkEditor(ctx) {
@@ -226,6 +244,7 @@ export function openInkEditor(ctx) {
     const markB = btn('bookmark', 'Lesezeichen für diese Seite', () => toggleBookmark(st.cur));
     const sideB = btn('view_sidebar', 'Seitenübersicht', () => { st.sidebar = !st.sidebar; side.hidden = !st.sidebar; sideB.classList.toggle('on', st.sidebar); if (st.sidebar) drawSidebar(); requestAnimationFrame(layoutAll); });
     const addB = btn('note_add', 'Seite hinzufügen', (e) => templateMenu(e.currentTarget, (t) => insertPage(st.cur + 1, t)));
+    const formulaB = btn('functions', 'Formeln', () => toggleFormulas(), 'labeled ink-wide');
     const liveB = btn('graphic_eq', 'Live mit Coden', () => toggleLive(), 'labeled live');
     const chatB = btn('chat', 'Coden Chat', () => toggleChat(), 'labeled ink-chat-btn');
     const checkB = btn('fact_check', 'Coden prüfen', () => correct(), 'primary labeled');
@@ -234,7 +253,7 @@ export function openInkEditor(ctx) {
     const left = el('div', 'ink-row ink-left'); left.append(btn('arrow_back', 'Zurück zur Bibliothek', () => close()), sideB, title);
     const mid = el('div', 'ink-row ink-mid'); mid.append(undoB, redoB, pageLbl);
     markB.classList.add('ink-wide'); addB.classList.add('ink-wide'); doneB?.classList.add('ink-wide');
-    const right = el('div', 'ink-row ink-right'); right.append(saveState, markB, addB, liveB, chatB, checkB, ...(doneB ? [doneB] : []), moreB);
+    const right = el('div', 'ink-row ink-right'); right.append(saveState, markB, addB, formulaB, liveB, chatB, checkB, ...(doneB ? [doneB] : []), moreB);
     top.append(left, mid, right);
 
     // Werkzeugleiste (GoodNotes: mittig, Werkzeuge + passende Optionen)
@@ -842,6 +861,7 @@ export function openInkEditor(ctx) {
         const it = (ic, l, fn) => pop.append(btn(ic, l, () => { pop.remove(); fn(); }, 'labeled'));
         if (window.matchMedia('(max-width: 700px)').matches) {
             it('chat', st.panelMode === 'chat' ? 'Coden Chat schließen' : 'Coden Chat öffnen', () => toggleChat());
+            it('functions', st.panelMode === 'formulas' ? 'Formeln schließen' : 'Formeln & Rechner', () => toggleFormulas());
             if (doneB) it('task_alt', 'Fertig & abgeben', () => finish());
             it('note_add', 'Seite hinzufügen', () => templateMenu(anchor, (t) => insertPage(st.cur + 1, t)));
             const on = doc.bookmarks.includes(pages[st.cur]?.id); it(on ? 'bookmark_remove' : 'bookmark', on ? 'Lesezeichen entfernen' : 'Lesezeichen setzen', () => toggleBookmark(st.cur));
@@ -850,6 +870,7 @@ export function openInkEditor(ctx) {
         it('upload_file', 'PDF / Fotos importieren', () => bgIn.click());
         it('wallpaper', 'Vorlage dieser Seite', () => templateMenu(anchor, (t) => setPaper(st.cur, t)));
         it('stylus_note', 'Handschrift trainieren', () => import('./handwriting.js').then(m => m.openHandwritingTrainer()));
+        if (pages[st.cur]?.data?.strokes?.some(s => s.o === 'coden')) it('ink_eraser', 'Coden-Schrift auf Seite entfernen', () => removeCodenStrokes(pages[st.cur]));
         it('zoom_in', 'Größer', () => setZoom(st.zoom * 1.2)); it('zoom_out', 'Kleiner', () => setZoom(st.zoom / 1.2)); it('fit_width', 'Seitenbreite', () => setZoom(1));
         it(st.showCorr ? 'visibility_off' : 'visibility', st.showCorr ? 'Korrekturen ausblenden' : 'Korrekturen einblenden', () => { st.showCorr = !st.showCorr; pages.forEach(paintMarks); });
         if (pages[st.cur]?.data?.correction) it('ink_eraser', 'Korrektur dieser Seite entfernen', () => removeCorrection(pages[st.cur]));
@@ -888,29 +909,38 @@ export function openInkEditor(ctx) {
         if (ok) liveB.classList.add('on');
     }
 
-    // ---------- Seitenleiste rechts: Korrektur & Coden Chat ----------
+    // ---------- Seitenleiste rechts: Korrektur, Formeln & Coden Chat ----------
     const CHAT_KEY = 'coden_nb_chat_' + doc.id;
     const CHAT_TIER_KEY = 'coden_nb_chat_tier';
+    const CHAT_HW_KEY = 'coden_nb_chat_hw';
     const STARTERS = [
         'Erkläre mir, was auf dieser Seite steht',
         'Prüfe meinen Rechenweg und zeig mir Fehler',
-        'Gib mir einen kurzen Tipp für die nächste Aufgabe',
-        'Fasse das Thema dieser Seite als Merksatz zusammen'
+        'Schreib die Lösung in meiner Handschrift ins Heft',
+        'Fasse das Thema in meiner Handschrift zusammen'
     ];
     let chatMsgs = [];
     try { const saved = JSON.parse(localStorage.getItem(CHAT_KEY) || '[]'); if (Array.isArray(saved)) chatMsgs = saved.slice(-40); } catch (_) {}
     let chatTier = 'flash';
     try { chatTier = localStorage.getItem(CHAT_TIER_KEY) || 'flash'; } catch (_) {}
+    let chatHwMode = false;
+    try { chatHwMode = localStorage.getItem(CHAT_HW_KEY) === '1'; } catch (_) {}
     let chatIncludePage = true, chatBusy = false, chatAc = null, clearArm = 0;
 
     const saveChatMsgs = () => { try { localStorage.setItem(CHAT_KEY, JSON.stringify(chatMsgs.slice(-40))); } catch (_) {} };
-    const cleanNbReply = (raw) => hideNotebookTags(String(raw || ''))
-        .replace(/<suggestions>[\s\S]*?(<\/suggestions>|$)/gi, '')
-        .replace(/<choices>[\s\S]*?(<\/choices>|$)/gi, '')
-        .replace(/<(suggestions|choices|remember|app_write|mcp_call)[^>]*$/i, '')
-        .trim();
+    const cleanNbReply = (raw, { streaming = false } = {}) => {
+        let s = hideNotebookTags(String(raw || ''));
+        s = stripNotebookWriteTags(s, streaming
+            ? { replacement: '\n> ✓ *In deiner Handschrift ins Heft geschrieben.*\n', streamingPlaceholder: '\n> *Schreibt in deiner Handschrift ins Heft …*\n' }
+            : { replacement: '\n> ✓ *In deiner Handschrift ins Heft geschrieben.*\n', streamingPlaceholder: '' });
+        return s
+            .replace(/<suggestions>[\s\S]*?(<\/suggestions>|$)/gi, '')
+            .replace(/<choices>[\s\S]*?(<\/choices>|$)/gi, '')
+            .replace(/<(suggestions|choices|remember|app_write|mcp_call)[^>]*$/i, '')
+            .trim();
+    };
     const toPlainPageText = (md) => String(md || '')
-        .replace(/<\/?handwriting[^>]*>/gi, '')
+        .replace(/<\/?(?:handwriting|notebook_write)[^>]*>/gi, '')
         .replace(/==\s*(?:[a-zäöü]+\s*:)?([\s\S]*?)==/gi, '$1')
         .replace(/\{\{\s*[a-zäöü]+\s*:([\s\S]*?)\}\}/gi, '$1')
         .replace(/```[\s\S]*?```/g, m => m.replace(/```[^\n]*\n?|```/g, ''))
@@ -919,6 +949,123 @@ export function openInkEditor(ctx) {
         .replace(/`([^`]+)`/g, '$1')
         .trim()
         .slice(0, 1800);
+
+    // Bereitet Chat- oder Formelinhalte sauber fürs Handschrift-Heft auf (behält # Titel & ==Marker==)
+    function prepareNotebookHandwriting(rawText) {
+        const raw = String(rawText || '').trim();
+        const tagBodies = [];
+        const re = /<(?:notebook_write|handwriting)\b[^>]*>([\s\S]*?)<\/(?:notebook_write|handwriting)>/gi;
+        let m;
+        while ((m = re.exec(raw))) {
+            const b = String(m[1] || '').trim();
+            if (b) tagBodies.push(b);
+        }
+        let s = tagBodies.length ? tagBodies.join('\n\n') : raw;
+        s = s
+            .replace(/\r\n?/g, '\n')
+            .replace(/^>\s*[✓]*\s*\*In deiner Handschrift.*$/gim, '')
+            .replace(/\\frac\s*\{([^}]+)\}\s*\{([^}]+)\}/g, '($1)/($2)')
+            .replace(/\\sqrt\s*\{([^}]+)\}/g, '√($1)')
+            .replace(/\\(cdot|times)/g, (_, k) => (k === 'times' ? '×' : '·'))
+            .replace(/\\(pm|approx|neq|leq|le|geq|ge|to|rightarrow|leftarrow|pi|alpha|beta)/g, (_, k) => ({
+                pm: '±', approx: '≈', neq: '≠', leq: '≤', le: '≤', geq: '≥', ge: '≥',
+                to: '→', rightarrow: '→', leftarrow: '←', pi: 'π', alpha: 'α', beta: 'β'
+            }[k] || k))
+            .replace(/\^([0-9+-])/g, (_, d) => ({ '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', '-': '⁻', '+': '⁺' }[d] || '^' + d))
+            .replace(/\*\*([^*]+)\*\*/g, '$1')
+            .replace(/^\s*[-*]\s+/gm, '• ')
+            .replace(/\$+/g, '')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+        return s.slice(0, 2600);
+    }
+
+    function nextFreeY(pgData) {
+        let maxY = 0;
+        for (const s of (pgData?.strokes || [])) {
+            for (let i = 1; i < s.p.length; i += 3) {
+                if (s.p[i] > maxY) maxY = s.p[i];
+            }
+        }
+        for (const t of (pgData?.text || [])) {
+            const lines = String(t.s || '').split('\n').length;
+            const b = (t.y || 0) + lines * (t.z || 22) * 1.35;
+            if (b > maxY) maxY = b;
+        }
+        for (const it of (pgData?.items || [])) {
+            const b = (it.y || 0) + (it.h || 0);
+            if (b > maxY) maxY = b;
+        }
+        return maxY > 0 ? maxY + 34 : null;
+    }
+
+    async function writeHandwritingToNotebook(rawText, { mode = 'append', paper = null, ink = null } = {}) {
+        const clean = prepareNotebookHandwriting(rawText);
+        if (!clean) { toast2('Nichts zum Schreiben vorhanden.'); return 0; }
+        let idx = st.cur;
+        let pg = pages[idx];
+        if (!pg) return 0;
+        await ensureData(pg);
+
+        const prof = activeProfile(StudyStore.handwriting());
+        const { strokesForNotebookPage } = await import('./handwriting.js');
+        const targetPaper = paper || pg.data.paper || doc.paper || 'liniert';
+        const startY = mode === 'new' ? null : nextFreeY(pg.data);
+        const res = strokesForNotebookPage(clean, prof, { paper: targetPaper, ink, origin: 'coden', seed: 5 + idx, startY });
+
+        let pageOffset = 0;
+        if (mode === 'new' || res.startedOnNewPage) {
+            // Auf neuer Seite direkt hinter aktueller Seite starten
+            const newIds = await createPages(doc, [null], res.paper || targetPaper, idx + 1);
+            if (newIds.length) {
+                const newPg = { id: newIds[0], data: { paper: res.paper || targetPaper, strokes: res.pages[0].slice(), text: [], items: [], bg: null, correction: null } };
+                doc.pages.splice(idx + 1, 0, newPg.id);
+                pages.splice(idx + 1, 0, newPg);
+                markDirty(newPg);
+                pageOffset = 1;
+            }
+        } else {
+            const before = clone(pg.data);
+            pg.data.strokes.push(...res.pages[0]);
+            commit(pg, before);
+            if (pg.view) paintInk(pg);
+        }
+
+        // Überlaufende Seiten sauber dahinter anhängen
+        if (res.pages.length > 1) {
+            const insertAt = idx + 1 + pageOffset;
+            const extraBgs = Array(res.pages.length - 1).fill(null);
+            const extraIds = await createPages(doc, extraBgs, res.paper || targetPaper, insertAt);
+            for (let k = 0; k < extraIds.length; k++) {
+                const np = { id: extraIds[k], data: { paper: res.paper || targetPaper, strokes: res.pages[k + 1].slice(), text: [], items: [], bg: null, correction: null } };
+                doc.pages.splice(insertAt + k, 0, np.id);
+                pages.splice(insertAt + k, 0, np);
+                markDirty(np);
+            }
+            ctx.persist?.();
+            rebuild();
+            scrollToPage(idx + pageOffset);
+        } else if (pageOffset > 0) {
+            ctx.persist?.();
+            rebuild();
+            scrollToPage(idx + pageOffset);
+        }
+
+        await flush();
+        toast2(`In Handschrift (${prof.name}) ins Heft geschrieben`);
+        return res.pages.length;
+    }
+
+    function removeCodenStrokes(pg) {
+        if (!pg?.data) return;
+        const keep = pg.data.strokes.filter(s => s.o !== 'coden');
+        if (keep.length === pg.data.strokes.length) return;
+        const before = clone(pg.data);
+        pg.data.strokes = keep;
+        commit(pg, before);
+        repaint(pg);
+        toast2('Coden-Handschrift entfernt');
+    }
 
     async function insertTextOnPage(rawText) {
         const pg = pages[st.cur]; if (!pg) return;
@@ -960,12 +1107,20 @@ export function openInkEditor(ctx) {
     chatPageChk.addEventListener('change', () => { chatIncludePage = chatPageChk.checked; });
     const chatPageSpan = el('span', '', 'Seite 1 mitsenden');
     chatPageLbl.append(chatPageChk, chatPageSpan);
+    const chatHwLbl = el('label', 'ink-chat-chk');
+    chatHwLbl.title = 'Coden schreibt Antworten direkt in deiner Handschrift auf die Heftseite';
+    const chatHwChk = el('input'); chatHwChk.type = 'checkbox'; chatHwChk.checked = chatHwMode;
+    chatHwChk.addEventListener('change', () => {
+        chatHwMode = chatHwChk.checked;
+        try { localStorage.setItem(CHAT_HW_KEY, chatHwMode ? '1' : '0'); } catch (_) {}
+    });
+    chatHwLbl.append(chatHwChk, el('span', '', 'Handschrift ins Heft'));
     const chatTierSel = el('select', 'ink-chat-tier'); chatTierSel.title = 'Modell wählen';
     chatTierSel.addEventListener('change', () => { chatTier = chatTierSel.value; try { localStorage.setItem(CHAT_TIER_KEY, chatTier); } catch (_) {} });
-    chatBar.append(chatPageLbl, chatTierSel);
+    chatBar.append(chatPageLbl, chatHwLbl, chatTierSel);
 
     const chatRow = el('div', 'ink-chat-row');
-    const chatIn = el('textarea', 'ink-chat-in'); chatIn.rows = 1; chatIn.placeholder = 'Frage Coden zu deinem Notizbuch …';
+    const chatIn = el('textarea', 'ink-chat-in'); chatIn.rows = 1; chatIn.placeholder = 'Frage Coden oder lass ihn in deiner Handschrift schreiben …';
     const chatSendB = btn('arrow_upward', 'Senden', () => { if (chatBusy) chatAc?.abort(); else sendNotebookChat(); }, 'primary ink-chat-send');
     chatRow.append(chatIn, chatSendB);
     chatComp.append(chatBar, chatRow);
@@ -979,7 +1134,7 @@ export function openInkEditor(ctx) {
 
     function syncChatChrome() {
         chatSubEl.textContent = `${doc.title || 'Notizbuch'} · Seite ${st.cur + 1}/${pages.length}`;
-        chatPageSpan.textContent = `Seite ${st.cur + 1} mitsenden`;
+        chatPageSpan.textContent = `Seite ${st.cur + 1}`;
         chatSwitchCorr.hidden = !pages[st.cur]?.data?.correction;
         const builtins = [['flash', 'Coden Flash'], ['normal', 'Thinking'], ['pro', 'Coden Pro']];
         const own = ownTiers().map(t => [t.tier, t.label]);
@@ -991,11 +1146,12 @@ export function openInkEditor(ctx) {
 
     function renderMsgActions(text) {
         const acts = el('div', 'ink-chat-acts');
+        const hwB = btn('stylus_note', 'In Handschrift ins Heft', () => writeHandwritingToNotebook(text), 'labeled');
+        const insB = btn('post_add', 'Als Text einfügen', () => insertTextOnPage(text), 'labeled');
         const copyB = btn('content_copy', 'Kopieren', async () => {
             try { await navigator.clipboard.writeText(text); toast2('Kopiert'); } catch (_) {}
         }, 'labeled');
-        const insB = btn('post_add', 'Auf Seite einfügen', () => insertTextOnPage(text), 'labeled');
-        acts.append(copyB, insB);
+        acts.append(hwB, insB, copyB);
         return acts;
     }
 
@@ -1011,7 +1167,7 @@ export function openInkEditor(ctx) {
         const body = renderRichBlock(m.text || '');
         body.classList.add('ink-chat-md');
         item.append(body);
-        if (m.text && !m.failed) item.append(renderMsgActions(m.text));
+        if (m.text && !m.failed) item.append(renderMsgActions(m.rawText || m.text));
         return item;
     }
 
@@ -1068,19 +1224,34 @@ export function openInkEditor(ctx) {
             const nbCatalog = StudyStore.notebooksContext({ currentDocId: doc.id, currentPage: st.cur + 1 });
             const studyCtx = StudyStore.context();
             const hwCtx = StudyStore.handwritingContext();
+            const wantDirectWrite = chatHwMode || handwritingRequested(text) || /\b(ins\s+heft|auf\s+(?:die|das)\s+(?:seite|blatt)|hier\s+aufs?\s+blatt|direkt\s+(?:auf|ins)|schreib\s+(?:es|mir|das)\s+(?:rein|auf))\b/i.test(text);
+            const hwProfile = activeProfile(StudyStore.handwriting());
             const sysExtras = [
                 `## KONTEXT: SEITENLEISTE IM NOTIZBUCH (Coden Heft)`,
-                `Du chattest gerade direkt neben dem Notizbuch „${doc.title || 'Notizbuch'}“ (ID: ${doc.id}, aktuell Seite ${st.cur + 1} von ${pages.length}).`,
+                `Du chattest gerade direkt neben dem Notizbuch „${doc.title || 'Notizbuch'}“ (ID: ${doc.id}, aktuell Seite ${st.cur + 1} von ${pages.length}, Vorlage: ${pages[st.cur]?.data?.paper || doc.paper || 'liniert'}).`,
                 ctx.subjectName ? `Fach: ${ctx.subjectName}` : '',
                 ctx.assignment ? `Verknüpfter Auftrag: ${ctx.assignment.title}${ctx.assignment.due ? ` (Abgabe ${fmtDate(ctx.assignment.due)})` : ''}${ctx.assignment.desc ? '\n' + ctx.assignment.desc : ''}` : '',
-                `Antworte klar, hilfreich und kompakt (passend für die schmale Seitenleiste). Wenn der Nutzer eine Rechnung, Aufgabe oder Notiz klären will, erkläre Schritt für Schritt, markiere Wichtiges mit ==…== und nutze LaTeX ($…$, $$…$$) für Formeln (oder <handwriting>, falls in seiner Handschrift gewünscht). Du kannst bei Bedarf auch andere Seiten dieses Notizbuchs oder andere Notizbücher des Nutzers über <notebook_read id="…" page="…"/> nachschlagen.`,
+                `Antworte klar, hilfreich und kompakt. Du kannst bei Bedarf auch andere Seiten dieses Notizbuchs oder andere Notizbücher des Nutzers über <notebook_read id="…" page="…"/> nachschlagen.`,
+                `## DIREKT IN DER HANDSCHRIFT DES NUTZERS INS HEFT SCHREIBEN (<notebook_write>)
+Wenn der Nutzer möchte, dass du etwas direkt ins Heft/auf die Seite oder in seiner Handschrift („${hwProfile.name}“) schreibst${wantDirectWrite ? ' (GENAU JETZT AKTIV GEWÜNSCHT!)' : ''}, gib den Heftaufschrieb in EINEM \`<notebook_write>\`-Block aus:
+<notebook_write page="current">
+# Kurze Überschrift
+• Saubere Stichpunkte, Gleichungen oder Antwortsätze
+a) 3x+6=21 |-6
+• x=5
+</notebook_write>
+Regeln für \`<notebook_write>\`:
+- Coden überträgt diesen Block automatisch als echte Handschrift-Striche in der trainierten Handschrift des Nutzers auf das Papier!
+- Schreibe darin wie ein Schüler ins Heft: \`# Titel\`, \`==wichtig==\` (Textmarker), kurze Zeilen, Unicode-Mathe (\`x²\`, \`√(…)\`, \`·\`, \`±\`, \`→\`, \`=\`), KEIN \`$\`-LaTeX und KEIN \`**\`-Markdown.
+- Verwende \`page="new"\`, wenn ausdrücklich eine neue Seite gewünscht ist, sonst \`page="current"\`.
+- Schreibe außerhalb von \`<notebook_write>\` höchstens 1–2 kurze Begleitsätze.${wantDirectWrite ? '\nWICHTIG: Antworte AUF JEDEN FALL mit einem vollständigen `<notebook_write>`-Block!' : ''}`,
                 hwCtx,
                 nbCatalog,
                 studyCtx
             ].filter(Boolean).join('\n\n');
 
             const sysPrompt = buildChatPrompt({ extras: sysExtras });
-            const apiHistory = chatMsgs.slice(-18, -1).map(m => ({ role: m.role, content: m.text }));
+            const apiHistory = chatMsgs.slice(-18, -1).map(m => ({ role: m.role, content: m.rawText || m.text }));
             const curPrompt = snap
                 ? `${text}\n\n[Aktuelle Notizbuch-Seite ${snap.pageNum} von ${pages.length}]\n${snap.text}`
                 : text;
@@ -1091,6 +1262,7 @@ export function openInkEditor(ctx) {
             ];
 
             let shownPrefix = '', thinkSecs = 0;
+            const collectedWrites = [];
             for (let round = 0; round < 4; round++) {
                 let roundText = '';
                 const reply = await streamAiResponse(context, chatTier, {
@@ -1100,7 +1272,7 @@ export function openInkEditor(ctx) {
                     onThink: (k) => { if (k?.h) statusEl.textContent = k.h + (modelUsed ? ' · ' + modelUsed : ''); },
                     onDelta: (full) => {
                         roundText = full;
-                        const vis = cleanNbReply(full);
+                        const vis = cleanNbReply(full, { streaming: true });
                         const merged = [shownPrefix, vis].filter(Boolean).join('\n\n');
                         const rendered = renderRichBlock(merged);
                         bodyEl.replaceChildren(...rendered.childNodes);
@@ -1119,6 +1291,7 @@ export function openInkEditor(ctx) {
                     shownPrefix = [shownPrefix, `> [!NOTE]\n> Angesehen: ${res.srcLabel} (${res.noteLabel})`].filter(Boolean).join('\n\n');
                     continue;
                 }
+                collectedWrites.push(...parseNotebookWrites(roundText));
                 finalText = [shownPrefix, cleanNbReply(roundText)].filter(Boolean).join('\n\n');
                 thinkSecs = Math.max(0, Math.round((Date.now() - t0) / 1000));
                 break;
@@ -1130,13 +1303,21 @@ export function openInkEditor(ctx) {
                 finalText = '⚠️ Keine Antwort erhalten. Bitte versuche es noch einmal.';
                 failed = true;
             }
+            let writtenBody = '';
+            if (!failed && collectedWrites.length) {
+                for (const w of collectedWrites) {
+                    await writeHandwritingToNotebook(w.text, { mode: w.mode, paper: w.paper || null, ink: w.ink || null });
+                }
+                writtenBody = collectedWrites.map(w => w.text).join('\n\n');
+            }
             const metaLine = [thinkSecs ? `${thinkSecs} s` : '', modelUsed].filter(Boolean).join(' · ');
             statusEl.textContent = metaLine || 'Coden';
             const rendered = renderRichBlock(finalText);
             bodyEl.replaceChildren(...rendered.childNodes);
-            if (!failed) aiNode.append(renderMsgActions(finalText));
+            const actionSource = writtenBody || finalText;
+            if (!failed) aiNode.append(renderMsgActions(actionSource));
             if (failed) aiNode.classList.add('err');
-            chatMsgs.push({ id: 'a' + Date.now().toString(36), role: 'assistant', text: finalText, ...(modelUsed ? { model: modelUsed } : {}), ...(thinkSecs ? { thinkSecs } : {}), ...(failed ? { failed: true } : {}) });
+            chatMsgs.push({ id: 'a' + Date.now().toString(36), role: 'assistant', text: finalText, ...(writtenBody ? { rawText: writtenBody } : {}), ...(modelUsed ? { model: modelUsed } : {}), ...(thinkSecs ? { thinkSecs } : {}), ...(failed ? { failed: true } : {}) });
             saveChatMsgs();
         } catch (err) {
             if (chatAc?.signal?.aborted) {
@@ -1166,6 +1347,141 @@ export function openInkEditor(ctx) {
         if (open) setTimeout(() => { syncChatChrome(); chatIn.focus(); }, 20);
     }
 
+    // ---------- Formelsammlung & Einheiten-Helfer (Feature #6) ----------
+    let formulaTab = 'formulas';
+    let formulaSubj = 'alle';
+    let formulaQuery = '';
+    let unitCatId = UNIT_CATEGORIES[0].id;
+    let unitFromId = UNIT_CATEGORIES[0].units[1].id;
+    let unitToId = UNIT_CATEGORIES[0].units[3].id;
+    let unitVal = '100';
+    let calcExpr = '2 * pi * 5';
+
+    const formulaBox = el('div', 'ink-formulas');
+    function buildFormulaPanel() {
+        formulaBox.replaceChildren();
+        const head = el('div', 'ink-chat-head');
+        const meta = el('div', 'ink-chat-meta');
+        meta.append(el('b', '', 'Formeln & Einheiten'), el('small', '', 'Nachschlagen & direkt ins Heft'));
+        head.append(meta, btn('close', 'Schließen', () => { st.panelMode = null; showPanel(); }));
+
+        const tabs = el('div', 'ink-f-tabs');
+        [['formulas', 'Formelsammlung'], ['calc', 'Rechner & Einheiten']].forEach(([id, label]) => {
+            const b = el('button', 'ink-f-tab' + (formulaTab === id ? ' on' : ''), label);
+            b.type = 'button';
+            b.addEventListener('click', () => { formulaTab = id; buildFormulaPanel(); });
+            tabs.append(b);
+        });
+        formulaBox.append(head, tabs);
+
+        const scroll = el('div', 'ink-f-body');
+        if (formulaTab === 'formulas') {
+            const search = el('input', 'ink-f-search');
+            search.type = 'search'; search.placeholder = 'Formel suchen (z. B. Pythagoras, Kraft, Mol) …';
+            search.value = formulaQuery;
+            const listWrap = el('div', 'ink-f-list');
+            const renderList = () => {
+                const items = filterFormulas(formulaQuery, formulaSubj);
+                if (!items.length) {
+                    listWrap.replaceChildren(el('p', 'ink-f-empty', 'Keine passende Formel gefunden.'));
+                    return;
+                }
+                listWrap.replaceChildren(...items.map(f => {
+                    const card = el('div', 'ink-f-card');
+                    const topRow = el('div', 'ink-f-top');
+                    topRow.append(el('b', '', f.title), el('span', 'ink-f-subj', f.subject[0].toUpperCase() + f.subject.slice(1)));
+                    const eq = el('div', 'ink-f-eq', f.formula);
+                    const metaTxt = el('small', 'ink-f-vars', [f.vars, f.hint].filter(Boolean).join(' · '));
+                    const acts = el('div', 'ink-f-acts');
+                    acts.append(
+                        btn('stylus_note', 'In Handschrift', () => writeHandwritingToNotebook(f.writeText), 'labeled'),
+                        btn('post_add', 'Als Text', () => insertTextOnPage(f.writeText), 'labeled')
+                    );
+                    card.append(topRow, eq, metaTxt, acts);
+                    return card;
+                }));
+            };
+            search.addEventListener('input', () => { formulaQuery = search.value; renderList(); });
+            const subjBar = el('div', 'ink-f-subjs');
+            FORMULA_SUBJECTS.forEach(s => {
+                const b = el('button', 'ink-f-subjbtn' + (formulaSubj === s.id ? ' on' : ''), s.label);
+                b.type = 'button';
+                b.addEventListener('click', () => { formulaSubj = s.id; subjBar.querySelectorAll('.ink-f-subjbtn').forEach(x => x.classList.remove('on')); b.classList.add('on'); renderList(); });
+                subjBar.append(b);
+            });
+            scroll.append(search, subjBar, listWrap);
+            renderList();
+        } else {
+            // Schneller Formel-Rechner
+            const calcSec = el('div', 'ink-f-card');
+            calcSec.append(el('b', '', 'Term-Rechner (Winkel in Grad)'));
+            const cIn = el('input', 'ink-f-search'); cIn.type = 'text'; cIn.value = calcExpr; cIn.placeholder = 'z. B. sqrt(144) + 3^2 oder sin(30)';
+            const cOut = el('div', 'ink-f-result');
+            const cActs = el('div', 'ink-f-acts');
+            const updateCalc = () => {
+                calcExpr = cIn.value;
+                const r = evaluateMathExpr(calcExpr);
+                cOut.textContent = r.ok ? `= ${r.formatted}` : (calcExpr.trim() ? r.error : '–');
+                cOut.classList.toggle('err', !r.ok && !!calcExpr.trim());
+                cActs.hidden = !r.ok;
+            };
+            cIn.addEventListener('input', updateCalc);
+            cActs.append(
+                btn('stylus_note', 'Ergebnis in Handschrift', () => { const r = evaluateMathExpr(calcExpr); if (r.ok) writeHandwritingToNotebook(`${calcExpr} = ${r.formatted}`); }, 'labeled'),
+                btn('post_add', 'Als Text', () => { const r = evaluateMathExpr(calcExpr); if (r.ok) insertTextOnPage(`${calcExpr} = ${r.formatted}`); }, 'labeled')
+            );
+            calcSec.append(cIn, cOut, cActs);
+            updateCalc();
+
+            // Einheiten-Umrechner
+            const unitSec = el('div', 'ink-f-card');
+            unitSec.append(el('b', '', 'Einheiten-Umrechner'));
+            const catSel = el('select', 'ink-f-sel');
+            UNIT_CATEGORIES.forEach(c => { const o = el('option', '', c.label); o.value = c.id; if (c.id === unitCatId) o.selected = true; catSel.append(o); });
+            const valIn = el('input', 'ink-f-search'); valIn.type = 'text'; valIn.inputMode = 'decimal'; valIn.value = unitVal; valIn.placeholder = 'Wert';
+            const fromSel = el('select', 'ink-f-sel');
+            const toSel = el('select', 'ink-f-sel');
+            const swapB = btn('swap_horiz', 'Einheiten tauschen', () => { const t = unitFromId; unitFromId = unitToId; unitToId = t; syncUnits(false); });
+            const rowUnits = el('div', 'ink-f-urow'); rowUnits.append(fromSel, swapB, toSel);
+            const uOut = el('div', 'ink-f-result');
+            const uActs = el('div', 'ink-f-acts');
+
+            const syncUnits = (resetDefaults = true) => {
+                const cat = UNIT_CATEGORIES.find(c => c.id === unitCatId) || UNIT_CATEGORIES[0];
+                if (resetDefaults) {
+                    if (!cat.units.some(u => u.id === unitFromId)) unitFromId = cat.units[0].id;
+                    if (!cat.units.some(u => u.id === unitToId)) unitToId = (cat.units[1] || cat.units[0]).id;
+                }
+                fromSel.replaceChildren(...cat.units.map(u => { const o = el('option', '', u.label); o.value = u.id; o.selected = u.id === unitFromId; return o; }));
+                toSel.replaceChildren(...cat.units.map(u => { const o = el('option', '', u.label); o.value = u.id; o.selected = u.id === unitToId; return o; }));
+                const r = convertUnit(unitVal, unitCatId, unitFromId, unitToId);
+                const uF = cat.units.find(u => u.id === unitFromId)?.label || '';
+                const uT = cat.units.find(u => u.id === unitToId)?.label || '';
+                uOut.textContent = r.ok ? `${unitVal || '0'} ${uF} = ${r.formatted} ${uT}` : '–';
+                uActs.hidden = !r.ok;
+            };
+            catSel.addEventListener('change', () => { unitCatId = catSel.value; syncUnits(true); });
+            fromSel.addEventListener('change', () => { unitFromId = fromSel.value; syncUnits(false); });
+            toSel.addEventListener('change', () => { unitToId = toSel.value; syncUnits(false); });
+            valIn.addEventListener('input', () => { unitVal = valIn.value; syncUnits(false); });
+            uActs.append(
+                btn('stylus_note', 'In Handschrift', () => { if (uOut.textContent && uOut.textContent !== '–') writeHandwritingToNotebook(uOut.textContent); }, 'labeled'),
+                btn('post_add', 'Als Text', () => { if (uOut.textContent && uOut.textContent !== '–') insertTextOnPage(uOut.textContent); }, 'labeled')
+            );
+            unitSec.append(catSel, valIn, rowUnits, uOut, uActs);
+            syncUnits(false);
+            scroll.append(calcSec, unitSec);
+        }
+        formulaBox.append(scroll);
+    }
+
+    function toggleFormulas(force) {
+        const open = typeof force === 'boolean' ? force : st.panelMode !== 'formulas';
+        st.panelMode = open ? 'formulas' : null;
+        showPanel();
+        if (open) buildFormulaPanel();
+    }
+
     // ---------- Coden prüfen ----------
     function overlay(text, sub) {
         const o = el('div', 'ink-busy'); const box = el('div', 'ink-busy-box'); const t = el('div'); t.append(el('b', '', text), el('small', '', sub || '')); box.append(loader({ size: 40 }), t); o.append(box); root.append(o);
@@ -1173,16 +1489,24 @@ export function openInkEditor(ctx) {
     }
     function showPanel() {
         const pg = pages[st.cur]; const c = pg?.data?.correction;
-        if (st.panelMode !== 'chat') {
+        if (st.panelMode !== 'chat' && st.panelMode !== 'formulas') {
             st.panelMode = (c && !pg._panelClosed) ? 'corr' : null;
         }
         chatB.classList.toggle('on', st.panelMode === 'chat');
+        formulaB.classList.toggle('on', st.panelMode === 'formulas');
         const wasHidden = panel.hidden;
         if (st.panelMode === 'chat') {
             panel.hidden = false;
             panel.classList.add('ink-chat-mode');
             syncChatChrome();
             if (panel.firstElementChild !== chatBox) panel.replaceChildren(chatBox);
+            if (wasHidden) requestAnimationFrame(layoutAll);
+            return;
+        }
+        if (st.panelMode === 'formulas') {
+            panel.hidden = false;
+            panel.classList.add('ink-chat-mode');
+            if (panel.firstElementChild !== formulaBox) { buildFormulaPanel(); panel.replaceChildren(formulaBox); }
             if (wasHidden) requestAnimationFrame(layoutAll);
             return;
         }
@@ -1216,19 +1540,68 @@ export function openInkEditor(ctx) {
         } catch (e) { toast2(e.message || 'Prüfen hat nicht geklappt.'); } finally { clearInterval(tm); busy.remove(); }
     }
 
-    // ---------- PDF & abgeben ----------
-    async function exportPdf() {
-        await flush(); const busy = overlay('PDF wird vorbereitet …', `${pages.length} Seite${pages.length === 1 ? '' : 'n'}`);
+    // ---------- Druckfertiger PDF-Export & Abgeben (Feature #4) ----------
+    async function runPdfExport({ scope = 'all', withCorrection = true, mode = 'download' } = {}) {
+        await flush();
+        let targetPages = pages;
+        if (scope === 'current') targetPages = pages[st.cur] ? [pages[st.cur]] : [];
+        else if (scope === 'bookmarks') targetPages = pages.filter(p => doc.bookmarks.includes(p.id));
+        if (!targetPages.length) { toast2('Keine passenden Seiten für den Export gefunden.'); return false; }
+
+        const busy = overlay('Druckfertiges PDF wird erstellt …', `${targetPages.length} Seite${targetPages.length === 1 ? '' : 'n'}`);
         try {
             const imgs = [];
-            for (let i = 0; i < pages.length; i++) { busy.setSub(`Seite ${i + 1} von ${pages.length}`); await ensureData(pages[i]); imgs.push(await pageImage({ ...pages[i].data }, { width: 1654, quality: 0.9 })); }
+            for (let i = 0; i < targetPages.length; i++) {
+                busy.setSub(`Rendere Seite ${i + 1} von ${targetPages.length}`);
+                await ensureData(targetPages[i]);
+                imgs.push(await pageImage({ ...targetPages[i].data }, { width: 1654, quality: 0.9, correction: withCorrection }));
+            }
+            const baseTitle = [ctx.subjectName, doc.title].filter(Boolean).join(' – ').replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'Notizbuch';
+            if (mode === 'download') {
+                busy.setSub('Erzeuge PDF-Datei …');
+                const blob = buildPdfBlob(imgs);
+                downloadPdfBlob(blob, safePdfFilename(baseTitle));
+                busy.remove();
+                toast2('PDF heruntergeladen ✓');
+                return true;
+            }
             document.getElementById('ink-print-root')?.remove(); const pr = el('div'); pr.id = 'ink-print-root';
             imgs.forEach(src => { const im = el('img'); im.src = src; pr.append(im); }); document.body.append(pr); document.body.classList.add('ink-printing');
-            const old = document.title; document.title = [ctx.subjectName, doc.title].filter(Boolean).join(' – ').replace(/[\\/:*?"<>|]+/g, ' ');
+            const old = document.title; document.title = baseTitle;
             const done = () => { document.body.classList.remove('ink-printing'); pr.remove(); document.title = old; window.removeEventListener('afterprint', done); };
             window.addEventListener('afterprint', done);
             await Promise.all([...pr.querySelectorAll('img')].map(i => i.decode().catch(() => {}))); busy.remove(); window.print(); return true;
-        } catch (e) { busy.remove(); alert('PDF ging nicht: ' + e.message); return false; }
+        } catch (e) { busy.remove(); toast2('PDF-Export fehlgeschlagen: ' + (e.message || e)); return false; }
+    }
+
+    function exportPdf() {
+        const o = el('div', 'ink-busy'); const box = el('div', 'ink-finish');
+        box.append(el('h3', '', 'Als PDF exportieren'), el('p', '', 'Wähle Seitenbereich und ob rote Coden-Korrekturen mit gedruckt werden sollen.'));
+        let scope = 'all';
+        const bmCount = pages.filter(p => doc.bookmarks.includes(p.id)).length;
+        const scopes = el('div', 'ink-pdf-scopes');
+        [
+            ['all', `Alle Seiten (${pages.length})`],
+            ['current', `Aktuelle Seite (S. ${st.cur + 1})`],
+            ...(bmCount ? [['bookmarks', `Lesezeichen (${bmCount})`]] : [])
+        ].forEach(([val, lbl]) => {
+            const b = el('button', 'ink-f-tab' + (val === scope ? ' on' : ''), lbl); b.type = 'button';
+            b.addEventListener('click', () => { scope = val; scopes.querySelectorAll('.ink-f-tab').forEach(x => x.classList.remove('on')); b.classList.add('on'); });
+            scopes.append(b);
+        });
+        const corrLbl = el('label', 'ink-chat-chk ink-pdf-chk');
+        const corrChk = el('input'); corrChk.type = 'checkbox';
+        corrChk.checked = pages.some(p => p.data?.correction) && st.showCorr;
+        corrLbl.append(corrChk, el('span', '', 'Coden-Korrekturen & Note mit ins PDF drucken'));
+        const row = el('div', 'ink-finish-row');
+        row.append(
+            btn('download', 'PDF herunterladen', () => { o.remove(); runPdfExport({ scope, withCorrection: corrChk.checked, mode: 'download' }); }, 'primary labeled'),
+            btn('print', 'Drucken', () => { o.remove(); runPdfExport({ scope, withCorrection: corrChk.checked, mode: 'print' }); }, 'labeled'),
+            btn('close', 'Abbrechen', () => o.remove(), 'labeled')
+        );
+        box.append(scopes, corrLbl, row);
+        o.append(box); o.addEventListener('click', (e) => { if (e.target === o) o.remove(); });
+        root.append(o);
     }
     function finish() {
         const a = ctx.assignment; if (!a) { exportPdf(); return; }

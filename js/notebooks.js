@@ -6,7 +6,7 @@ import { toast } from './toast.js';
 import { StudyStore } from './study-store.js';
 import * as S from './study-core.js';
 import { COVERS, COVER_STYLES, TEMPLATES } from './ink-core.js';
-import { openInkEditor, createPages, filesToBackgrounds, deleteDocPages, copyPage, drawPaper } from './ink.js';
+import { openInkEditor, createPages, filesToBackgrounds, deleteDocPages, copyPage, drawPaper, exportDocPdf } from './ink.js';
 import { loader } from './rich-elements.js';
 
 const h = (tag, attrs = {}, ...kids) => {
@@ -151,12 +151,14 @@ function newMenu(anchor, st, folderId) {
     popMenu(anchor, [
         ['auto_stories', 'Notizbuch', () => newDocDialog(st, folderId)],
         ['create_new_folder', 'Ordner', () => folderDialog(st, null, folderId)],
-        ['upload_file', 'PDF / Fotos importieren', () => importDialog(st, folderId)]
+        ['upload_file', 'PDF / Fotos importieren', () => importDialog(st, folderId)],
+        ['document_scanner', 'Schulbuch-Seite scannen', () => scanTextbookToNotebook(st, folderId)]
     ]);
 }
 function docMenu(anchor, st, d) {
     popMenu(anchor, [
         ['open_in_new', 'Öffnen', () => openNotebook(st, d)],
+        ['picture_as_pdf', 'Als PDF exportieren', () => exportNotebookPdf(st, d)],
         ['edit', 'Umbenennen', () => { const n = prompt('Neuer Name:', d.title); if (n && n.trim()) { d.title = n.trim().slice(0, 80); save(st); } }],
         ['palette', 'Cover ändern', () => coverDialog(st, d)],
         [d.favorite ? 'star' : 'grade', d.favorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten', () => { d.favorite = !d.favorite; save(st); }],
@@ -268,4 +270,29 @@ async function duplicateDoc(st, d) {
         for (const id of d.pages) copy.pages.push(await copyPage(id, copy.id));
         save(st); toast('Kopie erstellt', { type: 'ok' });
     } catch (e) { toast('Duplizieren ging nicht: ' + e.message, { type: 'error' }); } finally { busy?.remove?.(); }
+}
+
+async function exportNotebookPdf(st, d) {
+    const su = S.subjectOf(st, d.subjectId);
+    const busy = toast('PDF wird erstellt …', { type: 'info', ms: 60000 });
+    try {
+        const res = await exportDocPdf(d, { subjectName: su?.name || '', withCorrection: true });
+        toast(`„${res.filename}“ (${res.pages} S.) gespeichert`, { type: 'ok' });
+    } catch (e) {
+        toast('PDF-Export ging nicht: ' + (e.message || e), { type: 'error' });
+    } finally {
+        busy?.remove?.();
+    }
+}
+
+async function scanTextbookToNotebook(st, folderId) {
+    const { openTextbookScanModal } = await import('./study-scan.js');
+    openTextbookScanModal({
+        defaultGoal: 'handwriting',
+        onSavedHandwriting: async ({ title, text }) => {
+            const { saveHandwritingAsNotebook } = await import('./handwriting.js');
+            await saveHandwritingAsNotebook({ title, text });
+            rerender();
+        }
+    });
 }

@@ -12,6 +12,7 @@ import { renderStudioTab, resetStudio } from './study-studio.js';
 import { renderNotebooksTab } from './notebooks.js';
 import { startStudyLive } from './study-live.js';
 import { StudyStore } from './study-store.js';
+import { openFlashcardsImportModal, openTextbookScanModal } from './study-scan.js';
 
 const h = (tag, attrs = {}, ...kids) => {
     const el = document.createElement(tag);
@@ -231,6 +232,83 @@ function toggleSpeak(text) {
     render();
 }
 
+function openAnkiImport(activeNbId = null) {
+    const list = loadNotebooks();
+    openFlashcardsImportModal({
+        notebooks: list,
+        activeNotebookId: activeNbId,
+        onImported: ({ notebookId, deckId, title, subject, cards }) => {
+            const all = loadNotebooks();
+            let nb = notebookId !== '__new__' ? all.find(n => n.id === notebookId) : null;
+            if (!nb) {
+                nb = {
+                    id: uid(), title: title.slice(0, 80), subject,
+                    sources: [], tools: [], chat: [],
+                    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+                };
+                all.unshift(nb);
+            }
+            nb.tools = Array.isArray(nb.tools) ? nb.tools : [];
+            let deck = deckId !== '__new__' ? nb.tools.find(t => t.id === deckId && t.type === 'flashcards') : null;
+            if (deck) {
+                deck.cards = [...(deck.cards || []), ...cards];
+            } else {
+                deck = { id: uid(), type: 'flashcards', title, cards, createdAt: new Date().toISOString() };
+                nb.tools.unshift(deck);
+            }
+            nb.updatedAt = new Date().toISOString();
+            saveNotebooks(all);
+            state.activeId = nb.id;
+            state.activeToolId = deck.id;
+            state.fcIdx = 0; state.fcFlipped = false; state.fcOnlyMissed = false; state.fcExplain = '';
+            state.mobPane = 'center';
+            toast(`${cards.length} Karteikarten importiert!`, { type: 'ok' });
+            render();
+        }
+    });
+}
+
+function openTextbookScan(activeNbId = null, defaultSubject = '') {
+    const list = loadNotebooks();
+    openTextbookScanModal({
+        notebooks: list,
+        activeNotebookId: activeNbId,
+        defaultSubject,
+        onSavedNotebook: ({ mode, notebookId, subject, result }) => {
+            const all = loadNotebooks();
+            let nb = notebookId !== '__new__' ? all.find(n => n.id === notebookId) : null;
+            if (!nb) {
+                nb = {
+                    id: uid(), title: result.title || 'Schulbuch-Scan', subject,
+                    sources: [], tools: [], chat: [],
+                    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+                };
+                all.unshift(nb);
+            }
+            nb.sources = Array.isArray(nb.sources) ? nb.sources : [];
+            nb.tools = Array.isArray(nb.tools) ? nb.tools : [];
+            if (mode === 'cards') {
+                const deck = { id: uid(), type: 'flashcards', title: result.title, cards: result.cards, createdAt: new Date().toISOString() };
+                nb.tools.unshift(deck);
+                state.activeToolId = deck.id;
+                state.fcIdx = 0; state.fcFlipped = false; state.fcOnlyMissed = false; state.fcExplain = '';
+                state.mobPane = 'center';
+                toast(`${result.cards.length} Karteikarten aus Schulbuch erstellt!`, { type: 'ok' });
+            } else {
+                const src = { id: uid(), title: result.title || 'Schulbuch-Seite', content: result.text.slice(0, 30000), active: true };
+                nb.sources.unshift(src);
+                state.activeToolId = null;
+                state.mobPane = 'sources';
+                toast(`Schulbuch-Scan als Quelle „${src.title}“ gespeichert.`, { type: 'ok' });
+            }
+            nb.updatedAt = new Date().toISOString();
+            saveNotebooks(all);
+            state.activeId = nb.id;
+            render();
+        }
+    });
+}
+
 function renderOverview() {
     const list = loadNotebooks();
     const wrap = h('div', { class: 'st-wrap' });
@@ -251,7 +329,11 @@ function renderOverview() {
         h('div', {},
             h('h1', { text: 'Lernen & Schüler-Studio' }),
             h('p', { text: 'Speichere deine Unterrichtsnotizen und Lerninhalte in Notizbüchern. Erstelle daraus interaktive Karteikarten, Quizze, Mindmaps oder lerne Schritt für Schritt mit dem Geführten Lernen.' })
-        ),
+        )
+    ));
+    wrap.append(h('div', { class: 'st-head-acts' },
+        h('button', { type: 'button', class: 'btn-cancel', onclick: () => openTextbookScan(null) }, ic('document_scanner'), ' Schulbuch scannen'),
+        h('button', { type: 'button', class: 'btn-cancel', onclick: () => openAnkiImport(null) }, ic('upload'), ' Anki / Quizlet-Import'),
         createBtn
     ));
 
@@ -538,6 +620,7 @@ function renderWorkspace(nb) {
         h('div', { class: 'st-src-actions' },
             h('button', { type: 'button', class: 'btn-save', onclick: () => { state.addingSource = !state.addingSource; render(); } }, ic('add'), ' Text'),
             h('button', { type: 'button', class: 'btn-cancel', onclick: () => fileInput.click() }, ic('upload_file'), ' Datei'),
+            h('button', { type: 'button', class: 'btn-cancel', title: 'Schulbuch-Seiten abfotografieren oder scannen', onclick: () => openTextbookScan(nb.id, nb.subject || '') }, ic('document_scanner'), ' Buch'),
             fileInput
         )
     );
@@ -667,7 +750,11 @@ function renderWorkspace(nb) {
             ].map(([type, icon, title, sub]) => h('button', {
                 type: 'button', class: 'st-tool-btn', disabled: !!state.generating,
                 onclick: () => generateTool(type)
-            }, ic(icon), h('strong', { text: state.generating === type ? 'Erstelle …' : title }), h('small', { text: sub })))
+            }, ic(icon), h('strong', { text: state.generating === type ? 'Erstelle …' : title }), h('small', { text: sub }))),
+            h('button', {
+                type: 'button', class: 'st-tool-btn',
+                onclick: () => openAnkiImport(nb.id)
+            }, ic('upload'), h('strong', { text: 'Anki / Quizlet' }), h('small', { text: 'Karten importieren' }))
         )
     );
 

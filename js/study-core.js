@@ -494,6 +494,34 @@ export function hideNotebookTags(raw) {
         .replace(/<notebook_read\b[^>]*$/i, '');
 }
 
+const NB_WRITE_RE = /<notebook_write\b([^>]*)>([\s\S]*?)<\/notebook_write>/gi;
+export function parseNotebookWrites(raw) {
+    const s = String(raw || '');
+    const out = [];
+    let m; NB_WRITE_RE.lastIndex = 0;
+    while ((m = NB_WRITE_RE.exec(s))) {
+        const attrs = {};
+        let am; NB_ATTR_RE.lastIndex = 0;
+        while ((am = NB_ATTR_RE.exec(m[1]))) attrs[am[1].toLowerCase()] = (am[2] ?? am[3] ?? am[4] ?? '').trim();
+        const body = String(m[2] || '').trim();
+        if (body) out.push({
+            mode: attrs.page === 'new' || attrs.mode === 'new' ? 'new' : 'append',
+            paper: ['karo', 'liniert', 'blanko'].includes((attrs.paper || '').toLowerCase()) ? attrs.paper.toLowerCase() : '',
+            ink: attrs.ink || '',
+            text: body
+        });
+    }
+    return out;
+}
+
+export function stripNotebookWriteTags(raw, { replacement = '\n> ✓ *In deiner Handschrift direkt ins Heft geschrieben.*\n', streamingPlaceholder = '\n> *Schreibt in deiner Handschrift ins Heft …*\n' } = {}) {
+    return String(raw || '')
+        .replace(NB_WRITE_RE, replacement)
+        .replace(/<notebook_write\b[^>]*>[\s\S]*$/i, streamingPlaceholder)
+        .replace(/<notebook_write\b[^>]*$/i, '')
+        .trim();
+}
+
 // ---------- Prompts ----------
 export const TIMETABLE_PROMPT = `Lies den Stundenplan auf dem Bild VOLLSTÄNDIG aus – jede einzelne Karte/Zelle, nichts weglassen. Das kann ein gedruckter Plan, eine Tabelle oder eine Steckwand mit Kärtchen sein.
 So gehst du vor: Spalte für Spalte (Tag für Tag), in jeder Spalte von oben nach unten, jede Karte einzeln. Weiße/leere-wirkende Karten, kleine Karten und Karten mit Handschrift zählen genauso.

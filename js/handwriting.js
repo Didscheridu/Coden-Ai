@@ -116,6 +116,78 @@ export function notebookPagesFor(text, prof, { paper, ink, origin, seed = 5 } = 
     return { pages, paper: nbPaper };
 }
 
+// Text → Striche direkt ab einer y-Position auf einer vorhandenen Seite (bzw. mit Umbruch auf Folgeseiten).
+// Passt Zeilen exakt auf Karo (25er-Raster) oder Liniert (36 ab y = 120) ein.
+export function strokesForNotebookPage(text, prof, { paper, ink, origin = 'coden', seed = 5, startY = null } = {}) {
+    const want = paper || prof?.paper;
+    const nbPaper = want === 'blanko' ? 'blanko' : (want === 'liniert' || want === 'eng') ? 'liniert' : 'karo';
+    const layout = layoutFor(text, prof, nbPaper === 'liniert'
+        ? { paper: 'liniert', width: PAGE_W, grid: 20, seed }
+        : { paper: nbPaper, width: PAGE_W, grid: 25, seed });
+    const pitch = layout.pitch || (nbPaper === 'liniert' ? 36 : 50);
+    const baseTop = nbPaper === 'liniert' ? 120 : (nbPaper === 'karo' ? 75 : 65);
+    const maxBottom = nbPaper === 'liniert' ? (PAGE_H - 60) : (PAGE_H - 55);
+
+    // Gewünschte Start-Grundlinie auf das Linien-/Karo-Raster einrasten
+    let desiredBase = Number.isFinite(startY) ? Math.max(baseTop, startY) : baseTop;
+    if (nbPaper === 'liniert') {
+        desiredBase = 120 + Math.max(0, Math.ceil((desiredBase - 120) / 36)) * 36;
+    } else if (nbPaper === 'karo') {
+        desiredBase = Math.max(75, Math.ceil(desiredBase / 25) * 25);
+    }
+    // Falls auf der aktuellen Seite weniger als 1,5 Zeilen Platz sind, lieber sauber ab oben auf einer neuen Seite starten
+    const overflowFirst = desiredBase > maxBottom - pitch * 0.4;
+    if (overflowFirst) desiredBase = baseTop;
+
+    const color = resolveInkHex(ink, prof?.inkColor || '#1b1f2a');
+    const pen = CODEN_PEN;
+    const pageOffsets = [];
+
+    const yToTargetPage = (rawY) => {
+        const lineIdx = Math.max(0, Math.round((rawY - layout.firstBase) / pitch));
+        const yOnFirst = desiredBase + lineIdx * pitch;
+        if (yOnFirst <= maxBottom) {
+            return { pg: 0, dy: desiredBase - layout.firstBase };
+        }
+        const firstCapacity = Math.max(1, Math.floor((maxBottom - desiredBase) / pitch) + 1);
+        const perNext = Math.max(1, Math.floor((maxBottom - baseTop) / pitch) + 1);
+        const rem = lineIdx - firstCapacity;
+        const pg = 1 + Math.floor(rem / perNext);
+        const shift = baseTop - (layout.firstBase + (firstCapacity + (pg - 1) * perNext) * pitch);
+        return { pg, dy: shift };
+    };
+
+    const pages = [[]];
+    const pageMaxY = [desiredBase];
+    for (const s of layout.strokes) {
+        let sumY = 0, n = 0;
+        for (let i = 1; i < s.p.length; i += 3) { sumY += s.p[i]; n++; }
+        const avgY = sumY / Math.max(1, n);
+        const { pg, dy } = yToTargetPage(avgY);
+        while (pages.length <= pg) { pages.push([]); pageMaxY.push(baseTop); }
+        const inkStrokes = toInkStrokes([s], { color, pen, dy, origin });
+        pages[pg].push(...inkStrokes);
+        for (const is of inkStrokes) {
+            for (let i = 1; i < is.p.length; i += 3) {
+                if (is.p[i] > pageMaxY[pg]) pageMaxY[pg] = is.p[i];
+            }
+        }
+        pageOffsets[pg] = dy;
+    }
+    for (const m of layout.marks || []) {
+        const { pg, dy } = yToTargetPage(m.y1 - layout.k * 0.3);
+        while (pages.length <= pg) { pages.push([]); pageMaxY.push(baseTop); }
+        const y = (m.y0 + m.y1) / 2 + dy;
+        pages[pg].unshift({ t: 'hl', c: m.color, w: Math.round(m.y1 - m.y0), k: 'fueller', p: [m.x0, y, 0.5, (m.x0 + m.x1) / 2, y, 0.5, m.x1, y, 0.5], ...(origin ? { o: origin } : {}) });
+    }
+    return {
+        pages,
+        paper: nbPaper,
+        startedOnNewPage: overflowFirst,
+        endY: pageMaxY[pages.length - 1] || desiredBase
+    };
+}
+
 // Kurze Antwort in einen Kasten auf dem Arbeitsblatt schreiben (Seiten-Einheiten). null, wenn sie nicht hineinpasst.
 export function strokesInBox(text, prof, rect, { ink, origin = 'coden', seed = 7, maxK = 24, minK = 7 } = {}) {
     const rich = profileRich(prof);
