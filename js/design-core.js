@@ -399,7 +399,7 @@ export function designSystemPrompt({ format = 'square', slides = 1, brand = {}, 
         'AUSGABE:',
         '- Gib GENAU EIN vollständiges HTML-Dokument in einem ```html-Block aus, sonst nichts außer höchstens einem kurzen Satz davor.',
         `- Der <body> enthält genau ${n} <section data-slide>${n === 1 ? '' : ' (eine pro Slide, in Reihenfolge)'}. Jede Section hat style="width:${f.w}px;height:${f.h}px" sowie class="relative overflow-hidden".`,
-        '- Tailwind CSS ist schon geladen (Play CDN) – nutze Tailwind-Klassen, auch beliebige Werte wie text-[120px], bg-[#1a1a1a], font-[\'Montserrat\'], tracking-[-0.02em]. Zusätzliches CSS darf in ein <style> im <head>.',
+        '- Tailwind CSS v4 ist schon geladen – nutze Tailwind-Klassen (auch die bekannten v3-Namen wie bg-gradient-to-t funktionieren), auch beliebige Werte wie text-[120px], bg-[#1a1a1a], font-[\'Montserrat\'], tracking-[-0.02em]. Zusätzliches CSS darf in ein <style> im <head>.',
         '- Schriften NUR über <link href="https://fonts.googleapis.com/css2?family=…&display=swap" rel="stylesheet"> im <head>.',
         '- KEIN JavaScript, keine <script>-Tags, kein tailwind.config, keine Formulare, keine iframes.',
         '',
@@ -457,7 +457,12 @@ export function exportName(title, i, n, ext = 'png') {
     return n > 1 ? `${base}-${i}-von-${n}.${e}` : `${base}.${e}`;
 }
 
-const CSP = "default-src 'none'; img-src * data: blob:; media-src * data: blob:; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; script-src 'unsafe-inline' https://cdn.tailwindcss.com; connect-src * data: blob:; form-action 'none'; base-uri 'none'";
+// Tailwind kommt von Codens eigener Adresse (js/vendor/tailwind-browser.js, v4) statt vom fremden CDN:
+// Im abgeschotteten iframe lud cdn.tailwindcss.com auf dem iPad nicht → Layout ohne jede Klasse (27.11.).
+const ASSET_RE = /^https?:\/\/[A-Za-z0-9.\-]+(?::\d+)?$/;
+export const TAILWIND_PATH = '/js/vendor/tailwind-browser.js';
+const cspFor = (assets) => `default-src 'none'; img-src * data: blob:; media-src * data: blob:; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; script-src 'unsafe-inline' ${ASSET_RE.test(assets) ? assets : 'https://cdn.tailwindcss.com'}; connect-src * data: blob:; form-action 'none'; base-uri 'none'`;
+const tailwindTag = (assets) => (ASSET_RE.test(assets) ? `<script src="${assets}${TAILWIND_PATH}"><\/script>` : '<script src="https://cdn.tailwindcss.com"><\/script>');
 const EMPTY_IMG = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 export { EMPTY_IMG };
 
@@ -465,7 +470,7 @@ export { EMPTY_IMG };
  * Komplettes Dokument fürs iframe.
  * mode: 'edit' (Canva-Canvas mit Auswahl, Drag/Resize/Rotate, Smart Guides, Inline-Text) | 'view' (nur ansehen).
  */
-export function frameDoc({ head = '', body = '', format = 'square', w, h, lib = '', mode = 'edit', active = 0 } = {}) {
+export function frameDoc({ head = '', body = '', format = 'square', w, h, lib = '', mode = 'edit', active = 0, assets = '' } = {}) {
     const f = formatOf(format, w, h);
     const cfg = { w: f.w, h: f.h, mode, active };
     const uiCss = mode === 'edit' ? `
@@ -505,8 +510,8 @@ img[data-ai-state="pending"]{background:linear-gradient(100deg,#26262b 30%,#3b3b
 img[data-ai-state="error"]{background:repeating-linear-gradient(45deg,#2a2a2e,#2a2a2e 14px,#33333a 14px,#33333a 28px)}
 @keyframes cdsh{from{background-position:100% 0}to{background-position:-100% 0}}${uiCss}`;
 
-    return `<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${CSP}">`
-        + `<script defer src="https://cdn.tailwindcss.com"><\/script>${head}<style data-cd-injected>${css}</style></head>`
+    return `<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${cspFor(assets)}">`
+        + `${tailwindTag(assets)}${head}<style data-cd-injected>${css}</style></head>`
         + `<body>${body}${lib ? `<script data-cd-injected>${lib.replace(/<\/script/gi, '<\\/script')}<\/script>` : ''}`
         + `<script data-cd-injected>(${bridge.toString()})(${JSON.stringify(cfg)});<\/script></body></html>`;
 }
