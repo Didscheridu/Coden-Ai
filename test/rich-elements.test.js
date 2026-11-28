@@ -80,7 +80,8 @@ const chk = (name, got, want) => { const ok = JSON.stringify(got) === JSON.strin
   const P = await import(pathToFileURL(path.join(__dirname, '../js/system-prompt.js')).href);
   const prompt = P.buildChatPrompt();
   chk('Systemprompt kennt Datum und Uhrzeit', /es ist jetzt \d{2}:\d{2} Uhr \(Zeitzone /.test(prompt), true);
-  chk('Systemprompt erklärt Markieren, Farben und alle Elemente', ['==grün:', '{{rot:', ...R.WIDGETS.filter(w => w !== 'lernplan').map(w => '<' + w)].every(x => prompt.includes(x)), true);
+  // spotifycard baut Coden selbst (js/spotify-cards.js), das Modell schreibt sie nie
+  chk('Systemprompt erklärt Markieren, Farben und alle Elemente', ['==grün:', '{{rot:', ...R.WIDGETS.filter(w => w !== 'lernplan' && w !== 'spotifycard').map(w => '<' + w)].every(x => prompt.includes(x)), true);
 
   console.log(fails ? `\n${fails} Fehler` : '\nAlle Rich-Element-Tests grün');
   process.exit(fails ? 1 : 0);

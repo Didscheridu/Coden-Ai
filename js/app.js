@@ -2270,6 +2270,7 @@ async function handleSend() {
         // Ersetzt alle Base64-Bild-Daten durch einen kleinen Platzhalter, 
         // damit sie die Token-Grenze der KI nicht sprengen!
         let cleanText = String(m.text || '').replace(/<suggestions>[\s\S]*?<\/suggestions>/gi, '').replace(/<choices>[\s\S]*?<\/choices>/gi, '');
+        if (window.CodenSpotify && cleanText.includes('<spotifycard')) cleanText = window.CodenSpotify.cardsToText(cleanText);
         if (m.failed === 'partial') cleanText = cleanText.replace(/\n\n⚠️ Die Antwort wurde unterbrochen[^\n]*$/i, '');
         if (cleanText.includes('data:image')) {
             cleanText = cleanText.replace(/data:image\/[^"')\]]+/g, "BILD_WURDE_AUSGEBLENDET");
@@ -2419,22 +2420,31 @@ async function handleSend() {
                 aiResponse = '';
                 continue;
             }
-            // Spotify (<spotify action="play" q="…"/>): Musik steuern, Ergebnis zurückgeben, Coden bestätigt kurz
-            // Auch <mcp_call server="spotify" …> wird als Spotify-Befehl verstanden (freie Modelle verwechseln das), solange es keinen echten Konnektor „spotify“ gibt
+            // Spotify (<spotify action="play" q="…"/>): Musik steuern, Ergebnis als Spotify-Karte zeigen, Coden bestätigt kurz.
+            // Auch <mcp_call server="spotify" …> wird verstanden (freie Modelle verwechseln das), solange es keinen echten Konnektor „spotify“ gibt.
+            const SPC = window.CodenSpotify;
             const spMcp = parseCall(aiResponse);
-            const spMcpCmd = spMcp && window.CodenSpotify && !MCP.byName(spMcp.server) ? window.CodenSpotify.fromMcp(spMcp) : null;
-            const spCmds = round < 5 && Spotify.connected() && window.CodenSpotify ? (spMcp ? (spMcpCmd ? [spMcpCmd] : []) : window.CodenSpotify.parseCommands(aiResponse)) : [];
+            const spMcpCmd = spMcp && SPC && !MCP.byName(spMcp.server) ? SPC.fromMcp(spMcp) : null;
+            let spCmds = round < 5 && Spotify.connected() && SPC ? (spMcp ? (spMcpCmd ? [spMcpCmd] : []) : SPC.parseCommands(aiResponse)) : [];
+            let spFromUser = false;
+            // Rückfall: Das Modell hat keinen Befehl geschrieben, der Nutzer wollte aber eindeutig Musik steuern („pausiere spotify“, „nächster Song“)
+            if (!spCmds.length && round === 0 && !spMcp && Spotify.connected() && SPC) {
+                const it = SPC.intentOf(text, Spotify.promptInfo());
+                if (it && (it.strong || SPC.talksMusic(aiResponse))) { spCmds = it.cmds; spFromUser = true; }
+            }
             if (spCmds.length) {
-                const pre = hideImageTags(aiResponse).trim();
-                context.push({ role: 'assistant', content: aiResponse.trim() });
+                const pre = spFromUser ? '' : hideImageTags(aiResponse).trim();
+                context.push({ role: 'assistant', content: spFromUser ? SPC.commandsText(spCmds) : aiResponse.trim() });
                 shownPrefix = withPrefix(cite(pre));
-                const label = spCmds.map(c => c.q ? `${c.action} „${c.q}“` : c.action + (c.value ? ' ' + c.value : '')).join(', ');
-                live.update(withPrefix(toolStep({ tool: 'Spotify', src: label, running: true, icon: 'music_note' })));
+                const label = SPC.busyLabel(spCmds);
+                live.update(withPrefix(SPC.cardBlock({ k: 'busy', text: label + ' …' }, label).trim()));
                 const res = await Spotify.run(spCmds);
-                const bad = res.some(r => !r.ok);
-                shownPrefix = withPrefix(toolStep({ tool: 'Spotify', src: label, note: res.map(r => r.text).join(' ').slice(0, 120), err: bad && !res.some(r => r.ok), icon: 'music_note' }));
+                const status = res.filter(r => !(r.ok && r.card));
+                let block = status.length ? SPC.cardBlock({ k: 'status', rows: status.map(r => ({ ok: r.ok, act: r.act, text: r.text, track: r.track, dev: r.dev, value: r.value })) }, status.map(r => r.text).join(' ')) : '';
+                for (const r of res) if (r.ok && r.card) block += SPC.cardBlock(r.card, `Auswahl „${r.card.q}“: ` + r.card.items.slice(0, 5).map(x => x.n).join(', '));
+                shownPrefix = withPrefix(block.trim());
                 live.update(shownPrefix);
-                context.push({ role: 'user', content: window.CodenSpotify.resultBlock(res) });
+                context.push({ role: 'user', content: SPC.resultBlock(res) });
                 aiResponse = '';
                 continue;
             }

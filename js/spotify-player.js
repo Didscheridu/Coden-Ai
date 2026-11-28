@@ -3,6 +3,7 @@
 import { h, icon } from './apps/dom.js';
 import { toast } from './toast.js';
 import * as Sp from './spotify.js';
+import { registerCards } from './spotify-cards.js';
 
 const C = () => window.CodenSpotify;
 const UI_KEY = 'coden_spotify_ui';
@@ -215,7 +216,9 @@ function stopTick() { clearInterval(ticker); ticker = null; }
 export function mount() {
     if (root) return;
     build();
+    registerCards();
     Sp.onChange(render);
+    document.addEventListener('coden:spotify-show', () => { ui.hidden = false; ui.collapsed = false; saveUi(); render(Sp.getState()); });
     window.addEventListener('coden:spotify-connected', () => { ui.hidden = false; ui.collapsed = false; saveUi(); render(Sp.getState()); toast('Spotify ist verbunden 🎵', { type: 'ok' }); });
     // Ein Chat-Befehl holt den Player wieder hervor (eingeklappt bleibt eingeklappt)
     window.addEventListener('coden:spotify-command', () => { ui.hidden = false; saveUi(); render(Sp.getState()); });

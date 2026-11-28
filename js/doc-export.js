@@ -11,7 +11,7 @@ const enc = new TextEncoder();
 // ---------- Text-Bereinigung ----------
 export function cleanExportMarkdown(raw) {
     return String(raw || '')
-        .replace(/<(?:suggestions|choices|remember|think|web_search|use_skill|mcp_call|app_write|browser_open|browser_action|notebook_read|spotify)\b[^>]*>[\s\S]*?(?:<\/[a-z_]+>|\/>)/gi, '')
+        .replace(/<(?:suggestions|choices|remember|think|web_search|use_skill|mcp_call|app_write|browser_open|browser_action|notebook_read|spotify|spotifycard)\b[^>]*>[\s\S]*?(?:<\/[a-z_]+>|\/>)/gi, '')
         .replace(/<browser\b[^>]*>([\s\S]*?)<\/browser>/gi, '')
         .replace(/<artifact\b[^>]*title="([^"]*)"[^>]*>([\s\S]*?)<\/artifact>/gi, (_, t, b) => `\n## ${t || 'Artefakt'}\n\n${b}\n`)
         .replace(/<handwriting\b[^>]*>([\s\S]*?)<\/handwriting>/gi, (_, b) => `\n${b}\n`)
