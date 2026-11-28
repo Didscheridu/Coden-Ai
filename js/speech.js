@@ -26,7 +26,7 @@ export function speakableCode(code, lang = '') {
 
 export function toSpeakableText(rawText) {
     let text = stripMarks(String(rawText || ''))
-        .replace(/<(suggestions|choices|remember|think|notebook_read|notebook_write)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
+        .replace(/<(suggestions|choices|remember|think|notebook_read|notebook_write|spotifycard)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
         .replace(/<(notebook_read)\b[^>]*\/?>/gi, '');
 
     // Fenced code blocks & artifact blocks erhalten und sprachlich sauber strukturieren

@@ -81,7 +81,51 @@ chk('ohne Einrichtung kein Prompt', S.prompt({ configured: false }), '');
 chk('nicht verbunden: Hinweis aufs Plus-Menü', /Spotify verbinden/.test(S.prompt({ configured: true, connected: false })), true);
 const p = S.prompt({ configured: true, connected: true, state: st });
 chk('verbunden: Befehle und was gerade läuft', /action="play"/.test(p) && /„Roller“ von Apache 207 auf „iPad“, Lautstärke 30 %/.test(p), true);
-chk('Ergebnis-Block', S.resultBlock([{ ok: true, text: 'Pausiert.' }]), 'Spotify-Ergebnis:\n✓ Pausiert.\n\nBestätige das jetzt in einem kurzen, lockeren Satz (ohne Befehl).');
+chk('Ergebnis-Block', S.resultBlock([{ ok: true, text: 'Pausiert.' }]), 'Spotify-Ergebnis:\n✓ Pausiert.\n\nBestätige das jetzt in einem kurzen, lockeren Satz (ohne Befehl, ohne die Liste zu wiederholen).');
+chk('Ergebnis-Block Auswahl: nicht nochmal aufzählen', /NICHT nochmal/.test(S.resultBlock([{ ok: true, act: 'choose', text: 'x' }])), true);
+chk('Prompt kennt choose', /action="choose"/.test(p), true);
+
+// --- Befehle direkt aus der Nachricht (Rückfall, wenn das Modell keinen Befehl schreibt) ---
+const I = (t, st) => S.intentOf(t, { state: st || { playing: true, device: { volume: 40 } } });
+chk('„bitte pausiere spotify“', I('bitte pausiere spotify'), { cmds: [{ action: 'pause' }], strong: true });
+chk('„pause“ allein ist schwach', I('pause').strong, false);
+chk('„mach die Musik aus“', I('mach die Musik aus').cmds, [{ action: 'pause' }]);
+chk('„nächster Song“', I('Nächster Song!'), { cmds: [{ action: 'next' }], strong: true });
+chk('„Kannst du bitte den nächsten Song spielen“', I('Kannst du bitte den nächsten Song spielen').cmds, [{ action: 'next' }]);
+chk('„spiel weiter“ → fortsetzen', I('spiel weiter').cmds, [{ action: 'resume' }]);
+chk('„weiter“ wenn es läuft → nächster', I('weiter').cmds, [{ action: 'next' }]);
+chk('„weiter“ wenn pausiert → fortsetzen', I('weiter', { playing: false }).cmds, [{ action: 'resume' }]);
+chk('„spiel Roller von Apache 207“', I('Spiel Roller von Apache 207'), { cmds: [{ action: 'play', q: 'roller von apache 207' }], strong: true });
+chk('„spiel was von Cro“ → Künstler', I('spiel mal was von Cro').cmds, [{ action: 'play', q: 'cro', type: 'artist' }]);
+chk('„spiel bitte Blinding Lights auf Spotify“', I('hey coden spiel bitte Blinding Lights auf Spotify').cmds, [{ action: 'play', q: 'blinding lights' }]);
+chk('„spiel was Ruhiges zum Lernen“ → Playlist (schwach)', I('spiel was ruhiges zum lernen'), { cmds: [{ action: 'play', q: 'ruhiges zum lernen', type: 'playlist' }], strong: false });
+chk('„lauter“ → +15', I('lauter').cmds, [{ action: 'volume', value: '55' }]);
+chk('„etwas leiser“ → −8', I('mach etwas leiser').cmds, [{ action: 'volume', value: '32' }]);
+chk('„Lautstärke auf 30“', I('lautstärke auf 30').cmds, [{ action: 'volume', value: '30' }]);
+chk('„was läuft gerade?“', I('was läuft gerade?').cmds, [{ action: 'now' }]);
+chk('„zeig mir Songs von Cro“ → Auswahl', I('zeig mir songs von cro').cmds, [{ action: 'choose', q: 'cro', type: 'track' }]);
+chk('„meine Playlists“', I('meine playlists').cmds, [{ action: 'choose', q: 'meine', type: 'playlist' }]);
+chk('kein Musik: „spiel mit mir Schach“', I('spiel mit mir schach'), null);
+chk('kein Musik: „lass uns eine Pause machen“', I('lass uns eine pause machen'), null);
+chk('kein Musik: „mach weiter mit Aufgabe 3“', I('mach weiter mit aufgabe 3'), null);
+chk('kein Musik: „mach die Hausaufgabe“', I('mach die hausaufgabe'), null);
+chk('kein Musik: „sprich lauter“', I('sprich lauter'), null);
+chk('kein Musik: lange Frage', I('Erkläre mir bitte ganz genau, wie die Photosynthese funktioniert und warum'), null);
+chk('Modell redet über Musik', [S.talksMusic('Klar, ich spiele das Lied!'), S.talksMusic('Hier ist die Erklärung')], [true, false]);
+chk('Befehle als Text', S.commandsText([{ action: 'play', q: 'a "b"', type: 'artist' }, { action: 'volume', value: '20' }]), '<spotify action="play" q="a b" type="artist"/>\n<spotify action="volume" value="20"/>');
+chk('Lade-Text', S.busyLabel([{ action: 'play', q: 'Cro' }, { action: 'volume', value: '30' }]), 'Sucht und spielt „Cro“ · Lautstärke 30 %');
+
+// --- Karten im Chat ---
+const item = S.itemOf('track', { name: 'Roller', uri: 'spotify:track:1', duration_ms: 1000, artists: [{ name: 'Apache 207' }], album: { uri: 'spotify:album:9', images: [{ url: 'https://i/1', width: 300 }] }, external_urls: { spotify: 'https://open.spotify.com/track/1' } });
+chk('Eintrag klein', item, { ty: 'track', n: 'Roller', a: 'Apache 207', i: 'https://i/1', u: 'spotify:track:1', al: 'spotify:album:9', d: 1000, url: 'https://open.spotify.com/track/1' });
+chk('Playlist-Eintrag mit Besitzer', S.itemOf('playlist', { name: 'Chill', uri: 'spotify:playlist:5', owner: { display_name: 'Kayden' } }).a, 'von Kayden');
+const block = S.cardBlock({ k: 'pick', q: '</spotifycard><script>', items: [item] }, 'Auswahl "x" <b>');
+chk('Karte: kein Ausbruch aus dem Block', (block.match(/<\/spotifycard>/g) || []).length === 1 && !/<script>/.test(block), true);
+chk('Karte: Inhalt wieder lesbar', S.parseCard(block.replace(/^[\s\S]*?>/, '').replace(/<\/spotifycard>[\s\S]*$/, '')).q, '</spotifycard><script>');
+chk('Verlauf: Karte → kurze Zeile', S.cardsToText('Ok ' + S.cardBlock({ k: 'status' }, 'Spielt jetzt Roller') + ' fertig').replace(/\s+/g, ' '), 'Ok [Spotify: Spielt jetzt Roller] fertig');
+chk('choose-Befehl', S.parseCommands('<spotify action="choose" q="Cro" type="album"/><spotify action="choose"/>'), [{ action: 'choose', q: 'Cro', type: 'album' }]);
+chk('MCP list_playlists → eigene Playlists', S.fromMcp({ server: 'spotify', tool: 'list_playlists', args: { type: 'playlist' } }), { action: 'choose', type: 'playlist' });
+chk('Zustand merkt Kontext', S.stateFromApi({ is_playing: true, context: { uri: 'spotify:artist:7' }, item: { name: 'x', uri: 'u' } }).context, 'spotify:artist:7');
 
 console.log(`\n${n - bad}/${n} OK`);
 if (bad) process.exit(1);

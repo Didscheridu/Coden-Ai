@@ -107,3 +107,88 @@
   .sp-vol { width: 64px; }
   .sp-mini.collapsed { left: auto; right: 10px; }
 }
+
+/* ---------- Spotify-Karten im Chat (js/spotify-cards.js) ---------- */
+.spc { --sp-green: #1ED760; margin: 10px 0; border-radius: 16px; border: 1px solid var(--border-color, rgba(255,255,255,.08)); background: linear-gradient(180deg, color-mix(in srgb, var(--sp-green) 7%, transparent), transparent 70%), var(--bg-surface, rgba(255,255,255,.03)); overflow: hidden; font-size: 14px; max-width: 600px; }
+[data-theme="light"] .spc { --sp-green: #1AA34A; }
+.spc-cover { position: relative; width: 56px; height: 56px; border-radius: 8px; flex: none; overflow: hidden; background: linear-gradient(135deg, #2b2b30, #1b1b1f); display: flex; align-items: center; justify-content: center; color: var(--text-muted); }
+[data-theme="light"] .spc-cover { background: linear-gradient(135deg, #ececf0, #dcdce2); }
+.spc-cover.sm { width: 40px; height: 40px; border-radius: 6px; }
+.spc-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.spc-cover .material-symbols-outlined { font-size: 20px; }
+.spc-tx { min-width: 0; display: flex; flex-direction: column; gap: 1px; flex: 1; text-align: left; }
+.spc-n { font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; }
+.spc-a { color: var(--text-secondary); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.spc-st-ic { width: 32px; height: 32px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--sp-green) 16%, transparent); color: var(--sp-green); }
+.spc-st-ic .material-symbols-outlined { font-size: 19px; font-variation-settings: 'FILL' 1; }
+
+/* Status */
+.spc-st-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px 4px; }
+.spc-st-row + .spc-st-row { padding-top: 8px; }
+.spc-st-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.spc-st-h { font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--sp-green); text-transform: uppercase; }
+.spc-st-msg { color: var(--text-secondary); font-size: 13.5px; line-height: 1.45; }
+.spc-st-track { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.spc-st-row.err .spc-st-ic { background: color-mix(in srgb, var(--accent-red, #E5484D) 16%, transparent); color: var(--accent-red, #E5484D); }
+.spc-st-row.err .spc-st-h { color: var(--accent-red, #E5484D); }
+.spc-btn { appearance: none; border: 0; width: 38px; height: 38px; border-radius: 50%; flex: none; cursor: pointer; display: flex; align-items: center; justify-content: center; background: var(--sp-green); color: #000; transition: transform .12s, filter .12s; }
+.spc-btn:hover { transform: scale(1.06); filter: brightness(1.08); }
+.spc-btn .material-symbols-outlined { font-size: 24px; font-variation-settings: 'FILL' 1; }
+.spc-foot { display: flex; align-items: center; gap: 12px; padding: 10px 14px 12px; color: var(--text-muted); font-size: 12px; }
+.spc-foot .material-symbols-outlined { font-size: 15px; }
+.spc-brand, .spc-dev { display: inline-flex; align-items: center; gap: 4px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.spc-brand { color: var(--sp-green); font-weight: 600; }
+.spc-link { appearance: none; border: 0; background: none; color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; margin-left: auto; padding: 4px 8px; border-radius: 8px; white-space: nowrap; }
+.spc-link:hover { background: var(--bg-surface-hover, rgba(255,255,255,.08)); color: var(--text-primary); }
+
+/* Lädt */
+.spc-busy { display: flex; align-items: center; gap: 12px; padding: 12px 14px; }
+.spc-busy .spc-eq { display: inline-flex; position: static; background: none; }
+
+/* Equalizer */
+.spc-eq { display: none; gap: 2px; align-items: flex-end; height: 14px; }
+.spc-eq i { width: 3px; border-radius: 1px; background: var(--sp-green); animation: sp-eq .9s ease-in-out infinite; }
+.spc-eq i:nth-child(2) { animation-delay: -.3s; } .spc-eq i:nth-child(3) { animation-delay: -.6s; }
+@media (prefers-reduced-motion: reduce) { .spc-eq i { animation: none; height: 8px; } }
+
+/* Auswahl: Kopf */
+.spc-pick-h { display: flex; align-items: center; gap: 12px; padding: 12px 14px 8px; }
+/* Auswahl: Liste (Songs) */
+.spc-list { display: flex; flex-direction: column; padding: 0 6px 8px; }
+.spc-row { appearance: none; border: 0; background: transparent; color: inherit; font: inherit; display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 10px; cursor: pointer; text-align: left; width: 100%; transition: background .12s; }
+.spc-row:hover, .spc-row:focus-visible { background: var(--bg-surface-hover, rgba(255,255,255,.07)); outline: none; }
+.spc-num { width: 22px; flex: none; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.spc-num .spc-play { display: none; font-size: 22px; color: var(--text-primary); font-variation-settings: 'FILL' 1; }
+.spc-row:hover .spc-i, .spc-row:focus-visible .spc-i { display: none; }
+.spc-row:hover .spc-play, .spc-row:focus-visible .spc-play { display: inline; }
+.spc-d { color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; flex: none; }
+.spc-row.is-current .spc-n { color: var(--sp-green); }
+.spc-row.is-playing .spc-i, .spc-row.is-playing:hover .spc-play { display: none; }
+.spc-row.is-playing .spc-eq { display: inline-flex; }
+.spc-row.is-playing:hover .spc-eq { display: none; }
+.spc-row.is-playing:hover .spc-num::after { content: 'pause'; font-family: 'Material Symbols Outlined'; font-size: 22px; color: var(--text-primary); font-variation-settings: 'FILL' 1; }
+@media (hover: none) { .spc-row .spc-i { display: none; } .spc-row .spc-play { display: inline; color: var(--text-secondary); } .spc-row.is-playing .spc-play { display: none; } }
+
+/* Auswahl: Kacheln (Alben, Playlists, Künstler) */
+.spc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 6px; padding: 0 8px 10px; }
+.spc-tile { appearance: none; border: 0; background: transparent; color: inherit; font: inherit; display: flex; flex-direction: column; gap: 3px; padding: 8px; border-radius: 12px; cursor: pointer; text-align: left; min-width: 0; transition: background .12s; }
+.spc-tile:hover, .spc-tile:focus-visible { background: var(--bg-surface-hover, rgba(255,255,255,.07)); outline: none; }
+.spc-tile-art { position: relative; display: block; margin-bottom: 6px; }
+.spc-tile-art .spc-cover { width: 100%; height: auto; aspect-ratio: 1; border-radius: 8px; box-shadow: 0 6px 18px rgba(0,0,0,.3); }
+.spc-grid.round .spc-tile-art .spc-cover { border-radius: 50%; }
+.spc-tile-play { position: absolute; right: 6px; bottom: 6px; width: 36px; height: 36px; border-radius: 50%; background: var(--sp-green); color: #000; display: flex; align-items: center; justify-content: center; opacity: 0; transform: translateY(6px); transition: opacity .15s, transform .15s; box-shadow: 0 6px 14px rgba(0,0,0,.35); }
+.spc-tile-play .material-symbols-outlined { font-size: 24px; font-variation-settings: 'FILL' 1; }
+.spc-tile:hover .spc-tile-play, .spc-tile:focus-visible .spc-tile-play { opacity: 1; transform: none; }
+@media (hover: none) { .spc-tile-play { opacity: .95; transform: none; width: 30px; height: 30px; } }
+.spc-tile .spc-eq { position: absolute; left: 8px; bottom: 8px; padding: 3px 4px; border-radius: 5px; background: rgba(0,0,0,.6); }
+.spc-tile.is-playing .spc-eq { display: inline-flex; }
+.spc-tile.is-current .spc-n { color: var(--sp-green); }
+.spc-tile.is-playing .spc-tile-play .material-symbols-outlined { font-size: 0; }
+.spc-tile.is-playing .spc-tile-play .material-symbols-outlined::before { content: 'pause'; font-size: 24px; }
+
+/* Lädt nach Tippen */
+.spc .is-loading { opacity: .6; pointer-events: none; }
+.spc .is-loading .spc-cover::after, .spc-btn.is-loading::after { content: ''; position: absolute; inset: 0; margin: auto; width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255,255,255,.35); border-top-color: #fff; animation: cn-rot .8s linear infinite; }
+.spc-btn.is-loading { position: relative; }
+.spc-btn.is-loading .material-symbols-outlined { visibility: hidden; }
+@media (max-width: 639px) { .spc-grid { grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 0 4px 8px; } .spc-tile { padding: 6px; } }

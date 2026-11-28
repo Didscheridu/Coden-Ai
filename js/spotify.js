@@ -63,11 +63,12 @@ function spotifyError(status, body) {
     e.status = status; e.reason = body && body.error && body.error.reason;
     return e;
 }
-export async function api(path, { method = 'GET', body, retried = false } = {}) {
+export async function api(path, { method = 'GET', body, retried = false, retried5 = false } = {}) {
     const t = await accessToken().catch(() => '');
     if (!t) { const e = new Error('Spotify ist nicht verbunden. Tippe im Plus-Menü auf „Spotify verbinden“.'); e.code = 'not_connected'; throw e; }
     const res = await fetch(API + path, { method, headers: { Authorization: 'Bearer ' + t, ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
-    if (res.status === 401 && !retried) { await accessToken(true).catch(() => ''); return api(path, { method, body, retried: true }); }
+    if (res.status === 401 && !retried) { await accessToken(true).catch(() => ''); return api(path, { method, body, retried: true, retried5 }); }
+    if (res.status >= 500 && !retried5) { await new Promise(r => setTimeout(r, 900)); return api(path, { method, body, retried, retried5: true }); }
     if (res.status === 204 || res.status === 202) return null;
     const txt = await res.text();
     let j = null; if (txt) { try { j = JSON.parse(txt); } catch (_) {} }
@@ -154,16 +155,40 @@ const later = () => { setTimeout(() => refresh().catch(() => {}), 600); setTimeo
 const optimistic = (patch) => { if (state) { state = { ...state, ...patch, at: Date.now() }; emit(); } };
 
 // ---------- Steuern ----------
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+// Nach einem Befehl nachsehen, ob er wirklich angekommen ist (Spotify sagt oft „ok“, obwohl ein Lautsprecher schläft)
+async function waitFor(check, waits = [700, 1200, 1800]) {
+    for (const ms of waits) {
+        await sleep(ms);
+        const st = await refresh().catch(() => undefined);
+        if (st !== undefined && check(st)) return st || { playing: false };
+    }
+    return null;
+}
+const devName = () => (state && state.device && state.device.name) || 'dem Gerät';
+const deviceParam = async () => (state && state.device && state.device.active ? '' : '?device_id=' + encodeURIComponent(await targetDevice()));
 async function playOn(body) {
     const id = await targetDevice();
     try { await api('/me/player/play?device_id=' + encodeURIComponent(id), { method: 'PUT', body }); }
     catch (e) {
         if (e.status !== 404) throw e;
         await api('/me/player', { method: 'PUT', body: { device_ids: [id], play: false } }); // Gerät erst aufwecken
+        await sleep(500);
         await api('/me/player/play?device_id=' + encodeURIComponent(id), { method: 'PUT', body });
     }
-    later();
     return id;
+}
+// Abspielen mit Prüfung und einem zweiten Versuch (Gerät aufwecken)
+async function playChecked(body, ok) {
+    const id = await playOn(body);
+    let st = await waitFor(ok);
+    if (st) return st;
+    await api('/me/player', { method: 'PUT', body: { device_ids: [id], play: true } }).catch(() => {});
+    await sleep(600);
+    await api('/me/player/play?device_id=' + encodeURIComponent(id), { method: 'PUT', body }).catch(() => {});
+    st = await waitFor(ok, [1000, 1800]);
+    if (st) return st;
+    throw new Error(`Spotify hat den Befehl angenommen, aber auf „${devName()}“ startet nichts. Ist das Gerät an und online? Wähl im Miniplayer unten bei „Gerät“ ein anderes aus oder öffne kurz die Spotify-App.`);
 }
 async function find(q, type) {
     const core = C();
@@ -178,21 +203,45 @@ async function find(q, type) {
     if (!pick && core.splitQuery(q).artist) pick = core.pickBest(q, type, await api(`/search?type=${types}&limit=10&q=${encodeURIComponent(q)}`));
     return pick;
 }
+const isPick = (pick, before) => (st) => !!(st && st.playing && st.track && (pick.type === 'track' ? st.track.uri === pick.item.uri : (st.context === pick.item.uri || st.track.uri !== before)));
 export async function play(q, type) {
     const pick = await find(q, type);
     if (!pick) throw new Error(`Bei Spotify nichts gefunden für „${q}“.`);
-    await playOn(C().playBody(pick));
+    unlockAudio();
+    await playChecked(C().playBody(pick), isPick(pick, state && state.track && state.track.uri));
     return pick;
 }
-export async function resume() { unlockAudio(); await playOn(undefined); optimistic({ playing: true, progressMs: C().progressAt(state) }); }
+// Aus einer Auswahl-Karte oder dem Miniplayer: direkt eine URI abspielen
+export async function playUri(type, uri, albumUri) {
+    const pick = { type, item: { uri, album: albumUri ? { uri: albumUri } : null } };
+    unlockAudio();
+    await playChecked(C().playBody(pick), isPick(pick, state && state.track && state.track.uri));
+    return state;
+}
+export async function resume() {
+    unlockAudio();
+    if (state && state.playing && state.device && state.device.active) return state;
+    const st = await playChecked(undefined, (s) => !!(s && s.playing));
+    return st;
+}
 export async function pause() {
     if (sdkPlayer && state && state.device && state.device.id === sdkDevice) await sdkPlayer.pause();
-    else await api('/me/player/pause', { method: 'PUT' });
-    optimistic({ playing: false, progressMs: C().progressAt(state) }); later();
+    else await api('/me/player/pause' + await deviceParam(), { method: 'PUT' });
+    optimistic({ playing: false, progressMs: C().progressAt(state) });
+    const st = await waitFor((s) => !s || !s.playing, [600, 1200]);
+    if (!st) throw new Error(`Spotify hat „Pause“ angenommen, aber auf „${devName()}“ läuft es noch.`);
 }
 export async function toggle() { return state && state.playing ? pause() : resume(); }
-export async function next() { await api('/me/player/next', { method: 'POST' }); later(); }
-export async function previous() { await api('/me/player/previous', { method: 'POST' }); later(); }
+async function skip(dir) {
+    const before = state && state.track && state.track.uri;
+    await api(`/me/player/${dir}` + await deviceParam(), { method: 'POST' });
+    const st = await waitFor((s) => !!(s && s.track && (s.track.uri !== before || (dir === 'previous' && s.progressMs < 4000))));
+    if (!st) throw new Error(`Spotify hat „${dir === 'next' ? 'Weiter' : 'Zurück'}“ angenommen, aber auf „${devName()}“ hat sich nichts getan.`);
+    if (!st.playing) await resume().catch(() => {});
+    return state;
+}
+export async function next() { return skip('next'); }
+export async function previous() { return skip('previous'); }
 export async function seek(ms) { await api('/me/player/seek?position_ms=' + Math.max(0, Math.round(ms)), { method: 'PUT' }); optimistic({ progressMs: ms }); }
 export async function volume(v) {
     const val = Math.max(0, Math.min(100, Math.round(v)));
@@ -207,27 +256,50 @@ export async function queue(q) {
     await api('/me/player/queue?uri=' + encodeURIComponent(pick.item.uri), { method: 'POST' });
     return pick;
 }
+// Auswahl zum Antippen (Songs, Alben, Playlists, Künstler oder eigene Playlists)
+export async function choices(q, type = 'track') {
+    const core = C();
+    const t = core.TYPES.includes(type) ? type : 'track';
+    if (t === 'playlist' && (!q || /^(?:meine?|my|eigene)(?: playlists?)?$/i.test(q.trim()))) {
+        const own = await api('/me/playlists?limit=24');
+        return { type: 'playlist', own: true, items: ((own && own.items) || []).map(x => core.itemOf('playlist', x)).filter(Boolean).slice(0, 12) };
+    }
+    const res = await api(`/search?type=${t}&limit=10&q=${encodeURIComponent(core.searchQuery(q, t))}`);
+    const list = ((res && res[t + 's'] && res[t + 's'].items) || []).map(x => core.itemOf(t, x)).filter(Boolean);
+    return { type: t, items: list.slice(0, t === 'track' ? 8 : 9) };
+}
 
 // ---------- Befehle aus dem Chat ----------
-// Gibt für jeden Befehl { ok, text } zurück (Text geht ans Modell und in den Werkzeug-Schritt).
+// Gibt für jeden Befehl { ok, act, text, track?, card? } zurück. text geht ans Modell, der Rest in die Spotify-Karte im Chat.
 export async function run(cmds) {
     const core = C();
     const out = [];
+    const cur = () => core.trackOfState(state);
     for (const c of cmds || []) {
+        const r = { ok: true, act: c.action, q: c.q || '' };
         try {
-            if (c.action === 'play') { const p = await play(c.q, c.type); out.push({ ok: true, text: `Spielt jetzt ${core.describe(p)}.` }); }
-            else if (c.action === 'resume') { await resume(); out.push({ ok: true, text: 'Wiedergabe läuft weiter.' }); }
-            else if (c.action === 'pause') { await pause(); out.push({ ok: true, text: 'Pausiert.' }); }
-            else if (c.action === 'next') { await next(); out.push({ ok: true, text: 'Nächster Song.' }); }
-            else if (c.action === 'previous') { await previous(); out.push({ ok: true, text: 'Vorheriger Song.' }); }
-            else if (c.action === 'volume') { await volume(+c.value); out.push({ ok: true, text: `Lautstärke auf ${c.value} %.` }); }
-            else if (c.action === 'shuffle') { await shuffle(c.value !== 'off'); out.push({ ok: true, text: c.value === 'off' ? 'Zufallswiedergabe aus.' : 'Zufallswiedergabe an.' }); }
-            else if (c.action === 'queue') { const p = await queue(c.q); out.push({ ok: true, text: `${core.describe(p)} kommt als Nächstes.` }); }
+            if (c.action === 'play') { const p = await play(c.q, c.type); r.text = `Spielt jetzt ${core.describe(p)}${state && state.device ? ` auf „${state.device.name}“` : ''}.`; r.track = cur() || core.itemOf(p.type, p.item); r.pick = core.itemOf(p.type, p.item); }
+            else if (c.action === 'resume') { await resume(); r.text = 'Wiedergabe läuft weiter.'; r.track = cur(); }
+            else if (c.action === 'pause') { await pause(); r.text = 'Pausiert.'; r.track = cur(); }
+            else if (c.action === 'next') { await next(); r.text = `Nächster Song: ${state && state.track ? `„${state.track.name}“ von ${state.track.artists}` : 'läuft'}.`; r.track = cur(); }
+            else if (c.action === 'previous') { await previous(); r.text = `Zurück: ${state && state.track ? `„${state.track.name}“ von ${state.track.artists}` : 'läuft'}.`; r.track = cur(); }
+            else if (c.action === 'volume') { await volume(+c.value); r.text = `Lautstärke auf ${c.value} %.`; r.value = +c.value; }
+            else if (c.action === 'shuffle') { await shuffle(c.value !== 'off'); r.text = c.value === 'off' ? 'Zufallswiedergabe aus.' : 'Zufallswiedergabe an.'; }
+            else if (c.action === 'queue') { const p = await queue(c.q); r.text = `${core.describe(p)} kommt als Nächstes.`; r.track = core.itemOf('track', p.item); }
             else if (c.action === 'now') {
                 const st = await refresh();
-                out.push({ ok: true, text: st && st.track ? `${st.playing ? 'Läuft' : 'Pausiert'}: „${st.track.name}“ von ${st.track.artists}${st.device ? ` auf „${st.device.name}“` : ''}.` : 'Gerade läuft nichts.' });
+                r.text = st && st.track ? `${st.playing ? 'Läuft' : 'Pausiert'}: „${st.track.name}“ von ${st.track.artists}${st.device ? ` auf „${st.device.name}“` : ''}.` : 'Gerade läuft nichts.';
+                r.track = cur();
             }
-        } catch (e) { out.push({ ok: false, text: e.message || String(e) }); }
+            else if (c.action === 'choose') {
+                const ch = await choices(c.q, c.type || 'track');
+                if (!ch.items.length) throw new Error(`Bei Spotify nichts gefunden für „${c.q}“.`);
+                r.card = { k: 'pick', q: ch.own ? 'Deine Playlists' : c.q, ty: ch.type, items: ch.items };
+                r.text = `Auswahl im Chat angezeigt (${ch.items.length}): ` + ch.items.map((x, i) => `${i + 1}. ${x.n}${x.a ? ' – ' + x.a : ''}`).join('; ') + '. Der Nutzer tippt selbst an, was laufen soll.';
+            }
+        } catch (e) { r.ok = false; r.text = e.message || String(e); }
+        if (state && state.device) r.dev = state.device.name;
+        out.push(r);
     }
     window.dispatchEvent(new CustomEvent('coden:spotify-command', { detail: out }));
     return out;

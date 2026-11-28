@@ -39,7 +39,7 @@ import { parseBrowserPreview } from './browser-core.js';
 export { parseHandwriting };
 
 // ---------- Blöcke finden ----------
-export const WIDGETS = ['quiz', 'flashcards', 'steps', 'stats', 'proscons', 'bars', 'tabs', 'plot', 'pie', 'lernplan', 'handwriting', 'browser'];
+export const WIDGETS = ['quiz', 'flashcards', 'steps', 'stats', 'proscons', 'bars', 'tabs', 'plot', 'pie', 'lernplan', 'handwriting', 'browser', 'spotifycard'];
 const NAMES = WIDGETS.join('|');
 const OPEN = new RegExp(`<(${NAMES})(\\s[^>]*)?>`, 'i');
 const attrsOf = (s) => { const a = {}; String(s || '').replace(/([a-zA-Z_-]+)\s*=\s*["“„]([^"“”]*)["”“]/g, (m, k, v) => { a[k.toLowerCase()] = v; }); return a; };
@@ -720,7 +720,9 @@ export function hydrateWidgets(root, widgets, md, keyPrefix = '') {
             const key = keyPrefix + '|' + ph.dataset.cw + '|' + w.type + '|' + hash(w.body);
             el = keyPrefix && cache.get(key);
             if (!el) {
-                try { el = BUILD[w.type]?.(w, md) || null; } catch (_) { el = null; }
+                // Zusätzliche Elemente aus anderen Modulen (z. B. Spotify-Karten aus js/spotify-cards.js)
+                const ext = typeof window !== 'undefined' && window.CodenWidgets ? window.CodenWidgets[w.type] : null;
+                try { el = (BUILD[w.type] || ext)?.(w, md) || null; } catch (_) { el = null; }
                 if (!el) { el = mk('div', 'md'); el.innerHTML = md(w.body, true); }
                 el.classList.add('cw-new'); el.addEventListener('animationend', () => el.classList.remove('cw-new'), { once: true });
                 if (keyPrefix) { cache.set(key, el); if (cache.size > 300) cache.delete(cache.keys().next().value); }

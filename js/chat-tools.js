@@ -154,7 +154,7 @@ export function mountMessageActions(ctx, toast) {
         return row.querySelector('.content')?.innerText || '';
     };
     const copyTextOf = (t) => stripMarks(String(t || ''))
-        .replace(/<(suggestions|choices|remember|think)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
+        .replace(/<(suggestions|choices|remember|think|spotifycard)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
         .trim();
 
     const speech = createSpeechController();

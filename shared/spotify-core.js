@@ -10,7 +10,7 @@
     'user-read-playback-state', 'user-modify-playback-state', 'user-read-currently-playing',
     'playlist-read-private', 'playlist-read-collaborative'
   ];
-  const ACTIONS = ['play', 'pause', 'resume', 'next', 'previous', 'volume', 'queue', 'shuffle', 'now'];
+  const ACTIONS = ['play', 'pause', 'resume', 'next', 'previous', 'volume', 'queue', 'shuffle', 'now', 'choose'];
   const TYPES = ['track', 'artist', 'album', 'playlist'];
   // Freie Modelle schreiben nicht immer genau das Wort aus dem Prompt
   const ALIAS = {
@@ -22,6 +22,7 @@
     vol: 'volume', 'lautstärke': 'volume', lautstaerke: 'volume', lauter: 'volume', leiser: 'volume',
     add: 'queue', warteschlange: 'queue', enqueue: 'queue',
     zufall: 'shuffle', mix: 'shuffle',
+    pick: 'choose', select: 'choose', auswahl: 'choose', auswaehlen: 'choose', 'auswählen': 'choose', list: 'choose', liste: 'choose', show: 'choose', zeigen: 'choose', options: 'choose',
     status: 'now', current: 'now', playing: 'now', 'was läuft': 'now', info: 'now'
   };
   const TYPE_ALIAS = { song: 'track', titel: 'track', lied: 'track', tracks: 'track', 'künstler': 'artist', kuenstler: 'artist', band: 'artist', interpret: 'artist', artists: 'artist', albums: 'album', playlists: 'playlist', liste: 'playlist' };
@@ -69,9 +70,10 @@
       if (action === 'shuffle') value = /^(off|aus|false|0|nein)$/.test(value) ? 'off' : 'on';
       if (action === 'play' && !q) { out.push({ action: 'resume' }); continue; }
       if (action === 'queue' && !q) continue;
+      if (action === 'choose' && !q && type !== 'playlist') continue;
       const cmd = { action };
-      if (q && (action === 'play' || action === 'queue')) cmd.q = q;
-      if (type && action === 'play') cmd.type = type;
+      if (q && (action === 'play' || action === 'queue' || action === 'choose')) cmd.q = q;
+      if (type && (action === 'play' || action === 'choose')) cmd.type = type;
       if (value && (action === 'volume' || action === 'shuffle')) cmd.value = value;
       out.push(cmd);
     }
@@ -198,6 +200,7 @@
       progressMs: j.progress_ms || 0,
       device: deviceOf(j.device),
       shuffle: !!j.shuffle_state,
+      context: (j.context && j.context.uri) || '',
       at: now
     };
   }
@@ -215,6 +218,7 @@
       progressMs: s.position || 0,
       device: device || null,
       shuffle: !!s.shuffle,
+      context: (s.context && s.context.uri) || '',
       at: now
     };
   }
@@ -265,6 +269,7 @@
       '<spotify action="play" q="Song, Künstler, Album oder Playlist" type="track|artist|album|playlist"/> (type weglassen, wenn unklar; Song mit Künstler so: q="Roller von Apache 207")\n' +
       '<spotify action="pause"/> · <spotify action="resume"/> · <spotify action="next"/> · <spotify action="previous"/>\n' +
       '<spotify action="volume" value="0-100"/> · <spotify action="queue" q="Song von Künstler"/> · <spotify action="shuffle" value="on|off"/> · <spotify action="now"/>\n' +
+      '<spotify action="choose" q="Künstler, Stimmung oder Thema" type="track|album|playlist|artist"/> zeigt eine Auswahl zum Antippen – nimm das, wenn der Nutzer etwas aussuchen will („zeig mir Songs von …“, „welche Playlists gibt es für …“) oder unklar ist, welcher Song gemeint ist. Seine eigenen Playlists: <spotify action="choose" q="meine" type="playlist"/>.\n' +
       'Für Stimmungen („was Ruhiges zum Lernen“, „Gym-Musik“) such eine passende Playlist, z. B. q="Lofi Lernen" type="playlist". „Lauter“ = etwa +15, „leiser“ = etwa −15. ' +
       'WICHTIG: Spotify ist KEIN Konnektor – benutze dafür nie <mcp_call>, sondern nur <spotify …/>. Danach bekommst du das Ergebnis und antwortest in einem kurzen, lockeren Satz. Nur wenn der Nutzer wirklich Musik will – sonst keine Befehle.\n' + now + '\n';
   }
@@ -273,8 +278,104 @@
   function resultBlock(results) {
     const lines = (results || []).map(r => (r.ok ? '✓ ' : '✗ ') + r.text);
     const ok = (results || []).every(r => r.ok);
-    return 'Spotify-Ergebnis:\n' + lines.join('\n') + '\n\n' + (ok ? 'Bestätige das jetzt in einem kurzen, lockeren Satz (ohne Befehl).' : 'Erklär dem Nutzer kurz, was nicht ging und was er tun kann (ohne Befehl).');
+    const pick = (results || []).some(r => r.ok && r.act === 'choose');
+    return 'Spotify-Ergebnis:\n' + lines.join('\n') + '\n\n' +
+      (pick ? 'Die Auswahl ist schon als Karte im Chat zu sehen. Zähl die Einträge NICHT nochmal auf – sag nur kurz und locker, dass er antippen kann, was laufen soll (ohne Befehl).'
+        : ok ? 'Bestätige das jetzt in einem kurzen, lockeren Satz (ohne Befehl, ohne die Liste zu wiederholen).' : 'Erklär dem Nutzer kurz, was nicht ging und was er tun kann (ohne Befehl).');
   }
+  // Befehle als Text (für den Verlauf, wenn Coden sie selbst aus der Nachricht erkannt hat)
+  const commandsText = (cmds) => (cmds || []).map(c => `<spotify action="${c.action}"${c.q ? ` q="${String(c.q).replace(/"/g, '')}"` : ''}${c.type ? ` type="${c.type}"` : ''}${c.value ? ` value="${c.value}"` : ''}/>`).join('\n');
+  // Kurzer Text für die Lade-Karte
+  const LABEL = { play: 'Sucht und spielt', resume: 'Setzt fort', pause: 'Pausiert', next: 'Springt weiter', previous: 'Springt zurück', volume: 'Lautstärke', shuffle: 'Zufall', queue: 'Reiht ein', now: 'Schaut, was läuft', choose: 'Sucht eine Auswahl' };
+  const busyLabel = (cmds) => (cmds || []).map(c => (LABEL[c.action] || c.action) + (c.q ? ` „${c.q}“` : c.value ? ` ${c.value}${c.action === 'volume' ? ' %' : ''}` : '')).join(' · ');
 
-  return { SCOPES, ACTIONS, TYPES, parseCommands, fromMcp, strip, requested, splitQuery, searchQuery, pickBest, pickOwnPlaylist, playBody, describe, artistsOf, imageOf, stateFromApi, stateFromSdk, deviceOf, progressAt, fmtTime, chooseDevice, errorText, prompt, resultBlock, norm };
+
+  // ---------- Befehle direkt aus der Nachricht des Nutzers ----------
+  // Freie Modelle vergessen den Befehl manchmal oder antworten nur mit Text („Klar, ich mach das!“). Klare, kurze Musik-Wünsche
+  // erkennt Coden deshalb selbst. strong = eindeutig Musik (Wort wie Spotify/Song/Lied oder „von“), sonst nur, wenn das Modell
+  // selbst über Musik redet. Gibt null oder { cmds, strong } zurück.
+  const CTX = /\b(spotify|musik|mukke|song|songs|lied|lieder|track|tracks|titel|playlist|playlists|album|alben|sound)\b/;
+  const LEAD = /^(?:hey|hi|yo|ey|ok|okay|coden|bitte|kannst du|könntest du|kannst|könntest|du|mal|doch|jetzt|bro|und)\s+/;
+  const TAIL = /\s+(?:bitte|mal|danke|ab|an|auf spotify|bei spotify|in spotify|über spotify|mit spotify|für mich|jetzt|sofort|spielen|abspielen|anmachen|laufen lassen)$/;
+  function intentOf(raw, info) {
+    const st = (info && info.state) || null;
+    let t = String(raw || '').toLowerCase().replace(/[!?.,;:"„“”]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!t || t.length > 90 || /\n/.test(String(raw || '').trim())) return null;
+    const ctx = CTX.test(t);
+    for (let i = 0; i < 6 && LEAD.test(t); i++) t = t.replace(LEAD, '');
+    for (let i = 0; i < 4 && TAIL.test(t); i++) t = t.replace(TAIL, '');
+    const words = t.split(' ').filter(Boolean).length;
+    const short = words <= 3;
+    const one = (cmd, strong) => ({ cmds: [cmd], strong: !!strong });
+    const MUS = '(?:die |den |das )?(?:musik|spotify|song|lied|track|mukke)';
+    // Pause
+    if (new RegExp(`^(?:${MUS} )?(?:pause|pausier(?:e|en)?|stopp?(?:e|en)?|anhalten|halt(?:e)? (?:\\w+ ){0,2}an|mach (?:\\w+ ){0,2}aus|aus(?:machen|schalten)?)(?: ${MUS})?$`).test(t)) return one({ action: 'pause' }, ctx);
+    // Nächster / vorheriger Song
+    if (/^(?:(?:den |das |zum )?n(?:ä|ae)chste[nrsm]? ?(?:song|lied|track|titel)?|skip(?:pen)?|next|(?:song|lied|track) (?:skippen|überspringen|weiter)|überspring(?:e|en)?(?: (?:den |das )?(?:song|lied|track))?|weiter ?schalten)$/.test(t)) return one({ action: 'next' }, ctx || /n(?:ä|ae)chste|skip|überspring|next/.test(t));
+    if (/^(?:(?:den |das )?(?:vorherige[nrs]?|letzte[nrs]?) (?:song|lied|track|titel)|(?:song|lied|track) zurück|zurück|previous|back|nochmal(?: (?:den |das )?(?:song|lied))?)$/.test(t)) return one({ action: 'previous' }, ctx);
+    // Weiter: pausiert → fortsetzen, läuft → nächster Song
+    if (new RegExp(`^(?:(?:spiel|spiele|mach|musik|spotify) )?(?:weiter|weiterspielen|weitermachen|fortsetzen|resume|wieder an|play)(?: ${MUS})?$|^(?:spiel|spiele|mach) (?:die )?musik(?: wieder)?(?: an| weiter)?$|^musik (?:wieder )?an$`).test(t)) {
+      const playing = !!(st && st.playing);
+      const explicitResume = /spiel|fortsetzen|resume|wieder|an$|play/.test(t);
+      return one({ action: playing && !explicitResume ? 'next' : 'resume' }, ctx || /spiel|fortsetzen/.test(t));
+    }
+    // Lautstärke
+    const vNum = t.match(/(?:lautstärke|lautstaerke|volume|vol)(?: auf| zu)? (\d{1,3})(?: ?%| prozent)?$/);
+    if (vNum) return one({ action: 'volume', value: String(Math.min(100, +vNum[1])) }, true);
+    if (words <= 6 && /\b(lauter|leiser)\b/.test(t) && !/\b(sprich|sprechen|rede|lies|vorlesen)\b/.test(t)) {
+      const cur = st && st.device && st.device.volume != null ? st.device.volume : 50;
+      const step = /\b(viel|deutlich|richtig)\b/.test(t) ? 30 : /\b(bisschen|etwas|wenig|leicht)\b/.test(t) ? 8 : 15;
+      const v = Math.max(0, Math.min(100, cur + (/lauter/.test(t) ? step : -step)));
+      return one({ action: 'volume', value: String(v) }, ctx || short);
+    }
+    // Was läuft?
+    if (/^(?:was läuft(?: da| hier)?(?: gerade)?|welche[rs]? (?:song|lied|track) (?:ist das|läuft(?: gerade)?)|was ist das für ein (?:song|lied)|wie heißt (?:der song|das lied)(?: gerade)?)$/.test(t)) return one({ action: 'now' }, true);
+    // Auswahl / eigene Playlists
+    if (/^(?:zeig(?:e)?(?: mir)? )?meine playlists?$/.test(t)) return one({ action: 'choose', q: 'meine', type: 'playlist' }, true);
+    const ch = t.match(/^(?:zeig(?:e)?|such(?:e)?|liste|gib)(?: mir)?(?: (?:ein paar|paar|die|ein|einige))? (songs|lieder|tracks|alben|album|playlists?|künstler)(?: (?:von|mit|zu|für|über))? (.{2,60})$/);
+    if (ch) {
+      const type = /alb/.test(ch[1]) ? 'album' : /playlist/.test(ch[1]) ? 'playlist' : /künstler/.test(ch[1]) ? 'artist' : 'track';
+      return one({ action: 'choose', q: ch[2].trim(), type }, true);
+    }
+    // Abspielen
+    const pm = t.match(/^(?:spiel|spiele|play|hör|hoer|leg|mach) (?:(?:mal|uns|mir|bitte|doch|jetzt) )*(.{2,80})$/);
+    if (pm) {
+      let rest = pm[1].trim().replace(/\s+(?:laufen|abspielen|spielen|hören|auf|an)$/, '').trim();
+      if (/^(?:mit mir|ein |eine |einen |schach|spiel|quiz|runde|uno|tic|stein|wir |uns |das spiel|weiter|musik$|auf$|was$)/.test(rest)) return null;
+      if (/^(?:leg|mach)$/.test(t.split(' ')[0]) && !/ (?:auf|an)$/.test(pm[0]) && !ctx) return null; // „mach X“ nur mit Musik-Bezug
+      const by = rest.match(/^(?:was|etwas|irgendwas|songs?|lieder|musik|mukke|sachen|zeug) von (.+)$/);
+      if (by) return one({ action: 'play', q: by[1].trim(), type: 'artist' }, true);
+      const mood = rest.match(/^(?:was|etwas|irgendwas|musik|mukke|songs|lieder)(?: (?:zum|für|zur|beim|fürs))? (.+)$/);
+      if (mood) return one({ action: 'play', q: mood[1].trim(), type: 'playlist' }, ctx);
+      const pl = rest.match(/^(?:meine |die )?playlist (.+)$/);
+      if (pl) return one({ action: 'play', q: pl[1].trim(), type: 'playlist' }, true);
+      rest = rest.replace(/^(?:den song|das lied|den track|das album|den titel) /, '');
+      return one({ action: 'play', q: rest }, ctx || / von /.test(rest));
+    }
+    return null;
+  }
+  const MUSIC_TALK = /spotify|musik|song|lied|track|playlist|abspiel|pausier|wiedergabe|lautstärke|♪|🎵|🎶/i;
+  const talksMusic = (t) => MUSIC_TALK.test(String(t || ''));
+
+  // ---------- Karten im Chat (<spotifycard label="…">{json}</spotifycard>) ----------
+  // Kleine Daten statt der ganzen Spotify-Antwort: n=Name, a=Untertitel, i=Bild, u=URI, al=Album-URI, d=Dauer, ty=Typ, url=Link
+  function itemOf(type, x) {
+    if (!x) return null;
+    const imgs = (x.album && x.album.images) || x.images;
+    const sub = type === 'track' ? artistsOf(x) : type === 'album' ? artistsOf(x) : type === 'playlist' ? ((x.owner && x.owner.display_name) ? 'von ' + x.owner.display_name : 'Playlist') : 'Künstler';
+    const o = { ty: type, n: clean(x.name, 80), a: clean(sub, 80), i: imageOf(imgs, 120), u: x.uri || '' };
+    if (type === 'track') { if (x.album && x.album.uri) o.al = x.album.uri; if (x.duration_ms) o.d = x.duration_ms; }
+    const url = x.external_urls && x.external_urls.spotify; if (url) o.url = url;
+    return o.u ? o : null;
+  }
+  const trackOfState = (st) => (st && st.track ? { n: clean(st.track.name, 80), a: clean(st.track.artists, 80), i: st.track.image || '', u: st.track.uri || '', url: st.track.url || '' } : null);
+  function cardBlock(data, label) {
+    const json = JSON.stringify(data).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+    return `\n\n<spotifycard label="${clean(label, 140).replace(/["<>]/g, '')}">${json}</spotifycard>\n\n`;
+  }
+  function parseCard(body) { try { const j = JSON.parse(String(body || '').trim()); return j && typeof j === 'object' ? j : null; } catch (_) { return null; } }
+  // Für den Verlauf ans Modell: Karte → kurze Zeile
+  const cardsToText = (text) => String(text || '').replace(/<spotifycard\b[^>]*?label="([^"]*)"[^>]*>[\s\S]*?<\/spotifycard>/gi, (m, l) => `[Spotify: ${l}]`).replace(/<spotifycard\b[\s\S]*?<\/spotifycard>/gi, '[Spotify]');
+
+  return { commandsText, busyLabel, intentOf, talksMusic, itemOf, trackOfState, cardBlock, parseCard, cardsToText, SCOPES, ACTIONS, TYPES, parseCommands, fromMcp, strip, requested, splitQuery, searchQuery, pickBest, pickOwnPlaylist, playBody, describe, artistsOf, imageOf, stateFromApi, stateFromSdk, deviceOf, progressAt, fmtTime, chooseDevice, errorText, prompt, resultBlock, norm };
 });
