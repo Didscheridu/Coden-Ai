@@ -29,6 +29,8 @@ import { Skills } from './skills.js';
 import { Research } from './research.js';
 import { Tasks, resultAsMessages } from './tasks.js';
 import { WebSearch } from './websearch.js';
+import * as Spotify from './spotify.js';
+import { mount as mountSpotifyPlayer, show as showSpotifyPlayer } from './spotify-player.js';
 import * as Menu from './menu.js';
 import { Router } from './router.js';
 import { Storage } from './storage.js';
@@ -1483,6 +1485,7 @@ document.getElementById('temp-chat-btn')?.addEventListener('click', () => {
     });
     if (chatInput) Skills.mountPicked(chatInput);
     Research.mount(); WebSearch.mount();
+    mountSpotify();
     // Research-Bibliothek: Bericht an die nächste Nachricht hängen
     document.getElementById('ct-attach-research')?.addEventListener('click', async () => {
         const r = await ResearchLib.pick({ title: 'Research-Bericht anhängen' });
@@ -2003,7 +2006,8 @@ function renderAttachmentPreviews() {
 // Bild-Befehl der KI: <generate_image prompt="…"/>
 const IMAGE_TAG = /<generate_image\s+([^>]*?)\/?>/gi;
 const hideDocTags = (t) => String(t || '').replace(/<doc_read\s+[^>]*?\/?>(?:<\/doc_read>)?/gi, '').replace(/<doc_read[^>]*$/i, '');
-const hideImageTags = (t) => hideDocTags(hideResearchTags(hideBrowserToolTags(hideNotebookTags(WebSearch.strip(Skills.hide(Personal.hide(ChatApps.hide(hideCalls(String(t || '').replace(/<generate_image\s+[^>]*?\/?>/gi, '').replace(/<generate_image[^>]*$/i, ''))))))))));
+const hideSpotifyTags = (t) => (window.CodenSpotify ? window.CodenSpotify.strip(t) : t);
+const hideImageTags = (t) => hideSpotifyTags(hideDocTags(hideResearchTags(hideBrowserToolTags(hideNotebookTags(WebSearch.strip(Skills.hide(Personal.hide(ChatApps.hide(hideCalls(String(t || '').replace(/<generate_image\s+[^>]*?\/?>/gi, '').replace(/<generate_image[^>]*$/i, '')))))))))));
 // ---------- Live-Anzeige je Chat ----------
 // Eine laufende Antwort gehört zu einem Chat, nicht zum Bildschirm: wechselt der Nutzer den Chat und kommt zurück,
 // wird die Anzeige mit dem aktuellen Stand neu aufgebaut. Die Antwort selbst läuft auf dem Server weiter.
@@ -2379,7 +2383,7 @@ async function handleSend() {
       if (pastHits.length) {
           initialLive.think({ h: `Frühere Chats durchsucht (${pastHits.length} Treffer)`, v: pastHits.map(h => h.title).join(', ') });
       }
-      const systemPrompt = buildChatPrompt({ userName, extras: `${lpExtra}${weakExtra}${tutorExtra}${factExtra}${pastExtra}${followDocExtra}${sessionAtSend.temp ? '' : StudyStore.context()}${nbExtra ? '\n' + nbExtra : ''}${hwExtra ? '\n' + hwExtra : ''}${hzExtra ? '\n' + hzExtra : ''}\n${MCP.prompt()}${ChatApps.prompt()}${personal}${Assistants.prompt(sessionAtSend.assistantId)}${skillInfo.text}${researchOn ? '' : WebSearch.prompt()}${researchExtra}${proj.text}` });
+      const systemPrompt = buildChatPrompt({ userName, extras: `${lpExtra}${weakExtra}${tutorExtra}${factExtra}${pastExtra}${followDocExtra}${sessionAtSend.temp ? '' : StudyStore.context()}${nbExtra ? '\n' + nbExtra : ''}${hwExtra ? '\n' + hwExtra : ''}${hzExtra ? '\n' + hzExtra : ''}\n${MCP.prompt()}${ChatApps.prompt()}${personal}${Assistants.prompt(sessionAtSend.assistantId)}${skillInfo.text}${researchOn ? '' : WebSearch.prompt()}${spotifyPrompt()}${researchExtra}${proj.text}` });
       context.unshift({ role: 'system', content: systemPrompt });
 
       Storage.syncNow(); // Frage sofort sichern, damit andere Geräte sie sehen
@@ -2412,6 +2416,22 @@ async function handleSend() {
                     : toolStep({ tool: 'Websuche', src: `„${webQ}“`, note: `${numbered.length} Ergebnis${numbered.length === 1 ? '' : 'se'}`, list: WebSearch.lines(numbered), icon: 'language' }));
                 live.update(shownPrefix);
                 context.push({ role: 'user', content: why ? `Die Websuche ist gerade nicht erreichbar (${why}). Beantworte die Frage mit deinem Wissen und sag dazu, dass du nicht nachsehen konntest.` : WebSearch.block(webQ, numbered) });
+                aiResponse = '';
+                continue;
+            }
+            // Spotify (<spotify action="play" q="…"/>): Musik steuern, Ergebnis zurückgeben, Coden bestätigt kurz
+            const spCmds = round < 5 && Spotify.connected() && window.CodenSpotify && !parseCall(aiResponse) ? window.CodenSpotify.parseCommands(aiResponse) : [];
+            if (spCmds.length) {
+                const pre = hideImageTags(aiResponse).trim();
+                context.push({ role: 'assistant', content: aiResponse.trim() });
+                shownPrefix = withPrefix(cite(pre));
+                const label = spCmds.map(c => c.q ? `${c.action} „${c.q}“` : c.action + (c.value ? ' ' + c.value : '')).join(', ');
+                live.update(withPrefix(toolStep({ tool: 'Spotify', src: label, running: true, icon: 'music_note' })));
+                const res = await Spotify.run(spCmds);
+                const bad = res.some(r => !r.ok);
+                shownPrefix = withPrefix(toolStep({ tool: 'Spotify', src: label, note: res.map(r => r.text).join(' ').slice(0, 120), err: bad && !res.some(r => r.ok), icon: 'music_note' }));
+                live.update(shownPrefix);
+                context.push({ role: 'user', content: window.CodenSpotify.resultBlock(res) });
                 aiResponse = '';
                 continue;
             }
@@ -2747,6 +2767,24 @@ async function handleSend() {
 }
 // Schritt in einer Antwort (Werkzeug-Aufruf oder nachgeladener Skill), aufklappbar wie bei Claude
 const escHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// Spotify: Eintrag im Plus-Menü (verbinden bzw. Player zeigen) und Miniplayer
+function mountSpotify() {
+    const b = document.getElementById('ct-spotify');
+    const sync = () => {
+        if (!b) return;
+        b.hidden = !Spotify.configured(); b.style.display = Spotify.configured() ? '' : 'none';
+        const l = b.querySelector('.cm-label'); if (l) l.textContent = Spotify.connected() ? 'Spotify-Player' : 'Spotify verbinden';
+    };
+    mountSpotifyPlayer();
+    Spotify.boot().then(sync).catch(() => {});
+    Spotify.onChange(sync);
+    window.addEventListener('coden:spotify-connected', sync);
+    b?.addEventListener('click', async () => {
+        if (Spotify.connected()) { Spotify.unlockAudio(); showSpotifyPlayer(); Spotify.refresh().catch(() => {}); return; }
+        try { await Spotify.connect(); } catch (e) { toast(e.message || String(e), { type: 'error', ms: 6000 }); }
+    });
+}
+const spotifyPrompt = () => { try { return window.CodenSpotify ? window.CodenSpotify.prompt(Spotify.promptInfo()) : ''; } catch (_) { return ''; } };
 function toolStep({ tool = '', src = '', args, result, err, note, running, waiting, skill, list, icon: ic }) {
     if (skill) return `<div class="tool-step skill"><span class="material-symbols-outlined ts-ic">auto_awesome</span> Skill <b>${escHtml(skill)}</b> <span class="ts-src">geladen</span></div>`;
     if (waiting) return `<div class="tool-step waiting"><span class="material-symbols-outlined ts-ic">${ic ? ic : 'shield'}</span> <b>${escHtml(tool)}</b> <span class="ts-src">${escHtml(src)} · wartet auf Freigabe …</span></div>`;

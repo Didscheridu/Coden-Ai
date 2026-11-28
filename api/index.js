@@ -57,7 +57,18 @@ api.get('/health', async (req, res) => {
   try { out.schema = await ensureSchema(); } catch (_) { out.schema = false; }
   try { out.neon = await require('../server/neon').ping(); } catch (e) { out.neon = { configured: true, ok: false, error: String(e.message).slice(0, 120) }; }
   try { require('web-push'); out.push = true; } catch (e) { out.pushError = String(e.code || e.message).slice(0, 80); }
+  out.spotify = !!spotifyClientId();
   res.status(out.ok ? 200 : 503).json(out);
+});
+
+// ---------- Spotify (ohne Login): nur die öffentliche Client ID. Anmeldung läuft im Browser per PKCE, ohne Client Secret. ----------
+function spotifyClientId() {
+  const id = String(process.env.SPOTIFY_CLIENT_ID || '').trim();
+  return /^[A-Za-z0-9]{16,64}$/.test(id) ? id : '';
+}
+api.get('/spotify/config', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=300');
+  res.json({ clientId: spotifyClientId() || null });
 });
 
 // ---------- Wer bin ich? ----------

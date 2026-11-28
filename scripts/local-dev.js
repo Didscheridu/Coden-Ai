@@ -29,6 +29,9 @@ app.get('/manifest.webmanifest', (req, res) => {
 app.get('/sw.js', (req, res) => {
   res.sendFile(path.join(root, 'sw.js'));
 });
+app.get('/spotify-callback.html', (req, res) => {
+  res.sendFile(path.join(root, 'spotify-callback.html'));
+});
 app.get(['/', '/index.html'], (req, res) => {
   res.sendFile(path.join(root, 'index.html'));
 });

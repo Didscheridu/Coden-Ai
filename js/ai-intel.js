@@ -279,7 +279,7 @@ export function needsAutoSelfCheck(userText = '', draftText = '', aiPrefs = {}) 
   if (!d.trim() || d.length < 40) return false;
   if (GREETING_RE.test(u.trim())) return false;
   // Bereits als Artefakt-Teaser oder Tool-Aufruf unterwegs -> nicht hier prüfen
-  if (/<(mcp_call|browser_open|browser_action|research_read|notebook_read|doc_read|use_skill|web_search)\b/i.test(d)) return false;
+  if (/<(mcp_call|browser_open|browser_action|research_read|notebook_read|doc_read|use_skill|web_search|spotify)\b/i.test(d)) return false;
 
   const hasCode = /```[a-zA-Z0-9_-]*\n[\s\S]{30,}```|<artifact\b[^>]*type=["'](?:html|react|python|code|javascript|js)["']/i.test(d);
   const hasMath = MATH_EXPR_HINT_RE.test(u) || MATH_EXPR_HINT_RE.test(d) || /\b(rechn|gleichung|ergebnis|lösung|beweis|integral|ableitung|prozent|zins|fläche|volumen|wahrscheinlichkeit|logik)\b/i.test(u);

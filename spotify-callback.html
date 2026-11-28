@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex">
+    <title>Spotify verbinden – Coden</title>
+    <style>
+        html, body { margin: 0; height: 100%; background: #1C1C1F; color: #ECECEC; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+        body { display: flex; align-items: center; justify-content: center; }
+        .box { text-align: center; padding: 24px; max-width: 380px; }
+        .dot { width: 44px; height: 44px; border-radius: 50%; margin: 0 auto 16px; background: #1ED760; display: flex; align-items: center; justify-content: center; color: #000; font-size: 24px; font-weight: 700; }
+        .err .dot { background: #E5484D; color: #fff; }
+        h1 { font-size: 18px; margin: 0 0 8px; }
+        p { margin: 0 0 16px; color: #A1A1AA; font-size: 14px; line-height: 1.5; }
+        a { color: #1ED760; }
+    </style>
+</head>
+<body>
+    <div class="box" id="box">
+        <div class="dot">♪</div>
+        <h1 id="title">Spotify wird verbunden …</h1>
+        <p id="msg">Einen Moment.</p>
+    </div>
+    <script type="module">
+        import { finishLogin } from './js/spotify-auth.js';
+        const $ = (id) => document.getElementById(id);
+        try {
+            const { back } = await finishLogin();
+            $('title').textContent = 'Spotify ist verbunden';
+            $('msg').textContent = 'Du kannst Coden jetzt sagen, was er spielen soll.';
+            let popup = false;
+            try { popup = !!(window.opener && !window.opener.closed && window.opener.location.origin === location.origin); } catch (_) {}
+            if (popup) {
+                window.opener.postMessage({ codenSpotify: 'connected' }, location.origin);
+                setTimeout(() => window.close(), 400);
+            } else {
+                const to = back && new URL(back, location.origin).origin === location.origin ? back : '/';
+                setTimeout(() => location.replace(to), 500);
+            }
+        } catch (e) {
+            $('box').classList.add('err');
+            document.querySelector('.dot').textContent = '!';
+            $('title').textContent = 'Verbinden hat nicht geklappt';
+            $('msg').textContent = e.message || String(e);
+            const a = document.createElement('a'); a.href = '/'; a.textContent = 'Zurück zu Coden';
+            $('box').appendChild(a);
+        }
+    </script>
+</body>
+</html>

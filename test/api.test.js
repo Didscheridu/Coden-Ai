@@ -27,6 +27,14 @@ const root = path.join(__dirname, '..');
     const userV = await token({ sub: 'uid-user2', email: 'v@x.de', email_verified: true });
     const admin = await token({ sub: 'uid-admin', email: 'Admin@Test.de', email_verified: true });
     const adminUnverified = await token({ sub: 'uid-admin-fake', email: 'admin@test.de', email_verified: false });
+    // Spotify: nur die öffentliche Client ID, ohne Login; ungültige Werte werden nicht ausgegeben
+    delete process.env.SPOTIFY_CLIENT_ID;
+    chk('Spotify: ohne Client ID → null', String((await call('/spotify/config')).j.clientId), 'null');
+    process.env.SPOTIFY_CLIENT_ID = ' 0123456789abcdef0123456789abcdef ';
+    chk('Spotify: Client ID ohne Login', (await call('/spotify/config')).j.clientId, '0123456789abcdef0123456789abcdef');
+    process.env.SPOTIFY_CLIENT_ID = '<script>';
+    chk('Spotify: kaputte Client ID → null', String((await call('/spotify/config')).j.clientId), 'null');
+    delete process.env.SPOTIFY_CLIENT_ID;
 
     chk('ohne Token', (await call('/me')).s, 401);
     chk('Müll als Token', (await call('/me', null, 'abc.def.ghi')).s, 401);
