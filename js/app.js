@@ -2420,7 +2420,10 @@ async function handleSend() {
                 continue;
             }
             // Spotify (<spotify action="play" q="…"/>): Musik steuern, Ergebnis zurückgeben, Coden bestätigt kurz
-            const spCmds = round < 5 && Spotify.connected() && window.CodenSpotify && !parseCall(aiResponse) ? window.CodenSpotify.parseCommands(aiResponse) : [];
+            // Auch <mcp_call server="spotify" …> wird als Spotify-Befehl verstanden (freie Modelle verwechseln das), solange es keinen echten Konnektor „spotify“ gibt
+            const spMcp = parseCall(aiResponse);
+            const spMcpCmd = spMcp && window.CodenSpotify && !MCP.byName(spMcp.server) ? window.CodenSpotify.fromMcp(spMcp) : null;
+            const spCmds = round < 5 && Spotify.connected() && window.CodenSpotify ? (spMcp ? (spMcpCmd ? [spMcpCmd] : []) : window.CodenSpotify.parseCommands(aiResponse)) : [];
             if (spCmds.length) {
                 const pre = hideImageTags(aiResponse).trim();
                 context.push({ role: 'assistant', content: aiResponse.trim() });

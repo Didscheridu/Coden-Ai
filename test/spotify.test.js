@@ -21,6 +21,18 @@ chk('höchstens 4 Befehle', S.parseCommands('<spotify action="next"/>'.repeat(9)
 chk('strip entfernt Befehle', S.strip('Okay! <spotify action="play" q="x"/> los').trim(), 'Okay!  los');
 chk('strip entfernt halben Befehl beim Streamen', S.strip('Klar <spotify action="pl'), 'Klar ');
 
+// --- Verwechslung mit Konnektoren (<mcp_call server="spotify" …>) ---
+chk('MCP pause', S.fromMcp({ server: 'spotify', tool: 'pause', args: {} }), { action: 'pause' });
+chk('MCP spotify_pause_playback', S.fromMcp({ server: 'Spotify', tool: 'spotify_pause_playback', args: {} }), { action: 'pause' });
+chk('MCP skip_to_next', S.fromMcp({ server: 'spotify', tool: 'skip_to_next', args: {} }), { action: 'next' });
+chk('MCP play mit query', S.fromMcp({ server: 'spotify', tool: 'play', args: { query: 'Apache 207', type: 'artist' } }), { action: 'play', q: 'Apache 207', type: 'artist' });
+chk('MCP search_and_play', S.fromMcp({ server: 'spotify', tool: 'search_and_play', args: { track: 'Roller' } }), { action: 'play', q: 'Roller' });
+chk('MCP set_volume', S.fromMcp({ server: 'spotify', tool: 'set_volume', args: { volume_percent: 25 } }), { action: 'volume', value: '25' });
+chk('MCP get_current_track', S.fromMcp({ server: 'spotify', tool: 'get_current_track', args: {} }), { action: 'now' });
+chk('MCP resume ohne q', S.fromMcp({ server: 'spotify', tool: 'play', args: {} }), { action: 'resume' });
+chk('anderer Konnektor bleibt', S.fromMcp({ server: 'github', tool: 'pause', args: {} }), null);
+chk('Prompt warnt vor mcp_call', /nie <mcp_call>/.test(S.prompt({ configured: true, connected: true })), true);
+
 // --- Suche ---
 chk('Song von Künstler', S.searchQuery('Roller von Apache 207'), 'track:Roller artist:Apache 207');
 chk('Künstler-Typ bleibt frei', S.searchQuery('Roller von Apache 207', 'artist'), 'Roller von Apache 207');

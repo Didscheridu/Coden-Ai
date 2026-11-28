@@ -77,6 +77,37 @@
     }
     return out;
   }
+  // Freie Modelle verwechseln Spotify oft mit einem Konnektor und schreiben <mcp_call server="spotify" tool="pause">{…}</mcp_call>.
+  // Solche Aufrufe werden hier in normale Spotify-Befehle übersetzt.
+  function fromMcp(call) {
+    if (!call) return null;
+    const server = String(call.server || '').toLowerCase();
+    const rawTool = String(call.tool || '').toLowerCase();
+    if (!/spotify/.test(server) && !/spotify/.test(rawTool)) return null;
+    const a = call.args && typeof call.args === 'object' ? call.args : {};
+    const tool = rawTool.replace(/spotify[_\-. ]?/g, '').replace(/^(player|playback)[_\-.]?/, '').replace(/[_\-.]?(track|song|music|playback)$/, '');
+    const words = tool.split(/[_\-. ]+/).filter(Boolean);
+    let action = '';
+    for (const w of [tool, ...words]) { const x = ALIAS[w] || w; if (ACTIONS.includes(x)) { action = x; break; } }
+    if (!action) {
+      if (/skip|next/.test(tool)) action = 'next';
+      else if (/prev|back/.test(tool)) action = 'previous';
+      else if (/vol/.test(tool)) action = 'volume';
+      else if (/queue/.test(tool)) action = 'queue';
+      else if (/shuffle/.test(tool)) action = 'shuffle';
+      else if (/current|state|status|now/.test(tool)) action = 'now';
+      else if (/pause|stop/.test(tool)) action = 'pause';
+      else if (/resume|continue|unpause/.test(tool)) action = 'resume';
+      else action = 'play';
+    }
+    const q = clean(a.q || a.query || a.search || a.track || a.song || a.name || a.artist || a.playlist || a.album || '', 200);
+    const type = TYPE_ALIAS[String(a.type || '').toLowerCase()] || String(a.type || '').toLowerCase();
+    const val = a.value != null ? a.value : a.volume != null ? a.volume : a.volume_percent != null ? a.volume_percent : a.level != null ? a.level : a.state;
+    const attr = (k, v) => (v ? ` ${k}="${String(v).replace(/"/g, '')}"` : '');
+    const cmds = parseCommands(`<spotify action="${action}"${attr('q', q)}${attr('type', TYPES.includes(type) ? type : '')}${attr('value', val == null ? '' : val === true ? 'on' : val === false ? 'off' : val)}/>`);
+    return cmds[0] || null;
+  }
+
   const strip = (text) => String(text || '').replace(TAG, '').replace(/<spotify\b[^>]*$/i, '');
   const requested = (text) => parseCommands(text).length > 0;
 
@@ -235,7 +266,7 @@
       '<spotify action="pause"/> · <spotify action="resume"/> · <spotify action="next"/> · <spotify action="previous"/>\n' +
       '<spotify action="volume" value="0-100"/> · <spotify action="queue" q="Song von Künstler"/> · <spotify action="shuffle" value="on|off"/> · <spotify action="now"/>\n' +
       'Für Stimmungen („was Ruhiges zum Lernen“, „Gym-Musik“) such eine passende Playlist, z. B. q="Lofi Lernen" type="playlist". „Lauter“ = etwa +15, „leiser“ = etwa −15. ' +
-      'Danach bekommst du das Ergebnis und antwortest in einem kurzen, lockeren Satz. Nur wenn der Nutzer wirklich Musik will – sonst keine Befehle.\n' + now + '\n';
+      'WICHTIG: Spotify ist KEIN Konnektor – benutze dafür nie <mcp_call>, sondern nur <spotify …/>. Danach bekommst du das Ergebnis und antwortest in einem kurzen, lockeren Satz. Nur wenn der Nutzer wirklich Musik will – sonst keine Befehle.\n' + now + '\n';
   }
 
   // Ergebnis an das Modell
@@ -245,5 +276,5 @@
     return 'Spotify-Ergebnis:\n' + lines.join('\n') + '\n\n' + (ok ? 'Bestätige das jetzt in einem kurzen, lockeren Satz (ohne Befehl).' : 'Erklär dem Nutzer kurz, was nicht ging und was er tun kann (ohne Befehl).');
   }
 
-  return { SCOPES, ACTIONS, TYPES, parseCommands, strip, requested, splitQuery, searchQuery, pickBest, pickOwnPlaylist, playBody, describe, artistsOf, imageOf, stateFromApi, stateFromSdk, deviceOf, progressAt, fmtTime, chooseDevice, errorText, prompt, resultBlock, norm };
+  return { SCOPES, ACTIONS, TYPES, parseCommands, fromMcp, strip, requested, splitQuery, searchQuery, pickBest, pickOwnPlaylist, playBody, describe, artistsOf, imageOf, stateFromApi, stateFromSdk, deviceOf, progressAt, fmtTime, chooseDevice, errorText, prompt, resultBlock, norm };
 });
