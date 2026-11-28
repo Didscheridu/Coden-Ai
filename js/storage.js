@@ -109,7 +109,7 @@ function stripSecrets(settings) {
     };
   }
   // Firestore rule erlaubt max 40 Keys in settings – wichtige Felder wie study nie abschneiden
-  const priority = ['study', 'humanizer', 'tourDone', 'browserAllowedDomains', 'dictationMode', 'userName', 'persona', 'customPersona', 'fontSize', 'theme', 'instructions', 'memoryOn', 'memoryItems', 'assistants', 'skills', 'webSearch', 'researchDepth', 'designBrand', 'emailConfig'];
+  const priority = ['study', 'humanizer', 'tourDone', 'browserAllowedDomains', 'dictationMode', 'learningProfile', 'weakTopics', 'tutorMode', 'aiPrefs', 'userName', 'persona', 'customPersona', 'fontSize', 'theme', 'instructions', 'memoryOn', 'memoryItems', 'assistants', 'skills', 'webSearch', 'researchDepth', 'designBrand', 'emailConfig'];
   const keys = [...new Set([...priority.filter(k => k in s), ...Object.keys(s)])].slice(0, 40);
   const trimmed = {};
   for (const k of keys) trimmed[k] = s[k];

@@ -25,6 +25,7 @@ const neon = require('../server/neon');
 const { accountRouter } = require('../server/account');
 const { contactRouter } = require('../server/contact');
 const { Meter, limitGate, usageRouter } = require('../server/usage');
+const { verifyBatch } = require('../server/sandbox');
 const meterFor = (req) => new Meter(req.user, req.body?.tier);
 
 // Eigene Modelle (Bring your own Key) laufen über den Key des Nutzers und zählen nicht gegen die Coden-Limits.
@@ -76,7 +77,7 @@ function stripSecrets(settings) {
       password: ''
     };
   }
-  const priority = ['study', 'humanizer', 'tourDone', 'browserAllowedDomains', 'dictationMode', 'userName', 'persona', 'customPersona', 'fontSize', 'theme', 'instructions', 'memoryOn', 'memoryItems', 'assistants', 'skills', 'webSearch', 'researchDepth', 'designBrand', 'emailConfig'];
+  const priority = ['study', 'humanizer', 'tourDone', 'browserAllowedDomains', 'dictationMode', 'learningProfile', 'weakTopics', 'tutorMode', 'aiPrefs', 'userName', 'persona', 'customPersona', 'fontSize', 'theme', 'instructions', 'memoryOn', 'memoryItems', 'assistants', 'skills', 'webSearch', 'researchDepth', 'designBrand', 'emailConfig'];
   const keys = [...new Set([...priority.filter(k => k in s), ...Object.keys(s)])].slice(0, 40);
   const trimmed = {};
   for (const k of keys) trimmed[k] = s[k];
@@ -331,6 +332,15 @@ function validChat(body) {
 
 const effortOf = (b) => (byok.LEVELS.includes(b?.effort) ? b.effort : undefined);
 const maxTokensOf = (b) => { const n = parseInt(b?.maxTokens, 10); return Number.isFinite(n) ? Math.max(1024, Math.min(n, 16384)) : undefined; };
+
+api.post('/sandbox/verify', requireAuth, rateLimit('sandbox', 30, 60), (req, res) => {
+  const b = req.body;
+  if (!b || typeof b !== 'object' || Array.isArray(b)) return res.status(400).json({ error: 'Ungültige Anfrage.' });
+  const expressions = Array.isArray(b.expressions) ? b.expressions.filter(x => typeof x === 'string') : [];
+  const equations = Array.isArray(b.equations) ? b.equations.filter(x => typeof x === 'string') : [];
+  const codeBlocks = Array.isArray(b.codeBlocks) ? b.codeBlocks.filter(x => (typeof x === 'string') || (x && typeof x === 'object' && typeof x.code === 'string')) : [];
+  res.json(verifyBatch({ expressions, equations, codeBlocks }));
+});
 
 api.post('/chat', requireAuth, rateLimit('chat', 20, 60), enforceSystemState, gate, async (req, res) => {
   if (!validChat(req.body)) return res.status(400).json({ error: 'Ungültige Anfrage.' });

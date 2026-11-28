@@ -351,6 +351,51 @@ export function mountMessageActions(ctx, toast) {
             const t = m.text; ctx.truncate(u); ctx.setInput(t); ctx.send();
         }));
         content.after(bar);
+        if (!isUser && row.dataset.failed !== '1') {
+            const refineRow = document.createElement('div');
+            refineRow.className = 'ma-refine-row';
+            const makeRefine = (iconName, label, promptBuilder) => {
+                const rb = document.createElement('button');
+                rb.type = 'button';
+                rb.className = 'ma-refine-btn';
+                rb.setAttribute('aria-label', label);
+                const icEl = document.createElement('span');
+                icEl.className = 'material-symbols-outlined';
+                icEl.setAttribute('aria-hidden', 'true');
+                icEl.textContent = iconName;
+                const txEl = document.createElement('span');
+                txEl.textContent = label;
+                rb.append(icEl, txEl);
+                rb.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const rows = rowsOf();
+                    const pos = rows.indexOf(row);
+                    const isLastAssistant = pos === rows.length - 1;
+                    const snippet = copyTextOf(textOf(row)).replace(/\s+/g, ' ').trim().slice(0, 220);
+                    const detail = promptBuilder({ isLastAssistant, snippet });
+                    document.dispatchEvent(new CustomEvent('codenFollowup', { detail }));
+                });
+                return rb;
+            };
+            refineRow.append(
+                makeRefine('compress', 'Kürzer', ({ isLastAssistant, snippet }) =>
+                    isLastAssistant
+                        ? 'Formuliere deine letzte Antwort deutlich kürzer und kompakter (nur die wichtigsten Kernpunkte).'
+                        : `Formuliere diesen Teil deiner früheren Antwort deutlich kürzer und kompakter:\n„${snippet}…“`
+                ),
+                makeRefine('lightbulb', 'Einfacher', ({ isLastAssistant, snippet }) =>
+                    isLastAssistant
+                        ? 'Erkläre deine letzte Antwort noch einfacher mit alltagsnahen Worten, Schritt für Schritt.'
+                        : `Erkläre diesen Teil deiner früheren Antwort noch einfacher mit alltagsnahen Worten:\n„${snippet}…“`
+                ),
+                makeRefine('format_list_bulleted', 'Mehr Beispiele', ({ isLastAssistant, snippet }) =>
+                    isLastAssistant
+                        ? 'Ergänze deine letzte Antwort mit 2–3 konkreten, leicht verständlichen Beispielen.'
+                        : `Ergänze zu diesem Teil deiner früheren Antwort 2–3 konkrete Beispiele:\n„${snippet}…“`
+                )
+            );
+            bar.after(refineRow);
+        }
     };
     const scan = () => {
         if (speakingRow && !speakingRow.isConnected) speech.stop();

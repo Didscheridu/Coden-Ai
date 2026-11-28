@@ -256,6 +256,11 @@ function buildQuiz(w, md) {
             b.append(letter, t);
             b.addEventListener('click', () => {
                 const ok = i === q.answer; if (ok) score++; else wrong.push(order[pos]);
+                try {
+                    document.dispatchEvent(new CustomEvent('codenLearningEvent', {
+                        detail: { kind: 'quiz', ok, topic: w.attrs.title || title || 'Quiz', item: q.q }
+                    }));
+                } catch (_) {}
                 opts.querySelectorAll('.qz-opt').forEach((x, k) => { x.disabled = true; if (k === q.answer) x.classList.add('right'); else if (k === i) x.classList.add('wrong'); else x.classList.add('dim'); });
                 fb.hidden = false; fb.className = 'qz-feedback ' + (ok ? 'ok' : 'bad');
                 const h = mk('div', 'qz-fb-head'); h.append(icon(ok ? 'check_circle' : 'cancel'), mk('b', '', ok ? pick(['Richtig!', 'Genau so!', 'Super, stimmt!', 'Perfekt!']) : pick(['Nicht ganz.', 'Knapp daneben.', 'Leider falsch.'])));
@@ -318,7 +323,28 @@ function buildCards(w, md) {
     nav.append(
         btn('chevron_left', '', () => { i = (i - 1 + order.length) % order.length; draw(); }),
         btn('shuffle', 'Mischen', () => { order = order.map(v => [Math.random(), v]).sort((a, b) => a[0] - b[0]).map(x => x[1]); i = 0; draw(); }),
-        btn('check', 'Gewusst', () => { known.add(order[i]); i = (i + 1) % order.length; draw(); }, 'qz-primary'),
+        btn('help_outline', 'Noch unsicher', () => {
+            const c = cards[order[i]];
+            known.delete(order[i]);
+            try {
+                document.dispatchEvent(new CustomEvent('codenLearningEvent', {
+                    detail: { kind: 'flashcard', ok: false, topic: w.attrs.title || 'Karteikarten', item: c?.front || '' }
+                }));
+            } catch (_) {}
+            i = (i + 1) % order.length;
+            draw();
+        }),
+        btn('check', 'Gewusst', () => {
+            const c = cards[order[i]];
+            known.add(order[i]);
+            try {
+                document.dispatchEvent(new CustomEvent('codenLearningEvent', {
+                    detail: { kind: 'flashcard', ok: true, topic: w.attrs.title || 'Karteikarten', item: c?.front || '' }
+                }));
+            } catch (_) {}
+            i = (i + 1) % order.length;
+            draw();
+        }, 'qz-primary'),
         btn('chevron_right', '', () => { i = (i + 1) % order.length; draw(); })
     );
     box.append(head, card, mk('small', 'fc-tip', 'Tippe auf die Karte zum Umdrehen'), nav); draw(); return box;

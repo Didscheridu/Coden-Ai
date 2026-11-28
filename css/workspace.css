@@ -558,3 +558,121 @@ body.sw-resizing { user-select: none; cursor: col-resize; }
 button.cw-br-prod { width: 100%; text-align: left; cursor: pointer; font: inherit; font-size: 13px; color: inherit; }
 button.cw-br-prod:hover { border-color: var(--accent-blue); }
 .cw-br-actions .qz-ghost { text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+
+/* ---------- Tutor-Modus-Schalter im Composer ---------- */
+.tutor-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 9px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-secondary);
+  font: 500 13px var(--font-main);
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+.tutor-toggle-btn .material-symbols-outlined { font-size: 17px; }
+.tutor-toggle-btn:hover { background: rgba(255, 255, 255, 0.06); color: var(--text-primary); }
+.tutor-toggle-btn.on {
+  background: rgba(138, 180, 248, 0.14);
+  border-color: var(--accent-blue, #8ab4f8);
+  color: var(--accent-blue, #8ab4f8);
+}
+[data-theme="light"] .tutor-toggle-btn:hover { background: rgba(15, 23, 42, 0.05); }
+[data-theme="light"] .tutor-toggle-btn.on {
+  background: rgba(26, 115, 232, 0.1);
+  border-color: #1a73e8;
+  color: #1a73e8;
+}
+
+/* ---------- Schnelle Steuerungs-Buttons unter KI-Antworten ---------- */
+.ma-refine-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.ma-refine-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-secondary);
+  font: 500 12.5px var(--font-main);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.ma-refine-btn .material-symbols-outlined { font-size: 16px; }
+.ma-refine-btn:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: var(--accent-blue, #8ab4f8);
+  color: var(--text-primary);
+}
+[data-theme="light"] .ma-refine-btn:hover { background: rgba(15, 23, 42, 0.05); }
+
+/* ---------- Dezente ungerahmte Metazeile (Auto-Router & Verifikation) ---------- */
+.ai-intel-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Lernprofil & Schwachstellen in den Einstellungen ---------- */
+.lp-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 600px) {
+  .lp-grid { grid-template-columns: 1fr; }
+}
+.weak-ui {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.weak-empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.weak-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
+}
+[data-theme="light"] .weak-row { background: #f8fafc; }
+.weak-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.weak-title { font-size: 13.5px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.weak-meta { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.weak-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.weak-actions button { white-space: nowrap; min-height: 36px; }
+

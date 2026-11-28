@@ -329,15 +329,22 @@
                                 <span class="material-symbols-outlined">graphic_eq</span>
                                 <span id="live-status-indicator">Live</span>
                             </button>
+                            <button type="button" id="tutor-mode-btn" class="tutor-toggle-btn" aria-pressed="false" title="Tutor-Modus: Schrittweise Denkanstöße statt sofortiger Komplettlösung">
+                                <span class="material-symbols-outlined" aria-hidden="true">school</span>
+                                <span>Tutor</span>
+                            </button>
                         </div>
                         <div class="right-tools">
                             <div class="model-dropdown-container" style="position: relative;">
                                 <button type="button" class="text-btn" id="model-selector-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="model-dropdown-menu">
-                                    <span id="current-model-text">Coden Flash</span> 
+                                    <span id="current-model-text">Auto</span> 
                                     <span class="material-symbols-outlined">expand_more</span>
                                 </button>
                                 <div class="model-dropdown-menu hidden" id="model-dropdown-menu" role="menu" aria-label="KI-Modell auswählen">
-                                    <div class="model-option active" data-model="flash" id="flash-mode-option">
+                                    <div class="model-option active" data-model="auto" id="auto-mode-option" title="Wählt je nach Frage automatisch zwischen Flash, Thinking und Pro">
+                                        <span class="material-symbols-outlined">auto_mode</span> <span class="name">Auto (Empfohlen)</span>
+                                    </div>
+                                    <div class="model-option" data-model="flash" id="flash-mode-option">
                                         <span class="material-symbols-outlined">bolt</span> <span class="name">Coden Flash</span>
                                     </div>
                                     <div class="model-option" data-model="normal" id="thinking-mode-option">
@@ -434,6 +441,33 @@
                             <option value="balanced">Ausgewogen (natürlich &amp; schülerfreundlich)</option>
                             <option value="strong">Stark &amp; locker (freie Alltagssprache)</option>
                         </select>
+                        <h4 style="margin-top: 26px;">Lern- &amp; Antwortprofil</h4>
+                        <p class="settings-hint">Coden passt Erklärungen, Sprachniveau und Beispiele dauerhaft an dein Profil an.</p>
+                        <div class="lp-grid">
+                            <div>
+                                <label for="lp-grade">Klassenstufe / Niveau</label>
+                                <input type="text" id="lp-grade" class="settings-input" maxlength="60" placeholder="z. B. 10. Klasse Gymnasium, Abitur, Studium">
+                            </div>
+                            <div>
+                                <label for="lp-depth">Erklärungstiefe</label>
+                                <select id="lp-depth" class="settings-input">
+                                    <option value="einfach">Besonders einfach &amp; anschaulich</option>
+                                    <option value="ausgewogen">Ausgewogen (Standard)</option>
+                                    <option value="tief">Tiefgehend &amp; fachlich präzise</option>
+                                </select>
+                            </div>
+                        </div>
+                        <label for="lp-subjects" style="margin-top: 10px; display: block;">Fächer / Schwerpunkte (mit Komma getrennt)</label>
+                        <input type="text" id="lp-subjects" class="settings-input" maxlength="200" placeholder="z. B. Mathe, Physik, Englisch, Informatik">
+                        <label for="lp-goal" style="margin-top: 10px; display: block;">Aktuelles Lernziel</label>
+                        <input type="text" id="lp-goal" class="settings-input" maxlength="160" placeholder="z. B. Mathe-Klausur am Freitag, besseres Referat">
+                        <h4 style="margin-top: 26px;">KI-Zuverlässigkeit &amp; Gedächtnis</h4>
+                        <label class="st-check"><input type="checkbox" id="ai-pref-selfcheck" checked> Mathe, Logik &amp; Code automatisch nachrechnen und selbst prüfen</label>
+                        <label class="st-check"><input type="checkbox" id="ai-pref-pastchats" checked> Frühere Chats automatisch nach passendem Vorwissen durchsuchen</label>
+                        <label class="st-check"><input type="checkbox" id="ai-pref-factcheck" checked> Sichere Fakten und Restunsicherheiten kurz kennzeichnen</label>
+                        <h4 style="margin-top: 26px;">Schwachstellen aus Quiz &amp; Karteikarten</h4>
+                        <p class="settings-hint">Themen, bei denen du unsicher warst, merkt sich Coden automatisch zum gezielten Wiederholen.</p>
+                        <div id="weak-topics-ui" class="weak-ui"></div>
                     </section>
                     <section class="st-pane hidden" data-pane="assistants">
                         <h4>Eigene Assistenten</h4>

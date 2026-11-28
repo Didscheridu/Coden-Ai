@@ -51,6 +51,18 @@ import { mountStartpageOverview } from './startpage-overview.js';
 import { Onboarding } from './onboarding.js';
 import { ResearchLib } from './research-lib.js';
 import { parseResearchReads, hideResearchTags, reportForModel, attachmentBlock } from './research-lib-core.js';
+import {
+    routeModelForPrompt, searchPastChats, formatPastChatsPrompt,
+    normalizeLearningProfile, learningProfilePrompt,
+    normalizeWeakTopics, recordLearningOutcome, weakTopicsPrompt,
+    tutorModePrompt, factConfidencePrompt, normalizeAiPrefs,
+    needsAutoSelfCheck, extractMathAndCodeForVerify, buildSelfCheckPrompt,
+    TIER_DISPLAY
+} from './ai-intel.js';
+import {
+    extractPdfTextPages, chunkDocumentPages, chunkLongText,
+    retrieveDocumentChunks, parseDocReadRequests, fulfillDocReads
+} from './pdf-chunker.js';
 
 // ==========================================
 // 🏗️ 1. ALLE DOM-ELEMENTE
@@ -103,10 +115,11 @@ let activeSessionId = null;
 let appInitialized = false;
 
 let pendingAttachments = []; // Speichert unsere angehängten Dateien temporär
+const sessionDocs = new Map(); // Chat-ID -> zerlegte PDF/Langtext-Dokumente
 
 let isOwner = false;
 let globalLockedModels = { pro: false, thinking: false, ultra: true }; // Ultra ist standardmäßig gesperrt
-let currentSelectedModel = 'flash';
+let currentSelectedModel = 'auto';
 let pinnedModel = null; // { key, label, keep } – per /modelle gewählt; gilt für die nächste Anfrage (oder dauerhaft bei „bleiben“)
 let modelList = [];
 
@@ -493,6 +506,7 @@ function forceModelChange(newModel, msg) {
         opt.classList.add('active');
         setModelLabel(opt.querySelector('.name').textContent);
     }
+    syncEffortRow(newModel);
     if (!isOwner) UI.appendMessage(msg, false);
 }
 
@@ -545,8 +559,8 @@ function initApp() {
                     if (multimodalLive.isSessionActive) {
                         multimodalLive.stopSession(liveCallBtn, liveStatusIndicator);
                     } else {
-                        if (!currentSelectedModel.includes('flash')) {
-                            toast('Der Live-Sprachmodus braucht Coden Flash. Wechsle unten rechts das Modell.', { type: 'warn' });
+                        if (currentSelectedModel !== 'auto' && !currentSelectedModel.includes('flash')) {
+                            toast('Der Live-Sprachmodus braucht Auto oder Coden Flash. Wechsle unten rechts das Modell.', { type: 'warn' });
                             return;
                         }
                         // 🔥 NEU: Wir übergeben das Gedächtnis an den Anruf!
@@ -1063,6 +1077,16 @@ function openSettings() {
     const hzSt = document.getElementById('hz-pref-study'); if (hzSt) hzSt.checked = hz.study;
     const hzCh = document.getElementById('hz-pref-chat'); if (hzCh) hzCh.checked = hz.chat;
     const hzStr = document.getElementById('hz-pref-strength'); if (hzStr) hzStr.value = hz.strength;
+    const lp = normalizeLearningProfile(s.learningProfile);
+    const lpGrade = document.getElementById('lp-grade'); if (lpGrade) lpGrade.value = lp.grade;
+    const lpDepth = document.getElementById('lp-depth'); if (lpDepth) lpDepth.value = lp.depth;
+    const lpSubjects = document.getElementById('lp-subjects'); if (lpSubjects) lpSubjects.value = lp.subjects.join(', ');
+    const lpGoal = document.getElementById('lp-goal'); if (lpGoal) lpGoal.value = lp.goal;
+    const ap = normalizeAiPrefs(s.aiPrefs);
+    const apSc = document.getElementById('ai-pref-selfcheck'); if (apSc) apSc.checked = ap.selfCheck;
+    const apPc = document.getElementById('ai-pref-pastchats'); if (apPc) apPc.checked = ap.pastChatMemory;
+    const apFc = document.getElementById('ai-pref-factcheck'); if (apFc) apFc.checked = ap.factCheck;
+    renderWeakTopicsUI();
 
     if (s.emailConfig) {
         if (document.getElementById('email-provider')) document.getElementById('email-provider').value = s.emailConfig.provider || 'gmail';
@@ -1073,6 +1097,59 @@ function openSettings() {
     renderUsage(document.getElementById('usage-box'));
     drawPushToggle();
     openByokSettings(document.getElementById('byok-box'));
+}
+
+function renderWeakTopicsUI() {
+    const host = document.getElementById('weak-topics-ui');
+    if (!host) return;
+    const list = normalizeWeakTopics(Storage.getSettings().weakTopics);
+    host.replaceChildren();
+    if (!list.length) {
+        const p = document.createElement('p');
+        p.className = 'weak-empty';
+        p.textContent = 'Noch keine Schwachstellen gespeichert – beantworte Quizze oder Karteikarten, dann merkt sich Coden schwierige Themen hier.';
+        host.append(p);
+        return;
+    }
+    list.forEach((w) => {
+        const row = document.createElement('div');
+        row.className = 'weak-row';
+        const info = document.createElement('div');
+        info.className = 'weak-info';
+        const ttl = document.createElement('span');
+        ttl.className = 'weak-title';
+        ttl.textContent = w.topic;
+        const meta = document.createElement('span');
+        meta.className = 'weak-meta';
+        meta.textContent = `${w.source === 'flashcard' ? 'Karteikarten' : 'Quiz'} · ${w.misses}× unsicher${w.subject ? ' · ' + w.subject : ''}`;
+        info.append(ttl, meta);
+
+        const acts = document.createElement('div');
+        acts.className = 'weak-actions';
+        const prac = document.createElement('button');
+        prac.type = 'button';
+        prac.className = 'qz-primary';
+        prac.textContent = 'Jetzt üben';
+        prac.addEventListener('click', () => {
+            settingsModal?.classList.add('hidden');
+            Router.go('chat');
+            const prompt = `Hilf mir gezielt beim Thema „${w.topic}“${w.sample ? ` (ich war u. a. unsicher bei: „${w.sample}“)` : ''}. Erkläre kurz das Wichtigste und gib mir ein kurzes Übungs-Quiz dazu.`;
+            document.dispatchEvent(new CustomEvent('codenFollowup', { detail: prompt }));
+        });
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'qz-ghost';
+        del.textContent = 'Abhaken';
+        del.addEventListener('click', () => {
+            const st = Storage.getSettings();
+            st.weakTopics = normalizeWeakTopics(st.weakTopics).filter(x => x.topic.toLowerCase() !== w.topic.toLowerCase());
+            Storage.saveSettings(st);
+            renderWeakTopicsUI();
+        });
+        acts.append(prac, del);
+        row.append(info, acts);
+        host.append(row);
+    });
 }
 
 // Einstellungen speichern & laden
@@ -1125,6 +1202,17 @@ if (document.getElementById('save-settings')) {
                 ...(hzStr ? { strength: hzStr.value } : {})
             });
         }
+        s.learningProfile = normalizeLearningProfile({
+            grade: document.getElementById('lp-grade')?.value || '',
+            depth: document.getElementById('lp-depth')?.value || 'ausgewogen',
+            subjects: document.getElementById('lp-subjects')?.value || '',
+            goal: document.getElementById('lp-goal')?.value || ''
+        });
+        s.aiPrefs = normalizeAiPrefs({
+            selfCheck: document.getElementById('ai-pref-selfcheck')?.checked !== false,
+            pastChatMemory: document.getElementById('ai-pref-pastchats')?.checked !== false,
+            factCheck: document.getElementById('ai-pref-factcheck')?.checked !== false
+        });
         s.emailConfig = { 
             provider: document.getElementById('email-provider') ? document.getElementById('email-provider').value : 'gmail', 
             address: document.getElementById('email-address') ? document.getElementById('email-address').value.trim() : '', 
@@ -1641,6 +1729,32 @@ function truncateChat(i) {
 }
 mountMessageActions({ session: () => currentSession, truncate: truncateChat, setInput: (t) => { if (chatInput) { chatInput.value = t; chatInput.dispatchEvent(new Event('input', { bubbles: true })); chatInput.focus(); } }, send: () => handleSend() }, toast);
 mountDictation(document.getElementById('mic-btn'), chatInput, toast);
+
+const tutorModeBtn = document.getElementById('tutor-mode-btn');
+const syncTutorBtn = () => {
+    if (!tutorModeBtn) return;
+    const on = Storage.getSettings().tutorMode === true;
+    tutorModeBtn.classList.toggle('on', on);
+    tutorModeBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+};
+syncTutorBtn();
+tutorModeBtn?.addEventListener('click', () => {
+    const s = Storage.getSettings();
+    s.tutorMode = !(s.tutorMode === true);
+    Storage.saveSettings(s);
+    syncTutorBtn();
+    toast(s.tutorMode
+        ? 'Tutor-Modus AN: Coden hilft zuerst mit kleinen Denkanstößen statt direkt die Lösung zu verraten.'
+        : 'Tutor-Modus AUS: Normale direkte Antworten.', { type: 'info' });
+});
+document.addEventListener('codenLearningEvent', (e) => {
+    const d = e.detail;
+    if (!d || typeof d !== 'object') return;
+    const s = Storage.getSettings();
+    s.weakTopics = recordLearningOutcome(s.weakTopics, d);
+    Storage.saveSettings(s);
+    if (!settingsModal?.classList.contains('hidden')) renderWeakTopicsUI();
+});
 document.getElementById('export-chat-btn')?.addEventListener('click', () => {
     document.getElementById('tb-more-menu')?.classList.add('hidden');
     document.getElementById('tb-more-btn')?.setAttribute('aria-expanded', 'false');
@@ -1712,6 +1826,24 @@ async function handleIncomingFiles(files) {
         if (file.size > maxBytes) { toast(`${file.name} ist zu groß (höchstens ${maxMbLabel} MB).`, { type: 'warn' }); continue; }
         let bytes;
         try { bytes = new Uint8Array(await file.arrayBuffer()); } catch (err) { toast(`${file.name} konnte nicht gelesen werden.`, { type: 'error' }); continue; }
+        const isPdfMagic = bytes.length >= 5 && String.fromCharCode(...bytes.subarray(0, 5)) === '%PDF-';
+        if ((/\.pdf$/i.test(file.name) || file.type === 'application/pdf') && isPdfMagic) {
+            try {
+                toast(`PDF „${file.name}“ wird in Abschnitte zerlegt …`, { type: 'info', ms: 2200 });
+                const pages = await extractPdfTextPages(bytes);
+                if (!pages.length) {
+                    toast(`„${file.name}“ enthält keinen direkt lesbaren Text (z. B. reiner Scan). Mache ein Foto einer Seite oder lade sie ins Lernheft.`, { type: 'warn', ms: 5000 });
+                    continue;
+                }
+                const doc = chunkDocumentPages(pages, { title: file.name });
+                pendingAttachments.push({ type: 'doc', name: file.name, doc });
+                renderAttachmentPreviews();
+                toast(`PDF zerlegt: ${doc.pageCount} Seite${doc.pageCount === 1 ? '' : 'n'} in ${doc.chunks.length} Abschnitten bereit.`, { type: 'ok' });
+            } catch (err) {
+                toast(`PDF „${file.name}“ konnte nicht gelesen werden: ${err.message}`, { type: 'error' });
+            }
+            continue;
+        }
         const v = window.CodenUpload.inspect({ name: file.name, size: file.size, bytes, type: file.type });
         if (!v.ok) { toast(`🛡️ ${v.name || file.name}: ${v.reason}`, { type: 'error' }); continue; }
         if (v.kind === 'image') {
@@ -1719,7 +1851,13 @@ async function handleIncomingFiles(files) {
             if (!data) { toast(`${file.name} ist nach der Komprimierung noch zu groß oder konnte nicht gelesen werden.`, { type: 'error' }); continue; }
             pendingAttachments.push({ type: 'image', name: v.name, data });
         } else {
-            pendingAttachments.push({ type: 'text', name: v.name, content: new TextDecoder('utf-8').decode(bytes) });
+            const decoded = new TextDecoder('utf-8').decode(bytes);
+            if (decoded.length > 14000) {
+                const doc = chunkLongText(decoded, { title: v.name });
+                pendingAttachments.push({ type: 'doc', name: v.name, doc });
+            } else {
+                pendingAttachments.push({ type: 'text', name: v.name, content: decoded });
+            }
         }
         renderAttachmentPreviews();
     }
@@ -1786,14 +1924,17 @@ function renderAttachmentPreviews() {
         } else {
             const docIcon = document.createElement('span');
             docIcon.className = 'material-symbols-outlined';
-            docIcon.innerText = att.type === 'research' ? 'travel_explore' : 'description';
+            docIcon.innerText = att.type === 'research' ? 'travel_explore' : att.type === 'doc' ? 'picture_as_pdf' : 'description';
             if (att.type === 'research') attDiv.title = 'Research-Bericht: ' + att.name;
+            if (att.type === 'doc') attDiv.title = `${att.name} (${att.doc.pageCount} Seiten · ${att.doc.chunks.length} Abschnitte)`;
             docIcon.style.fontSize = '24px';
             docIcon.style.color = 'var(--accent-blue)';
             docIcon.style.display = 'block';
 
             const nameSpan = document.createElement('span');
-            nameSpan.innerText = att.name.length > 10 ? att.name.substring(0, 8) + '...' : att.name;
+            nameSpan.innerText = att.type === 'doc'
+                ? `${att.name.slice(0, 8)} (${att.doc.pageCount}S)`
+                : (att.name.length > 10 ? att.name.substring(0, 8) + '...' : att.name);
             nameSpan.style.fontSize = '10px';
             nameSpan.style.display = 'block';
             nameSpan.style.color = 'var(--text-secondary)';
@@ -1861,7 +2002,8 @@ function renderAttachmentPreviews() {
 // ==========================================
 // Bild-Befehl der KI: <generate_image prompt="…"/>
 const IMAGE_TAG = /<generate_image\s+([^>]*?)\/?>/gi;
-const hideImageTags = (t) => hideResearchTags(hideBrowserToolTags(hideNotebookTags(WebSearch.strip(Skills.hide(Personal.hide(ChatApps.hide(hideCalls(String(t || '').replace(/<generate_image\s+[^>]*?\/?>/gi, '').replace(/<generate_image[^>]*$/i, '')))))))));
+const hideDocTags = (t) => String(t || '').replace(/<doc_read\s+[^>]*?\/?>(?:<\/doc_read>)?/gi, '').replace(/<doc_read[^>]*$/i, '');
+const hideImageTags = (t) => hideDocTags(hideResearchTags(hideBrowserToolTags(hideNotebookTags(WebSearch.strip(Skills.hide(Personal.hide(ChatApps.hide(hideCalls(String(t || '').replace(/<generate_image\s+[^>]*?\/?>/gi, '').replace(/<generate_image[^>]*$/i, ''))))))))));
 // ---------- Live-Anzeige je Chat ----------
 // Eine laufende Antwort gehört zu einem Chat, nicht zum Bildschirm: wechselt der Nutzer den Chat und kommt zurück,
 // wird die Anzeige mit dem aktuellen Stand neu aufgebaut. Die Antwort selbst läuft auf dem Server weiter.
@@ -2061,8 +2203,15 @@ async function handleSend() {
     if (pendingAttachments.length > 0) {
         const escAtt = (s) => String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         const MAX_TEXT_PROMPT_CHARS = 1_200_000;
+        const docsList = sessionDocs.get(currentSession.id) || [];
+        const newDocs = [];
         pendingAttachments.forEach(att => {
-            if (att.type === 'text') {
+            if (att.type === 'doc' && att.doc) {
+                docsList.push(att.doc);
+                if (docsList.length > 5) docsList.shift();
+                newDocs.push(att.doc);
+                displayMessage += `\n\n<div style="display:inline-block; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); padding:4px 10px; border-radius:12px; font-size:12px; margin-top:8px;">📄 <b>Dokument zerlegt:</b> <code>${escAtt(att.name)}</code> · ${att.doc.pageCount} Seite(n)</div>`;
+            } else if (att.type === 'text') {
                 const body = att.content.length > MAX_TEXT_PROMPT_CHARS
                     ? att.content.slice(0, MAX_TEXT_PROMPT_CHARS) + '\n\n[… Rest der Datei für den Chat-Versand gekürzt …]'
                     : att.content;
@@ -2077,6 +2226,11 @@ async function handleSend() {
                 attachedImages.push(att.data); 
             }
         });
+        if (docsList.length) sessionDocs.set(currentSession.id, docsList);
+        if (newDocs.length) {
+            const ret = retrieveDocumentChunks(newDocs, rawText || 'Überblick und wichtigste Punkte');
+            internalPrompt += `\n\n[INTELLIGENT ZERLEGTES DOKUMENT – INHALTSÜBERSICHT & PASSENDE STELLEN]\n${ret.tocText}\n\n${ret.snippetsText}\n(Nutze bei Bedarf <doc_read doc="Dateiname" pages="X-Y"/> für weitere Seiten und zitiere Seitenzahlen als [Seite X].)`;
+        }
     }
 
     chatInput.value = ''; 
@@ -2152,7 +2306,8 @@ async function handleSend() {
         let lastCodeBlock = ""; const allCodeBlocks = currentSession.messages.map(m => m.text.match(/```[\s\S]*?```/g)).flat().filter(Boolean); if (allCodeBlocks.length > 0) lastCodeBlock = allCodeBlocks[allCodeBlocks.length - 1];
         const emailPrompt = `DU BIST EIN UNSICHTBARER E-MAIL-GENERATOR. 1. Sprich NICHT mit dem Nutzer. 2. Absender heißt: "${userName}". 3. Code: ${lastCodeBlock || "Kein Code."} Anfrage: "${text}" Format: [TO]: \n[SUBJECT]: \n[BODY]: `;
         try {
-            const resText = await generateAiResponse([{ role: 'user', content: emailPrompt }], currentSelectedModel);
+            const emailTier = currentSelectedModel === 'auto' ? 'flash' : currentSelectedModel;
+            const resText = await generateAiResponse([{ role: 'user', content: emailPrompt }], emailTier);
             let emailTo = resText.match(/\[TO\]:\s*(.*)/i)?.[1].trim() || ''; const emailSubject = resText.match(/\[SUBJECT\]:\s*(.*)/i)?.[1].trim() || ''; const emailBody = resText.split(/\[BODY\]:/i)[1]?.trim() || resText.trim(); 
             emailTo = emailTo.replace(/[<>]/g, '').trim(); const exEmail = emailTo.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/); if(exEmail) emailTo = exEmail[0]; 
             document.getElementById('email-recipient').value = emailTo; document.getElementById('email-subject').value = emailSubject; document.getElementById('email-draft-output').value = emailBody;
@@ -2188,15 +2343,50 @@ async function handleSend() {
           const hasImg = (context[context.length - 1]?.images || []).length > 0;
           if (localStorage.getItem('coden_hw_mode') === '1' || handwritingRequested(text)) hwExtra += '\n' + forceHandwritingPrompt({ withImage: hasImg });
       } catch (_) { /* ohne Handschrift weiter */ }
+      const settingsNow = Storage.getSettings();
+      const aiPrefs = normalizeAiPrefs(settingsNow.aiPrefs);
+      const lpExtra = learningProfilePrompt(settingsNow.learningProfile);
+      const weakExtra = sessionAtSend.temp ? '' : weakTopicsPrompt(settingsNow.weakTopics);
+      const tutorExtra = tutorModePrompt(settingsNow.tutorMode === true);
+      const factExtra = factConfidencePrompt(aiPrefs.factCheck);
+      const pastHits = (!sessionAtSend.temp && aiPrefs.pastChatMemory)
+          ? searchPastChats(sessions, sessionAtSend.id, text)
+          : [];
+      const pastExtra = formatPastChatsPrompt(pastHits);
+      const activeSessDocs = sessionDocs.get(sessionAtSend.id) || [];
+      const followDocExtra = activeSessDocs.length && !pendingAttachments.some(a => a.type === 'doc')
+          ? (() => {
+              const ret = retrieveDocumentChunks(activeSessDocs, text, { maxChunks: 4, maxChars: 6500 });
+              return ret.snippetsText ? `\n[RELEVANTE ABSCHNITTE AUS DEN ZERLEGTEN DOKUMENTEN DIESES CHATS]\n${ret.tocText}\n\n${ret.snippetsText}\n` : '';
+          })()
+          : '';
       const hzExtra = getAutoHumanizerPrompt('chat');
-      const systemPrompt = buildChatPrompt({ userName, extras: `${sessionAtSend.temp ? '' : StudyStore.context()}${nbExtra ? '\n' + nbExtra : ''}${hwExtra ? '\n' + hwExtra : ''}${hzExtra ? '\n' + hzExtra : ''}\n${MCP.prompt()}${ChatApps.prompt()}${personal}${Assistants.prompt(sessionAtSend.assistantId)}${skillInfo.text}${researchOn ? '' : WebSearch.prompt()}${researchExtra}${proj.text}` });
+      const routed = routeModelForPrompt({
+          text,
+          hasImages: attachedImages.length > 0,
+          hasAttachments: activeSessDocs.length > 0 || internalPrompt.includes('[Inhalt der angehängten Datei:'),
+          isOwner,
+          lockedModels: globalLockedModels,
+          historyCount: context.length,
+          selectedTier: pinnedModel ? 'flash' : currentSelectedModel
+      });
+      const effectiveTier = pinnedModel
+          ? (currentSelectedModel === 'auto' ? 'flash' : currentSelectedModel)
+          : routed.tier;
+      if (routed.auto) {
+          initialLive.think({ h: `Auto-Router: ${TIER_DISPLAY[effectiveTier] || effectiveTier}`, v: routed.reason || '' });
+      }
+      if (pastHits.length) {
+          initialLive.think({ h: `Frühere Chats durchsucht (${pastHits.length} Treffer)`, v: pastHits.map(h => h.title).join(', ') });
+      }
+      const systemPrompt = buildChatPrompt({ userName, extras: `${lpExtra}${weakExtra}${tutorExtra}${factExtra}${pastExtra}${followDocExtra}${sessionAtSend.temp ? '' : StudyStore.context()}${nbExtra ? '\n' + nbExtra : ''}${hwExtra ? '\n' + hwExtra : ''}${hzExtra ? '\n' + hzExtra : ''}\n${MCP.prompt()}${ChatApps.prompt()}${personal}${Assistants.prompt(sessionAtSend.assistantId)}${skillInfo.text}${researchOn ? '' : WebSearch.prompt()}${researchExtra}${proj.text}` });
       context.unshift({ role: 'system', content: systemPrompt });
 
       Storage.syncNow(); // Frage sofort sichern, damit andere Geräte sie sehen
       // Eine Antwort = eine Nachricht (wie bei Claude): Werkzeug-Aufrufe und nachgeladene Skills erscheinen als Schritte
       // mitten in derselben Nachricht, der Text läuft danach weiter. shownPrefix = schon fertige Teile.
       const live = initialLive;
-      let shownPrefix = '', ended = false;
+      let shownPrefix = '', ended = false, verifiedOnce = false;
       const sources = []; // Treffer aller Websuchen dieser Antwort, fortlaufend nummeriert
       const cite = (t) => (sources.length ? WebSearch.cite(t, sources) : t);
       const withPrefix = (t) => [shownPrefix, t].filter(x => String(x || '').trim()).join('\n\n');
@@ -2204,7 +2394,7 @@ async function handleSend() {
         aiResponse = '';
         let extra = {};
         try {
-            aiResponse = await runAiResponse(context, currentSelectedModel, { research: researchOn && round === 0, depth: Research.depth(), ref: sessionAtSend.id, meta: { title: sessionAtSend.title, userText: text.slice(0, 2000), temp: !!sessionAtSend.temp }, signal: ac.signal, model: pinnedModel?.key, effort: isByokTier(currentSelectedModel) ? byokEffort(currentSelectedModel) : undefined, onExtra: (x) => { extra = { ...extra, ...x }; }, onThink: (k) => live.think(k), onModel: (m) => live.model(m), onDelta: (t) => { aiResponse = t; live.update(withPrefix(cite(hideImageTags(t)))); } });
+            aiResponse = await runAiResponse(context, effectiveTier, { research: researchOn && round === 0, depth: Research.depth(), ref: sessionAtSend.id, meta: { title: sessionAtSend.title, userText: text.slice(0, 2000), temp: !!sessionAtSend.temp }, signal: ac.signal, model: pinnedModel?.key, effort: isByokTier(effectiveTier) ? byokEffort(effectiveTier) : undefined, onExtra: (x) => { extra = { ...extra, ...x }; }, onThink: (k) => live.think(k), onModel: (m) => live.model(m), onDelta: (t) => { aiResponse = t; live.update(withPrefix(cite(hideImageTags(t)))); } });
             if (researchOn && round === 0) ResearchLib.bust(); // Deep Research landet auch in der Research-Bibliothek
             lastRaw = aiResponse;
             // Websuche (wie bei Claude): <web_search>…</web_search> → suchen, Treffer nummeriert zurückgeben, weiter in derselben Nachricht
@@ -2265,6 +2455,18 @@ async function handleSend() {
                 shownPrefix = withPrefix(toolStep({ tool: 'Notizbuch ansehen', src: nbRes.srcLabel, note: nbRes.noteLabel, result: nbRes.detailsText, err: nbRes.err, icon: 'auto_stories' }));
                 live.update(shownPrefix);
                 context.push({ role: 'user', content: nbRes.modelPrompt, ...(nbRes.images.length ? { images: nbRes.images } : {}) });
+                aiResponse = '';
+                continue;
+            }
+            // Zerlegtes PDF / Langdokument-Seiten nachladen (<doc_read doc="..." pages="..."/>)
+            const docReqs = round < 5 && !parseCall(aiResponse) && activeSessDocs.length ? parseDocReadRequests(aiResponse) : [];
+            if (docReqs.length) {
+                context.push({ role: 'assistant', content: aiResponse.trim() });
+                shownPrefix = withPrefix(cite(preText));
+                const pagesText = fulfillDocReads(activeSessDocs, docReqs);
+                shownPrefix = withPrefix(toolStep({ tool: 'Dokument lesen', src: docReqs.map(r => r.pages ? `S. ${r.pages}` : r.doc || 'Dokument').join(', '), note: pagesText ? 'Abschnitt geladen' : 'nicht gefunden', err: !pagesText, icon: 'picture_as_pdf' }));
+                live.update(shownPrefix);
+                context.push({ role: 'user', content: pagesText || 'Die angeforderten Seiten wurden nicht gefunden. Nutze die bereits geladenen Abschnitte.' });
                 aiResponse = '';
                 continue;
             }
@@ -2363,6 +2565,36 @@ async function handleSend() {
                         aiResponse = '';
                         continue;
                     }
+                }
+                if (!verifiedOnce && round < 5 && done.text.trim() && needsAutoSelfCheck(text, done.text, aiPrefs)) {
+                    verifiedOnce = true;
+                    live.think({ h: 'Prüfe Rechnung & Code …', v: 'Rechne Zahlen & Code in der Sandbox nach' });
+                    try {
+                        const extracted = extractMathAndCodeForVerify(done.text);
+                        let sandboxReport = null;
+                        if (extracted.equations.length || extracted.codeBlocks.length) {
+                            sandboxReport = await apiJson('/sandbox/verify', {
+                                method: 'POST',
+                                body: JSON.stringify(extracted)
+                            }).catch(() => null);
+                        }
+                        const checkPrompt = buildSelfCheckPrompt({ userText: text, draftText: done.text, sandboxReport });
+                        const checkOut = await generateAiResponse([
+                            ...context,
+                            { role: 'assistant', content: done.text },
+                            { role: 'user', content: checkPrompt }
+                        ], effectiveTier).catch(() => '[VERIFIED_OK]');
+                        const trimmedCheck = String(checkOut || '').trim();
+                        if (trimmedCheck && !/\[VERIFIED_OK\]/i.test(trimmedCheck) && trimmedCheck.length >= 30) {
+                            done.text = hideImageTags(trimmedCheck);
+                            live.update(withPrefix(cite(done.text)));
+                        }
+                        const hasSandbox = !!(sandboxReport && (sandboxReport.mathResults?.length || sandboxReport.codeResults?.length));
+                        live.think({
+                            h: hasSandbox ? 'Rechnung & Code geprüft' : 'Logik selbst geprüft',
+                            v: sandboxReport?.discrepancies?.length ? 'Abweichung erkannt und korrigiert' : 'Prüfung abgeschlossen'
+                        });
+                    } catch (_) { /* Fallback: ursprüngliche Antwort behalten */ }
                 }
                 aiResponse = withPrefix(cite(done.text)); ended = true;
                 if (!aiResponse.trim()) {
