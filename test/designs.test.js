@@ -75,6 +75,10 @@ const { setup } = require('./helpers');
   const doc = DC.frameDoc({ head: '<style>h1{}</style>', body: '<section data-slide>X</section>', format: 'square', lib: 'LIB', mode: 'edit' });
   chk('Frame: CSP, Tailwind, Größe, Canva-Brücke', [/Content-Security-Policy/.test(doc), /cdn\.tailwindcss\.com/.test(doc), /"w":1080,"h":1080/.test(doc), /codenDesign/.test(doc), /cd-rot/.test(doc), /cd-gx/.test(doc), doc.includes('LIB')], [true, true, true, true, true, true, true]);
   chk('Frame: CSP erlaubt keine fremden Skripte außer Tailwind', /script-src 'unsafe-inline' https:\/\/cdn\.tailwindcss\.com;/.test(doc), true);
+  const docLocal = DC.frameDoc({ head: '', body: '<section data-slide>X</section>', format: 'story', mode: 'view', assets: 'https://coden-ai.vercel.app' });
+  chk('Frame: Tailwind lokal von Coden statt CDN (iPad-Fix)', [docLocal.includes('<script src="https://coden-ai.vercel.app/js/vendor/tailwind-browser.js">'), /cdn\.tailwindcss\.com/.test(docLocal), /script-src 'unsafe-inline' https:\/\/coden-ai\.vercel\.app;/.test(docLocal)], [true, false, true]);
+  chk('Frame: unsichere Asset-Adresse → Rückfall aufs CDN', /cdn\.tailwindcss\.com/.test(DC.frameDoc({ body: 'x', assets: 'javascript:alert(1)//' })), true);
+  chk('Tailwind-Datei liegt bei', require('fs').statSync(path.join(__dirname, '../js/vendor/tailwind-browser.js')).size > 200000, true);
   chk('Dateinamen für Export (PNG & JPG)', [DC.exportName('Sommer: Sale!', 2, 5), DC.exportName('', 1, 1), DC.exportName('Banner', 1, 1, 'jpg')], ['Sommer-Sale-2-von-5.png', 'Coden-Design.png', 'Banner.jpg']);
   chk('Bild-Prompt kürzen/säubern', DC.cleanImagePrompt('  "a cat"\n\nwith <b>tags</b> '), 'a cat with tags');
 

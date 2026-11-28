@@ -212,7 +212,7 @@ async function render() {
     if (!has) return;
     const f = curFormat();
     const lib = await loadLib();
-    ui.frame.srcdoc = frameDoc({ head: st.head, body: st.body, format: st.format, w: f.w, h: f.h, lib, mode: 'edit', active: st.active });
+    ui.frame.srcdoc = frameDoc({ head: st.head, body: st.body, format: st.format, w: f.w, h: f.h, lib, mode: 'edit', active: st.active, assets: location.origin });
     fit(); drawCode(); drawPanel();
 }
 
@@ -599,7 +599,7 @@ export function designCard(d, { onOpen, onDeleted } = {}) {
             const { design } = await apiJson('/designs/' + d.id);
             const fr = h('iframe', { sandbox: 'allow-scripts', tabindex: '-1', 'aria-hidden': 'true', loading: 'lazy', referrerpolicy: 'no-referrer' });
             fr.style.width = f.w + 'px'; fr.style.height = f.h + 'px';
-            fr.srcdoc = frameDoc({ head: design.head, body: design.body, format: design.format, w: f.w, h: f.h, mode: 'view' });
+            fr.srcdoc = frameDoc({ head: design.head, body: design.body, format: design.format, w: f.w, h: f.h, mode: 'view', assets: location.origin });
             thumb.append(fr);
             const sc = () => { fr.style.transform = `scale(${thumb.clientWidth / f.w})`; };
             sc(); new ResizeObserver(sc).observe(thumb);
